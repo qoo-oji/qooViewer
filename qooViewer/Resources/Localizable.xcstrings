@@ -17803,6 +17803,22 @@
         }
       }
     },
+    "Match the Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match the Image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実際の画像に合わせる"
+          }
+        }
+      }
+    },
     "Matched by file name" : {
       "localizations" : {
         "en" : {
@@ -28732,6 +28748,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前が長すぎます"
+          }
+        }
+      }
+    },
+    "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit, keeping the center." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit, keeping the center."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリのアイコン表示に並ぶ表紙の形。「実際の画像に合わせる」は、縦長(2:3)の枠の中に表紙を切らずにそのままの形で表示します。ほかの形では、表紙を枠いっぱいに合わせ、はみ出した部分は中央を残して切り取ります。"
           }
         }
       }

@@ -244,6 +244,18 @@ struct SmartLibraryTests {
         #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者D"), .value("著者E")])
     }
 
+    @Test("表紙の形: 「実際の画像に合わせる」は切らずに 2:3 の枠、ほかはライブラリのカバーの形と同じ比で切る")
+    func coverShapes() {
+        #expect(SmartLibraryCoverShape.matchImage.cropAspect == nil)
+        #expect(SmartLibraryCoverShape.matchImage.heightRatio == 1.5)
+        #expect(SmartLibraryCoverShape.portrait.cropAspect == CoverAspectRatio.portrait.value)
+        #expect(SmartLibraryCoverShape.portrait.heightRatio == 1.5)
+        #expect(SmartLibraryCoverShape.square.heightRatio == 1)
+        #expect(abs(SmartLibraryCoverShape.landscape.heightRatio - 2.0 / 3.0) < 0.0001)
+        // 保存した値の綴り(変えると利用者の設定が既定へ戻る)。
+        #expect(SmartLibraryCoverShape.allCases.map(\.rawValue) == ["matchImage", "portrait", "square", "landscape"])
+    }
+
     @Test("「シリーズでまとめる」の ON/OFF だった頃の保存値は、シリーズで束ねる設定として読む")
     func legacyGroupingIsRead() {
         let suite = TestDefaultsPool.checkout()

@@ -1087,7 +1087,7 @@ struct SmartLibraryContent: View {
     private var minimumCellCount: Int {
         LazyCellImageBudget.minimumCellCount(
             visibleSize: gridSize, cellWidth: state.coverSize,
-            cellHeight: state.coverSize * SmartBookCell.heightRatio + 30,
+            cellHeight: state.coverSize * preferences.smartLibraryCoverShape.heightRatio + 30,
             spacing: Self.spacing, padding: Self.gridPadding
         )
     }
@@ -1120,10 +1120,10 @@ struct SmartLibraryContent: View {
     /// 決めたあとでしか分からず、そのときにはホイールのイベントを処理し終えている)。下の文字は常に2行ぶん
     /// (`SmartCaptionLines`)で、行間1pt + 表紙との間 4pt。既定の10ptでは 31pt ―― `minimumCellCount` が
     /// 使っている概算の 30 とほぼ同じ。
-    static func gridRowPitch(coverSize: CGFloat, appearance: AppearanceSettings) -> CGFloat {
+    static func gridRowPitch(coverSize: CGFloat, coverShape: SmartLibraryCoverShape, appearance: AppearanceSettings) -> CGFloat {
         let fontSize = appearance.smartLibraryCaptionFontSize
         let caption = (fontSize * 1.3).rounded(.up) * 2 + 1 + 4
-        return coverSize * SmartBookCell.heightRatio + caption + Self.spacing
+        return coverSize * coverShape.heightRatio + caption + Self.spacing
     }
 
     /// ■ 選択とキー操作(2026-09-22、利用者の指示。StackNest / ShelfRow の調査から)
@@ -1150,7 +1150,7 @@ struct SmartLibraryContent: View {
                         switch item {
                         case .book(let book):
                             SmartBookCell(
-                                book: book, width: state.coverSize,
+                                book: book, width: state.coverSize, coverShape: preferences.smartLibraryCoverShape,
                                 // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
                                 showsAuthorOnly: state.grouping == .author && state.openedGroup == nil,
                                 isSelected: isSelected, isFocused: isGridFocused,
@@ -1162,6 +1162,7 @@ struct SmartLibraryContent: View {
                                 .contextMenu { contextMenu(for: item) }
                         case .group(let grouping, let name, let books):
                             SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize,
+                                           coverShape: preferences.smartLibraryCoverShape,
                                            isSelected: isSelected, isFocused: isGridFocused,
                                            savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained)
                                 .onTapGesture { clicked(item) }
@@ -1202,7 +1203,8 @@ struct SmartLibraryContent: View {
         // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(HomeWheelScroll)。
         .homeGridWheelScroll(
             scrollBox: scrollBox,
-            distancePerNotch: Self.gridRowPitch(coverSize: state.coverSize, appearance: appearance)
+            distancePerNotch: Self.gridRowPitch(coverSize: state.coverSize, coverShape: preferences.smartLibraryCoverShape,
+                                                appearance: appearance)
                 * CGFloat(appearance.homeGridWheelScrollRows)
         )
         // 余白のクリックで選択を外す(セルのクリックはセルの側が先に受ける)。
@@ -1739,6 +1741,8 @@ private struct SmartMetadataTarget: Identifiable {
 private struct SmartBookCell: View {
     let book: SmartBook
     let width: CGFloat
+    /// 表紙の形(環境設定「スマートライブラリ」。枠の高さと、切るかどうか)。
+    var coverShape: SmartLibraryCoverShape = .matchImage
     /// 著者名だけを出す(著者でまとめた一覧の、1 冊だけの著者の本。束の下と揃える)。著者の無い本は題を出す
     /// (出せる名前が無いので)。
     var showsAuthorOnly = false
@@ -1751,16 +1755,13 @@ private struct SmartBookCell: View {
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
 
-    /// 表紙の枠の比(2:3)。
-    static let heightRatio: CGFloat = 1.5
-
     var body: some View {
         // 文字の大きさは環境設定「外観」→「ホーム」→「スマートライブラリ」(2026-09-22)。2 行とも同じ大きさ
         // (設定にする前の .caption / .caption2 は macOS ではどちらも 10pt)。
         let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
-            SmartBookThumbnail(book: book, width: width, height: width * Self.heightRatio,
-                               isSelected: isSelected, isFocused: isFocused,
+            SmartBookThumbnail(book: book, width: width, height: width * coverShape.heightRatio,
+                               cropAspect: coverShape.cropAspect, isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
                 if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
@@ -1832,6 +1833,7 @@ private struct SmartGroupCell: View {
     let name: String
     let books: [SmartBook]
     let width: CGFloat
+    var coverShape: SmartLibraryCoverShape = .matchImage
     var isSelected = false
     var isFocused = true
     var savesToDisk = true
@@ -1866,12 +1868,13 @@ private struct SmartGroupCell: View {
     private var offset: CGFloat { max(3, width * 0.035) }
 
     var body: some View {
-        let height = width * SmartBookCell.heightRatio
+        let height = width * coverShape.heightRatio
         VStack(spacing: 4) {
             if let first = books.first {
                 // 紙をずらすぶん(右と上に 2 枚ぶん)を空けて、表紙はその内側に描く。
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
+                    cropAspect: coverShape.cropAspect,
                     stack: .init(layers: 2, offset: offset, count: books.count),
                     isSelected: isSelected, isFocused: isFocused,
                     savesToDisk: savesToDisk, onImageRetained: onImageRetained
@@ -1908,6 +1911,10 @@ private struct SmartBookThumbnail: View {
     let book: SmartBook
     let width: CGFloat
     let height: CGFloat
+    /// 切り取る枠の比(幅 ÷ 高さ。`SmartLibraryCoverShape.cropAspect`)。nil なら切らずに枠へ収める。
+    /// 切るときは、その比の枠を `width`×`height` に収めた大きさで描く(束は紙のずらし幅を引いた箱なので、箱の比と
+    /// 少し違う)。絵を枠いっぱいに合わせ、中央を残す。
+    var cropAspect: CGFloat?
     var stack: Stack?
     /// 選択の枠(表紙の絵の実際の大きさに掛ける ―― 枠に掛けると細長い表紙の左右が空く。紙と同じ理由)。
     var isSelected = false
@@ -1934,11 +1941,13 @@ private struct SmartBookThumbnail: View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)
         ZStack(alignment: .bottom) {
             if let image {
-                // 絵を枠に収めた大きさ(紙とバッジをこの大きさに合わせる)。
-                let size = Self.fittedSize(of: image, in: CGSize(width: width, height: height))
+                // 絵を描く大きさ(紙とバッジをこの大きさに合わせる)。切らないなら絵を枠に収めた大きさ、切るならその比の枠。
+                let box = CGSize(width: width, height: height)
+                let size = cropAspect.map { Self.fittedSize(aspect: $0, in: box) } ?? Self.fittedSize(of: image, in: box)
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.high)
+                    .aspectRatio(contentMode: cropAspect == nil ? .fit : .fill)
                     .frame(width: size.width, height: size.height)
                     .clipShape(shape)
                     .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
@@ -1965,7 +1974,8 @@ private struct SmartBookThumbnail: View {
         }
         .frame(width: width, height: height, alignment: .bottom)
         // 鍵(更新日時・サイズ・inode)も入れる: 探し直してファイルが差し替わっていたと分かったら、新しい表紙を引き直す。
-        .task(id: "\(book.id)|\(Int(width))|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
+        // 切るかどうかも入れる(切るときは大きめに引く。`load`)。
+        .task(id: "\(book.id)|\(Int(width))|\(cropAspect != nil)|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
             await load()
         }
     }
@@ -1973,7 +1983,12 @@ private struct SmartBookThumbnail: View {
     /// 枠(`box`)に縦横比を保って収めた大きさ。
     static func fittedSize(of image: CGImage, in box: CGSize) -> CGSize {
         guard image.width > 0, image.height > 0 else { return box }
-        let aspect = CGFloat(image.width) / CGFloat(image.height)
+        return fittedSize(aspect: CGFloat(image.width) / CGFloat(image.height), in: box)
+    }
+
+    /// 比(幅 ÷ 高さ)`aspect` の長方形を、枠(`box`)に収めた大きさ。
+    static func fittedSize(aspect: CGFloat, in box: CGSize) -> CGSize {
+        guard aspect > 0, box.height > 0 else { return box }
         if aspect > box.width / box.height {
             return CGSize(width: box.width, height: box.width / aspect)
         }
@@ -2033,7 +2048,10 @@ private struct SmartBookThumbnail: View {
             didFail = true
             return
         }
-        let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: max(width, height), scale: displayScale)
+        // 切るときは、枠からはみ出して捨てるぶんも見込んで 1.5 倍で引く(2:3 の絵を 1:1 や 3:2 の枠いっぱいに合わせると、
+        // 長いほうの辺は枠の長いほうの辺の 1.5 倍になる。3:2 の絵を 2:3 の枠に合わせても同じ)。
+        let displaySize = max(width, height) * (cropAspect == nil ? 1 : 1.5)
+        let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: displaySize, scale: displayScale)
         // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
         let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk,
                                                 knownKey: book.thumbnailKey)

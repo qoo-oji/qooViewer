@@ -73,6 +73,7 @@ final class AppPreferences: ObservableObject {
         static let smartLibraryFeatureEnabled = "qooViewer.pref.smartLibraryFeatureEnabled"
         /// 環境設定「スマートライブラリ」(2026-09-23)。
         static let smartLibraryUsesFirstAuthorOnly = "qooViewer.pref.smartLibrary.usesFirstAuthorOnly"
+        static let smartLibraryCoverShape = "qooViewer.pref.smartLibrary.coverShape"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
@@ -847,6 +848,11 @@ final class AppPreferences: ObservableObject {
     @Published var smartLibraryUsesFirstAuthorOnly: Bool {
         didSet { defaults.set(smartLibraryUsesFirstAuthorOnly, forKey: Keys.smartLibraryUsesFirstAuthorOnly) }
     }
+    /// スマートライブラリのアイコン表示に並ぶ表紙の形(2026-09-23、利用者の要望。既定「実際の画像に合わせる」=
+    /// この設定を足す前の見た目)。`SmartLibraryCoverShape` の型コメント。
+    @Published var smartLibraryCoverShape: SmartLibraryCoverShape {
+        didSet { defaults.set(smartLibraryCoverShape.rawValue, forKey: Keys.smartLibraryCoverShape) }
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1310,6 +1316,9 @@ final class AppPreferences: ObservableObject {
         self.smartLibraryFeatureEnabled = Self.storedSmartLibraryFeatureEnabled(in: defaults)
         self.smartLibraryUsesFirstAuthorOnly =
             defaults.object(forKey: Keys.smartLibraryUsesFirstAuthorOnly) as? Bool ?? false
+        self.smartLibraryCoverShape = SmartLibraryCoverShape(
+            rawValue: defaults.string(forKey: Keys.smartLibraryCoverShape) ?? ""
+        ) ?? .matchImage
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
@@ -1547,6 +1556,7 @@ extension AppPreferences {
         case .smartLibrary:
             return [
                 Keys.smartLibraryUsesFirstAuthorOnly,
+                Keys.smartLibraryCoverShape,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -1669,6 +1679,7 @@ extension AppPreferences {
             fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
         case .smartLibrary:
             smartLibraryUsesFirstAuthorOnly = source.smartLibraryUsesFirstAuthorOnly
+            smartLibraryCoverShape = source.smartLibraryCoverShape
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }
