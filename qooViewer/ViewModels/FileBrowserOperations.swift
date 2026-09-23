@@ -383,7 +383,13 @@ final class FileBrowserOperations: ObservableObject {
         let selected = entries.filter { !$0.isVolume }.map(\.url)
         return enqueue { [weak self] in
             guard let self, !selected.isEmpty, !self.refusesBecauseOpenInViewer(selected) else { return }
-            var urls = selected
+            // **列の順番が来た時点でまだ在る項目だけ**を相手にする(2026-09-23 の実機確認)。「すぐに削除…」の確認を出している間も
+            // メニューバーの項目は押せるので、同じ項目への 2 回目の依頼が列に並び、1 回目で消えた後に「もう無い項目を削除しますか」と
+            // 尋ね、承諾すると「見つかりませんでした」になっていた。受け付けた時点で在ったものが消えているのは、先に並んだ操作か
+            // 外で消されたか ―― どちらも尋ねる相手ではない。1 つも残らなければ黙って終える(消したいものはもう無い)。
+            let remaining = await FileIO.perform { selected.filter { FileOperationService.itemExists(at: $0) } }
+            guard !remaining.isEmpty else { return }
+            var urls = remaining
             let hasTrash = self.hasTrash
             let canTrash = immediately
                 ? false

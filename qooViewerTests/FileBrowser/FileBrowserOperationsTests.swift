@@ -748,6 +748,25 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.problems.isEmpty)
     }
 
+    @Test("確認を出している間に重ねて頼んだ「すぐに削除…」は、先の操作で消えた項目について尋ねない")
+    func queuedDeleteSkipsItemsAlreadyGone() async throws {
+        let fixture = try Fixture("fbops-delete-now-queued")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let other = fixture.root.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: other)
+        fixture.presenter.confirmsDeletion = true
+        // 2026-09-23 の実機: 1 回目の確認が出ている間にメニューバーから同じ項目を頼むと、2 回目は列に並ぶ。
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        fixture.state.operations.deleteImmediately([fixture.entry(file), fixture.entry(other)])
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        await fixture.finish()
+        // 2 回目はまだ在る b.txt だけを尋ね、3 回目は何も尋ねない。
+        #expect(fixture.presenter.deletionPrompts == [[file], [other]])
+        #expect(!fixture.exists(file))
+        #expect(!fixture.exists(other))
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
     @Test("「すぐに削除…」では、中にロックされた項目があるフォルダも確認してから消す")
     func deleteImmediatelyAsksAboutLockedDescendants() async throws {
         let fixture = try Fixture("fbops-delete-now-locked")

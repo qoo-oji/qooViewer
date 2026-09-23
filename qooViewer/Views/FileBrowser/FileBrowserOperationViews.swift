@@ -40,6 +40,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         // 取り返しがつかないので、Return で消えないよう既定のボタンを「キャンセル」にする。
         delete.keyEquivalent = ""
         alert.buttons[1].keyEquivalent = "\r"
+        alert.makeEscapePress(alert.buttons[1])
         return await run(alert) == .alertFirstButtonReturn
     }
 
@@ -93,6 +94,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         let stop = alert.addButton(withTitle: String(localized: "Stop", language: locale))
         proceed.keyEquivalent = ""
         stop.keyEquivalent = "\r"
+        alert.makeEscapePress(stop)
         switch await run(alert) {
         case .alertFirstButtonReturn: return .proceed
         case .alertSecondButtonReturn where offersSkip: return .skipLocked
@@ -222,6 +224,31 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
             return await alert.beginSheetModal(for: window)
         }
         return alert.runModal()
+    }
+}
+
+extension NSAlert {
+    /// Esc でも `button` を押す(2026-09-23 の実機確認)。
+    ///
+    /// NSAlert は題が「Cancel」のボタンに Esc を付けるが、ボタンのキーは 1 つしか持てないので、取り返しのつかない確認で既定の
+    /// ボタン(Return)を「キャンセル」「中止」に移すと Esc が消える ―― 「すぐに削除…」の確認は Esc で閉じなかった(Finder の同じ
+    /// 確認は閉じる。実測)。見えない大きさ 0 のボタンを置き、Esc でそのボタンを押させる(cocoa-dev の
+    /// 「NSAlert - Default Cancel also respond to Escape?」にある手)。
+    ///
+    /// 置き場所は付属ビュー(`accessoryView`)ではなく、組み上げた後のアラートのウインドウ。付属ビューにすると大きさ 0 でも
+    /// 本文とボタンの間に付属ビュー用の余白(約 28pt)が空いた(実機 2026-09-23)。
+    func makeEscapePress(_ button: NSButton) {
+        let escape = NSButton(frame: .zero)
+        escape.keyEquivalent = "\u{1b}"
+        escape.target = button
+        escape.action = #selector(NSButton.performClick(_:))
+        escape.isBordered = false
+        escape.title = ""
+        // 読み上げの木に名前の無いボタンとして出さない(ボタンの要素はセル側なので、セルにも付ける。ビューだけでは AX に出た)。
+        escape.setAccessibilityElement(false)
+        escape.cell?.setAccessibilityElement(false)
+        layout()
+        window.contentView?.addSubview(escape)
     }
 }
 
