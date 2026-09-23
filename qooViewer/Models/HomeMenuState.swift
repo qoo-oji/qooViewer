@@ -170,6 +170,7 @@ struct FileBrowserMenuSelection: Equatable {
     /// 名前の変更の題に出す件数(複数なら「N 項目の名前を変更…」)。
     var renameCount = 0
     var canMoveToTrash = false
+    var canDeleteImmediately = false
     var canCompress = false
     var canExtract = false
     /// 「〈名前〉に展開」の題(1 つの書庫なら作るフォルダの名前、複数なら nil)。

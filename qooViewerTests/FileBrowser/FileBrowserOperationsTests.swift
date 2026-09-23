@@ -20,14 +20,16 @@ struct FileBrowserOperationsTests {
         var cancelsOnConflict = false
         private(set) var irreversibleMovePrompts: [(urls: [URL], totalCount: Int)] = []
         private(set) var deletionPrompts: [[URL]] = []
+        private(set) var deletionReasons: [ImmediateDeletionReason] = []
         private(set) var lockedPrompts: [(urls: [URL], totalCount: Int, action: LockedItemAction)] = []
         private(set) var conflicts: [FileConflict] = []
         /// 尋ねたときの「置き換えるとすぐに消える」の値(衝突 1 件ごと)。
         private(set) var replacingDeletesImmediately: [Bool] = []
         private(set) var problems: [FileBrowserProblem] = []
 
-        func confirmImmediateDeletion(of urls: [URL]) async -> Bool {
+        func confirmImmediateDeletion(of urls: [URL], reason: ImmediateDeletionReason) async -> Bool {
             deletionPrompts.append(urls)
+            deletionReasons.append(reason)
             return confirmsDeletion
         }
 
@@ -705,6 +707,7 @@ struct FileBrowserOperationsTests {
         fixture.state.operations.moveToTrash([fixture.entry(file)])
         await fixture.finish()
         #expect(fixture.presenter.deletionPrompts.count == 1)
+        #expect(fixture.presenter.deletionReasons == [.noTrash])
         #expect(fixture.exists(file))
     }
 
@@ -718,6 +721,52 @@ struct FileBrowserOperationsTests {
         #expect(!fixture.exists(file))
         #expect(fixture.names(in: fixture.trash).isEmpty)
         #expect(!fixture.state.commandStack.canUndo)
+    }
+
+    @Test("「すぐに削除…」はゴミ箱のある場所でも必ず確認し、断れば何も消えない")
+    func deleteImmediatelyAsksEvenWithTrash() async throws {
+        let fixture = try Fixture("fbops-delete-now-cancel")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.presenter.confirmsDeletion = false
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        await fixture.finish()
+        #expect(fixture.presenter.deletionPrompts == [[file]])
+        #expect(fixture.presenter.deletionReasons == [.requested])
+        #expect(fixture.exists(file))
+    }
+
+    @Test("「すぐに削除…」を承諾するとゴミ箱を経ずに完全に削除し、取り消しには積まない")
+    func deleteImmediatelyBypassesTrash() async throws {
+        let fixture = try Fixture("fbops-delete-now")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.presenter.confirmsDeletion = true
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        await fixture.finish()
+        #expect(!fixture.exists(file))
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(!fixture.state.commandStack.canUndo)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("「すぐに削除…」では、中にロックされた項目があるフォルダも確認してから消す")
+    func deleteImmediatelyAsksAboutLockedDescendants() async throws {
+        let fixture = try Fixture("fbops-delete-now-locked")
+        let inner = fixture.sub.appendingPathComponent("inner.txt")
+        try Data("x".utf8).write(to: inner)
+        FileOperationService.setLocked(inner, true)
+        fixture.presenter.confirmsDeletion = true
+
+        fixture.presenter.lockedAnswer = .stop
+        fixture.state.operations.deleteImmediately([fixture.entry(fixture.sub)])
+        await fixture.finish()
+        #expect(fixture.presenter.lockedPrompts.map(\.action) == [.deleteImmediately])
+        #expect(fixture.exists(inner))
+
+        fixture.presenter.lockedAnswer = .proceed
+        fixture.state.operations.deleteImmediately([fixture.entry(fixture.sub)])
+        await fixture.finish()
+        #expect(!fixture.exists(fixture.sub))
+        #expect(fixture.names(in: fixture.trash).isEmpty)
     }
 
     // MARK: - 新規フォルダ・名前の変更
@@ -982,6 +1031,7 @@ struct FileBrowserOperationsTests {
         fixture.state.operations.transfer([file], to: fixture.other, isMove: true)
         fixture.state.operations.drop(FileDropPlan(moves: [file], copies: []), into: fixture.sub)
         fixture.state.operations.moveToTrash([fixture.entry(file)])
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
         fixture.state.operations.newFolder(in: fixture.root)
         fixture.state.operations.rename(fixture.entry(file), to: "renamed.txt")
         fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })

@@ -245,6 +245,12 @@ final class FileBrowserActions {
         state?.operations.moveToTrash(entries)
     }
 
+    /// 右クリックで ⌥ を押している間の「すぐに削除…」。淡色の条件は「ゴミ箱に入れる」と同じ(canChange)。
+    func deleteImmediately(_ entries: [FileBrowserEntry]) {
+        guard canChange(entries) else { return }
+        state?.operations.deleteImmediately(entries)
+    }
+
     func newFolder(in folder: URL?) {
         guard canCreateFolder(in: folder), let folder else { return }
         state?.operations.newFolder(in: folder)
@@ -410,6 +416,8 @@ enum FileBrowserEditCommand {
     case moveItemHere
     /// ⌘⌫。
     case moveToTrash
+    /// ⌥⌘⌫「すぐに削除…」(Finder と同じキー。2026-09-23)。
+    case deleteImmediately
     case goBack, goForward, goUp
 
     /// 一覧のキー操作から引く(⌘C/⌘X/⌘V は編集メニューが受けるのでここには無い)。
@@ -421,6 +429,7 @@ enum FileBrowserEditCommand {
         let flags = modifierFlags.intersection([.command, .option, .shift, .control])
         switch (keyCode, flags) {
         case (51, [.command]): return .moveToTrash                // ⌘⌫
+        case (51, [.command, .option]): return .deleteImmediately // ⌥⌘⌫
         case (8, [.command, .option]): return .copyPathname       // ⌥⌘C
         case (9, [.command, .option]): return .moveItemHere       // ⌥⌘V
         case (33, [.command]): return .goBack                     // ⌘[
@@ -446,7 +455,7 @@ extension FileBrowserActions: FileBrowserEditResponding {
         switch command {
         case .copy: return canModify(state.selectedEntries)
         case .copyPathname: return canCopyPathnames(state.selectedEntries)
-        case .cut, .moveToTrash: return canChange(state.selectedEntries)
+        case .cut, .moveToTrash, .deleteImmediately: return canChange(state.selectedEntries)
         case .paste, .moveItemHere: return canPaste(into: state.currentFolder)
         case .goBack: return state.canGoBack
         case .goForward: return state.canGoForward
@@ -463,6 +472,7 @@ extension FileBrowserActions: FileBrowserEditResponding {
         case .paste: paste(into: state.currentFolder)
         case .moveItemHere: paste(into: state.currentFolder, forceMove: true)
         case .moveToTrash: moveToTrash(state.selectedEntries)
+        case .deleteImmediately: deleteImmediately(state.selectedEntries)
         case .goBack: state.goBack()
         case .goForward: state.goForward()
         case .goUp: state.goUp()
@@ -513,6 +523,8 @@ enum FileBrowserMenuCommand {
     case paste
     case newFolder
     case moveToTrash
+    /// ⌥ を押している間の「ゴミ箱に入れる」(`optionAlternate`。Finder の「すぐに削除…」)。
+    case deleteImmediately
     /// サブメニュー「圧縮」(ここに圧縮 / 保存先を選んで圧縮…)。
     case compress
     /// サブメニュー「展開」(ここに展開 / 「〈名前〉」に展開 / 展開先を選んで展開…)。
@@ -596,6 +608,7 @@ enum FileBrowserMenuCommand {
         switch self {
         case .copy: .copyPathname
         case .openWith: .alwaysOpenWith
+        case .moveToTrash: .deleteImmediately
         default: nil
         }
     }
@@ -617,6 +630,7 @@ enum FileBrowserMenuCommand {
         case .paste: "Paste"
         case .newFolder: "New Folder"
         case .moveToTrash: "Move to Trash"
+        case .deleteImmediately: "Delete Immediately…"
         case .compress: "Compress"
         case .extract: "Extract"
         case .compressHere: "Compress Here"
@@ -690,7 +704,7 @@ enum FileBrowserMenuCommand {
         case .extract, .extractHere, .extractToFolder, .extractTo:
             return actions.canExtract(entries)
         // 読み取り専用モードの間は、ファイルを変える項目を淡色にする(消さない ―― 項目の数を変えない。段階 8.5)。
-        case .rename, .cut, .moveToTrash:
+        case .rename, .cut, .moveToTrash, .deleteImmediately:
             return actions.canChange(entries)
         case .copy:
             return actions.canModify(entries)
@@ -734,6 +748,7 @@ enum FileBrowserMenuCommand {
         case .paste: actions.paste(into: context.folder)
         case .newFolder: actions.newFolder(in: context.folder)
         case .moveToTrash: actions.moveToTrash(entries)
+        case .deleteImmediately: actions.deleteImmediately(entries)
         case .addToFavoriteLocations: actions.addToFavoriteLocations(entries)
         case .addToSmartLibrary: actions.addToSmartLibrary(entries)
         case .showInFinder: actions.showInFinder(entries)

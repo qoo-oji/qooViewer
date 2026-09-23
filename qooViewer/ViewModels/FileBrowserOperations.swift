@@ -368,15 +368,29 @@ final class FileBrowserOperations: ObservableObject {
     /// 完全に削除する(決定事項 Q4。取り消せない)。
     @discardableResult
     func moveToTrash(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        remove(entries, immediately: false)
+    }
+
+    /// 右クリックで ⌥ を押している間の「すぐに削除…」(Finder と同じ。2026-09-23)。ゴミ箱があっても使わず、
+    /// **必ず確認してから**完全に削除する(取り消せない)。
+    @discardableResult
+    func deleteImmediately(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        remove(entries, immediately: true)
+    }
+
+    private func remove(_ entries: [FileBrowserEntry], immediately: Bool) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
         let selected = entries.filter { !$0.isVolume }.map(\.url)
         return enqueue { [weak self] in
             guard let self, !selected.isEmpty, !self.refusesBecauseOpenInViewer(selected) else { return }
             var urls = selected
             let hasTrash = self.hasTrash
-            let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
+            let canTrash = immediately
+                ? false
+                : await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
             if !canTrash {
-                guard await self.asking({ await $0.confirmImmediateDeletion(of: urls) }) == true else { return }
+                let reason: ImmediateDeletionReason = immediately ? .requested : .noTrash
+                guard await self.asking({ await $0.confirmImmediateDeletion(of: urls, reason: reason) }) == true else { return }
             }
             // ロックされた項目は確認してから(Finder と同じ「続ける / 中止」)。ゴミ箱へ送るなら項目自身のロックだけが
             // 邪魔をする(中にロックされた項目があるフォルダは送れる。実測)が、完全に削除するなら中の項目も見る。
@@ -402,9 +416,13 @@ final class FileBrowserOperations: ObservableObject {
                 ? TrashFilesCommand(items: urls, unlockingLocked: unlocking, fileOps: self.fileOps)
                 : DeleteFilesImmediatelyCommand(items: urls, unlockingLocked: unlocking, fileOps: self.fileOps)
             let locale = AppLanguage.currentLocale
-            let title = urls.count == 1
-                ? String(format: String(localized: "Moving “%@” to the Trash…", language: locale), urls[0].lastPathComponent)
-                : String(format: String(localized: "Moving %lld items to the Trash…", language: locale), urls.count)
+            let title = canTrash
+                ? (urls.count == 1
+                    ? String(format: String(localized: "Moving “%@” to the Trash…", language: locale), urls[0].lastPathComponent)
+                    : String(format: String(localized: "Moving %lld items to the Trash…", language: locale), urls.count))
+                : (urls.count == 1
+                    ? String(format: String(localized: "Deleting “%@”…", language: locale), urls[0].lastPathComponent)
+                    : String(format: String(localized: "Deleting %lld items…", language: locale), urls.count))
             await self.run(command, title: title, cancellation: nil, affected: urls.map { $0.deletingLastPathComponent() }) { _ in [] }
         }
     }
@@ -986,6 +1004,14 @@ struct FileBrowserProblem: Equatable {
     }
 }
 
+/// 完全に削除する確認で、なぜゴミ箱へ送らないのか(文面が変わる)。
+enum ImmediateDeletionReason: Equatable {
+    /// ゴミ箱の無い場所(ネットワーク共有など)が混ざっている。
+    case noTrash
+    /// 利用者が「すぐに削除…」を選んだ(右クリックで ⌥)。
+    case requested
+}
+
 /// ロックされた項目の確認で、何をしようとしているか(文面が変わる)。
 enum LockedItemAction: Equatable {
     case trash
@@ -1019,7 +1045,7 @@ enum IrreversibleMoveDecision: Equatable {
 @MainActor
 protocol FileBrowserOperationPresenting: AnyObject {
     /// 「すぐに削除されます。取り消せません」。削除してよければ true。
-    func confirmImmediateDeletion(of urls: [URL]) async -> Bool
+    func confirmImmediateDeletion(of urls: [URL], reason: ImmediateDeletionReason) async -> Bool
     /// `urls` はロックされている。ロックを外して `action` を続けるか。
     /// - Parameter totalCount: 1 回の操作の項目の総数。`urls` がその一部なら「ロックされた項目をスキップ」も選べる。
     func confirmLockedItems(_ urls: [URL], totalCount: Int, action: LockedItemAction) async -> LockedItemsDecision
@@ -1048,7 +1074,7 @@ final class DetachedFileBrowserOperationPresenter: FileBrowserOperationPresentin
         self.reporter = reporter
     }
 
-    func confirmImmediateDeletion(of urls: [URL]) async -> Bool { false }
+    func confirmImmediateDeletion(of urls: [URL], reason: ImmediateDeletionReason) async -> Bool { false }
     func confirmLockedItems(_ urls: [URL], totalCount: Int, action: LockedItemAction) async -> LockedItemsDecision { .stop }
     func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision { .stop }
 

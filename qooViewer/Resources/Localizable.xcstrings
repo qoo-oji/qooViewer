@@ -9178,6 +9178,54 @@
         }
       }
     },
+    "Delete Immediately…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Immediately…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すぐに削除…"
+          }
+        }
+      }
+    },
+    "Deleting “%@”…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting “%@”…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”を削除しています…"
+          }
+        }
+      }
+    },
+    "Deleting %lld items…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting %lld items…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目を削除しています…"
+          }
+        }
+      }
+    },
     "Delete “%@”?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30822,6 +30870,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この項目はゴミ箱の無いボリュームにあるため、すぐに削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "This item will be deleted immediately. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This item will be deleted immediately. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この項目はすぐに削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "These items will be deleted immediately. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These items will be deleted immediately. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの項目はすぐに削除されます。この操作は取り消せません。"
           }
         }
       }

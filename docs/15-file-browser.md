@@ -580,7 +580,8 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 ### ⌥ で入れ替わる項目(2026-09-21、ユーザー要望。Finder と同じ)
 
 右クリックメニューを開いたまま ⌥ を押している間、「コピー」が「パス名をコピー」に、「このアプリケーションで開く ▸」が
-「常にこのアプリケーションで開く ▸」に入れ替わる(`FileBrowserMenuCommand.optionAlternate`)。
+「常にこのアプリケーションで開く ▸」に、「ゴミ箱に入れる」が「すぐに削除…」(2026-09-23)に入れ替わる
+(`FileBrowserMenuCommand.optionAlternate`)。
 
 - 組み方は AppKit の「代わりの項目」: 元の項目の**すぐ後ろ**に `isAlternate = true`・`keyEquivalentModifierMask = [.option]` の項目を
   `FileBrowserMenuBuilder` が足す(キーはどちらも無し)。押す・離すでその場で入れ替わり、**見えている項目の数は変わらない**。
@@ -589,6 +590,13 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 - **パス名をコピー**(`FileBrowserOperations.copyPathnames`): パスを文字列で載せる(複数なら 1 行に 1 つ、フォルダの末尾の `/` は無し)。
   ファイルに触らないので読み取り専用でもボリュームでも使える。ファイルの参照は載せないのでペーストは淡色になり、カットの覚えも捨てる。
   一覧のキーは Finder と同じ ⌥⌘C(`FileBrowserEditCommand.copyPathname`)。メニューバーには置いていない。
+- **すぐに削除…**(`FileBrowserOperations.deleteImmediately`): ゴミ箱があっても使わずに完全に削除する。取り消せないので
+  **必ず確認する**(Finder と同じ文面「この項目はすぐに削除されます。この操作は取り消せません。」、既定のボタンは「キャンセル」。
+  `confirmImmediateDeletion(of:reason: .requested)`)。その先はゴミ箱の無い場所での ⌘⌫ と同じ道(中にロックされた項目があれば
+  確認・`DeleteFilesImmediatelyCommand`・取り消しには積まない)。淡色の条件は「ゴミ箱に入れる」と同じ `canChange`(読み取り専用・
+  ビューアで開いている本は断る)。メニューバーのファイルメニューにも「ゴミ箱に入れる」のすぐ下に置き、一覧のキーは Finder と同じ ⌥⌘⌫
+  (`FileBrowserEditCommand.deleteImmediately`)。**メニューバーでは常に見せる** ―― SwiftUI の `Commands` では代わりの項目
+  (`isAlternate`)を作れないため(Finder は ⌥ を押している間だけ入れ替える)。
 - **常にこのアプリケーションで開く**(`FileBrowserActions.alwaysOpen`): Finder と同じく**そのファイルだけ**の既定のアプリにして、
   そのアプリで開く。`NSWorkspace.setDefaultApplication(at:toOpenFileAt:)` がファイルに拡張属性 `com.apple.LaunchServices.OpenWith` を
   書く ―― **サンドボックスの中から通る**(テストホストで実測 2026-09-21: 書いた後 `urlForApplication(toOpen:)` がそのアプリを返し、

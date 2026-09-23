@@ -535,7 +535,7 @@ struct FileBrowserIntegrationTests {
         }
     }
 
-    @Test("右クリックの「コピー」「このアプリケーションで開く」のすぐ後ろに、⌥ で入れ替わる項目が付く(見えている項目の数は変わらない)")
+    @Test("右クリックの「コピー」「このアプリケーションで開く」「ゴミ箱に入れる」のすぐ後ろに、⌥ で入れ替わる項目が付く(見えている項目の数は変わらない)")
     func optionAlternatesFollowTheirPrimaryItems() throws {
         let fixture = try Fixture("fb-menu-alternates")
         defer { fixture.close() }
@@ -559,11 +559,12 @@ struct FileBrowserIntegrationTests {
             }
             // 並びの定義には載せない(⌥ を押していないときの項目の数を変えない)。
             let listed = FileBrowserMenuCommand.groups(for: kind).flatMap { $0 }
-            #expect(!listed.contains(.copyPathname) && !listed.contains(.alwaysOpenWith))
+            #expect(!listed.contains(.copyPathname) && !listed.contains(.alwaysOpenWith) && !listed.contains(.deleteImmediately))
             return result
         }
-        #expect(alternates(.file) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
-        #expect(alternates(.folder) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
+        let both = ["Copy": "Copy as Pathname", "Open With": "Always Open With", "Move to Trash": "Delete Immediately…"]
+        #expect(alternates(.file) == both)
+        #expect(alternates(.folder) == both)
         #expect(alternates(.tree) == ["Open With": "Always Open With"])
         #expect(alternates(.background).isEmpty)
 
@@ -711,6 +712,8 @@ struct FileBrowserIntegrationTests {
         #expect(FileBrowserOperations.pathnames(of: [URL(fileURLWithPath: "/", isDirectory: true)]) == "/")
         #expect(FileBrowserEditCommand.forKey(keyCode: 8, flags: [.command, .option]) == .copyPathname)
         #expect(FileBrowserEditCommand.forKey(keyCode: 8, flags: [.command]) == nil)
+        #expect(FileBrowserEditCommand.forKey(keyCode: 51, flags: [.command]) == .moveToTrash)
+        #expect(FileBrowserEditCommand.forKey(keyCode: 51, flags: [.command, .option]) == .deleteImmediately)
     }
 
     @Test("「常にこのアプリケーションで開く」は書けた項目だけ開き、書けなかったことは知らせる。読み取り専用では何もしない")

@@ -16,16 +16,24 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
 
     private var locale: Locale { AppLanguage.currentLocale }
 
-    func confirmImmediateDeletion(of urls: [URL]) async -> Bool {
+    func confirmImmediateDeletion(of urls: [URL], reason: ImmediateDeletionReason) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = urls.count == 1
             ? String(format: String(localized: "Are you sure you want to delete “%@”?", language: locale), urls[0].lastPathComponent)
             : String(format: String(localized: "Are you sure you want to delete these %lld items?", language: locale), urls.count)
-        alert.informativeText = String(
-            localized: "This item is on a volume without a Trash, so it will be deleted immediately. You can’t undo this action.",
-            language: locale
-        )
+        switch reason {
+        case .noTrash:
+            alert.informativeText = String(
+                localized: "This item is on a volume without a Trash, so it will be deleted immediately. You can’t undo this action.",
+                language: locale
+            )
+        case .requested:
+            // Finder の「すぐに削除…」と同じ文面。
+            alert.informativeText = urls.count == 1
+                ? String(localized: "This item will be deleted immediately. You can’t undo this action.", language: locale)
+                : String(localized: "These items will be deleted immediately. You can’t undo this action.", language: locale)
+        }
         let delete = alert.addButton(withTitle: String(localized: "Delete", language: locale))
         delete.hasDestructiveAction = true
         alert.addButton(withTitle: String(localized: "Cancel", language: locale))

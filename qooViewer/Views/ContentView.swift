@@ -474,6 +474,7 @@ struct ContentView: View {
             canRename: enabled(.rename),
             renameCount: entries.count,
             canMoveToTrash: enabled(.moveToTrash),
+            canDeleteImmediately: enabled(.deleteImmediately),
             canCompress: enabled(.compress),
             canExtract: canExtract,
             extractFolderName: canExtract && entries.count == 1

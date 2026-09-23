@@ -350,6 +350,16 @@ struct FileBrowserFileMenuItems: View {
         .homeMenuShortcut(.delete, modifiers: .command, isActive: isShown)
         .disabled(selection?.canMoveToTrash != true)
 
+        // Finder の「すぐに削除…」(⌥⌘⌫。2026-09-23)。Finder は ⌥ を押している間だけ「ゴミ箱に入れる」と入れ替えるが、SwiftUI の
+        // メニューバーでは代わりの項目(NSMenuItem.isAlternate)を作れないので、すぐ下に並べて常に見せる。必ず確認してから消す。
+        Button("Delete Immediately…") { [weak appState] in
+            // テキストの欄を編集中の ⌥⌘⌫ には欄の標準の意味が無いので、何も返さずに捨てる。
+            guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil) else { return }
+            Self.perform(appState) { actions, entries in actions.deleteImmediately(entries) }
+        }
+        .homeMenuShortcut(.delete, modifiers: [.command, .option], isActive: isShown)
+        .disabled(selection?.canDeleteImmediately != true)
+
         Menu("Compress") {
             Button("Compress Here") { [weak appState] in
                 Self.perform(appState) { actions, entries in actions.compress(entries, choosingDestination: false) }
