@@ -204,7 +204,9 @@ struct LibraryExportWindow: View {
 
     /// 本ごとのデータ以外の持ち主(2026-09-23 に足した 4 カテゴリが使う)。
     private var backupStores: LibraryImportExportService.BackupStores {
-        LibraryImportExportService.BackupStores(
+        // シーンが `.modelContext` を注入し忘れると、既定の空のコンテキストが黙って 0 件を返す(2026-09-23 の 3 回目の監査の高 2)。
+        assert(modelContext.container === QooViewerApp.modelContainer, "libraryExport のシーンに .modelContext が無い")
+        return LibraryImportExportService.BackupStores(
             modelContext: modelContext, smartLibrary: smartLibraryStore,
             favoriteLocations: favoriteLocations, autoRename: autoRenameStore,
             preferences: preferences, keyBindings: keyBindingStore

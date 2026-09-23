@@ -159,6 +159,19 @@ nonisolated struct MountTable: Sendable {
         return path == ancestor || path.hasPrefix(ancestor + "/")
     }
 
+    /// `path` が `ancestors` のどれかそのものか、その配下か。`path` の祖先を辿ってパスの深さぶんだけで答える(`ancestors` を
+    /// 1 つずつ比べると件数ぶん回る ―― 数万のパスを数千の祖先と比べる所で 2 乗になった。2026-09-23 の 3 回目の監査の低)。
+    /// `ancestors` は `normalized` 済みのパスで渡す。
+    static func path(_ path: String, isAtOrUnderAnyOf ancestors: Set<String>) -> Bool {
+        guard !ancestors.isEmpty else { return false }
+        var current = normalized(path)
+        while true {
+            if ancestors.contains(current) { return true }
+            guard current != "/", let slash = current.lastIndex(of: "/") else { return false }
+            current = slash == current.startIndex ? "/" : String(current[..<slash])
+        }
+    }
+
     private static func string<T>(from field: inout T) -> String {
         withUnsafeBytes(of: &field) { raw in
             guard let base = raw.baseAddress else { return "" }

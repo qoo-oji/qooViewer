@@ -185,6 +185,16 @@ final class FavoritesStore: ObservableObject {
     /// 表示側はキャッシュを読むだけ(ファイルアクセスなし)にしている。
     @Published private(set) var existenceByFavoriteID: [UUID: Bool] = [:]
 
+    /// 並べ方を保存先から読み直す(保存データの JSON から環境設定を取り込んだ後。2026-09-23 の 3 回目の監査の低 ―― 保存先を
+    /// 書き替えるだけで、次の起動まで画面に効かなかった)。
+    func reloadSortOptionsFromDefaults() {
+        let sort = FavoritesSortOption(rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? "")
+            ?? .nameAscending
+        if sort != sortOption { sortOption = sort }
+        let onTop = UserDefaults.standard.object(forKey: Self.foldersAlwaysOnTopDefaultsKey) as? Bool ?? true
+        if onTop != foldersAlwaysOnTop { foldersAlwaysOnTop = onTop }
+    }
+
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
         // didSetは(型自身のinit内で)ここで直接代入する分には呼ばれないため、reload()は

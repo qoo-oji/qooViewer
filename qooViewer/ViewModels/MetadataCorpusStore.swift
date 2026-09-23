@@ -79,8 +79,12 @@ final class MetadataCorpusStore {
 
     /// アプリ自身がファイルを動かした(`FileSystemChange`)・アプリの外での移動を見つけた。記録のパスを付け替え、消えた本を外す。
     func relocate(using change: FileSystemChange) {
+        let displaced = change.displacedPathSet
+        guard !displaced.isEmpty else { return }
         func moved(_ ids: [String]) -> [String] {
             ids.compactMap { id in
+                // 関係の無い本は深さぶんの確かめだけで素通り(FileSystemChange.mayAffect)。
+                guard FileSystemChange.mayAffect(id, displaced: displaced) else { return id }
                 if let path = change.relocatedPath(for: id) { return path }
                 return change.displaces(id) ? nil : id
             }
@@ -89,7 +93,7 @@ final class MetadataCorpusStore {
         next.collectionBookIDs = Array(Set(moved(record.collectionBookIDs))).sorted()
         var smart: [String: [String]] = [:]
         for (root, ids) in record.smartLibrary {
-            let newRoot = change.relocatedPath(for: root) ?? root
+            let newRoot = FileSystemChange.mayAffect(root, displaced: displaced) ? change.relocatedPath(for: root) ?? root : root
             smart[newRoot, default: []].append(contentsOf: moved(ids))
         }
         next.smartLibrary = smart.mapValues { Array(Set($0)).sorted() }

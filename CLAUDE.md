@@ -140,8 +140,10 @@ persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file 
 the export, and normally does (`QooLibraryExportFile`, `formatVersion` 6). Settings need no work: `SettingsBackup`
 picks up every `qooViewer.pref.*` key by prefix, so a new preference is exported automatically; anything with
 a different prefix must be added there. What is deliberately left out is security-scoped bookmarks (folder
-permissions, the recent-books history — they mean nothing on another Mac) and whatever the app can rebuild by
-itself (covers, thumbnails, the smart-library catalog). Details in `docs/06-persistence.md` and
+permissions, the recent-books history, `*FolderBookmark*` keys — they mean nothing on another Mac) and whatever the app can rebuild by
+itself (covers, thumbnails, the smart-library catalog). The import writes raw values, so **numeric preferences are clamped where they are
+read** (`AppPreferences.storedDouble`; a `1e30` in a backup trapped `UInt64(…)` on every launch until 2026-09-23) and the import never lowers
+the two retention limits. Details in `docs/06-persistence.md` and
 `docs/08-export-and-import.md`.
 
 **Welcome screen (UI name: 「ホーム」 / "Home" since 2026-09-15; code keeps `Welcome*`, and the file browser's home directory is "Home Folder" / 「ホームフォルダ」) = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
@@ -162,7 +164,7 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also
 excludes books open in a viewer — / `canWriteInto`), shared by the context menu, the menu bar (`FileBrowserMenuSelection`)
 and the lists' keys (`canPerform`); never enable something that then silently does nothing (docs/15「淡色の条件」, 2026-09-19). Holding Option while the
-context menu is open swaps Copy → Copy as Pathname, Open With → Always Open With and Move to Trash → Delete Immediately… (always confirmed; 2026-09-23 — also an always-visible ⌥⌘⌫ item in the File menu, since SwiftUI `Commands` cannot build alternates), as in Finder (2026-09-21;
+context menu is open swaps Copy → Copy as Pathname, Open With → Always Open With and Move to Trash → Delete Immediately… (always confirmed; 2026-09-23 — also an always-visible ⌥⌘⌫ item in the File menu, since SwiftUI `Commands` cannot build alternates; it refuses mount points and folders containing one — `removeItem` descends into a mount and empties the volume — and open books are rechecked after every confirmation, `asking(openBookCheck:)`), as in Finder (2026-09-21;
 `FileBrowserMenuCommand.optionAlternate`, built as AppKit alternate items right after their primary, never listed in
 `groups(for:)`; Always Open With writes a per-file xattr, so it is refused in read-only mode). "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
@@ -223,11 +225,15 @@ page-keyed persisted data must join that list (docs/06「移動・リネーム�
 (2026-09-22): the collection existence check (`CollectionStore.onBooksFoundAtNewPaths`), a post-launch `ExternalMoveSweeper` and the Edit
 Metadata window feed books whose bookmark resolves elsewhere into `BookRecordRelocator` (skipping books open in a viewer and the Trash);
 opening a moved book relocates all five stores *and* the reading position from whatever old path any store found; path-only folder settings
-(excluded folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Which rows move is decided after the
-move (`BookRelocationPlan.moves`), a "Replace" destination's rows are erased first (`FileSystemChange.replaced`), and "is it there *at this
+(excluded folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Such found moves are a snapshot and go
+through `FileSystemChange.foundOutsideTheApp` (applied simultaneously, never chained — chaining `[1→2, 2→3]` gave volume 1's data to volume 3);
+in-app changes stay chained. Which rows move is decided after the
+move (`BookRelocationPlan.moves`), a "Replace" destination's old rows move to the replaced item's Trash path (`replacedIntoTrash`) and back
+on undo (`returnedFromTrash`) — only rows of an item not trashed are erased (`FileSystemChange.replaced`), and "is it there *at this
 path*" is `BookExistenceProbe.locateAtRecordedPath` — plain `evaluate()` follows the bookmark and says "exists" for an old path. **What
 counts as a book** is one rule (`ShelfFolderResolver.isBookEntry`: rule 1 images inside, rule 2 chapter folders; packages never) shared by
-shelves, siblings and `SmartLibraryScanner`; non-book folders' saved data is erased at launch (`NonBookFolderSweeper`). When a feature
+shelves, siblings and `SmartLibraryScanner`; non-book folders' saved data is erased at launch (`NonBookFolderSweeper`), but only for folders
+confirmed by reading every child (`BookExistenceProbe.isNonBookFolder` — "could not read" is never "not a book"). When a feature
 consumes another's data, check that the provider actually guarantees what the consumer assumes (identity across renames, only real books,
 freshness) — the 2026-09-22 audit found ~40 such gaps. File-operation progress is shown by
 `FileBrowserProgressBar` in the pane, and by `WelcomeView` while the pane is not on screen (shelf mode, or the feature turned off mid-copy).

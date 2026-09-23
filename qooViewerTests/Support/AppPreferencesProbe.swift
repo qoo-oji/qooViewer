@@ -110,7 +110,8 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.lastPageBehavior = otherCase(p.lastPageBehavior)
     p.treatTrackpadFlickAsWheel.toggle()
     p.invertTwoFingerScrolling.toggle()
-    p.thumbnailHoverPreviewDelay += 1
+    // 範囲(0〜1 秒)の中で動かす。読み直すと範囲へ収める(AppPreferences.storedDouble)ので、外へ出すと往復で変わる。
+    p.thumbnailHoverPreviewDelay = p.thumbnailHoverPreviewDelay == 0.5 ? 0.6 : 0.5
     p.thumbnailHoverPreviewSize += 1
     p.slideshowInterval += 1
     p.autoHideCursor.toggle()

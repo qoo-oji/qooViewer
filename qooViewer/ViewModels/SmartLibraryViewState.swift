@@ -235,11 +235,22 @@ final class SmartLibraryViewState: ObservableObject {
     /// 並びの識別子(選択の計算に渡す順)。
     var gridItemIDs: [String] { gridItems.map(\.id) }
 
-    /// 選んでいる本のパス(束は含めない。リストで開いた束の中の本は含める。並びは固定)。メニューバーの項目の相手
+    /// 選んでいる本のパス(束は含めない。リストで開いた束の中の本は含める)。メニューバーの項目の相手
     /// (WelcomeLibraryState.smartSelectedBookPaths。2026-09-23)。
+    ///
+    /// **多くても 2 つ**(2026-09-23 の 3 回目の監査の低)。メニューバーが見るのは「1 冊だけか」(`HomeMenuState.singleSmartBookTarget`)
+    /// だけで、画面を描き直すたびに `onChange` がこれを読むので、以前は「すべて選択」の数千冊を描き直しのたびに並べ替え、その全部を
+    /// メニューの値として比べていた。2 冊以上のときは「複数」を表す 2 つだけを返す(小さい順で固定 ―― 値が揺れないように)。
     var selectedBookPaths: [String] {
         let prefix = SmartGridItem.bookIDPrefix
-        return selection.ids.compactMap { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : nil }.sorted()
+        var found: [String] = []
+        for id in selection.ids where id.hasPrefix(prefix) {
+            let path = String(id.dropFirst(prefix.count))
+            found.append(path)
+            found.sort()
+            if found.count > 2 { found.removeLast() }
+        }
+        return found
     }
 
     /// 選んでいる枠(並びの順)。

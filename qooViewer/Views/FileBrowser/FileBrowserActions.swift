@@ -183,8 +183,18 @@ final class FileBrowserActions {
 
     /// 選んだ項目のファイルそのものを変えられるか(カット・ゴミ箱・名前の変更)。**ビューアで開いている本(と、それを含むフォルダ)は
     /// 淡色** ―― `FileBrowserOperations` が断る(`refusesBecauseOpenInViewer`)ので、以前は名前を打ち終えてから断られた(2026-09-19 の総点検)。
+    ///
+    /// **ボリュームそのもの・ボリュームがマウントされているフォルダも淡色**(2026-09-23 の 3 回目の監査の高 1)。「コンピュータ」の行でなく
+    /// `/Volumes` をフォルダとして開いたときの行は `isVolume` が false で、以前は「すぐに削除…」がボリュームの中身を全部消した。判定は
+    /// マウント表とパスの文字列だけ(ファイルに触らない)。移す・消すエンジンも断る。
     func canChange(_ entries: [FileBrowserEntry]) -> Bool {
-        canWrite(entries) && !isOpenInViewer(entries)
+        canWrite(entries) && !isOpenInViewer(entries) && !containsMountPoint(entries)
+    }
+
+    /// どれかがマウントポイントそのものか、配下にマウントポイントを含むか(`canChange`)。
+    func containsMountPoint(_ entries: [FileBrowserEntry]) -> Bool {
+        let mounts = MountTable.current()
+        return entries.contains { FileOperationService.containsMountPoint(path: $0.url.path, mounts: mounts) }
     }
 
     /// 読み取り専用モードでなく、運べる項目か(圧縮・展開の前提。元のファイルは変えないので、開いている本でもよい)。

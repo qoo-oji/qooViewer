@@ -90,6 +90,22 @@ struct FileSystemChangeTests {
         #expect(received.relocations.count == 2)
     }
 
+    @Test("早い除外(mayAffect)は祖先を辿って、移った元・消えた項目の配下だけを拾う(2026-09-23 の 3 回目の監査の低)")
+    func mayAffectFollowsAncestors() {
+        let change = FileSystemChange(
+            relocations: [.init(from: URL(fileURLWithPath: "/V/A"), to: URL(fileURLWithPath: "/V/B"))],
+            removed: [URL(fileURLWithPath: "/V/Gone/")]
+        )
+        let displaced = change.displacedPathSet
+        #expect(FileSystemChange.mayAffect("/V/A", displaced: displaced))
+        #expect(FileSystemChange.mayAffect("/V/A/book.cbz", displaced: displaced))
+        #expect(FileSystemChange.mayAffect("/V/Gone/x/y.zip", displaced: displaced))
+        #expect(!FileSystemChange.mayAffect("/V/AB/book.cbz", displaced: displaced))
+        #expect(!FileSystemChange.mayAffect("/V", displaced: displaced))
+        #expect(!FileSystemChange.mayAffect("/", displaced: displaced))
+        #expect(!FileSystemChange.mayAffect("/V/A", displaced: []))
+    }
+
     @Test("「置き換える」で移した・写した行き先は、replaced として知らせる(保存データの付け替え役が古い本の分を消すため)")
     func serviceReportsReplacedDestinations() async throws {
         let temporary = try TemporaryDirectory("fs-change-replace")
@@ -110,6 +126,11 @@ struct FileSystemChangeTests {
 
         #expect(received.replaced.map(\.lastPathComponent) == ["a.txt"], "置き換えなかった b.txt まで replaced に入った")
         #expect(received.relocations.count == 2)
+        // ゴミ箱へ行った置き換えられた項目は、行き先 → ゴミ箱の中として知らせる(保存データはそこへ付いていく。中 1)。
+        let intoTrash = try #require(received.replacedIntoTrash.first)
+        #expect(received.replacedIntoTrash.count == 1)
+        #expect(intoTrash.from == destination.appendingPathComponent("a.txt"))
+        #expect(MountTable.path(BookExistenceProbe.comparablePath(intoTrash.to.path), isAtOrUnder: BookExistenceProbe.comparablePath(trash.path)))
     }
 
     // MARK: ファイルブラウザの状態

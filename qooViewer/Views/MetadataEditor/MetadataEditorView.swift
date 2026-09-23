@@ -126,10 +126,18 @@ final class MetadataEditorModel {
                                                   preferences: preferences, resolveURL: resolveURL)
     }
 
+    /// 開くたびに進める番号(`close` で進む)。待っている間に閉じられた・作り直しが重なった `open` は、待ち終えてから何もしない
+    /// (2026-09-23 の 3 回目の監査の低: 以前は窓を閉じた後も続き、外されない知らせの購読・一覧・全冊の実在確認を作っていた)。
+    @ObservationIgnored private var openGeneration = 0
+
     /// メタデータ生成が読み終えるのを待って並べる。
-    func open() async {
+    /// - Parameter reregistersDeletedBooks: 利用者が窓を開いたときだけ true(`MetadataWorkspace.open`)。
+    func open(reregistersDeletedBooks: Bool = true) async {
         guard let generator = stores.generator else { return }
-        let workspace = await MetadataWorkspace.open(generator: generator, store: metadataStore)
+        let generation = openGeneration
+        let workspace = await MetadataWorkspace.open(generator: generator, store: metadataStore,
+                                                     reregistersDeletedBooks: reregistersDeletedBooks)
+        guard generation == openGeneration else { return }
         // ほかの書き手(1 冊ぶんのシート・保存データの読み込み・書誌の取り込み)が変えた行の形を受ける。
         observeStoreChanges(of: workspace)
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
@@ -175,7 +183,7 @@ final class MetadataEditorModel {
         let relocations = ExternalMoveSweeper.excludingOpenBooks(moved, openBookIDs: ViewerViewModel.openBookIDs)
             .filter { relocationAttempted.insert($0.from.path).inserted }
         guard !relocations.isEmpty else { return false }
-        await relocator.apply(FileSystemChange(relocations: relocations)).value
+        await relocator.apply(FileSystemChange.foundOutsideTheApp(relocations)).value
         return true
     }
 
@@ -255,11 +263,12 @@ final class MetadataEditorModel {
     /// 対象外のフォルダが変わったら、一覧を作り直す(対象に戻った本を並べ直すため。取り消しの歩みは捨てる)。
     func reopen() async {
         close()
-        await open()
+        await open(reregistersDeletedBooks: false)
     }
 
 
     func close() {
+        openGeneration += 1
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         existenceTask?.cancel()

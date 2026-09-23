@@ -410,6 +410,50 @@ ID・読書位置の取り込みでページの鍵を付け替えない・書き
 catalog.json・corpus.json・バックアップの書き込みは原子的で、壊れたファイルでも落ちない。qooMeta 0.2.1 は意地悪な名前 3,425 件 ×
 規則セット 3 つで落ちず、最悪でも 1 件 56 ms(Debug)。試験の土台(`TestDefaultsPool`・スキームの変更)も問題なし。
 
+直したもの(同じ日。上の番号と同じ。設計の決まりは docs/06・08・15 と各コードのコメントに書いた):
+
+- 高 1: マウントポイントとそれを含むフォルダを 3 か所で断る ―― 淡色(`FileBrowserActions.canChange`。マウント表とパスの文字列だけ)、
+  入口(`FileBrowserOperations.remove` が確認の前に)、エンジン(`FileOperationService.deletePermanently` / `containsMountPoint`)。
+- 高 2: 2 つの `Window` に `.modelContext(QooViewerApp.modelContainer.mainContext)`。ウインドウは取り違えを `assert` で止める。
+- 高 3: `FileSystemChange.relocationsAreSimultaneous` / `foundOutsideTheApp`。アプリの外で見つけた一覧(起動後の掃き出し・コレクションの
+  実在確認・フォルダの設定・メタデータの編集ウインドウ)はパスごとにいちばん深く当たる組を 1 つだけ当てる。アプリの中の操作は今までどおり
+  順につなぐ。
+- 中 1: 置き換えられた項目がゴミ箱へ行ったら、保存データもゴミ箱の中のパスへ付け替え(`FileSystemChange.replacedIntoTrash`)、ゴミ箱から
+  戻したら戻す(`returnedFromTrash`)。どちらも読むのは `BookRecordRelocator` だけ。ゴミ箱へ行かなかったものだけ消す。
+- 中 2: `BookExistenceProbe.isNonBookFolder` を 3 値の考え方に: 直下に本のファイルがある棚か、子フォルダを**すべて読み切って**画像が
+  無い中間のフォルダだけを「本ではない」とする。読めない・空・画像の無い残り物は消さない。
+- 中 3: `AppPreferences.storedDouble` で数値の設定を読むときに設定画面の範囲へ収める(`AppPreferences`・`AppearanceSettings`)。
+  `SettingsBackup.apply` は数でない数・手元と種類の違う値を書かない。遅延のナノ秒の変換も範囲へ収めてから。
+- 中 4: `reloadFromDefaults` は保管件数の 2 つを下げない(今より大きいときだけ)。シークレットウインドウの 2 つの設定も読み直す。
+- 中 5: `BackupFolderPaths.shouldImport` ―― 繋がっていない・ネットワークのボリュームの上のパスは確かめずに登録する。
+- 中 6: `AutoRenameTarget.awaitsReviewAfterImport`。取り込んだ対象は、変えるものが無くても確認を待つ(確認で外れる)。
+- 中 7: `asking(openBookCheck:)` が答えの後に開いている本を確かめ直す(完全削除・ゴミ箱・移動・名前の変更・一括リネーム)。
+- 中 8: コレクションの本のドラッグの出だしはファイルに触らない(実在確認が控えた場所を使う)。
+- 中 9: `AppStores.probeExistence` ―― 1 冊 5 秒の期限、期限を過ぎたボリュームの残りは確かめない。`FileIO` の上で。
+- 中 10: `FolderAccessStore.reload(reusingOpenedFolders:)` ―― ボリュームの知らせでは、開いているフォルダを解決し直さない。
+- 中 11: 「すべてのデータを削除」に `MetadataCorpus/` を足した。
+- 中 12: `FileBrowserDragTracker.allowsMove`。ホームからのドラッグは SwiftUI の受け口でもコピーだけ。
+- 低: メタデータ生成が覚えているパスの付け替え(`MetadataGenerator.relocate`。`BookRecordRelocator.apply` と開いたときの追従から)・
+  `reregistering` はその回の始めの分だけ片付ける・読みが空になっても行を消さない・1 冊のシートの鍵を外すときは全部の欄を直した欄に
+  してから生成の読みで絞る(`MetadataWorkspace.narrowEditsAfterUnlock`)・編集ウインドウの作り直しでは消した本を戻さず、閉じた後の
+  `open` は何もしない(`openGeneration`)・一括編集の手がかりはメインの外で(`fillLocators`)・`MetadataCorpusStore.relocate` と走査の
+  除外は祖先を辿る(`MountTable.path(_:isAtOrUnderAnyOf:)`)・ボリュームの知らせを `receive(on: .main)`・`addDroppedFolders` の AppState
+  を弱く・棚の読み替えで別のウインドウへ譲るときはスコープ・一覧・着地指定を戻す・スマートライブラリの選択のパスは多くても 2 つ・ホイールの
+  監視はヒットテストの前に絞り、見出しの余白を含めて動かす・`*FolderBookmark*` のキーを設定の書き出しから外す・読書位置の取り込みで
+  ページの鍵を付け替える・取り込み後にお気に入り・ブックマークの並べ方を読み直す・スマートライブラリのリストのドラッグの終わりで記録を
+  下ろす・`TickMarkSlider` の範囲の確かめ・表紙の列のセルの使い回しで吹き出しを持ち越さない・表紙の吹き出しの読み込みを名前の読み込みと
+  同じ枠で・`FolderSettingBookmarks.sync` の競合・シンボリックリンク経由の本を「動いた」と数えない(`BookExistenceProbe.isSamePlace`)・
+  テストの弱い参照の取り違え(`FileBrowserIntegrationTests`)。
+- 直していない低: 生成の 1 回ぶんのメインの仕事(母体の数に比例。計画の実測で 2,500 冊 0.1 秒)・書き出しの読書位置の解決がメイン・
+  未知の型 1 つでファイル全体が読めない・起動時のよく使う項目の ID・完全削除の同一性の固定と中止・本のドロップのコピーのスコープ・
+  範囲の外の「前回の一覧を先に出す」。
+
+テスト: `FileOperationVolumeTests`(マウントポイントの完全削除)・`MountTableTests`・`FileBrowserOperationsTests`(ボリュームを確認の前に
+断る・確認の後に開いた本)・`ExternalMoveTests`(振り直し・入れ替え・入れ子)・`BookRecordRelocatorTests`(ゴミ箱へ付け替えて戻す)・
+`FileSystemChangeTests`(`replacedIntoTrash`・`mayAffect`)・`NonBookFolderSweeperTests`(中間のフォルダ・残り物・読めない章)・
+`LibraryBackupTests`(範囲・種類・保管件数・ブックマークのキー)・`AutoRenameServiceTests`(取り込んだ規則)・`TickMarkSliderTests`(新設)。
+全体 1,595 件が通る(Debug・署名あり・スキームの Test から)。**実機での確かめはまだ**(次の人へ)。
+
 ### 残り(次の人へ)
 
 - 2 回目の監査の修正(上)を実機で確かめる: 写しのデータで初回登録の詰まりが区切りぶん(〜100 ms)になるか、起動時の間引きで

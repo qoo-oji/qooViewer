@@ -111,10 +111,11 @@ final class AutoRenameStore: ObservableObject {
 
     /// バックアップ(保存データの JSON)から規則を取り込む。
     ///
-    /// **対象フォルダは、その場所に実際にフォルダがあるものだけを入れ、確認の印
+    /// **対象フォルダは、繋がっているローカルのボリュームで無いものだけを落とし(`BackupFolderPaths`)、確認の印
     /// (`confirmedSignature`)は必ず落とす** ―― 別の端末で「いまその中に何があるかを確認した」
     /// 印を持ち込むと、取り込んだ直後から中身を見ずに名前を変え始めることになる(§8 の 2)。
-    /// 印が無ければ、利用者が確認し直すまで自動リネームは何もしない。ボリューム UUID と
+    /// 印が無ければ、利用者が確認し直すまで自動リネームは何もしない ―― 変えるものが今は無い対象も
+    /// (`awaitsReviewAfterImport`。以前はそこで黙って確認済みになり、以後届いたファイルの名前を変え始めた)。ボリューム UUID と
     /// ブックマークも端末ごとの値なので落とす(その端末で登録し直されたときに入る)。
     ///
     /// - Returns: 取り込んだ規則の数。
@@ -122,19 +123,20 @@ final class AutoRenameStore: ObservableObject {
     func importBackup(rules importedRules: [AutoRenameRule], replacingExisting: Bool) -> Int {
         if replacingExisting { rules = [] }
         var added = 0
+        let mounts = MountTable.current()
         for imported in importedRules {
             guard canAddRule else { break }
             guard !rules.contains(where: { $0.id == imported.id }) else { continue }
             var rule = imported
             rule.targets = imported.targets.compactMap { target in
-                var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory),
-                      isDirectory.boolValue
-                else { return nil }
+                // 繋がっているローカルのボリュームで無いフォルダだけ落とす(BackupFolderPaths。中 5)。
+                guard BackupFolderPaths.shouldImport(target.path, mounts: mounts) else { return nil }
                 var target = target
                 target.bookmark = nil
                 target.volumeUUID = nil
                 target.confirmedSignature = nil
+                // 変えるものが無くても、利用者が確認するまで待つ(黙って確認済みにしない。中 6)。
+                target.awaitsReviewAfterImport = true
                 return target
             }
             rule.targets = Array(rule.targets.prefix(AutoRename.maxTargetsPerRule))
@@ -261,6 +263,10 @@ final class AutoRenameStore: ObservableObject {
         for ruleIndex in rules.indices {
             let rule = rules[ruleIndex]
             for targetIndex in rule.targets.indices where targetIDs.contains(rule.targets[targetIndex].id) {
+                if rules[ruleIndex].targets[targetIndex].awaitsReviewAfterImport != nil {
+                    rules[ruleIndex].targets[targetIndex].awaitsReviewAfterImport = nil
+                    changed = true
+                }
                 let signature = rule.targets[targetIndex].signature(for: rule)
                 guard rules[ruleIndex].targets[targetIndex].confirmedSignature != signature else { continue }
                 rules[ruleIndex].targets[targetIndex].confirmedSignature = signature

@@ -54,20 +54,19 @@ final class FavoriteLocationStore: ObservableObject {
         return item
     }
 
-    /// バックアップ(保存データの JSON)から取り込む(2026-09-23)。パスだけを受け取り、
-    /// **その場所に実際にフォルダがあるときだけ**登録する(スマートライブラリの対象フォルダ・
-    /// コレクションの自動登録フォルダと同じ規則)。`replacingExisting` なら手元の一覧を捨ててから。
+    /// バックアップ(保存データの JSON)から取り込む(2026-09-23)。パスだけを受け取り、**繋がっているローカルのボリュームで
+    /// フォルダが無いものだけ**落とす(`BackupFolderPaths.shouldImport`。繋がっていないボリュームの上のものは確かめずに登録する ――
+    /// 2026-09-23 の 3 回目の監査の中 5)。`replacingExisting` なら手元の一覧を捨ててから。
     /// - Returns: 登録した数。
     @discardableResult
     func importBackup(paths: [String], replacingExisting: Bool) -> Int {
         if replacingExisting { items = [] }
         var added = 0
+        let mounts = MountTable.current()
         for path in paths {
             let normalized = Self.path(for: URL(fileURLWithPath: path, isDirectory: true))
-            guard !items.contains(where: { $0.path == normalized }) else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory),
-                  isDirectory.boolValue
+            guard !items.contains(where: { $0.path == normalized }),
+                  BackupFolderPaths.shouldImport(normalized, mounts: mounts)
             else { continue }
             items.append(Item(id: UUID(), path: normalized))
             added += 1

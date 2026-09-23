@@ -645,6 +645,15 @@ final class SmartLibraryOutlineView: FileBrowserOutlineView, NSMenuItemValidatio
         .copy
     }
 
+    /// ドラッグの終わりで、ホームのドラッグの記録を必ず下ろす(2026-09-23 の 3 回目の監査の低)。ふだんは委譲先
+    /// (`Coordinator.outlineView(_:draggingSession:endedAt:operation:)`)が下ろすが、ドラッグの最中に画面が消える(モードの切り替え・
+    /// ウインドウを閉じる)と `dismantleNSView` が委譲先を外すので届かず、記録が残った ―― 次の Finder からのドロップを「アプリの中から、
+    /// 前に運んだ本を」と取り違え、元のウインドウの「本を開く」受け口はすべて断った。`end` は 2 度呼んでも害が無い。
+    override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        super.draggingSession(session, endedAt: screenPoint, operation: operation)
+        HomeBookDragTracker.end()
+    }
+
     /// 編集 ▸ コピー(⌘C)。
     @objc func copy(_ sender: Any?) { onCopy?() }
 

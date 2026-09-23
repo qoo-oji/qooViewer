@@ -169,6 +169,13 @@ nonisolated struct AutoRenameTarget: Codable, Identifiable, Equatable, Sendable 
     /// 今ある項目に掛けることを確認した時点の中身(規則の `confirmationSignature` + この対象の設定)。いまの中身と違う対象には、
     /// 確認し直すまで何もかけない(§8 の 2)。OFF にすると消える(ON に戻したら確認し直す)。
     var confirmedSignature: String?
+    /// 保存データの JSON から取り込んだ対象で、利用者がまだ確認していない(2026-09-23 の 3 回目の監査の中 6)。
+    ///
+    /// 確認の印の無い対象は、今ある項目に変える名前が無ければ黙って確認済みにする(`AutoRenameService.refreshConfirmations` ――
+    /// 自分で足した規則なら、変えるものが無いことを確かめる手間を省いてよい)。取り込んだ規則は利用者が一度も見ていないので、
+    /// それだと「中身を確認し直すまで触らない」という取り込みの約束が破れ、以後届いたファイルの名前を黙って変え始めた。true の
+    /// 対象は、変えるものが無くても確認を待つ。`AutoRenameStore.confirm` で外れる。Optional なのは保存済みの JSON を読めるように。
+    var awaitsReviewAfterImport: Bool?
 
     init(
         id: UUID = UUID(), path: String, volumeUUID: String? = nil, bookmark: Data? = nil, includesSubfolders: Bool = true,

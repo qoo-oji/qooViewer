@@ -367,7 +367,8 @@ final class AppearanceSettings: ObservableObject {
     var progressBarRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(progressBarRevealDelay) }
     var sidePanelRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(sidePanelRevealDelay) }
     private static func revealDelayNanoseconds(_ seconds: Double) -> UInt64 {
-        UInt64(max(seconds, 0) * 1_000_000_000)
+        // 範囲へ収めてから(範囲の外の値で UInt64 の変換がトラップしない。2026-09-23 の 3 回目の監査の中 3)。
+        UInt64(AppPreferences.clampedMegabytes(seconds, default: 0, range: autoRevealDelayRange) * 1_000_000_000)
     }
 
     /// アプリの外観(ライト/ダーク。既定は「システムに従う」)。
@@ -699,18 +700,19 @@ final class AppearanceSettings: ObservableObject {
         self.customBackgroundColor =
             RGBColorValue(hexString: defaults.string(forKey: profile.key(Keys.customBackgroundColor)) ?? "")
             ?? Self.defaultCustomBackgroundColor
+        // 数値はどれも設定画面の範囲へ収めて読む(保存データの JSON の取り込みが範囲を見ないため。AppPreferences.storedDouble)。
         // 既定は0(待たずに表示)。この設定を入れる前と同じ挙動にしておく。
-        self.toolbarRevealDelay = defaults.object(forKey: profile.key(Keys.toolbarRevealDelay)) as? Double ?? 0
-        self.progressBarRevealDelay = defaults.object(forKey: profile.key(Keys.progressBarRevealDelay)) as? Double ?? 0
-        self.sidePanelRevealDelay = defaults.object(forKey: profile.key(Keys.sidePanelRevealDelay)) as? Double ?? 0
+        self.toolbarRevealDelay = AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.toolbarRevealDelay)), default: 0, range: Self.autoRevealDelayRange)
+        self.progressBarRevealDelay = AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.progressBarRevealDelay)), default: 0, range: Self.autoRevealDelayRange)
+        self.sidePanelRevealDelay = AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.sidePanelRevealDelay)), default: 0, range: Self.autoRevealDelayRange)
         self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: profile.key(Keys.appAppearance)) ?? "") ?? .system
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: profile.key(Keys.showProgressBarThumbnailPreview)) as? Bool ?? true
         // フィルムストリップの見た目。既定値はどれも「これまでの見た目と1ピクセルも変わらない」値
         // (9枚・10pt・暗くする・アクセントカラー・3pt)。
         self.filmstripThumbnailCount =
-            defaults.object(forKey: profile.key(Keys.filmstripThumbnailCount)) as? Double ?? 9
-        self.filmstripFontSize = defaults.object(forKey: profile.key(Keys.filmstripFontSize)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.filmstripThumbnailCount)), default: 9, range: Self.filmstripThumbnailCountRange)
+        self.filmstripFontSize = AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.filmstripFontSize)), default: 10, range: Self.filmstripFontSizeRange)
         self.filmstripCaptionStyle =
             FilmstripCaptionStyle(rawValue: defaults.string(forKey: profile.key(Keys.filmstripCaptionStyle)) ?? "")
             ?? .fileNameAndPageNumber
@@ -723,22 +725,22 @@ final class AppearanceSettings: ObservableObject {
             defaults.string(forKey: profile.key(Keys.filmstripHighlightCustomColor)).flatMap(RGBColorValue.init(hexString:))
             ?? Self.defaultFilmstripHighlightCustomColor
         self.filmstripHighlightBorderWidth =
-            defaults.object(forKey: profile.key(Keys.filmstripHighlightBorderWidth)) as? Double ?? 3
-        self.thumbnailGridCellSize = defaults.object(forKey: profile.key(Keys.thumbnailGridCellSize)) as? Double ?? 120
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.filmstripHighlightBorderWidth)), default: 3, range: Self.filmstripHighlightBorderWidthRange)
+        self.thumbnailGridCellSize = AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridCellSize)), default: 120, range: Self.thumbnailGridCellSizeRange)
         self.thumbnailGridHorizontalSpacing =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridHorizontalSpacing)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridHorizontalSpacing)), default: 10, range: Self.thumbnailGridSpacingRange)
         self.thumbnailGridVerticalSpacing =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridVerticalSpacing)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridVerticalSpacing)), default: 10, range: Self.thumbnailGridSpacingRange)
         self.thumbnailGridHorizontalMarginPercent =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridHorizontalMarginPercent)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridHorizontalMarginPercent)), default: 10, range: Self.thumbnailGridMarginPercentRange)
         self.thumbnailGridVerticalMarginPercent =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridVerticalMarginPercent)) as? Double ?? 5
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridVerticalMarginPercent)), default: 5, range: Self.thumbnailGridMarginPercentRange)
         self.showThumbnailHoverPreview = defaults.object(forKey: profile.key(Keys.showThumbnailHoverPreview)) as? Bool ?? true
         self.thumbnailGridCaptionStyle =
             ThumbnailCaptionStyle(rawValue: defaults.string(forKey: profile.key(Keys.thumbnailGridCaptionStyle)) ?? "")
             ?? .pageNumber
         self.thumbnailGridCaptionFontSize =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridCaptionFontSize)) as? Double ?? 11
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridCaptionFontSize)), default: 11, range: Self.thumbnailGridCaptionFontSizeRange)
         self.thumbnailGridBorderColorOption =
             PageBorderColorOption(rawValue: defaults.string(forKey: profile.key(Keys.thumbnailGridBorderColorOption)) ?? "")
             ?? .accent
@@ -746,7 +748,7 @@ final class AppearanceSettings: ObservableObject {
             defaults.string(forKey: profile.key(Keys.thumbnailGridBorderCustomColor)).flatMap(RGBColorValue.init(hexString:))
             ?? Self.defaultThumbnailGridBorderCustomColor
         self.thumbnailGridWheelScrollRows =
-            defaults.object(forKey: profile.key(Keys.thumbnailGridWheelScrollRows)) as? Double ?? 1
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.thumbnailGridWheelScrollRows)), default: 1, range: Self.thumbnailGridWheelScrollRowsRange)
         self.pageListSurfaceStyle = Self.loadSurfaceStyle(for: .pageList, profile: profile, defaults: defaults)
         self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar, profile: profile, defaults: defaults)
         self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar, profile: profile, defaults: defaults)
@@ -765,9 +767,9 @@ final class AppearanceSettings: ObservableObject {
                 rawValue: defaults.string(forKey: profile.key(Keys.collectionCoverCaptionStyle)) ?? ""
             ) ?? .none
         self.collectionCoverCaptionFontSize =
-            defaults.object(forKey: profile.key(Keys.collectionCoverCaptionFontSize)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.collectionCoverCaptionFontSize)), default: 10, range: Self.collectionCoverCaptionFontSizeRange)
         self.collectionTileNameFontSize =
-            defaults.object(forKey: profile.key(Keys.collectionTileNameFontSize)) as? Double ?? 13
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.collectionTileNameFontSize)), default: 13, range: Self.collectionTileNameFontSizeRange)
         self.collectionTileBadgeSize =
             CollectionTileBadgeSize(
                 rawValue: defaults.string(forKey: profile.key(Keys.collectionTileBadgeSize)) ?? ""
@@ -777,16 +779,16 @@ final class AppearanceSettings: ObservableObject {
             .flatMap(RGBColorValue.init(hexString:))
         self.titleBarColor = defaults.string(forKey: profile.key(Keys.titleBarColor)).flatMap(RGBColorValue.init(hexString:))
         self.smartLibraryCaptionFontSize =
-            defaults.object(forKey: profile.key(Keys.smartLibraryCaptionFontSize)) as? Double ?? 10
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.smartLibraryCaptionFontSize)), default: 10, range: Self.smartLibraryCaptionFontSizeRange)
         self.smartLibraryBadgeSize =
             CollectionTileBadgeSize(rawValue: defaults.string(forKey: profile.key(Keys.smartLibraryBadgeSize)) ?? "")
             ?? .small
         self.smartLibrarySeriesSheetColor =
             defaults.string(forKey: profile.key(Keys.smartLibrarySeriesSheetColor)).flatMap(RGBColorValue.init(hexString:))
         self.homeListWheelScrollRows =
-            defaults.object(forKey: profile.key(Keys.homeListWheelScrollRows)) as? Double ?? 3
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.homeListWheelScrollRows)), default: 3, range: Self.homeListWheelScrollRowsRange)
         self.homeGridWheelScrollRows =
-            defaults.object(forKey: profile.key(Keys.homeGridWheelScrollRows)) as? Double ?? 1
+            AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.homeGridWheelScrollRows)), default: 1, range: Self.homeGridWheelScrollRowsRange)
         // didSet は初期化では走らないので、ライト/ダークはここから1回。最初のウインドウが作られるより前
         // (AppStores 経由で QooViewerApp.init() から呼ばれる)なので、既定の外観が一瞬見えてから切り替わる、ということにはならない。
         if appliesToApp { AppAppearanceApplier.shared.apply(appAppearance) }

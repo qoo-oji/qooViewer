@@ -158,6 +158,30 @@ struct AutoRenameServiceTests {
         #expect(await eventually { harness.exists("shelf/one.zip") })
     }
 
+    @Test("取り込んだ規則は、変えるものが無くても確認を待ち、確認するまで後から届いた項目も変えない(2026-09-23 の 3 回目の監査の中 6)")
+    func importedRulesWaitForReviewEvenWithoutChanges() async throws {
+        let harness = try Harness("imported")
+        let folder = try harness.folder("imported")
+        harness.favorites.add(folder)
+        harness.addRule(find: " [tag]", replace: "", target: folder, confirmed: true)
+        // バックアップから戻した(確認の印は落ち、確認待ちの印が付く)。
+        harness.store.importBackup(rules: harness.store.rules, replacingExisting: true)
+        let target = try #require(harness.store.rules.first?.targets.first)
+        #expect(target.confirmedSignature == nil)
+        #expect(target.awaitsReviewAfterImport == true)
+        harness.service.start()
+
+        #expect(await eventually { harness.service.targetsAwaitingConfirmation == [target.id] })
+        try harness.file("imported/new [tag].zip")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(harness.exists("imported/new [tag].zip"), "確認する前に、取り込んだ規則が名前を変えた")
+        #expect(harness.store.rules.first?.targets.first?.awaitsReviewAfterImport == true)
+
+        harness.service.confirm(targetIDs: [target.id])
+        #expect(harness.store.rules.first?.targets.first?.awaitsReviewAfterImport == nil)
+        #expect(await eventually { harness.exists("imported/new.zip") })
+    }
+
     @Test("新しく置かれた項目と、同じボリュームの中からフォルダごと移ってきた項目の中身を変える")
     func renamesNewItemsAndContentsOfMovedInFolders() async throws {
         let harness = try Harness("events")

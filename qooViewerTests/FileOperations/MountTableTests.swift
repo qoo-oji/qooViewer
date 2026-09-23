@@ -29,6 +29,21 @@ struct MountTableTests {
         #expect(table.volumeIdentifier(volume.mountPoint) != nil)
     }
 
+    @Test("マウントポイントを含むかはパスの区切りで見る(完全削除の断り)")
+    func containsMountPointMatchesWholeComponents() {
+        func entry(_ mountPoint: String) -> MountTable.Entry {
+            MountTable.Entry(mountPoint: mountPoint, mountedFrom: "/dev/x", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false)
+        }
+        let table = MountTable(entries: [entry("/"), entry("/Volumes/X"), entry("/Users/someone/Mounted/Image")])
+        #expect(FileOperationService.containsMountPoint(path: "/Volumes/X", mounts: table))
+        #expect(FileOperationService.containsMountPoint(path: "/Volumes/X/", mounts: table))
+        #expect(FileOperationService.containsMountPoint(path: "/Volumes", mounts: table))
+        #expect(FileOperationService.containsMountPoint(path: "/Users/someone/Mounted", mounts: table), "中にマウントされたボリュームへ降りる")
+        #expect(!FileOperationService.containsMountPoint(path: "/Volumes/X/Book", mounts: table), "ボリュームの中の項目は消せる")
+        #expect(!FileOperationService.containsMountPoint(path: "/Volumes/XY", mounts: table))
+        #expect(!FileOperationService.containsMountPoint(path: "/Users/someone/Books", mounts: table), "/ は配下に数えない")
+    }
+
     @Test("表に居ない /Volumes/<名前> の下は「外れたボリューム」")
     func absentVolumeIsReportedAsUnmounted() {
         let table = MountTable.current()

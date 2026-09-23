@@ -44,8 +44,13 @@ enum SettingsBackup {
         "qooViewer.pref.usesFinderSortOrder"
     ]
 
+    /// 接頭辞には合うが、セキュリティスコープ付きブックマーク(とそのパス・パネルの位置の控え)なので入れないキーの印
+    /// (`LastUsedFolderMemory`: 前回のフォルダ・固定の保存先。2026-09-23 の 3 回目の監査の低 ―― 上の「入れないもの」の決まりに
+    /// 反して入っていて、別の Mac ではその場で解決できないブックマーク・パスが環境設定に出た)。
+    static let excludedKeyMarker = "FolderBookmark"
+
     static func isBackupKey(_ key: String) -> Bool {
-        if excludedKeys.contains(key) { return false }
+        if excludedKeys.contains(key) || key.contains(excludedKeyMarker) { return false }
         return key.hasPrefix(preferencePrefix) || keyBindingKeys.contains(key)
     }
 
@@ -67,12 +72,36 @@ enum SettingsBackup {
     ///
     /// 念のため取り込み側でも `isBackupKey` で濾す ―― 手で書き替えた JSON が、アクセス権や
     /// ウインドウの状態のキーを紛れ込ませても書かない。
+    ///
+    /// 値の形も確かめる(2026-09-23 の 3 回目の監査の中 3): 数でない数(JSON には書けないが念のため)と、手元に同じキーの値が
+    /// あるのに種類が違う値(真偽値の設定へ文字列など)は書かない。**範囲は読む側が収める**(`AppPreferences.storedDouble`)。
     static func apply(_ settings: ExportedSettings, to defaults: UserDefaults) -> Int {
         var applied = 0
         for (key, value) in settings.values where isBackupKey(key) {
+            if case let .double(number) = value, !number.isFinite { continue }
+            if let object = defaults.object(forKey: key), let current = ExportedDefaultsValue(defaultsValue: object),
+               !current.isSameKind(as: value) {
+                continue
+            }
             defaults.set(value.defaultsValue, forKey: key)
             applied += 1
         }
         return applied
+    }
+}
+
+/// バックアップから取り込むパスだけのフォルダの設定(よく使う項目・スマートライブラリの対象フォルダ・自動リネームの対象)を、
+/// 登録してよいか(2026-09-23 の 3 回目の監査の中 5)。
+///
+/// 以前は「その場所に実際にフォルダがあるときだけ」で、外付けやネットワークのボリュームを繋がずに戻すと、そこの設定が黙って
+/// 落ちた(「置き換え」は先に手元の分を全部消すので、両方から消えた)。いま繋がっていないボリュームの上のパスは、確かめずに
+/// 登録する(繋げばそのまま使える。権限は別途「アクセスを許可」)。繋がっているネットワークのボリュームも確かめない
+/// (応答しない共有でメインが止まる)。繋がっているローカルのボリュームで、フォルダが無いものだけを落とす。
+enum BackupFolderPaths {
+    static func shouldImport(_ path: String, mounts: MountTable) -> Bool {
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        if mounts.isOnAnUnmountedVolume(url) || mounts.isRemote(url) { return true }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

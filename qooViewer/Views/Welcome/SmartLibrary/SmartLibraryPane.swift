@@ -271,7 +271,9 @@ struct SmartLibrarySidebar: View {
     /// 対象に追加」と同じ規則: 1 冊の本になるフォルダ・ファイルは足さない)。1 つも足せなければ鳴らす(足せたものは一覧に並ぶ)。
     private func addDroppedFolders(_ urls: [URL]) {
         guard allowsEditing, !urls.isEmpty else { return }
-        Task { @MainActor [appState, store, folderAccess] in
+        // AppState は弱く持つ(応答しない共有から落とされたフォルダの確かめが終わらなくても、閉じたウインドウを生かし続けない。
+        // 2026-09-23 の 3 回目の監査の低)。
+        Task { @MainActor [weak appState, store, folderAccess] in
             let folders = await FileIO.perform {
                 urls.filter { url in
                     var isDirectory: ObjCBool = false

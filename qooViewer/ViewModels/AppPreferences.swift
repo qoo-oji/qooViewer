@@ -660,6 +660,13 @@ final class AppPreferences: ObservableObject {
         clampedMegabytes((stored as? Double) ?? defaultValue, default: defaultValue, range: range)
     }
 
+    /// 保存された数値を、設定画面で選べる範囲へ収めて読む(2026-09-23 の 3 回目の監査の中 3)。保存データの JSON の取り込み
+    /// (`SettingsBackup.apply`)は `qooViewer.pref.*` の値をそのまま書くので、手で直した・壊れたバックアップの `1e30` が
+    /// `UInt64(遅延 × 1e9)`・`Int(先読みの枚数)` でトラップし、値は残るので起動のたびに落ちた。数でない・範囲の外は既定値か端へ。
+    static func storedDouble(_ stored: Any?, default defaultValue: Double, range: ClosedRange<Double>) -> Double {
+        clampedMegabytes((stored as? Double) ?? defaultValue, default: defaultValue, range: range)
+    }
+
     /// NaN は `min` / `max` を素通りする(比較が常に偽)ので、先に有限かを見る。
     static func clampedMegabytes(_ megabytes: Double, default defaultValue: Double, range: ClosedRange<Double>) -> Double {
         guard megabytes.isFinite else { return defaultValue }
@@ -1077,7 +1084,8 @@ final class AppPreferences: ObservableObject {
     static let thumbnailHoverPreviewDelayRange: ClosedRange<Double> = 0...1
     /// 上の遅延をTask.sleep用のナノ秒で返す。
     var thumbnailHoverPreviewDelayNanoseconds: UInt64 {
-        UInt64(max(thumbnailHoverPreviewDelay, 0) * 1_000_000_000)
+        // 範囲へ収めてから(範囲の外の値で UInt64 の変換がトラップしない。中 3)。
+        UInt64(Self.clampedMegabytes(thumbnailHoverPreviewDelay, default: 0.35, range: Self.thumbnailHoverPreviewDelayRange) * 1_000_000_000)
     }
     /// 拡大プレビュー(ポップオーバー)の一辺の長さ(pt)。画像はこの正方形へ縦横比を保って
     /// 収められ、下のファイル名もこの幅で折り返す。遅延と同じく**4箇所すべてで共通**
@@ -1196,24 +1204,24 @@ final class AppPreferences: ObservableObject {
             FirstPageBehavior(rawValue: defaults.string(forKey: Keys.firstPageBehavior) ?? "") ?? .none
         self.lastPageBehavior =
             LastPageBehavior(rawValue: defaults.string(forKey: Keys.lastPageBehavior) ?? "") ?? .none
-        self.maxUpscalePercent = defaults.object(forKey: Keys.maxUpscalePercent) as? Double ?? 200
-        self.maxPinchZoomPercent = defaults.object(forKey: Keys.maxPinchZoomPercent) as? Double ?? 400
+        self.maxUpscalePercent = Self.storedDouble(defaults.object(forKey: Keys.maxUpscalePercent), default: 200, range: 100...800)
+        self.maxPinchZoomPercent = Self.storedDouble(defaults.object(forKey: Keys.maxPinchZoomPercent), default: 400, range: 100...800)
         self.loupeMagnificationPercent =
-            defaults.object(forKey: Keys.loupeMagnificationPercent) as? Double ?? 250
-        self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 400
+            Self.storedDouble(defaults.object(forKey: Keys.loupeMagnificationPercent), default: 250, range: 100...800)
+        self.loupeDiameter = Self.storedDouble(defaults.object(forKey: Keys.loupeDiameter), default: 400, range: 200...600)
         // 廃止した"low"の読み替えを含む(InterpolationQuality.init(storedRawValue:)参照)。
         self.interpolationQuality =
             InterpolationQuality(storedRawValue: defaults.string(forKey: Keys.interpolationQuality)) ?? .high
         self.autoHideCursor = defaults.object(forKey: Keys.autoHideCursor) as? Bool ?? true
-        self.slideshowInterval = defaults.object(forKey: Keys.slideshowInterval) as? Double ?? 5
+        self.slideshowInterval = Self.storedDouble(defaults.object(forKey: Keys.slideshowInterval), default: 5, range: 0.5...30)
         self.defaultScalingMode = ScalingMode(rawValue: defaults.string(forKey: Keys.defaultScalingMode) ?? "") ?? .fitToScreen
         self.treatTrackpadFlickAsWheel = defaults.object(forKey: Keys.treatTrackpadFlickAsWheel) as? Bool ?? true
         self.invertTwoFingerScrolling = defaults.object(forKey: Keys.invertTwoFingerScrolling) as? Bool ?? false
         self.quitWhenLastWindowClosed = defaults.object(forKey: Keys.quitWhenLastWindowClosed) as? Bool ?? false
         self.singlePageAspectRatioThreshold =
-            defaults.object(forKey: Keys.singlePageAspectRatioThreshold) as? Double ?? 1.0
-        self.cursorAutoHideDelay = defaults.object(forKey: Keys.cursorAutoHideDelay) as? Double ?? 2.0
-        self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
+            Self.storedDouble(defaults.object(forKey: Keys.singlePageAspectRatioThreshold), default: 1.0, range: 0.5...3.0)
+        self.cursorAutoHideDelay = Self.storedDouble(defaults.object(forKey: Keys.cursorAutoHideDelay), default: 2.0, range: 0.5...10)
+        self.prefetchPageCount = Self.storedDouble(defaults.object(forKey: Keys.prefetchPageCount), default: 3, range: 0...10)
         let displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
         self.displayLanguage = displayLanguage
         // 以前のバージョンで選んだ表示言語には、次回起動からメニューバーにも効かせるための
@@ -1235,13 +1243,13 @@ final class AppPreferences: ObservableObject {
         self.spreadBookmarkTargetBehavior =
             SpreadBookmarkTargetBehavior(rawValue: defaults.string(forKey: Keys.spreadBookmarkTargetBehavior) ?? "")
                 ?? .defaultSide
-        self.maxTrackedBooksCount = defaults.object(forKey: Keys.maxTrackedBooksCount) as? Double ?? 500
+        self.maxTrackedBooksCount = Self.storedDouble(defaults.object(forKey: Keys.maxTrackedBooksCount), default: 500, range: 50...1_000_000)
         self.hideToolbar = defaults.object(forKey: Keys.hideToolbar) as? Bool ?? false
         self.hideProgressBar = defaults.object(forKey: Keys.hideProgressBar) as? Bool ?? false
         self.hideSidePanel = defaults.object(forKey: Keys.hideSidePanel) as? Bool ?? false
         // 既定値280は、SidePanelView.defaultWidthと同じ値(ViewModelからView側の定数を
         // 参照する層の逆転を避けるため、ここでは値を直接持たせている)。
-        self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
+        self.sidePanelWidth = Self.storedDouble(defaults.object(forKey: Keys.sidePanelWidth), default: 280, range: 100...10_000)
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
@@ -1282,9 +1290,11 @@ final class AppPreferences: ObservableObject {
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
-        self.recentFilesLimit =
-            defaults.object(forKey: Self.recentFilesLimitDefaultsKey) as? Double
-            ?? Self.defaultRecentFilesLimit
+        // 下げると履歴が消えるので、上は広く取る(中 3)。
+        self.recentFilesLimit = Self.storedDouble(
+            defaults.object(forKey: Self.recentFilesLimitDefaultsKey), default: Self.defaultRecentFilesLimit,
+            range: Self.recentFilesLimitRange.lowerBound...1_000_000
+        )
         self.offersRemovingMissingCollectionBooks =
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
         self.libraryFeatureEnabled = Self.storedLibraryFeatureEnabled(in: defaults)
@@ -1292,9 +1302,9 @@ final class AppPreferences: ObservableObject {
         self.smartLibraryFeatureEnabled = Self.storedSmartLibraryFeatureEnabled(in: defaults)
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
-        self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
+        self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
         // 既定値440は、設定にする前に各所へ直接書かれていた値そのもの(見た目を変えないため)。
-        self.thumbnailHoverPreviewSize = defaults.object(forKey: Keys.thumbnailHoverPreviewSize) as? Double ?? 440
+        self.thumbnailHoverPreviewSize = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewSize), default: 440, range: Self.thumbnailHoverPreviewSizeRange)
         self.preloadThumbnailGridPreviews =
             defaults.object(forKey: Keys.preloadThumbnailGridPreviews) as? Bool ?? false
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
@@ -1546,8 +1556,15 @@ extension AppPreferences {
             apply(fresh, for: pane)
         }
         // 画面ごとの担当から外してある設定(keys(for:) のコメント)。
-        maxTrackedBooksCount = fresh.maxTrackedBooksCount
-        recentFilesLimit = fresh.recentFilesLimit
+        // 保管件数の 2 つは**下げない**(2026-09-23 の 3 回目の監査の中 4)。下げると最近開いた本の履歴がその場で切り詰められ
+        // (履歴はバックアップに入らないので戻せない)、読書位置も次に本を開いたときに間引かれる。古いバックアップや別の Mac の
+        // 小さい値を読んだだけで消えないよう、今より大きいときだけ取り込む(下げたければ環境設定で下げる ―― そちらは消える前に確かめる)。
+        // 取り込みが保存先へ書いた小さい値は、代入の didSet が今の値で書き戻す。
+        maxTrackedBooksCount = max(fresh.maxTrackedBooksCount, maxTrackedBooksCount)
+        recentFilesLimit = max(fresh.recentFilesLimit, recentFilesLimit)
+        // 以前は読み直しから漏れていて、再起動まで効かなかった(同じ監査の低)。
+        privateWindowsUseOwnAppearance = fresh.privateWindowsUseOwnAppearance
+        privateWindowTitlePrefix = fresh.privateWindowTitlePrefix
         hideToolbar = fresh.hideToolbar
         hideProgressBar = fresh.hideProgressBar
         hideSidePanel = fresh.hideSidePanel

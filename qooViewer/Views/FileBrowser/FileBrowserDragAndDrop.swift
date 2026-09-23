@@ -33,13 +33,20 @@ import UniformTypeIdentifiers
 @MainActor
 enum FileBrowserDragTracker {
     private(set) static var items: [URL]?
+    /// ドラッグ元が移動を許しているか。ホームの本のドラッグ(`HomeBookDragTracker`)は**コピーだけ**(2026-09-23 の 3 回目の
+    /// 監査の中 12)。AppKit の受け口はドラッグ元の `draggingSourceOperationMask` を読めるが、SwiftUI の受け口(`DropInfo`)は
+    /// 読めないので、ここで持つ。以前は SwiftUI の受け口が常に「移動してよい」として判定し、同じボリュームの棚の本を落とすと
+    /// 移動になった。
+    private(set) static var allowsMove = true
 
-    static func begin(_ urls: [URL]) {
+    static func begin(_ urls: [URL], allowsMove: Bool = true) {
         items = urls
+        self.allowsMove = allowsMove
     }
 
     static func end() {
         items = nil
+        allowsMove = true
     }
 }
 
@@ -251,7 +258,9 @@ struct FileBrowserDropDelegate: DropDelegate {
         let modifiers = FileDropPlan.Modifiers.current
         let allowsMove = FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop
         if FileBrowserDragTracker.items != nil {
-            let decision = actions.dropDecision(urls: [], into: destination, modifiers: modifiers)
+            let decision = actions.dropDecision(
+                urls: [], into: destination, allowsMove: FileBrowserDragTracker.allowsMove, modifiers: modifiers
+            )
             actions.performDrop(decision, urls: [])
             return decision.isAccepted
         }
@@ -285,7 +294,8 @@ struct FileBrowserDropDelegate: DropDelegate {
         let isExternal = FileBrowserDragTracker.items == nil
         let urls = isExternal ? FileBrowserActions.fileURLs(in: NSPasteboard(name: .drag)) : []
         let decision = actions.dropDecision(
-            urls: urls, into: destination, allowsMove: !isExternal || FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop
+            urls: urls, into: destination,
+            allowsMove: isExternal ? FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop : FileBrowserDragTracker.allowsMove
         )
         // 中身が読めなかった他のアプリからのドラッグは、断らずに「+」で受ける(決め直しはドロップの瞬間)。
         if decision == .refuse, isExternal, urls.isEmpty, destination != nil {

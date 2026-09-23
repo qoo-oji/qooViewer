@@ -36,6 +36,17 @@ struct FileOperationVolumeTests {
         #expect(reports.values.last?.totalBytes == Int64(content.count), "別ボリュームなので総量を数えている")
     }
 
+    @Test("完全削除はボリュームそのもの(マウントポイント)を断り、中身に触れない")
+    func deletePermanentlyRefusesAMountPoint() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "delete-mount-point") else { return }
+        let sentinel = volume.file("keep.txt")
+        try Data("keep".utf8).write(to: sentinel)
+        let outcome = await service.deletePermanently([volume.mountPoint])
+        #expect(outcome.deleted.isEmpty)
+        #expect(outcome.failures.first?.reason == FileOperationError.volumeCannotBeDeleted(volume.mountPoint).localizedDescription)
+        #expect(FileManager.default.fileExists(atPath: sentinel.path), "マウントポイントの removeItem は中身を全部消してから EBUSY で失敗する")
+    }
+
     @Test("別ボリュームへのフォルダの移動")
     func crossVolumeFolderMove() async throws {
         guard let volume = DisposableVolume.make(.apfs, "cross-folder") else { return }

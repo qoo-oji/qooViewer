@@ -404,14 +404,17 @@ struct BookMetadataSheet: View {
         values = values.trimmed
         let current = metadataStore.metadata(forBookID: bookID)?.rowState ?? BookMetadataRowState(isLocked: false)
         var state = current
+        var narrowsEditsAfterUnlock = false
         if isLocked {
             // 掛ける: 値そのものが確定する(ロックした行は直した欄を持たない)。
             state = BookMetadataRowState(isLocked: true, ruleSet: current.ruleSet)
         } else if storedLocked {
-            // 外す: ファイル名の読み(その本のルールセットで)と違う欄だけを直した欄に。
-            let parsed = MetadataParsing.values(forBookID: bookID, ruleSet: current.ruleSet, rules: rulesStore.rules)
-            state = BookMetadataRowState(isLocked: false, edits: MetadataParsing.edits(from: parsed.trimmed, to: values),
-                                         ruleSet: current.ruleSet)
+            // 外す: まず全部の欄を直した欄にして値を変えず、メタデータ生成の読み(ほかの本と見比べた読み)と同じ欄だけを後で外す
+            // (`narrowEditsAfterUnlock`。メタデータの編集ウインドウの `unlock` と同じ)。2026-09-23 の 3 回目の監査の低: 以前は
+            // この本だけを読んだ値と比べていたので、シリーズや巻数(並べ替え用)のように見比べで決まる欄が「読みと同じ」として外れ、
+            // 生成がすぐ見比べた読みで書き直した ―― 鍵を外しただけで値が変わった。
+            state = MetadataWorkspace.unlockedStateKeepingValues(values, ruleSet: current.ruleSet)
+            narrowsEditsAfterUnlock = true
         } else {
             state.edits = MetadataParsing.edits(changing: openedValues.trimmed, to: values, in: current.edits)
         }
@@ -427,6 +430,9 @@ struct BookMetadataSheet: View {
         // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
         metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
                                                               state: state)])
+        if narrowsEditsAfterUnlock {
+            MetadataWorkspace.narrowEditsAfterUnlock(bookID: bookID, values: values, written: state, store: metadataStore)
+        }
         dismiss()
     }
 }

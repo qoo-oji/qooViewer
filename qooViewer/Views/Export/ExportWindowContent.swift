@@ -678,6 +678,19 @@ struct ExportCoverCell: View {
         .task(id: bookID) {
             await controller.refreshCoverName(forBookID: bookID)
         }
+        // メタデータの編集ウインドウの一覧では、このセルを別の本の行へ使い回す(NSHostingView の rootView を入れ替えるだけなので
+        // `@State` が残る)。吹き出しの待ち・吹き出し・選ぶ画面を前の本のまま持ち越さない(2026-09-23 の 3 回目の監査の低)。
+        .onChange(of: bookID) {
+            dismissTransientPresentation()
+            isCoverPickerPresented = false
+        }
+        .onDisappear { dismissTransientPresentation() }
+    }
+
+    private func dismissTransientPresentation() {
+        hoverPreviewTask?.cancel()
+        hoverPreviewTask = nil
+        isHoverPreviewPresented = false
     }
 }
 

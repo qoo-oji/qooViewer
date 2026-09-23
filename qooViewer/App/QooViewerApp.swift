@@ -433,9 +433,12 @@ struct QooViewerApp: App {
     /// 全削除で消す、qooMeta の設定(読み方の規則・除外フォルダ・以前の下書き)とスマートライブラリの一覧のフォルダ
     /// (2026-09-22 の監査。画面は「フォルダのアクセス権を除き、保存したすべてのデータを削除」と約束しているのに、以前は残っていた ――
     /// スマートライブラリの一覧は全冊のパス・書誌・読書の進みを持つ)。
+    /// メタデータ生成の母体の記録(`MetadataCorpusStore`。コレクションとスマートライブラリの全冊のパス)も同じく消す
+    /// (2026-09-23 の 3 回目の監査の中 11。以前は残っていた)。
     static var metadataAndSmartLibraryDirectories: [URL] {
         [MetadataRulesStore.defaultURL.deletingLastPathComponent(),
-         SmartLibraryCatalog.defaultCacheURL?.deletingLastPathComponent()].compactMap { $0 }
+         SmartLibraryCatalog.defaultCacheURL?.deletingLastPathComponent(),
+         MetadataCorpusStore.defaultURL?.deletingLastPathComponent()].compactMap { $0 }
     }
 
     /// 予約があればストアの実ファイル(全削除の予約ならキャッシュとUserDefaultsも)を消し、
@@ -1713,6 +1716,9 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
+                // 読書位置(BookReadingState)を読む(2026-09-23 の 3 回目の監査の高 2)。これが無いと `@Environment(\.modelContext)` は
+                // 実体の無いメモリ内のコンテキストで、取得は黙って 0 件になり、書き出しから読書位置が消えていた。
+                .modelContext(QooViewerApp.modelContainer.mainContext)
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
@@ -1767,6 +1773,8 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
+                // 読書位置(BookReadingState)を書く(高 2。書き出しのウインドウと同じ)。無いと、取り込んだと報告して何も残さなかった。
+                .modelContext(QooViewerApp.modelContainer.mainContext)
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)

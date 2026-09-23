@@ -964,6 +964,10 @@ final class AppState: ObservableObject {
             return
         }
         openTask?.cancel()
+        // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
+        // (2026-09-23 の 3 回目の監査の低: 以前はセキュリティスコープ・一覧の並び・着地指定を新しい本のものへ替えた後でやめるので、
+        // 表示中の本のスコープが閉じ、「次の本」も今の本の一覧をたどれなくなった)。
+        let beforeOpen = (scopedURLs: securityScopedBookURLs, sequence: bookSequence, initialEdge: pendingInitialEdge)
         // 「次の本の最初のページへ」等の着地指定は、実際に読み込みを始めるここで毎回置き換える
         // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
@@ -1030,6 +1034,13 @@ final class AppState: ObservableObject {
                        existingAppState !== self, let existingWindow = existingAppState.hostWindow {
                         existingWindow.makeKeyAndOrderFront(nil)
                         NSApp.activate(ignoringOtherApps: true)
+                        // 表示中の本のぶんへ戻す(上の beforeOpen)。先に開き直してから、新しい本のぶんを閉じる(同じ URL でも
+                        // 途切れないように。securityScopedBookURLs のコメント)。
+                        let reopened = beforeOpen.scopedURLs.filter { $0.startAccessingSecurityScopedResource() }
+                        self.securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+                        self.securityScopedBookURLs = reopened
+                        self.bookSequence = beforeOpen.sequence
+                        self.pendingInitialEdge = beforeOpen.initialEdge
                         self.cancelOpen()
                         return
                     }
@@ -1122,6 +1133,10 @@ final class AppState: ObservableObject {
                             if let context = self.metadataStore?.modelContext {
                                 BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
                             }
+                            // メタデータ生成が古いパスを「確かめ済み」のまま持たないように(MetadataGenerator.relocate)。
+                            MetadataGenerator.appWide?.relocate(using: FileSystemChange.foundOutsideTheApp([
+                                .init(from: URL(fileURLWithPath: oldBookID), to: URL(fileURLWithPath: book.id)),
+                            ]))
                         }
                         // 付け替え漏れのページの鍵(2026-09-21 より前に移したフォルダの本)を、ページが分かったいま直す
                         // (PageKeyRelocation.repairs。フォルダの本でなければ何もしない)。

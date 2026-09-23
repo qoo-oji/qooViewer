@@ -224,9 +224,7 @@ final class AppStores: ObservableObject {
                     BookExistenceProbe.make(bookID: $0, metadataStore: metadata, layoutStore: layouts, bookmarkStore: bookmarks,
                                             favoritesStore: favorites, collectionStore: collectionStore, folderAccess: access)
                 }
-                return await Task.detached(priority: .utility) {
-                    Set(probes.filter { $0.locateAtRecordedPath().result == .exists }.map(\.bookID))
-                }.value
+                return await Self.probeExistence(probes, mounts: mounts)
             })
         smartLibraryCatalog = SmartLibraryCatalog(
             metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context,
@@ -433,7 +431,7 @@ final class AppStores: ObservableObject {
         guard let bookmarks = folderSettingBookmarks else { return }
         let moved = await bookmarks.movedFolders()
         if !moved.isEmpty {
-            let change = FileSystemChange(relocations: moved)
+            let change = FileSystemChange.foundOutsideTheApp(moved)
             metadataRulesStore.relocate(using: change)
             smartLibraryStore.relocate(using: change)
             smartLibraryCatalog.handleFileSystemChange(change)
@@ -442,6 +440,32 @@ final class AppStores: ObservableObject {
             await relocateBooksMovedOutsideTheApp(moved)?.value
         }
         await bookmarks.sync(paths: folderSettingPaths())
+    }
+
+    /// メタデータ生成の「行の無い本は記録どおりの場所にあるか」(`MetadataGenerator` の `probe`)。**1 冊ごとに期限を付け、期限を
+    /// 過ぎたボリュームの残りは確かめない**(2026-09-23 の 3 回目の監査の中 9)。以前は 1 つの `Task.detached` で全冊を順に確かめ、
+    /// 期限も無かったので、応答しない共有(繋がったまま眠った NAS など。1 冊 30 秒)があると生成の列全体がそこで待ち、メタデータの
+    /// 編集ウインドウが開き終わらなかった。確かめられなかった本は「無い」の側に入る(この起動の間だけ。ボリュームを付け直せば忘れる)。
+    nonisolated static let existenceProbeLimit: Duration = .seconds(5)
+
+    nonisolated static func probeExistence(_ probes: [BookExistenceProbe], mounts: MountTable) async -> Set<String> {
+        var existing = Set<String>()
+        var stalledMounts = Set<String>()
+        for probe in probes {
+            guard !Task.isCancelled else { break }
+            let mountPoint = mounts.entry(containing: probe.bookID)?.mountPoint ?? "/"
+            guard !stalledMounts.contains(mountPoint) else { continue }
+            do {
+                let exists = try await FileIO.withDeadline(existenceProbeLimit) {
+                    await FileIO.perform(qos: .utility) { probe.locateAtRecordedPath().result == .exists }
+                }
+                if exists { existing.insert(probe.bookID) }
+            } catch {
+                // 期限切れ。同じボリュームの残りは確かめない(また 1 冊ずつ待たされ、FileIO の糸も積もる)。
+                stalledMounts.insert(mountPoint)
+            }
+        }
+        return existing
     }
 
     /// アプリの外で名前を変えた・移した本(ExternalMoveSweeper・コレクションの実在確認が見つけたもの)の保存データを付け替える。
@@ -453,7 +477,7 @@ final class AppStores: ObservableObject {
         let allowed = ExternalMoveSweeper.excludingOpenBooks(relocations, openBookIDs: ViewerViewModel.openBookIDs)
         let fresh = allowed.filter { outsideMoveAttempted.insert($0.from.path).inserted }
         guard !fresh.isEmpty else { return nil }
-        let change = FileSystemChange(relocations: fresh)
+        let change = FileSystemChange.foundOutsideTheApp(fresh)
         // スマートライブラリの前の走査結果も捨てる(古いパスのまま組み直して、付け替えた本の古いパスへ行を書き直さないように。
         // 2026-09-22 の監査)。
         smartLibraryCatalog.handleFileSystemChange(change)

@@ -140,6 +140,29 @@ final class MetadataGenerator {
         schedule(delay: .milliseconds(100))
     }
 
+    /// 本が移った・消えた(アプリの中の操作・アプリの外での移動を見つけた・開いたときの追従)。確かめ済みの本・無かった本・
+    /// 開いた本の URL・登録し直す本を新しいパスへ付け替え、その場所から無くなった本は外す(2026-09-23 の 3 回目の監査の低)。
+    /// 以前は付け替えなかったので、開いた本の名前を変えると、古いパスが「確かめ済み」のまま残って行の無い本として並び、
+    /// 実在しないパスに読みだけの行を作った(その起動の間、メタデータの編集ウインドウに「見つからない」本として出た)。
+    func relocate(using change: FileSystemChange) {
+        let displaced = change.displacedPathSet
+        guard !displaced.isEmpty else { return }
+        func moved(_ id: String) -> String? {
+            guard FileSystemChange.mayAffect(id, displaced: displaced) else { return id }
+            if let path = change.relocatedPath(for: id) { return path }
+            return change.displaces(id) ? nil : id
+        }
+        verified = Set(verified.compactMap(moved))
+        absent = Set(absent.compactMap(moved))
+        reregistering = Set(reregistering.compactMap(moved))
+        var urls: [String: URL] = [:]
+        for (id, url) in sourceURLs {
+            guard let new = moved(id) else { continue }
+            urls[new] = new == id ? url : URL(fileURLWithPath: new)
+        }
+        sourceURLs = urls
+    }
+
     /// 開いた本の URL(行を作るときに渡す)。
     private var sourceURLs: [String: URL] = [:]
     /// この起動で利用者が消した本のうち、次の回で登録し直す本(開き直した・メタデータの編集ウインドウを開き直した)。
@@ -225,7 +248,10 @@ final class MetadataGenerator {
             absent.formUnion(toProbe.subtracting(existing))
             records = metadataStore.allRecords()
         }
-        let deleted = metadataStore.deletedThisSession.subtracting(reregistering)
+        // 登録し直す本は、この回の始めの分だけを片付ける(読んでいる間に頼まれた分は次の回へ残す。同じ監査の低 ――
+        // 以前は回の終わりに全部消していて、読んでいる間に開いた・編集ウインドウを開いた分の頼みが消えた)。
+        let reregisteringNow = reregistering
+        let deleted = metadataStore.deletedThisSession.subtracting(reregisteringNow)
         let listed = corpus.filter { id in
             records[id] != nil || ((smart.contains(id) || verified.contains(id)) && !deleted.contains(id))
         }.sorted()
@@ -275,7 +301,7 @@ final class MetadataGenerator {
         listedBookIDs = listed
 
         await write(listed: listed, snapshot: records, deleted: deleted)
-        reregistering = []
+        reregistering.subtract(reregisteringNow)
         hasCompletedRun = true
         if isFull || !changed.isEmpty { updates.send(Update(changedIDs: changed, isFull: isFull)) }
     }
@@ -294,7 +320,9 @@ final class MetadataGenerator {
                 entries.append(.init(bookID: id, values: values, sourceURL: sourceURLs[id],
                                      state: BookMetadataRowState(isLocked: false)))
             case let (before?, now?):
-                guard !now.isLocked, now.rowState == before.rowState, now.values != values else { continue }
+                // 読みが空になっても行は消さない(空の値の書き込みは行の削除になり、直した欄・ルールセット・取り込みの印まで消えた。
+                // 2026-09-23 の 3 回目の監査の低)。
+                guard !values.isEmpty, !now.isLocked, now.rowState == before.rowState, now.values != values else { continue }
                 entries.append(.init(bookID: id, values: values, onlyIfUnlocked: true))
             default:
                 continue

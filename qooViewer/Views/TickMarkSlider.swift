@@ -125,8 +125,10 @@ struct TickMarkSlider: NSViewRepresentable {
     ///   21本でも15pt間隔になり、まだ1本1本を見分けられる。
     static func tickValues(in range: ClosedRange<Double>, step: Double, maximum: Int = 21) -> [Double] {
         let span = range.upperBound - range.lowerBound
-        guard span > 0, maximum >= 2 else { return [] }
-        let step = step > 0 ? step : span / 1000
+        // 範囲・刻みが有限であること(無限・非数で下の Int への変換がトラップし、ループが終わらない。2026-09-23 の 3 回目の
+        // 監査の低 ―― 今の呼び出しはどれも定数の小さな範囲なので起きないが、防いでおく)。
+        guard range.lowerBound.isFinite, range.upperBound.isFinite, span.isFinite, span > 0, maximum >= 2 else { return [] }
+        let step = step > 0 && step.isFinite ? step : span / 1000
 
         guard let spacing = tickSpacing(span: span, step: step, maximum: maximum) else { return [] }
 
@@ -134,9 +136,11 @@ struct TickMarkSlider: NSViewRepresentable {
         let slack = step / 1000
         var values: [Double] = []
         var index = (range.lowerBound / spacing).rounded(.up)
-        while true {
+        // 本数は多くても maximum(+ 端の余裕)。index が大きすぎて 1 を足しても変わらない値でも回り続けないよう、回数で止める。
+        for _ in 0..<(maximum + 2) {
             let value = index * spacing
-            if value > range.upperBound + slack { break }
+            // 1 を足しても値が進まない(桁が足りない)なら、同じ値を並べずに止める。
+            if value > range.upperBound + slack || values.last.map({ value <= $0 }) == true { break }
             if value >= range.lowerBound - slack {
                 values.append(min(max(value, range.lowerBound), range.upperBound))
             }
@@ -148,8 +152,10 @@ struct TickMarkSlider: NSViewRepresentable {
     /// 目盛りの間隔。丸い数の候補を細かい方から見て、本数が収まる最初のものを採る。
     private static func tickSpacing(span: Double, step: Double, maximum: Int) -> Double? {
         func fits(_ spacing: Double) -> Bool {
-            let count = Int((span / spacing).rounded(.down)) + 1
-            return count >= 2 && count <= maximum
+            // Int へ変える前に大きさを見る(巨大な範囲で Int の変換がトラップしないように)。
+            let intervals = (span / spacing).rounded(.down)
+            guard intervals.isFinite, intervals + 1 <= Double(maximum) else { return false }
+            return Int(intervals) + 1 >= 2
         }
 
         // 1・2・5の10の冪倍。2.5系(0.25や25)は入れない ―― 間隔は「きりのいい数字」である

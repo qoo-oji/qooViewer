@@ -131,6 +131,16 @@ final class BookmarkStore: ObservableObject {
     /// 同じ理由の保険。通常はbookmarksDidChangeの送受信だけで同期が取れるはずだが、
     /// 万一取りこぼした場合の保険として残しておく)。
 
+    /// 並べ方を保存先から読み直す(保存データの JSON から環境設定を取り込んだ後。FavoritesStore の同名のコメント)。
+    func reloadSortOptionsFromDefaults() {
+        let sort = FavoritesSortOption(rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? "")
+            ?? .nameAscending
+        if sort != sortOption { sortOption = sort }
+        let bookSort = FavoritesSortOption(rawValue: UserDefaults.standard.string(forKey: Self.bookSortOptionDefaultsKey) ?? "")
+            ?? .nameAscending
+        if bookSort != bookSortOption { bookSortOption = bookSort }
+    }
+
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
         self.sortOption = FavoritesSortOption(

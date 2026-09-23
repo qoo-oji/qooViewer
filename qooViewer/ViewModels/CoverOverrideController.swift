@@ -259,6 +259,12 @@ final class CoverOverrideController: ObservableObject {
             scopedURLs.append(bookURL)
         }
         guard snapshot.imageFileURL != nil || bookURL != nil else { return nil }
+        // 本を開く読み込みは、表示名の読み込みと同じ枠(同時に 2 冊)で順番を待つ。待っている間にカーソルが離れた
+        // (呼び出し元が取り消された)なら始めない(2026-09-23 の 3 回目の監査の低: 以前は枠も取り消しの確かめも無く、名前の列を
+        // なぞるだけで本の読み込みが何冊も重なった)。
+        await acquireNameLoadSlot()
+        defer { releaseNameLoadSlot() }
+        guard !Task.isCancelled else { return nil }
         return await CoverImageResolver.coverImage(bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize)
     }
 

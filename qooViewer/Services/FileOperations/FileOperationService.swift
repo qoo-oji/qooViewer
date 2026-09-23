@@ -76,7 +76,8 @@ actor FileOperationService {
             try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
         }
         changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination),
-                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination)))
+                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination),
+                                         replacedIntoTrash: Self.replacedIntoTrash(outcome.receipts)))
         return outcome
     }
 
@@ -90,7 +91,8 @@ actor FileOperationService {
             }
         }
         changeObserver?(FileSystemChange(relocations: outcome.receipts.map { .init(from: $0.source, to: $0.destination) },
-                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination)))
+                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination),
+                                         replacedIntoTrash: Self.replacedIntoTrash(outcome.receipts)))
         return outcome
     }
 
@@ -261,6 +263,13 @@ actor FileOperationService {
         return outcome
     }
 
+    /// 「置き換える」で置き換えた項目のうちゴミ箱へ送ったもの(行き先 → ゴミ箱の中。`FileSystemChange.replacedIntoTrash`)。
+    private nonisolated static func replacedIntoTrash(_ receipts: [TransferReceipt]) -> [FileSystemChange.Relocation] {
+        receipts.compactMap { receipt in
+            receipt.replacedItemInTrash.map { FileSystemChange.Relocation(from: receipt.destination, to: $0) }
+        }
+    }
+
     /// ゴミ箱を経由しない完全削除。**取り消せない** ―― 呼び出し側は必ず事前に確認を取る
     /// (「この項目はすぐに削除されます。この操作は取り消せません。」計画 §4)。
     ///
@@ -276,6 +285,12 @@ actor FileOperationService {
             let failure: String? = await FileIO.perform {
                 guard Self.itemExists(at: item) else {
                     return String(localized: "The item could not be found.", language: AppLanguage.currentLocale)
+                }
+                // **ボリュームそのもの・ボリュームがマウントされているフォルダは消さない**(2026-09-23 の 3 回目の監査の高 1)。
+                // `removeItem` はマウントの境界を越えて中へ降りるので、マウントポイントを渡すとボリュームの中身を全部消してから
+                // 最後の rmdir だけが EBUSY で失敗する(使い捨てのディスクイメージで実測)。画面は淡色にし入口でも断るが、最後の砦はここ。
+                if Self.containsMountPoint(item) {
+                    return FileOperationError.volumeCannotBeDeleted(item).localizedDescription
                 }
                 // ロックの確かめ・外す・消すを**1 つのかたまり**にする(往復を分けると、その隙間で止まったときに
                 // ロックだけ外れた状態が残る)。
@@ -305,6 +320,7 @@ actor FileOperationService {
     /// ゴミ箱から元の場所へ戻す(TrashCommand の Undo)。**元の場所に何かあれば上書きしない**(失敗として返す)。
     func restoreFromTrash(_ receipts: [TrashReceipt]) async -> RestoreOutcome {
         var outcome = RestoreOutcome()
+        var returned: [FileSystemChange.Relocation] = []
         for receipt in receipts {
             guard let trashURL = receipt.trashURL else {
                 outcome.failures.append(FailedItem(
@@ -341,9 +357,10 @@ actor FileOperationService {
                 outcome.failures.append(FailedItem(url: receipt.originalURL, reason: failure))
             } else {
                 outcome.restored.append(receipt.originalURL)
+                returned.append(.init(from: trashURL, to: receipt.originalURL))
             }
         }
-        changeObserver?(FileSystemChange(created: outcome.restored))
+        changeObserver?(FileSystemChange(created: outcome.restored, returnedFromTrash: returned))
         return outcome
     }
 
@@ -1062,6 +1079,22 @@ actor FileOperationService {
             if stopAtFirst { break }
         }
         return result
+    }
+
+    /// `item` がマウントポイントそのものか、配下にマウントポイントを含むか(完全削除が断る。`deletePermanently`)。
+    ///
+    /// マウント表のパスは実在のパス(`/private/tmp/…`)なので、親フォルダだけシンボリックリンクを解いて比べる(項目自身は解かない ――
+    /// ボリュームを指すシンボリックリンクを消すのはリンクだけで、中へは降りない)。**ファイルに触る**ので `FileIO` の上で呼ぶ。
+    nonisolated static func containsMountPoint(_ item: URL, mounts: MountTable = .current()) -> Bool {
+        let parent = item.deletingLastPathComponent().resolvingSymlinksInPath()
+        let resolved = parent.appendingPathComponent(item.lastPathComponent)
+        return containsMountPoint(path: resolved.path, mounts: mounts) || containsMountPoint(path: item.path, mounts: mounts)
+    }
+
+    /// `path` の文字列だけで、マウントポイントそのものか配下にマウントポイントを含むかを答える(ファイルに触らない。画面の淡色用)。
+    nonisolated static func containsMountPoint(path: String, mounts: MountTable) -> Bool {
+        let target = MountTable.normalized(path)
+        return mounts.entries.contains { MountTable.path($0.mountPoint, isAtOrUnder: target) }
     }
 
     /// シンボリックリンク自体も「ある」と数える(fileExists はリンクを辿るので、リンク切れを「無い」と誤る)。

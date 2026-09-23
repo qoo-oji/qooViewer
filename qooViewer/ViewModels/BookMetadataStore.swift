@@ -641,8 +641,41 @@ final class BookMetadataStore: ObservableObject {
     /// 追えるようにしておく)。
     private(set) var lastSaveErrorMessage: String?
 
-    private static func makeBookmarkData(for url: URL) -> Data? {
+    private nonisolated static func makeBookmarkData(for url: URL) -> Data? {
         try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    /// 本の場所の手がかり(ブックマークと識別子)。**ファイルに触る**ので、多くの本をまとめて作るときはメインの外で
+    /// (`fillLocators`。2026-09-23 の 3 回目の監査の低: メタデータの編集ウインドウの一括の操作で、数千冊ぶんをメインで作っていた)。
+    nonisolated static func makeLocator(for url: URL) -> (bookmark: Data?, identifier: FileNodeIdentifier?) {
+        (makeBookmarkData(for: url), FileNodeIdentifier.current(for: url))
+    }
+
+    /// 手がかりの無い行に、メインの外で作った手がかりを入れる(`upsertAll` の `sourceURL` と同じく、まだ無いときだけ)。
+    /// 行の値・形は変えないので、変更の知らせは出さない。
+    func fillLocators(_ locators: [String: (bookmark: Data?, identifier: FileNodeIdentifier?)]) {
+        let byBookID = metadataByBookID()
+        var changed = false
+        for (bookID, locator) in locators {
+            guard let row = byBookID[bookID] else { continue }
+            if row.bookmarkData == nil, let bookmark = locator.bookmark {
+                row.bookmarkData = bookmark
+                changed = true
+            }
+            if FileNodeIdentifier.needsBackfill(row.fileNodeIdentifier), let identifier = locator.identifier {
+                row.inodeNumber = identifier.inodeNumber
+                row.volumeDeviceNumber = identifier.volumeDeviceNumber
+                row.volumeUUID = identifier.volumeUUID
+                changed = true
+            }
+        }
+        guard changed else { return }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("fillLocators save() failed: \(error)")
+        }
     }
 
     private func saveAndNotify(bookID: String) {

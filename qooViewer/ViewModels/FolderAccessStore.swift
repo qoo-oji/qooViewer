@@ -70,7 +70,7 @@ final class FolderAccessStore: ObservableObject {
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
             volumeObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reload() }
+                MainActor.assumeIsolated { self?.reload(reusingOpenedFolders: true) }
             })
         }
     }
@@ -182,17 +182,22 @@ final class FolderAccessStore: ObservableObject {
         )
     }
 
-    private func reload() {
+    /// - Parameter reusingOpenedFolders: いま開いているフォルダ(ブックマークに書かれたパスが `accessedURLsByPath` にあるもの)は
+    ///   解決し直さずにそのまま使う。ボリュームの取り付け・取り外しの知らせ(2026-09-23 の 3 回目の監査の中 10)。解決はメインで
+    ///   同期に走り、繋がったまま応答しない共有(眠った NAS など)の許可があると、関係の無い USB を挿しただけで UI が止まった。
+    ///   知らせで要るのは、新しく繋がった(まだ開いていない)フォルダを開くこと、外れたボリュームのフォルダを閉じることだけ。
+    private func reload(reusingOpenedFolders: Bool = false) {
         // 繋がっていないボリュームを指すブックマークは解決しない(解決はディスクイメージを勝手にマウントし直す・秒単位で止まる
         // ことがある。BookLocationResolver のコメント)。パスはブックマークに書かれた値を読むだけで、ファイルには触らない。
         // 保存したブックマーク自体は残す(繋げば、上のボリュームの知らせでまた解決する)。
         let mounts = MountTable.current()
         let newEntries = rawBookmarks()
-            .filter { data in
-                guard let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path else { return true }
-                return !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path))
+            .compactMap { data -> Entry? in
+                let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
+                if let path, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path)) { return nil }
+                if reusingOpenedFolders, let path, let opened = accessedURLsByPath[path] { return Entry(url: opened) }
+                return resolvedURL(from: data).map(Entry.init)
             }
-            .compactMap { resolvedURL(from: $0).map(Entry.init) }
             .sorted { $0.url.path < $1.url.path }
 
         // 一覧から消えたフォルダのアクセスを閉じる。

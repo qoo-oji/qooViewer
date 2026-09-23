@@ -799,11 +799,18 @@ struct CollectionDetailView: View {
     }
 
     /// カバーを引きずり始めた。右クリックと同じく、選んでいる本を掴んだなら選んだ本の全部を運ぶ(contextTargets)。
-    /// ブックマークはここで解決する(ドラッグは出来事の中で始めるので待てない。開くときと同じくメインアクターの上)。
-    /// 見つからない本は運ばない。
+    ///
+    /// **ここではファイルに触らない**(2026-09-23 の 3 回目の監査の中 8)。ドラッグは出来事の中で始めるので待てず、以前はここで
+    /// 選んだ全冊のブックマークの解決と実在確認をメインで行い、1 冊も見つからないとマウスが動くたびにやり直した(寝ている NAS の
+    /// 本を選んで引きずると固まった)。いまは実在確認(`CollectionStore.scheduleExistenceRefresh`。メインの外)が控えた場所を使う:
+    /// 見つかっている本はその URL(ブックマークを解いた URL なので、スコープを開ける)、まだ確かめていない本は記録したパス、
+    /// 見つからない・繋がっていないボリュームの本は運ばない。
     private func beginDrag(from item: CollectionItem) {
         guard !HomeBookDragSource.isDragging else { return }
-        let urls = contextTargets(for: item).compactMap { collectionStore.resolvedExistingURL(for: $0) }
+        let urls = contextTargets(for: item).compactMap { target -> URL? in
+            guard let location = collectionStore.cachedLocation(for: target) else { return URL(fileURLWithPath: target.bookID) }
+            return location.url
+        }
         HomeBookDragSource.begin(
             books: urls.map { url in
                 let name = url.lastPathComponent

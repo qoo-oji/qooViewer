@@ -56,7 +56,7 @@ enum HomeBookDragTracker {
         sourceAppState = appState
         // アプリの中のファイルブラウザへ落としたときに「アプリの中から」と読ませる(外からのドロップを「ビューアで開く」設定でも、
         // 本をコピーする。許しているのはコピーだけ)。
-        FileBrowserDragTracker.begin(urls)
+        FileBrowserDragTracker.begin(urls, allowsMove: false)
     }
 
     static func end() {

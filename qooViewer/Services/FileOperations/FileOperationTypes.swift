@@ -303,6 +303,8 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case replacedItemKept(backup: URL, target: URL)
     /// ボリュームそのもの(マウントポイント)を移動しようとした。
     case volumeCannotBeMoved(URL)
+    /// ボリュームそのもの、またはボリュームがマウントされているフォルダを完全に削除しようとした(2026-09-23 の 3 回目の監査の高 1)。
+    case volumeCannotBeDeleted(URL)
 }
 
 extension FileOperationError: LocalizedError {
@@ -365,6 +367,10 @@ extension FileOperationError: LocalizedError {
             return String(format: String(localized: "“%@” is locked.", language: locale), url.lastPathComponent)
         case let .volumeCannotBeMoved(url):
             return String(format: String(localized: "“%@” is a volume, so it can’t be moved.", language: locale), url.lastPathComponent)
+        case let .volumeCannotBeDeleted(url):
+            return String(
+                format: String(localized: "“%@” is a volume or contains one, so it can’t be deleted.", language: locale), url.lastPathComponent
+            )
         case let .replacedItemKept(backup, target):
             return String(
                 format: String(localized: "“%1$@” was replaced, but the original couldn’t be moved to the Trash. It was kept as the hidden item “%2$@” in the same folder.", language: locale),

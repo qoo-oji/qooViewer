@@ -187,6 +187,50 @@ struct LibraryBackupTests {
         #expect(target.keyBindings.keyBindings["space"] == ViewerAction.moveNext)
     }
 
+    @Test("範囲の外・種類の違う設定を取り込んでも落ちず、読むときに範囲へ収める(2026-09-23 の 3 回目の監査の中 3)")
+    func importedSettingsAreKeptInRange() async throws {
+        let library = try InMemoryLibrary(label: "backup-crafted")
+        defer { library.close() }
+        library.backupDefaults.set(true, forKey: "qooViewer.pref.autoHideCursor")
+        let crafted = ExportedSettings(values: [
+            "qooViewer.pref.thumbnailHoverPreviewDelay": .double(1e30),
+            "qooViewer.pref.prefetchPageCount": .double(-1e300),
+            "qooViewer.pref.slideshowInterval": .int(1_000_000),
+            "qooViewer.pref.autoHideCursor": .string("yes"),
+        ])
+        #expect(SettingsBackup.apply(crafted, to: library.backupDefaults) == 3, "種類の違う値は書かない")
+        #expect(library.backupDefaults.object(forKey: "qooViewer.pref.autoHideCursor") as? Bool == true)
+
+        let reloaded = AppPreferences(defaults: library.backupDefaults)
+        #expect(reloaded.thumbnailHoverPreviewDelay == AppPreferences.thumbnailHoverPreviewDelayRange.upperBound)
+        #expect(reloaded.thumbnailHoverPreviewDelayNanoseconds == 1_000_000_000)
+        #expect(reloaded.prefetchPageCount == 0)
+        #expect(reloaded.slideshowInterval == 30)
+    }
+
+    @Test("取り込みは保管件数を下げない(下げると履歴と読書位置が消える。2026-09-23 の 3 回目の監査の中 4)")
+    func importDoesNotLowerRetentionLimits() throws {
+        let library = try InMemoryLibrary(label: "backup-retention")
+        defer { library.close() }
+        let preferences = library.preferences
+        preferences.recentFilesLimit = 150
+        preferences.maxTrackedBooksCount = 1500
+        _ = SettingsBackup.apply(ExportedSettings(values: [
+            AppPreferences.recentFilesLimitDefaultsKey: .double(20),
+            "qooViewer.pref.maxTrackedBooksCount": .double(50),
+        ]), to: library.backupDefaults)
+        preferences.reloadFromDefaults()
+        #expect(preferences.recentFilesLimit == 150)
+        #expect(preferences.maxTrackedBooksCount == 1500)
+        #expect(library.backupDefaults.double(forKey: AppPreferences.recentFilesLimitDefaultsKey) == 150, "保存先が小さい値のまま")
+
+        // 上げるのは取り込む。
+        _ = SettingsBackup.apply(ExportedSettings(values: [AppPreferences.recentFilesLimitDefaultsKey: .double(180)]),
+                                 to: library.backupDefaults)
+        preferences.reloadFromDefaults()
+        #expect(preferences.recentFilesLimit == 180)
+    }
+
     @Test("アクセス権・履歴・そのときの状態は書き出さない")
     func excludedKeysAreNotExported() {
         #expect(!SettingsBackup.isBackupKey(FolderAccessStore.defaultsKey))
@@ -200,6 +244,10 @@ struct LibraryBackupTests {
         #expect(!SettingsBackup.isBackupKey(FavoriteLocationStore.defaultsKey))
         #expect(!SettingsBackup.isBackupKey(AutoRenameStore.defaultsKey))
         // 設定は拾う。
+        // 前回のフォルダ・固定の保存先(ブックマークとそのパスの控え)。
+        for key in LastUsedFolderMemory.libraryIO.defaultsKeys + LastUsedFolderMemory.fixedExportFolder(.epub).defaultsKeys {
+            #expect(!SettingsBackup.isBackupKey(key), "\(key) を書き出す")
+        }
         #expect(SettingsBackup.isBackupKey("qooViewer.pref.slideshowInterval"))
         #expect(SettingsBackup.isBackupKey("qooViewer.keyBindings.v1"))
     }

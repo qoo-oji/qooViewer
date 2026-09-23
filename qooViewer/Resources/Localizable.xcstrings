@@ -507,6 +507,38 @@
         }
       }
     },
+    "To remove a volume, eject it in the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To remove a volume, eject it in the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボリュームを取り外すには、Finder で取り出してください。"
+          }
+        }
+      }
+    },
+    "“%@” is a volume or contains one, so it can’t be deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is a volume or contains one, so it can’t be deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はボリュームか、ボリュームを含んでいるので削除できません。"
+          }
+        }
+      }
+    },
     "“%@” is locked." : {
       "localizations" : {
         "en" : {

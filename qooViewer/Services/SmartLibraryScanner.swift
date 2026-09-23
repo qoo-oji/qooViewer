@@ -121,9 +121,14 @@ nonisolated enum SmartLibraryScanner {
             candidates.insert(parent)
         }
         let sortedImageFolders = candidates.filter { $0 != normalizedRoot }.sorted()
+        // 祖先は子より先に並ぶ(並べ替え済み)ので、先に本にしたフォルダの配下なら外す。祖先を辿って確かめる(本のフォルダを
+        // 1 つずつ比べると 2 乗になる。2026-09-23 の 3 回目の監査の低 ―― 下の書庫の除外も同じ)。
         var bookFolders: [String] = []
-        for folder in sortedImageFolders where !bookFolders.contains(where: { MountTable.path(folder, isAtOrUnder: $0) }) {
+        var bookFolderSet = Set<String>()
+        for folder in sortedImageFolders where !MountTable.path(folder, isAtOrUnderAnyOf: bookFolderSet) {
+            if Cancellation.isRequestedInCurrentScope { return }
             bookFolders.append(folder)
+            bookFolderSet.insert(MountTable.normalized(folder))
         }
         // 本にしたものだけ、表紙の鍵を作る(1 冊に 1 回の lstat。ネットワークでもフォルダを列挙した直後は属性のキャッシュに載っている)。
         for folder in bookFolders where seen.insert(folder).inserted {
@@ -134,7 +139,7 @@ nonisolated enum SmartLibraryScanner {
         }
         // 本のフォルダの中にある書庫・PDF・EPUB は、そのフォルダの本のページ(BookLoader はフォルダの本の中の書庫も読み込む)なので、
         // 別の本として重ねて並べない(2026-09-22 の監査。以前は「フォルダの本は画像だけを読む」として 1 冊ずつ数えていたが、誤り)。
-        for var file in files where !bookFolders.contains(where: { MountTable.path(file.path, isAtOrUnder: $0) })
+        for var file in files where !MountTable.path(file.path, isAtOrUnderAnyOf: bookFolderSet)
             && seen.insert(file.path).inserted {
             file.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: file.path), mountTable: mountTable)
             result.books.append(file)

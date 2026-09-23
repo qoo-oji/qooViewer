@@ -73,8 +73,9 @@ struct HomeMenuState: Equatable {
     var selectedCollectionIDs: [UUID] = []
     /// コレクションの中で選んでいる本(表示順)。
     var selectedItemIDs: [UUID] = []
-    /// スマートライブラリで選んでいる本のパス(2026-09-23。束は含めない)。メニューバーの「Finder で表示」「ファイルブラウザで表示」
-    /// 「メタデータの編集…」が相手にする。
+    /// スマートライブラリで選んでいる本のパス(2026-09-23。束は含めない。**多くても 2 つ** ―― 見るのは 1 冊だけかどうかなので。
+    /// `SmartLibraryViewState.selectedBookPaths`)。メニューバーの「Finder で表示」「ファイルブラウザで表示」「メタデータの編集…」が
+    /// 相手にする。
     var smartBookPaths: [String] = []
 
     // 表示メニューのチェックマーク(ホーム画面の間は、表示メニューの中身がこれに入れ替わる)。

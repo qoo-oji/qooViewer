@@ -416,6 +416,8 @@ struct LibraryImportWindow: View {
                 smartLibrary: smartLibraryPolicy, fileBrowser: fileBrowserPolicy,
                 settings: settingsPolicy
             )
+            // シーンが `.modelContext` を注入し忘れると、既定の空のコンテキストへ書いて何も残らない(高 2)。
+            assert(modelContext.container === QooViewerApp.modelContainer, "libraryImport のシーンに .modelContext が無い")
             summary = await LibraryImportExportService.apply(
                 loadedFile, policies: policies,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,

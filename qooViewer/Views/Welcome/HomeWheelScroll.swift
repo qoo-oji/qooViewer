@@ -31,9 +31,24 @@ enum HomeWheelScroll {
     ///
     /// - Parameter distance: 1ノッチで動かす距離(pt)。0以下なら何もしない(= 標準の挙動のまま)。
     static func apply(_ event: NSEvent, to scrollView: NSScrollView?, distancePerNotch distance: CGFloat) -> Bool {
-        guard distance > 0, isWheelOriginated(event), event.deltaY != 0, event.deltaX == 0,
-              let bounds = ScrollViewBounds(scrollView)
-        else { return false }
+        guard distance > 0, isWheelOriginated(event), event.deltaY != 0, event.deltaX == 0 else { return false }
+        // 見出しのある一覧(NSTableView / NSOutlineView)は、クリップビューの上の余白(contentInsets)に見出しが載り、一番上の
+        // 位置が y = −見出しの高さになる(実測: 見出し 28pt で origin.y = −28)。`ScrollViewBounds` は 0 から数えるので、一番上で
+        // 上へ回すと 1 行目が見出しの下へ隠れ、ホイールでは一番上へ戻れなかった(2026-09-23 の 3 回目の監査の低)。余白の
+        // ある上下反転の一覧は、余白ぶんを含めて動かす。
+        if let scrollView, let documentView = scrollView.documentView, documentView.isFlipped {
+            let clip = scrollView.contentView
+            let insets = clip.contentInsets
+            if insets.top != 0 || insets.bottom != 0 {
+                let minY = -insets.top
+                let maxY = max(documentView.frame.height - clip.bounds.height + insets.bottom, minY)
+                let y = min(max(clip.bounds.origin.y - event.deltaY * distance, minY), maxY)
+                clip.scroll(to: CGPoint(x: clip.bounds.origin.x, y: y))
+                scrollView.reflectScrolledClipView(clip)
+                return true
+            }
+        }
+        guard let bounds = ScrollViewBounds(scrollView) else { return false }
         var position = bounds.position
         // ノッチ数は`scrollingDeltaY`ではなく`deltaY`から取る(機器によらず1ノッチ=±1に
         // 正規化されている。理由と実測値はThumbnailGridView.handleWheelのコメント)。
@@ -113,7 +128,10 @@ private final class WheelMonitor {
     func install(scrollBox: ScrollGeometryBox) {
         guard token == nil else { return }
         token = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollBox] event in
-            guard let self, let scrollView = scrollBox?.scrollView,
+            // トラックパッドの細かい出来事や横のホイールは、ヒットテストの前に素通しする(アプリ中のスクロールの出来事ごとに
+            // hitTest を走らせない。2026-09-23 の 3 回目の監査の低)。
+            guard let self, self.distance > 0, HomeWheelScroll.isWheelOriginated(event), event.deltaY != 0, event.deltaX == 0,
+                  let scrollView = scrollBox?.scrollView,
                   let window = scrollView.window, event.window === window,
                   let contentView = window.contentView,
                   // 矩形の内外ではなくヒットテストで見る(上に重なっているものを横取りしない。

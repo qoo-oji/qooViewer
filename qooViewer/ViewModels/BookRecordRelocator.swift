@@ -35,20 +35,32 @@ final class BookRecordRelocator {
     /// 付け替える。返す Task は付け替えが済むまで(呼び出し側はその後で実体確認をやり直す。テストも待つ)。
     @discardableResult
     func apply(_ change: FileSystemChange) -> Task<Void, Never> {
+        // メタデータ生成が覚えている本のパスも付け替える(MetadataGenerator.relocate。テストの中ではアプリの 1 つが無い)。
+        MetadataGenerator.appWide?.relocate(using: change)
         let previous = tail
         // 付け替えが済むまで自分を持っておく(途中で手放されると、知らせを受けたのに付け替えが消える)。
         let task = Task { @MainActor [self] in
             await previous?.value
-            // 「置き換える」で置き換えられた本の保存データは、先に消す(2026-09-22 の監査)。残すと、置き換えた新しい本がそのパスで
-            // 古い本の読書位置・ブックマーク・メタデータを引き継ぎ、移してきた本の保存データは「移った先に行がある」で付け替わらず
-            // 実在しないパスに取り残された。置き換えられた本はゴミ箱へ行っている(ゴミ箱の中の本は「無い」扱い ――
-            // BookLocationResolver.isInTrash)ので、その保存データを持ち続ける先が無い。
-            self.eraseReplaced(change.replaced)
-            guard !change.relocations.isEmpty else { return }
+            // 「置き換える」で置き換えられた本の保存データは、置いた本へ引き継がせない(2026-09-22 の監査)。残すと、置き換えた新しい本が
+            // そのパスで古い本の読書位置・ブックマーク・メタデータを引き継ぎ、移してきた本の保存データは「移った先に行がある」で
+            // 付け替わらず実在しないパスに取り残された。
+            // - 置き換えられた本が**ゴミ箱へ行った**なら、保存データもゴミ箱の中のパスへ付け替える(2026-09-23 の 3 回目の監査の中 1)。
+            //   ゴミ箱の中の本は「無い」扱い(BookLocationResolver.isInTrash)だが消えてはいないので、⌘Z で項目を戻せば
+            //   `returnedFromTrash` で保存データも戻る。以前はここで一式(コレクションの所属・ブックマーク・ロック)を消していて、
+            //   フォルダを置き換えると配下の全冊のデータが戻らなかった。
+            // - ゴミ箱へ行かなかった(ゴミ箱の無い場所ですぐに消した・隠し項目として残した)ものだけ、ここで消す。
+            let trashed = Set(change.replacedIntoTrash.map { MountTable.normalized($0.from.path) })
+            self.eraseReplaced(change.replaced.filter { !trashed.contains(MountTable.normalized($0.path)) })
+            // 置き換えられた本が先にゴミ箱へ出て、そこへ移してきた本が入る(起きた順につなぐ。FileSystemChange.relocatedPath)。
+            let relocations = change.replacedIntoTrash + change.relocations + change.returnedFromTrash
+            guard !relocations.isEmpty else { return }
+            var ordered = FileSystemChange(relocations: relocations)
+            ordered.relocationsAreSimultaneous = change.relocationsAreSimultaneous
             let known = self.knownBookIDs()
             guard !known.isEmpty else { return }
+            let planned = ordered
             let plan = await Task.detached(priority: .utility) {
-                BookRelocationPlan.make(knownBookIDs: known, change: change)
+                BookRelocationPlan.make(knownBookIDs: known, change: planned)
             }.value
             guard !plan.isEmpty else { return }
             self.favoritesStore?.applyBookRelocation(plan)

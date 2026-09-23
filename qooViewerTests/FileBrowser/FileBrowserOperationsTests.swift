@@ -27,9 +27,13 @@ struct FileBrowserOperationsTests {
         private(set) var replacingDeletesImmediately: [Bool] = []
         private(set) var problems: [FileBrowserProblem] = []
 
+        /// 「すぐに削除されます」の確認が出ている間に起こすこと(別のウインドウで本を開くなど)。
+        var whileDeletionPromptIsUp: (() -> Void)?
+
         func confirmImmediateDeletion(of urls: [URL], reason: ImmediateDeletionReason) async -> Bool {
             deletionPrompts.append(urls)
             deletionReasons.append(reason)
+            whileDeletionPromptIsUp?()
             return confirmsDeletion
         }
 
@@ -746,6 +750,33 @@ struct FileBrowserOperationsTests {
         #expect(fixture.names(in: fixture.trash).isEmpty)
         #expect(!fixture.state.commandStack.canUndo)
         #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("確認を出している間に別のウインドウで開いた本は、承諾しても消さない(2026-09-23 の 3 回目の監査の中 7)")
+    func deleteImmediatelyRechecksOpenBooksAfterTheConfirmation() async throws {
+        let fixture = try Fixture("fbops-delete-now-opened")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.presenter.confirmsDeletion = true
+        fixture.presenter.whileDeletionPromptIsUp = { [weak state = fixture.state, path = file.path] in
+            state?.operations.openBookPaths = { [path] }
+        }
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        await fixture.finish()
+        #expect(fixture.presenter.deletionPrompts == [[file]])
+        #expect(fixture.exists(file), "確認の間に開いた本を消した")
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("「すぐに削除…」はボリュームそのもの(マウントポイント)を確認の前に断る(2026-09-23 の 3 回目の監査の高 1)")
+    func deleteImmediatelyRefusesAVolume() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "fbops-delete-volume") else { return }
+        let fixture = try Fixture("fbops-delete-volume")
+        fixture.presenter.confirmsDeletion = true
+        fixture.state.operations.deleteImmediately([fixture.entry(volume.mountPoint)])
+        await fixture.finish()
+        #expect(fixture.presenter.deletionPrompts.isEmpty, "確認を出した")
+        #expect(fixture.presenter.problems.count == 1)
+        #expect(FileManager.default.fileExists(atPath: volume.url.path))
     }
 
     @Test("確認を出している間に重ねて頼んだ「すぐに削除…」は、先の操作で消えた項目について尋ねない")

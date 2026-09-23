@@ -79,7 +79,6 @@ nonisolated struct BookExistenceProbe: Sendable {
     /// `evaluateAtRecordedPath` に加えて、ブックマークが別の場所(アプリの外での移動・改名の先)を指し、そこに本があれば
     /// そのパス(`movedTo`)。呼び出し側は保存データをそこへ付け替える(`BookRecordRelocator`)。
     func locateAtRecordedPath() -> (result: Result, movedTo: String?) {
-        let recorded = Self.comparablePath(bookID)
         for data in bookmarkCandidates {
             var isStale = false
             guard let url = try? URL(
@@ -92,7 +91,7 @@ nonisolated struct BookExistenceProbe: Sendable {
             // 弾かないと保存データがゴミ箱の中のパスへ付け替えられた(2026-09-22 の監査)。
             if BookLocationResolver.isInTrash(url) { return (.missing, nil) }
             let result = Self.bookResult(at: url.path)
-            guard Self.comparablePath(url.path) == recorded else {
+            guard Self.isSamePlace(recorded: bookID, resolved: url) else {
                 return (.missing, result == .exists ? url.path : nil)
             }
             return (result, nil)
@@ -107,14 +106,13 @@ nonisolated struct BookExistenceProbe: Sendable {
     /// (`NonBookFolderSweeper`)が、これが true の本の保存データを消す。**確かめられないとき(無い・読めない・ブックマークが
     /// 別の場所を指す)は false** ―― 消すのは、その場所にあって中を読めて、本ではないと分かったフォルダだけ。
     func isNonBookFolderAtRecordedPath() -> Bool {
-        let recorded = Self.comparablePath(bookID)
         for data in bookmarkCandidates {
             var isStale = false
             guard let url = try? URL(
                 resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             ) else { continue }
-            guard Self.comparablePath(url.path) == recorded else { return false }
+            guard Self.isSamePlace(recorded: bookID, resolved: url) else { return false }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             return Self.isNonBookFolder(at: url.path)
@@ -122,17 +120,46 @@ nonisolated struct BookExistenceProbe: Sendable {
         return Self.isNonBookFolder(at: bookID)
     }
 
-    /// `path` が、中を読めるフォルダで、それ自体で 1 冊ではない(`ShelfFolderResolver.isSingleBookFolder` が false)か。
+    /// `path` が**本ではないと確かめられた**フォルダか(起動時の掃除が保存データ一式を消す根拠。`isNonBookFolderAtRecordedPath`)。
+    ///
+    /// 「本ではない」と言い切るのは、次のどちらかを**読み切って**確かめたときだけ(2026-09-23 の 3 回目の監査の中 2)。
+    /// - 直下に画像が無く、書庫・PDF・EPUB が直下にある(本の並んだ棚。`ShelfFolderResolver.isSingleBookFolder` もこれを本としない)。
+    /// - 直下に画像も本のファイルも無く、子フォルダがあり、**子フォルダをすべて読めて**、どれの直下にも画像が無い(中間のフォルダ)。
+    ///
+    /// それ以外(読めない・空・画像を外に出して `Icon\r` や説明の文書だけが残ったフォルダ・子フォルダが 1 つでも読めない・パッケージや
+    /// 保護下の場所の子フォルダがある)は「分からない」として false。以前は `isSingleBookFolder` の false をそのまま使っていたが、
+    /// あちらは列挙の失敗を「画像が無い」と答えるので、章のフォルダが 1 つ読めないだけ(同期の途中・クラウドのフォルダ・権限)で章ごとに
+    /// 画像を分けた本(規則 2)を棚と取り違え、保存データ一式(コレクションの所属・ブックマーク・ロック)を消しえた。
     static func isNonBookFolder(at path: String) -> Bool {
+        let folder = URL(fileURLWithPath: path, isDirectory: true)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue,
-              // 読めないフォルダ(アクセス権が無い)は、本かどうか分からない。isSingleBookFolder はそこでも false を返すので先に弾く。
-              let contents = try? FileManager.default.contentsOfDirectory(atPath: path),
-              // 空のフォルダも本ではないと言い切らない(2026-09-22 の監査。画像を並べ替えるためにいったん外へ出した・同期の途中、の
-              // 本のフォルダの保存データ一式を消しかねない)。隠しファイルだけのフォルダも空とみなす。
-              contents.contains(where: { !$0.hasPrefix(".") })
+              let names = try? FileManager.default.contentsOfDirectory(atPath: path)
         else { return false }
-        return !ShelfFolderResolver.isSingleBookFolder(URL(fileURLWithPath: path, isDirectory: true))
+        var subfolders: [URL] = []
+        var holdsBookFiles = false
+        for name in names where !name.hasPrefix(".") {
+            if isImageFile(name) { return false }
+            let child = folder.appendingPathComponent(name)
+            var childIsDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: child.path, isDirectory: &childIsDirectory) else { continue }
+            if childIsDirectory.boolValue {
+                subfolders.append(child)
+            } else if isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) {
+                holdsBookFiles = true
+            }
+        }
+        if holdsBookFiles { return true }
+        guard !subfolders.isEmpty else { return false }
+        for subfolder in subfolders {
+            // パッケージ(.app など)と、読むと確認のダイアログが出る保護下の場所の子は、中を確かめられない。
+            guard (try? subfolder.resourceValues(forKeys: [.isPackageKey]))?.isPackage != true,
+                  DirectoryProbe.mayReadChild(subfolder, of: folder),
+                  let children = try? FileManager.default.contentsOfDirectory(atPath: subfolder.path)
+            else { return false }
+            if children.contains(where: { !$0.hasPrefix(".") && isImageFile($0) }) { return false }
+        }
+        return true
     }
 
     /// `path` にあるものが本か。無ければ `.missing`、本でないフォルダも `.missing`、中を読めないフォルダは `.unknown`。
@@ -142,6 +169,16 @@ nonisolated struct BookExistenceProbe: Sendable {
         guard isDirectory.boolValue else { return .exists }
         if isNonBookFolder(at: path) { return .missing }
         return ShelfFolderResolver.isSingleBookFolder(URL(fileURLWithPath: path, isDirectory: true)) ? .exists : .unknown
+    }
+
+    /// ブックマークを解いた場所が、記録したパスと同じ場所か。記録したパスがシンボリックリンクを通っている(リンクの先のフォルダを
+    /// 開いた本)ときは、解いた場所はリンクの先の実在のパスになるので、記録したパスのリンクも解いて比べる(2026-09-23 の 3 回目の
+    /// 監査の低: 以前は「動いた」と数え、起動のたびに保存データを実在のパスへ付け替え、リンクから開くと戻す、を繰り返した)。
+    /// **ファイルに触る**(リンクを解く)ので、ほかの確かめと同じくメインの外で呼ぶ。
+    static func isSamePlace(recorded: String, resolved: URL) -> Bool {
+        let resolvedPath = comparablePath(resolved.path)
+        if comparablePath(recorded) == resolvedPath { return true }
+        return comparablePath(URL(fileURLWithPath: recorded).resolvingSymlinksInPath().path) == resolvedPath
     }
 
     /// パスの比べ方を揃える(`/private` の有無と Unicode の正規化。standardizedFileURL の `/private` は実在に左右される)。

@@ -659,7 +659,10 @@ struct FileBrowserIntegrationTests {
 
         let privateFixture = try Fixture("fb-menu-smart-private", isPrivate: true)
         defer { privateFixture.close() }
-        privateFixture.actions.smartLibraryStore = SmartLibraryStore(defaults: privateFixture.suite.defaults)
+        // actions は弱く持つので、手元でも持っておく(持たないとすぐ解放され、下の確かめが「ストアが無い」で淡色になっていた)。
+        let privateStore = SmartLibraryStore(defaults: privateFixture.suite.defaults)
+        privateFixture.actions.smartLibraryStore = privateStore
+        defer { withExtendedLifetime(privateStore) {} }
         let privateFolder = privateFixture.entry(try privateFixture.temporary.directory("shelf"))
         #expect(!FileBrowserMenuCommand.addToSmartLibrary.isEnabled(
             in: FileBrowserMenuContext(kind: .folder, entries: [privateFolder], folder: nil), actions: privateFixture.actions

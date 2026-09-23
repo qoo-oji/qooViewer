@@ -134,6 +134,53 @@ struct ExternalMoveTests {
         #expect(bookmarks.bookmarks.isEmpty)
     }
 
+    @Test("アプリの外で見つけた移動は同じ時点の写しで、互いにつながない: 振り直し・入れ替え(2026-09-23 の 3 回目の監査の高 3)")
+    func movesFoundOutsideTheAppAreSimultaneous() async throws {
+        let library = try InMemoryLibrary(label: "outside-move-simultaneous")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("outside-move-simultaneous")
+        func book(_ name: String, author: String) throws -> URL {
+            let url = temporary.file(name)
+            try Data(author.utf8).write(to: url)
+            _ = library.metadata.upsert(bookID: url.path, author: author, title: "T", series: "", seriesIndex: "", sourceURL: url)
+            return url
+        }
+        // Finder で 2 巻 → 3 巻、1 巻 → 2 巻と振り直した。見つかる一覧は [1 → 2, 2 → 3](記録したパスの順)。
+        let one = try book("vol1.cbz", author: "one"), two = try book("vol2.cbz", author: "two")
+        let three = temporary.file("vol3.cbz")
+        try FileManager.default.moveItem(at: two, to: three)
+        try FileManager.default.moveItem(at: one, to: two)
+        // つなぐと 1 → 3 になり、1 巻の保存データが今の 3 巻に付いた。
+        #expect(FileSystemChange(relocations: [.init(from: one, to: two), .init(from: two, to: three)]).relocatedPath(for: one.path)
+            == three.path)
+        let found = FileSystemChange.foundOutsideTheApp([.init(from: one, to: two), .init(from: two, to: three)])
+        #expect(found.relocatedPath(for: one.path) == two.path)
+        #expect(found.relocatedPath(for: two.path) == three.path)
+        await makeRelocator(library).apply(found).value
+        #expect(library.metadata.metadata(forBookID: two.path)?.author == "one")
+        #expect(library.metadata.metadata(forBookID: three.path)?.author == "two")
+        #expect(library.metadata.metadata(forBookID: one.path) == nil)
+
+        // 入れ替え(A ⇄ B)。
+        let a = try book("a.cbz", author: "a"), b = try book("b.cbz", author: "b")
+        let swap = temporary.file("swap.tmp")
+        try FileManager.default.moveItem(at: a, to: swap)
+        try FileManager.default.moveItem(at: b, to: a)
+        try FileManager.default.moveItem(at: swap, to: b)
+        await makeRelocator(library).apply(FileSystemChange.foundOutsideTheApp([.init(from: a, to: b), .init(from: b, to: a)])).value
+        #expect(library.metadata.metadata(forBookID: a.path)?.author == "b")
+        #expect(library.metadata.metadata(forBookID: b.path)?.author == "a")
+
+        // フォルダと中の本の両方が見つかったら、本自身の組が勝つ(いちばん深い組)。
+        let nested = FileSystemChange.foundOutsideTheApp([
+            .init(from: URL(fileURLWithPath: "/F"), to: URL(fileURLWithPath: "/G")),
+            .init(from: URL(fileURLWithPath: "/F/b.cbz"), to: URL(fileURLWithPath: "/H/b.cbz")),
+        ])
+        #expect(nested.relocatedPath(for: "/F/b.cbz") == "/H/b.cbz")
+        #expect(nested.relocatedPath(for: "/F/c.cbz") == "/G/c.cbz")
+        #expect(nested.relocatedPath(for: "/Fx/c.cbz") == nil)
+    }
+
     @Test("動かす組は付け替えの後の姿で決める: 出ていく行の先は空く・止まった行の先へは入らない・入れ替えもできる(2026-09-22 の監査)")
     func movesAreDecidedAfterTheRelocation() {
         func plan(_ pairs: [String: String]) -> BookRelocationPlan {

@@ -78,9 +78,8 @@ final class SmartLibraryStore: ObservableObject {
     /// バックアップ(保存データの JSON)から取り込む。
     ///
     /// - Parameters:
-    ///   - folderPaths: 対象フォルダの**パス**。権限は持ち出せないので、**その場所に実際に
-    ///     フォルダがあるときだけ**登録する(コレクションの自動登録フォルダと同じ規則。
-    ///     フォルダがあっても読むには別途「アクセスを許可」が要る)。
+    ///   - folderPaths: 対象フォルダの**パス**。権限は持ち出せないので、繋がっているローカルのボリュームで
+    ///     **フォルダが無いものだけ落とす**(`BackupFolderPaths`。読むには別途「アクセスを許可」が要る)。
     ///   - replacingExisting: overwrite なら手元のスマートコレクション・対象フォルダ・ピン留めを
     ///     捨ててから入れる。merge なら、スマートコレクションは id が同じものを飛ばし、
     ///     対象フォルダは同じパスを飛ばし、ピン留めは足し合わせる。
@@ -101,14 +100,13 @@ final class SmartLibraryStore: ObservableObject {
             addedShelves += 1
         }
         var addedFolders = 0
+        let mounts = MountTable.current()
         for path in folderPaths {
             let normalized = MountTable.normalized(path)
             guard !folders.contains(where: { $0.path == normalized }) else { continue }
-            // 実在するフォルダだけ(自動登録フォルダと同じ規則)。
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory),
-                  isDirectory.boolValue
-            else { continue }
+            // 繋がっているローカルのボリュームで無いフォルダだけ落とす(繋がっていないボリュームの上のものは残す。
+            // BackupFolderPaths。2026-09-23 の 3 回目の監査の中 5)。
+            guard BackupFolderPaths.shouldImport(normalized, mounts: mounts) else { continue }
             folders.append(Folder(id: UUID(), path: normalized))
             addedFolders += 1
         }

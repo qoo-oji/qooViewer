@@ -493,7 +493,8 @@ final class AutoRenameService: ObservableObject {
                         && (item.folder == target.path || target.includesSubfolders)
                 }
                 guard isCurrent(generation) else { return }
-                if items.isEmpty {
+                // 取り込んだ規則は、変えるものが無くても利用者の確認を待つ(AutoRenameTarget.awaitsReviewAfterImport)。
+                if items.isEmpty, target.awaitsReviewAfterImport != true {
                     noChanges.insert(target.id)
                 } else {
                     awaiting.insert(target.id)

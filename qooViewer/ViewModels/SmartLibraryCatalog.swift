@@ -90,7 +90,10 @@ final class SmartLibraryCatalog: ObservableObject {
         // 付けた後も残った)。画面が出ていなくても捨てる。
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            // 知らせを出すスレッドは文書に無いので、メインで受ける(ほかの購読と同じ。assumeIsolated がメインの外でトラップしない
+            // ように。2026-09-23 の 3 回目の監査の低)。
             workspace.publisher(for: name)
+                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in MainActor.assumeIsolated { self?.handleVolumeChange() } }
                 .store(in: &volumeSubscriptions)
         }

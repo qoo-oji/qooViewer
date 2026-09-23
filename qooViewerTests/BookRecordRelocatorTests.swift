@@ -117,6 +117,35 @@ struct BookRecordRelocatorTests {
         #expect(states.isEmpty, "置き換えられた本の読書位置は消える(移した本は読書位置を持っていなかった)")
     }
 
+    @Test("置き換えられた本がゴミ箱へ行ったなら、保存データもゴミ箱の中へ付け替え、⌘Z で戻すと元へ戻る(2026-09-23 の 3 回目の監査の中 1)")
+    func aReplacedBookThatWentToTheTrashKeepsItsData() async throws {
+        let library = try InMemoryLibrary(label: "relocator-replace-trash")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("relocator-replace-trash")
+        let from = temporary.file("from"), to = temporary.file("to"), trashed = temporary.file("PseudoTrash/to")
+        try makeBookFolder(at: from)
+        try makeBookFolder(at: to)
+        #expect(library.bookmarks.addBookmark(bookID: from.path, pageIndex: 0, name: "moved"))
+        #expect(library.bookmarks.addBookmark(bookID: to.path, pageIndex: 0, name: "replaced"))
+        library.context.insert(BookReadingState(bookID: to.path, lastPageIndex: 9))
+        try library.context.save()
+        let relocator = makeRelocator(library)
+
+        await relocator.apply(FileSystemChange(
+            relocations: [.init(from: from, to: to)], replaced: [to], replacedIntoTrash: [.init(from: to, to: trashed)]
+        )).value
+        #expect(library.bookmarks.bookmarks(forBookID: to.path).map(\.name) == ["moved"])
+        #expect(library.bookmarks.bookmarks(forBookID: trashed.path).map(\.name) == ["replaced"], "置き換えられた本の保存データを消した")
+        #expect(try library.context.fetch(FetchDescriptor<BookReadingState>()).map(\.bookID) == [trashed.path])
+
+        // ⌘Z: 移した本を元へ戻し(移動の取り消し)、置き換えられた本をゴミ箱から戻す。
+        await relocator.apply(FileSystemChange(relocations: [.init(from: to, to: from)])).value
+        await relocator.apply(FileSystemChange(returnedFromTrash: [.init(from: trashed, to: to)])).value
+        #expect(library.bookmarks.bookmarks(forBookID: from.path).map(\.name) == ["moved"])
+        #expect(library.bookmarks.bookmarks(forBookID: to.path).map(\.name) == ["replaced"])
+        #expect(try library.context.fetch(FetchDescriptor<BookReadingState>()).map(\.bookID) == [to.path])
+    }
+
     @Test("別ボリュームへ移した本も付いていく: inode とブックマークを新しい場所で取り直し、棚で「見つからない」にならない")
     func recordsFollowAMoveToAnotherVolume() async throws {
         // 以前は inode が変わるので追えず(docs/06「ボリュームをまたぐ移動は諦める」)、棚では見つからない本になり、次の起動の掃除の候補に挙がった。

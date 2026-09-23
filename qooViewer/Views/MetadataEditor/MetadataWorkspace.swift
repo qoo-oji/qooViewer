@@ -267,9 +267,13 @@ final class MetadataWorkspace {
     }
 
     /// 開く(メタデータ生成が読み終えるのを待ってから並べる)。
-    static func open(generator: MetadataGenerator, store: BookMetadataStore) async -> MetadataWorkspace {
+    /// - Parameter reregistersDeletedBooks: 利用者が窓を開いたときだけ true。窓が自分で作り直すとき(`MetadataEditorModel.reopen`)は
+    ///   false ―― 削除した本が、利用者が何もしないうちに戻ってこないように(2026-09-23 の 3 回目の監査の低)。
+    static func open(
+        generator: MetadataGenerator, store: BookMetadataStore, reregistersDeletedBooks: Bool = true
+    ) async -> MetadataWorkspace {
         // メタデータを削除した本も、窓を開き直せばまた並べて登録する(利用者の指示 2026-09-22: 覚えてはおかない)。
-        generator.reregisterDeletedBooks()
+        if reregistersDeletedBooks { generator.reregisterDeletedBooks() }
         await generator.update()
         let workspace = MetadataWorkspace(generator: generator, store: store)
         workspace.reloadAll()
@@ -365,11 +369,24 @@ final class MetadataWorkspace {
 
     // MARK: - DB へ書く
 
+    /// 本の場所の手がかりをその場で(メインで)作ってよい冊数(`commit`)。
+    private static let inlineLocatorLimit = 20
+
+    /// 行に本の場所の手がかりが足りないか(ブックマークか識別子が無い)。
+    private static func needsLocator(_ row: BookMetadata) -> Bool {
+        row.bookmarkData == nil || FileNodeIdentifier.needsBackfill(row.fileNodeIdentifier)
+    }
+
     /// 行の形を DB へ書き、メタデータ生成に読み直してもらう。値は、ロックを掛けた本(`lockValues`)なら見えている値、
     /// ほかは DB の今の値のまま(ロックしていない本の値はメタデータ生成が書く)。
     private func commit(_ ids: some Sequence<String>, lockValues: [String: BookMetadataValues] = [:]) {
         var mounts: MountTable?
-        let entries = Set(ids).sorted().compactMap { id -> BookMetadataStore.BatchEntry? in
+        let sorted = Set(ids).sorted()
+        // 多くの本をまとめて書くときは、手がかりをメインの外で作って後から入れる(`BookMetadataStore.fillLocators`。
+        // 2026-09-23 の 3 回目の監査の低: 「すべて選択」してロックすると、数千冊ぶんのブックマークの作成と stat をメインで行っていた)。
+        let defersLocators = sorted.count > Self.inlineLocatorLimit
+        var deferred: [String] = []
+        let entries = sorted.compactMap { id -> BookMetadataStore.BatchEntry? in
             guard let state = states[id], let values = lockValues[id] ?? store.record(forBookID: id)?.values ?? row(id)?.values
             else { return nil }
             // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
@@ -382,12 +399,26 @@ final class MetadataWorkspace {
                 if mounts == nil { mounts = MountTable.current() }
                 if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
             }
+            if defersLocators, sourceURL != nil, store.metadata(forBookID: id).map(Self.needsLocator) ?? true {
+                deferred.append(id)
+                sourceURL = nil
+            }
             return BookMetadataStore.BatchEntry(bookID: id, values: values, sourceURL: sourceURL, state: state)
         }
         guard !entries.isEmpty else { return }
         isWritingBack = true
         store.upsertAll(entries)
         isWritingBack = false
+        if !deferred.isEmpty {
+            let ids = deferred
+            Task { [store] in
+                let locators = await FileIO.perform(qos: .utility) {
+                    Dictionary(ids.map { ($0, BookMetadataStore.makeLocator(for: URL(fileURLWithPath: $0))) },
+                               uniquingKeysWith: { a, _ in a })
+                }
+                store.fillLocators(locators)
+            }
+        }
         refreshFromGenerator()
     }
 
@@ -1065,6 +1096,39 @@ nonisolated extension Confirmation {
             return volume != nil && editable.allSatisfy { fields[$0] != nil }
         case .notInSeries(let fields):
             return editable.allSatisfy { fields[$0] != nil }
+        }
+    }
+}
+
+// MARK: - 1 冊ぶんのシートの鍵を外す(BookMetadataSheet。あちらは QooMetaKit を読み込まない ―― `BookMetadata` の名前がぶつかる)
+
+extension MetadataWorkspace {
+    /// 鍵を外した直後の形: 全部の欄を直した欄にして、値を変えない(`narrowEditsAfterUnlock` が後で絞る)。
+    static func unlockedStateKeepingValues(_ values: BookMetadataValues, ruleSet: String?) -> BookMetadataRowState {
+        BookMetadataRowState(isLocked: false, edits: values.confirmation, ruleSet: ruleSet)
+    }
+
+    /// 鍵を外した本の直した欄を、メタデータ生成の読み(ほかの本と見比べた読み)と違う欄だけに絞る(この窓の `unlock` と同じ。
+    /// 2026-09-23 の 3 回目の監査の低 ―― 以前のシートはこの本だけを読んだ値と比べ、見比べで決まる欄の値が鍵を外しただけで
+    /// 変わった)。書いた後で行の形が変わっていたら(ほかの画面の操作)何もしない。
+    static func narrowEditsAfterUnlock(
+        bookID: String, values: BookMetadataValues, written: BookMetadataRowState, store: BookMetadataStore
+    ) {
+        guard let generator = MetadataGenerator.appWide else { return }
+        Task { @MainActor in
+            await generator.settle()
+            guard store.metadata(forBookID: bookID)?.rowState == written.normalized,
+                  var input = generator.input(for: bookID) else { return }
+            input.confirmation = .none
+            guard let delta = await generator.preview([.upsert(input)]) else { return }
+            let shown = values.trimmed
+            let proposed = delta.changed.first { $0.id == bookID }.map { BookMetadataValues($0.metadata).trimmed } ?? shown
+            let edits = MetadataParsing.edits(from: proposed, to: shown)
+            guard edits != written.edits, let row = store.metadata(forBookID: bookID), row.rowState == written.normalized
+            else { return }
+            var narrowed = written
+            narrowed.edits = edits
+            store.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: row.values, state: narrowed)])
         }
     }
 }

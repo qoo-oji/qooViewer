@@ -19,7 +19,7 @@ struct NonBookFolderSweeperTests {
         Set(try library.context.fetch(FetchDescriptor<BookReadingState>()).map(\.bookID))
     }
 
-    @Test("棚の保存データは消え、空のフォルダ・画像フォルダ・章ごとの画像フォルダ・見つからないフォルダ・書庫は残る")
+    @Test("棚と中間のフォルダの保存データは消え、空・画像・章ごとの画像・見つからない・書庫・画像の無い残り物・章を読めないフォルダは残る")
     func onlyFoldersConfirmedNotToBeBooksAreSwept() async throws {
         let library = try InMemoryLibrary(label: "non-book-sweep")
         defer { library.close() }
@@ -37,8 +37,22 @@ struct NonBookFolderSweeperTests {
         try Data("a".utf8).write(to: chapter.appendingPathComponent("001.jpg"))
         let gone = temporary.file("gone").path
         let archive = shelf.appendingPathComponent("01.cbz").path
+        // 中間のフォルダ(子フォルダは読めて、どれの直下にも画像が無い)は本ではない。
+        let intermediate = try temporary.directory("intermediate")
+        try temporary.directory("intermediate/series")
+        try Data("a".utf8).write(to: intermediate.appendingPathComponent("series/01.cbz"))
+        // 画像を外へ出して説明の文書だけが残ったフォルダ・章のフォルダが読めない本は「分からない」ので消さない
+        // (2026-09-23 の 3 回目の監査の中 2)。
+        let leftover = try temporary.directory("leftover")
+        try Data("a".utf8).write(to: leftover.appendingPathComponent("readme.txt"))
+        let unreadable = try temporary.directory("unreadable")
+        let lockedChapter = try temporary.directory("unreadable/ch1")
+        try Data("a".utf8).write(to: lockedChapter.appendingPathComponent("001.jpg"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: lockedChapter.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedChapter.path) }
 
-        for path in [shelf.path, empty.path, imageFolder.path, chapters.path, gone, archive] {
+        for path in [shelf.path, empty.path, imageFolder.path, chapters.path, gone, archive, intermediate.path, leftover.path,
+                     unreadable.path] {
             try record(path, in: library)
         }
 
@@ -48,8 +62,8 @@ struct NonBookFolderSweeperTests {
             folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context)
 
         // 空のフォルダは、画像をいったん外へ出しただけの本かもしれないので消さない(2026-09-22 の監査)。
-        #expect(swept == 1)
-        let kept: Set = [empty.path, imageFolder.path, chapters.path, gone, archive]
+        #expect(swept == 2)
+        let kept: Set = [empty.path, imageFolder.path, chapters.path, gone, archive, leftover.path, unreadable.path]
         #expect(library.metadata.registeredBookIDs == kept)
         #expect(try readingStateIDs(library) == kept)
     }

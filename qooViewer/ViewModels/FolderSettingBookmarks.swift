@@ -26,6 +26,7 @@ final class FolderSettingBookmarks {
     /// 控えを今の設定に合わせる: 無くなったパスの控えを捨て、控えの無いパスのブックマークを作る(作れなければそのまま)。
     func sync(paths: Set<String>) async {
         let missing = paths.subtracting(bookmarks.keys)
+        let keysBefore = Set(bookmarks.keys)
         let created = await Task.detached(priority: .utility) { () -> [String: Data] in
             let mounts = MountTable.current()
             var created: [String: Data] = [:]
@@ -37,7 +38,9 @@ final class FolderSettingBookmarks {
             }
             return created
         }.value
-        var updated = bookmarks.filter { paths.contains($0.key) }
+        // 待っている間に付け替わった鍵(`relocate`。アプリへ戻った直後の追従など)は、渡されたパスに無くても捨てない
+        // (2026-09-23 の 3 回目の監査の低: 以前は捨てていて、そのフォルダがアプリの外で動いても追えなくなった)。
+        var updated = bookmarks.filter { paths.contains($0.key) || !keysBefore.contains($0.key) }
         updated.merge(created) { _, new in new }
         guard updated != bookmarks else { return }
         bookmarks = updated

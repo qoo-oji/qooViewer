@@ -584,6 +584,15 @@ enum ExportedDefaultsValue: Codable, Equatable, Sendable {
         return nil
     }
 
+    /// 同じ種類の値か(整数と小数はどちらも数として同じ。`SettingsBackup.apply` が、手元の値と種類の違う値を書かないために使う)。
+    func isSameKind(as other: ExportedDefaultsValue) -> Bool {
+        switch (self, other) {
+        case (.bool, .bool), (.string, .string), (.data, .data), (.stringArray, .stringArray): true
+        case (.int, .int), (.int, .double), (.double, .int), (.double, .double): true
+        default: false
+        }
+    }
+
     /// `UserDefaults` へ書ける値へ戻す。
     var defaultsValue: Any {
         switch self {

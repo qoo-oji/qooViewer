@@ -696,6 +696,12 @@ enum LibraryImportExportService {
                     live.copyValues(from: AppearanceSettings(profile: profile, defaults: backupStores.defaults))
                 }
                 backupStores.keyBindings.reloadFromDefaults()
+                // お気に入り・ブックマークの並べ方は `UserDefaults.standard` に直に持つ(テストの保存先では読まない ―― 実物の
+                // 設定に触らない)。
+                if backupStores.defaults === UserDefaults.standard {
+                    favoritesStore.reloadSortOptionsFromDefaults()
+                    bookmarkStore.reloadSortOptionsFromDefaults()
+                }
             }
         }
         return summary
@@ -733,10 +739,15 @@ enum LibraryImportExportService {
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
             )
             let bookID = resolvedURL?.path ?? entry.bookID
+            // フォルダの本のページの鍵は絶対パスなので、本が別のパスで見つかったら鍵も付け替える(PageKeyRelocation。ブックマーク・
+            // レイアウトの取り込みと同じ。2026-09-23 の 3 回目の監査の低 ―― 以前はそのまま写し、ページ番号へ落ちていた)。
+            let lastPageKey = entry.lastPageKey.map {
+                PageKeyRelocation.relocated($0, fromBookID: entry.bookID, toBookID: bookID) ?? $0
+            }
             if let row = byBookID[bookID] {
                 guard policy == .overwrite else { continue }
                 row.lastPageIndex = entry.lastPageIndex
-                row.lastPageKey = entry.lastPageKey
+                row.lastPageKey = lastPageKey
                 row.displayModeRaw = entry.displayMode
                 row.readingDirectionRaw = entry.readingDirection
                 row.scalingModeRaw = entry.scalingMode
@@ -747,7 +758,7 @@ enum LibraryImportExportService {
                 row.isAtLastPage = entry.isAtLastPage ?? false
             } else {
                 let row = BookReadingState(bookID: bookID, lastPageIndex: entry.lastPageIndex,
-                                           lastPageKey: entry.lastPageKey)
+                                           lastPageKey: lastPageKey)
                 // 生の rawValue で写す(知らない値でも落とさない。読む側が既定へ落とす)。
                 row.displayModeRaw = entry.displayMode
                 row.readingDirectionRaw = entry.readingDirection
