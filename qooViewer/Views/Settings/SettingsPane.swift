@@ -33,6 +33,12 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// 先頭グループの3つ目。「一般」「外観」と同じく、本を開いていなくても効く設定なので、
     /// 「本」「操作」のどちらにも属さない。
     case fileBrowser
+    /// ホームのスマートライブラリ(2026-09-23、利用者の要望。最初の項目は「先頭の著者だけを使う」)。
+    ///
+    /// 先頭グループの4つ目。ファイルブラウザと同じく、ホームの機能の設定なので「本」「操作」のどちらにも属さない。
+    /// 機能そのものの ON/OFF は、ライブラリ・ファイルブラウザと並べて「一般」に置いたまま(3 つの組でホームの形が
+    /// 決まるので、1 か所で見比べられるように)。
+    case smartLibrary
     /// 本を開くときの挙動(再開時の開始ページ・Finder/お気に入りからの開き先)。
     case opening
     /// 画像そのものの見え方(拡大率・補間品質・背景色・ルーペ・見開き判定・先読み)。
@@ -90,6 +96,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .general: "General"
         case .appearance: "Appearance"
         case .fileBrowser: "File Browser"
+        case .smartLibrary: "Smart Library"
         case .opening: "Opening Books"
         case .rendering: "Image Display"
         case .reading: "While Reading"
@@ -120,6 +127,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         // 「塗り分けられた面」= 色と質感の設定。paintpalette系より字面が小さく潰れにくい。
         case .appearance: "paintbrush.fill"
         case .fileBrowser: "folder.fill"
+        // ホームの帯のスマートライブラリのボタンと同じ図形(WelcomeTopBar.smartLibraryToggle)。
+        case .smartLibrary: "line.3.horizontal.decrease.circle.fill"
         // 「閉じた本を開く」=これから開く本の設定。ページ(=閲覧中)の `reading` と対にしてある。
         case .opening: "book.closed.fill"
         case .rendering: "photo.fill"
@@ -179,6 +188,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         // 先頭グループの3つ目も無彩色。「一般」(.gray)より濃い灰にして、明るい「外観」・
         // 中間の「一般」と明度の段で見分けられるようにする。
         case .fileBrowser: Color(white: 0.36)
+        // 先頭グループの4つ目も無彩色。いちばん暗い灰にして、「ファイルブラウザ」(0.36)の下に段を1つ足す。
+        case .smartLibrary: Color(white: 0.2)
         case .opening: .blue
         case .rendering: .cyan
         case .reading: .indigo
@@ -204,7 +215,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// この項目が属するサイドバーのグループ。
     var group: SettingsPaneGroup {
         switch self {
-        case .general, .appearance, .fileBrowser: .top
+        case .general, .appearance, .fileBrowser, .smartLibrary: .top
         case .opening, .rendering, .reading, .layout: .books
         case .keyboard, .mouse, .modeInput: .controls
         case .cache, .access, .dataTransfer, .reset: .advanced
@@ -224,6 +235,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .general: GeneralSettingsView()
         case .appearance: AppearanceSettingsView()
         case .fileBrowser: FileBrowserSettingsView()
+        case .smartLibrary: SmartLibrarySettingsView()
         case .opening: OpeningSettingsView()
         case .rendering: RenderingSettingsView()
         case .reading: ReadingSettingsView()

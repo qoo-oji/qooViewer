@@ -197,6 +197,53 @@ struct SmartLibraryTests {
         #expect(state.gridItems.map(\.id) == ["book|/b/d.zip", "book|/b/c.zip", "book|/b/a.zip"])
     }
 
+    @Test("「先頭の著者だけを使う」の間は、ブラウザ・条件・検索・並べ替えが先頭の著者だけを見る。切り替えると著者の選択は外れる")
+    func firstAuthorOnly() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .authors
+        let shelf = SmartShelf(name: "共著", conditions: SmartShelfConditions(rules: [
+            SmartShelfRule(field: .authors, op: .equals, text: "著者B"),
+        ]))
+        state.update(books: [
+            book("/b/1.zip", authors: ["著者A", "著者Z"]),
+            book("/b/2.zip", authors: ["著者A", "著者B"]),
+            book("/b/3.zip", authors: ["著者C"]),
+        ], shelves: [shelf])
+        state.recompute(now: now)
+        // OFF(既定): 全員を見る。並べ替えは著者を全員つないだ文字で比べる。
+        #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者A"), .value("著者B"), .value("著者C"), .value("著者Z")])
+        #expect(state.shelfCounts[shelf.id] == 1)
+        #expect(state.visibleBooks.map(\.id) == ["/b/2.zip", "/b/1.zip", "/b/3.zip"])
+        state.searchText = "著者Z"
+        state.recompute(now: now)
+        #expect(state.visibleBooks.map(\.id) == ["/b/1.zip"])
+        state.searchText = ""
+        state.toggleFacet(.value("著者B"), in: .authors)
+
+        state.usesFirstAuthorOnly = true
+        #expect(state.facetSelection[.authors].isEmpty)
+        state.recompute(now: now)
+        #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者A"), .value("著者C")])
+        #expect(state.facetValues[.authors]?.map(\.count) == [2, 1])
+        #expect(state.shelfCounts[shelf.id] == 0)
+        // 先頭の著者が同じ本は、ファイル名の順(2 人目では比べない)。
+        #expect(state.visibleBooks.map(\.id) == ["/b/1.zip", "/b/2.zip", "/b/3.zip"])
+        // 2 人目の著者では検索に当たらない。
+        state.searchText = "著者Z"
+        state.recompute(now: now)
+        #expect(state.visibleBooks.isEmpty)
+
+        // 後から届いた一覧にも当たり、OFF へ戻せば全員を見る。
+        state.searchText = ""
+        state.update(books: [book("/b/4.zip", authors: ["著者D", "著者E"])], shelves: [])
+        #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者D")])
+        state.usesFirstAuthorOnly = false
+        state.recompute(now: now)
+        #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者D"), .value("著者E")])
+    }
+
     @Test("「シリーズでまとめる」の ON/OFF だった頃の保存値は、シリーズで束ねる設定として読む")
     func legacyGroupingIsRead() {
         let suite = TestDefaultsPool.checkout()

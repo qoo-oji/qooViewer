@@ -71,6 +71,8 @@ final class AppPreferences: ObservableObject {
         static let libraryFeatureEnabled = "qooViewer.pref.libraryFeatureEnabled"
         static let fileBrowserFeatureEnabled = "qooViewer.pref.fileBrowserFeatureEnabled"
         static let smartLibraryFeatureEnabled = "qooViewer.pref.smartLibraryFeatureEnabled"
+        /// 環境設定「スマートライブラリ」(2026-09-23)。
+        static let smartLibraryUsesFirstAuthorOnly = "qooViewer.pref.smartLibrary.usesFirstAuthorOnly"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
@@ -839,6 +841,12 @@ final class AppPreferences: ObservableObject {
     static func storedSmartLibraryFeatureEnabled(in defaults: UserDefaults) -> Bool {
         defaults.object(forKey: Keys.smartLibraryFeatureEnabled) as? Bool ?? true
     }
+    /// スマートライブラリで、著者が複数ある本を**先頭の著者だけの本として扱う**か(2026-09-23、利用者の要望。既定OFF)。
+    /// 効くのはスマートライブラリの中だけで、メタデータ(DB の値)は変えない。どこで効くかは
+    /// `SmartLibraryViewState.usesFirstAuthorOnly` のコメント。
+    @Published var smartLibraryUsesFirstAuthorOnly: Bool {
+        didSet { defaults.set(smartLibraryUsesFirstAuthorOnly, forKey: Keys.smartLibraryUsesFirstAuthorOnly) }
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1300,6 +1308,8 @@ final class AppPreferences: ObservableObject {
         self.libraryFeatureEnabled = Self.storedLibraryFeatureEnabled(in: defaults)
         self.fileBrowserFeatureEnabled = Self.storedFileBrowserFeatureEnabled(in: defaults)
         self.smartLibraryFeatureEnabled = Self.storedSmartLibraryFeatureEnabled(in: defaults)
+        self.smartLibraryUsesFirstAuthorOnly =
+            defaults.object(forKey: Keys.smartLibraryUsesFirstAuthorOnly) as? Bool ?? false
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
@@ -1534,6 +1544,10 @@ extension AppPreferences {
                 Keys.fileBrowserReadOnly,
                 Keys.fileBrowserImageFolderOpenAction,
             ]
+        case .smartLibrary:
+            return [
+                Keys.smartLibraryUsesFirstAuthorOnly,
+            ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             return []
@@ -1653,6 +1667,8 @@ extension AppPreferences {
             fileBrowserRevealDestination = source.fileBrowserRevealDestination
             fileBrowserReadOnly = source.fileBrowserReadOnly
             fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
+        case .smartLibrary:
+            smartLibraryUsesFirstAuthorOnly = source.smartLibraryUsesFirstAuthorOnly
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

@@ -312,7 +312,10 @@ cache without touching the (possibly network) file (`FileBrowserThumbnailProvide
 feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/scan and makes every entry
 point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window) holds smart collections
 (`SmartShelf` in code), facet buttons with multi-select and pins, filters, sort and grouping by author/series
-(`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. The cover grid has Finder-style selection and keys
+(`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`; behaviour settings have their own Settings pane
+(`SettingsPane.smartLibrary`, 2026-09-23) — "Use Only the First Author" (`AppPreferences.smartLibraryUsesFirstAuthorOnly`)
+is applied by `SmartLibraryViewState.update(books:shelves:)` making first-author-only copies, so facets, conditions, search,
+sort and the list column all agree; the DB and `catalog.json` are never touched. The cover grid has Finder-style selection and keys
 (2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
 outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
 **every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view

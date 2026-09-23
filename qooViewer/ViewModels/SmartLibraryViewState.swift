@@ -109,6 +109,26 @@ final class SmartLibraryViewState: ObservableObject {
             defaults.set(viewMode.rawValue, forKey: Keys.viewMode)
         }
     }
+    /// 環境設定「スマートライブラリ」→「先頭の著者だけを使う」(2026-09-23、利用者の要望。
+    /// `AppPreferences.smartLibraryUsesFirstAuthorOnly` ―― 画面が渡す)。
+    ///
+    /// ON の間は、著者が複数ある本を**先頭の著者だけの本として受け取る**(`update(books:shelves:)` で写しを作る)。
+    /// 著者を見る所 ―― ブラウザの「著者」のボタン(値と冊数・ピン留め)、スマートコレクションの条件と冊数、検索、
+    /// 著者での並べ替え、リストの著者の列 ―― が、どれも同じ本を見るようにするため。所ごとに判定を足すと、
+    /// ボタンでは消えた共著者が検索では当たる、といった食い違いが残る。**著者でまとめる**のは、もとから筆頭の著者で束ねる
+    /// (`SmartGrouping.key`)ので変わらない。写しはこの画面の中だけのもので、DB のメタデータには触れない
+    /// (スマートライブラリは読むだけ。SmartLibraryCatalog の型コメント)。
+    ///
+    /// 切り替えたら、ブラウザの「著者」で選んでいた値は外す(OFF → ON で共著者を選んでいたら、その値はボタンから消え、
+    /// 見えない所で「0 冊」に絞り込んだままになる)。
+    @Published var usesFirstAuthorOnly = false {
+        didSet {
+            guard usesFirstAuthorOnly != oldValue else { return }
+            books = Self.applyingAuthorSetting(sourceBooks, firstAuthorOnly: usesFirstAuthorOnly)
+            facetSelection[.authors] = []
+            narrowingChanged()
+        }
+    }
     @Published var coverSize: CGFloat { didSet { defaults.set(Double(coverSize), forKey: Keys.coverSize) } }
     @Published var sidebarWidth: CGFloat { didSet { defaults.set(Double(sidebarWidth), forKey: Keys.sidebarWidth) } }
 
@@ -150,6 +170,9 @@ final class SmartLibraryViewState: ObservableObject {
     private var revealSerial = 0
 
     private let defaults: UserDefaults
+    /// 画面から渡された本の一覧(集めたまま)。
+    private var sourceBooks: [SmartBook] = []
+    /// 絞り込み・並べ替えに使う本(`sourceBooks` に著者の設定を当てたもの。`usesFirstAuthorOnly`)。
     private var books: [SmartBook] = []
     private var shelves: [SmartShelf] = []
     private var recomputeTask: Task<Void, Never>?
@@ -177,7 +200,8 @@ final class SmartLibraryViewState: ObservableObject {
 
     /// 本の一覧・保存したスマートシェルフが変わった(画面から渡す)。
     func update(books: [SmartBook], shelves: [SmartShelf]) {
-        self.books = books
+        sourceBooks = books
+        self.books = Self.applyingAuthorSetting(books, firstAuthorOnly: usesFirstAuthorOnly)
         self.shelves = shelves
         // 消されたスマートシェルフを選んでいたら「すべての本」へ。
         if let id = selectedShelfID, !shelves.contains(where: { $0.id == id }) { selectedShelfID = nil }
@@ -367,6 +391,17 @@ final class SmartLibraryViewState: ObservableObject {
         recomputeTask = Task { @MainActor [weak self] in
             self?.recomputeTask = nil
             self?.recompute()
+        }
+    }
+
+    /// 著者の設定を当てた本の一覧(`usesFirstAuthorOnly`)。OFF なら渡されたまま、ON なら著者が 2 人以上の本だけ先頭の 1 人にする。
+    nonisolated static func applyingAuthorSetting(_ books: [SmartBook], firstAuthorOnly: Bool) -> [SmartBook] {
+        guard firstAuthorOnly else { return books }
+        return books.map { book in
+            guard book.metadata.authors.count > 1 else { return book }
+            var copy = book
+            copy.metadata.authors = Array(book.metadata.authors.prefix(1))
+            return copy
         }
     }
 

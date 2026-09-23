@@ -63,6 +63,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.offersRemovingMissingCollectionBooks.toggle()
     p.libraryFeatureEnabled.toggle()
     p.smartLibraryFeatureEnabled.toggle()
+    p.smartLibraryUsesFirstAuthorOnly.toggle()
     p.fileBrowserFeatureEnabled.toggle()
     p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()

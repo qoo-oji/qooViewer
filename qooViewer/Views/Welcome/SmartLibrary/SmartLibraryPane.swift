@@ -23,6 +23,7 @@ struct SmartLibraryPane: View {
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var store: SmartLibraryStore
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var preferences: AppPreferences
     @StateObject private var state = SmartLibraryViewState()
     @State private var liveSidebarWidth: CGFloat?
     @State private var dragStartWidth: CGFloat = 0
@@ -42,6 +43,8 @@ struct SmartLibraryPane: View {
         // シークレットウインドウに出している間は、並べた本を DB へ登録しない(SmartLibraryCatalog.persistingCount)。
         .onAppear {
             catalog.activate(persistsMetadata: !appState.isPrivateWindow)
+            // 本を渡す前に著者の設定を当てておく(先に渡すと、設定を当て直す分だけ 2 度並べ直す)。
+            state.usesFirstAuthorOnly = preferences.smartLibraryUsesFirstAuthorOnly
             state.update(books: catalog.books, shelves: store.shelves)
         }
         .onDisappear {
@@ -54,6 +57,8 @@ struct SmartLibraryPane: View {
         }
         .onChange(of: catalog.revision) { state.update(books: catalog.books, shelves: store.shelves) }
         .onChange(of: store.shelves) { state.update(books: catalog.books, shelves: store.shelves) }
+        // 環境設定「スマートライブラリ」→「先頭の著者だけを使う」(SmartLibraryViewState.usesFirstAuthorOnly)。
+        .onChange(of: preferences.smartLibraryUsesFirstAuthorOnly) { _, value in state.usesFirstAuthorOnly = value }
     }
 
     /// 区切り線の上の、幅を変える掴みどころ(FileBrowserPane.widthDragHandle と同じ作り。座標はペインの座標空間で読む)。
