@@ -1465,6 +1465,28 @@ final class AppState: ObservableObject {
     /// うえでそのファイル自体を選択状態にする(NSWorkspace.activateFileViewerSelectingの
     /// 標準的な「Finderで表示」の挙動。Xcode・Preview等、他の多くのMacアプリの「Finderで表示」
     /// メニュー項目と同じ動作)。
+    /// ビューアのトーストに出す知らせ(2026-09-23。サイドパネル・メニューバーから「コレクションに登録」「スマートライブラリの対象に
+    /// 追加」をしたときの結果。ViewerView が見て出す)。
+    @Published private(set) var viewerNotice: ViewerNotice?
+
+    func postViewerNotice(_ message: String) {
+        viewerNotice = ViewerNotice(message: message)
+    }
+
+    /// 開いている本を「コレクションに登録」できるか(メニューバー・ビューアの右クリック)。ライブラリ機能が ON で、記録を残す
+    /// ウインドウで、その場限りの本(画像を直接開いた本)でないとき。
+    var canAddCurrentBookToCollection: Bool {
+        guard let book = currentBook else { return false }
+        return (preferences?.libraryFeatureEnabled ?? false) && !isPrivateWindow && !book.leavesNoRecord
+    }
+
+    /// 開いている本をコレクションへ登録し、結果をビューアのトーストに出す(2026-09-23、利用者の指示)。
+    @discardableResult
+    func addCurrentBook(toCollection collectionID: UUID, using adding: CollectionAddingContext) -> Task<Void, Never>? {
+        guard canAddCurrentBookToCollection, let url = currentBook?.sourceURL else { return nil }
+        return adding.add([url], to: collectionID) { [weak self] message in self?.postViewerNotice(message) }
+    }
+
     func revealCurrentBookInFinder() {
         guard let url = currentBook?.sourceURL else { return }
         var isDirectory: ObjCBool = false

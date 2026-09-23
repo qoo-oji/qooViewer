@@ -300,8 +300,15 @@ final class WelcomeLibraryState: ObservableObject {
             case focusSearch
             case showItemInFinder(UUID)
             case showItemInFileBrowser(UUID)
+            /// スマートライブラリで選んでいる本(パス。2026-09-23)。
+            case showSmartBookInFinder(String)
+            case showSmartBookInFileBrowser(String)
         }
     }
+
+    /// スマートライブラリで選んでいる本のパス(束は含めない。2026-09-23)。スマートライブラリの画面が出ている間だけ詰まり、
+    /// 消えるときに空へ戻す。メニューバーの項目がこれを相手にする(HomeMenuState.smartBookPaths)。
+    @Published var smartSelectedBookPaths: [String] = []
 
     func request(_ kind: HomeMenuRequest.Kind) {
         menuRequest = HomeMenuRequest(kind: kind)

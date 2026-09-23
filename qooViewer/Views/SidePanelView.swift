@@ -45,6 +45,11 @@ struct SidePanelView: View {
     @EnvironmentObject private var recentFiles: RecentFilesStore
     /// 右クリックの「ファイルブラウザで開く」(改善要望7 段階 8。RevealInFileBrowserActionの型コメント)。
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
+    /// フォルダブラウザの右クリックの「スマートライブラリの対象に追加」(2026-09-23)。
+    @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
+    @EnvironmentObject private var folderAccess: FolderAccessStore
+    /// 右クリックの「コレクションに登録」などの結果をビューアのトーストへ(2026-09-23)。
+    @Environment(\.windowNotice) private var windowNotice
     @ObservedObject var folderState: SidePanelBrowserState
     var bookContentsState: BookContentsBrowserState?
     /// パネル最上部のスイッチで切り替える表示モード。実体はAppPreferences.sidePanelMode
@@ -781,6 +786,43 @@ struct SidePanelView: View {
                 Button("Show in File Browser") {
                     revealInFileBrowser(entry.url, isDirectory: entry.isDirectory)
                 }
+            }
+            linkedFeatureItems(for: entry)
+        }
+    }
+
+    /// ほかの機能へつなぐ項目(2026-09-23、利用者の指示)。本の行には「コレクションに登録」、本でないフォルダの行には
+    /// 「スマートライブラリの対象に追加」。**相手の機能が OFF なら出さない**。どちらも保存データへの書き込みなので、シークレット
+    /// ウインドウでも出さない。結果はビューアのトーストへ(WindowNoticeAction)。
+    @ViewBuilder
+    private func linkedFeatureItems(for entry: DirectoryBrowser.Entry) -> some View {
+        let isBook = !entry.isDirectory || entry.containsImageFile
+        if !isPrivateWindow {
+            if isBook, preferences.libraryFeatureEnabled {
+                Divider()
+                AddToCollectionMenu(books: [entry.url], report: { [windowNotice] in windowNotice($0) })
+            } else if !isBook, preferences.smartLibraryFeatureEnabled {
+                Divider()
+                Button("Add to Smart Library Targets") { addToSmartLibrary(entry) }
+                    .disabled(smartLibraryStore.containsFolder(entry.url))
+            }
+        }
+    }
+
+    /// 「スマートライブラリの対象に追加」。章ごとのフォルダに分けた本(直下に画像が無い本)もここへ来るので、足す前に本かを調べる
+    /// (SmartLibraryTargetAdding。ファイルブラウザの右クリックと同じ規則)。
+    private func addToSmartLibrary(_ entry: DirectoryBrowser.Entry) {
+        let locale = preferences.effectiveLocale
+        let name = entry.displayName
+        Task { @MainActor [smartLibraryStore, folderAccess, preferences, windowNotice, isPrivateWindow] in
+            guard let result = await SmartLibraryTargetAdding.add(
+                [entry.url], store: smartLibraryStore, folderAccess: folderAccess,
+                isFeatureEnabled: { [weak preferences] in (preferences?.smartLibraryFeatureEnabled ?? false) && !isPrivateWindow }
+            ) else { return }
+            if result.added.isEmpty {
+                windowNotice(FileBrowserActions.bookFolderCannotBeSmartTarget(names: [name], locale: locale).title)
+            } else {
+                windowNotice(SmartLibraryTargetAdding.addedMessage(result.added, locale: locale))
             }
         }
     }

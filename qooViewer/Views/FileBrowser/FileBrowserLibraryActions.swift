@@ -83,7 +83,8 @@ extension FileBrowserActions {
                 return
             }
             guard let result = await CollectionBookAdding.add(
-                books, to: collectionID, collectionStore: self?.collectionStore, coverExtractor: self?.coverExtractor
+                books, to: collectionID, collectionStore: self?.collectionStore, coverExtractor: self?.coverExtractor,
+                isStillEnabled: { [weak self] in self?.isLibraryFeatureEnabled == true }
             ), let self else { return }
             // 本棚ではないので登録しても画面に変化が無い。何が入ったかを短く知らせる(ユーザー要望 2026-09-14)。
             self.state?.showToast(Self.addedToCollectionMessage(
@@ -146,30 +147,24 @@ extension FileBrowserActions {
     /// - Returns: 本かどうかを調べて足すまでの Task(**テストのための口**)。
     @discardableResult
     func addToSmartLibrary(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
-        guard canAddToSmartLibrary(entries) else { return nil }
-        let candidates = entries.filter { !(smartLibraryStore?.containsFolder($0.url) ?? true) }
-        let urls = candidates.map(\.url)
+        guard canAddToSmartLibrary(entries), let smartLibraryStore else { return nil }
+        let urls = entries.map(\.url)
+        let names = entries.filter { !smartLibraryStore.containsFolder($0.url) }.map(\.displayName)
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
-        return Task { [weak self] in
-            let isBook = await FileIO.perform { urls.map { ShelfFolderResolver.isSingleBookFolder($0) } }
-            // 調べているあいだにスマートライブラリ機能を OFF にされていたら足さない。
-            guard let self, self.isSmartLibraryFeatureEnabled, self.allowsSaving, let store = self.smartLibraryStore else { return }
-            let folders = zip(candidates, isBook).filter { !$0.1 }.map(\.0)
-            guard !folders.isEmpty else {
-                self.state?.operations.presenter?.showProblem(
-                    Self.bookFolderCannotBeSmartTarget(names: candidates.map(\.displayName), locale: locale)
-                )
+        return Task { [weak self, weak smartLibraryStore] in
+            guard let smartLibraryStore, let result = await SmartLibraryTargetAdding.add(
+                urls, store: smartLibraryStore, folderAccess: self?.folderAccess,
+                // 調べているあいだにスマートライブラリ機能を OFF にされていたら足さない。
+                isFeatureEnabled: { [weak self] in
+                    guard let self else { return false }
+                    return self.isSmartLibraryFeatureEnabled && self.allowsSaving
+                }
+            ), let self else { return }
+            guard !result.added.isEmpty else {
+                self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(names: names, locale: locale))
                 return
             }
-            for folder in folders {
-                self.folderAccess?.add(url: folder.url)
-                store.addFolder(folder.url)
-            }
-            self.state?.showToast(folders.count == 1
-                ? String(format: String(localized: "Added “%@” to the smart library’s target folders", language: locale),
-                         folders[0].displayName)
-                : String(format: String(localized: "Added %lld folders to the smart library’s target folders", language: locale),
-                         folders.count))
+            self.state?.showToast(SmartLibraryTargetAdding.addedMessage(result.added, locale: locale))
         }
     }
 
@@ -306,32 +301,13 @@ extension FileBrowserActions {
     }
 
     private func presentExport(of url: URL, isDirectory: Bool, format: BookExportFormat) {
-        guard let state, state.bookSheet == nil, let preferences, let bookmarkStore, let layoutStore, let metadataStore else {
-            return
-        }
-        let viewModel = format.makeExportViewModel(
-            bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-            preferences: preferences, loadsEligibleRows: false
-        )
-        let book = MangaBook(
-            id: url.path, title: CollectionStore.itemTitle(for: url, isDirectory: isDirectory),
-            sourceURL: url, pages: []
-        )
-        let destination: OpenBookExportSheet.Destination
-        let asks: Bool
-        if preferences.bookExportDestinationMode(for: format) == .fixedFolder, let fixed = format.fixedFolder.lastFolder() {
-            destination = .init(url: fixed, isSecurityScoped: true)
-            asks = false
-        } else {
-            guard let chosen = ExportDestinationPanel.present(
-                for: format, startingAt: nil, locale: preferences.effectiveLocale
-            ) else { return }
-            destination = .init(url: chosen, isSecurityScoped: false)
-            asks = true
-        }
-        state.bookSheet = FileBrowserBookSheet(kind: .export(.init(
-            format: format, viewModel: viewModel, book: book, destination: destination, asksBeforeExporting: asks
-        )))
+        guard let state, state.bookSheet == nil, let preferences, let bookmarkStore, let layoutStore, let metadataStore,
+              let export = FileBrowserBookSheet.Export.make(
+                url: url, bookID: url.path, isDirectory: isDirectory, format: format, preferences: preferences,
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore
+              )
+        else { return }
+        state.bookSheet = FileBrowserBookSheet(kind: .export(export))
     }
 
     // MARK: - 下請け

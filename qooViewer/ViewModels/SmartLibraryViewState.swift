@@ -235,6 +235,13 @@ final class SmartLibraryViewState: ObservableObject {
     /// 並びの識別子(選択の計算に渡す順)。
     var gridItemIDs: [String] { gridItems.map(\.id) }
 
+    /// 選んでいる本のパス(束は含めない。リストで開いた束の中の本は含める。並びは固定)。メニューバーの項目の相手
+    /// (WelcomeLibraryState.smartSelectedBookPaths。2026-09-23)。
+    var selectedBookPaths: [String] {
+        let prefix = SmartGridItem.bookIDPrefix
+        return selection.ids.compactMap { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : nil }.sorted()
+    }
+
     /// 選んでいる枠(並びの順)。
     var selectedItems: [SmartGridItem] {
         selection.isEmpty ? [] : gridItems.filter { selection.contains($0.id) }

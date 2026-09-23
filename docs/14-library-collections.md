@@ -886,7 +886,12 @@ StackNest では画面の上にある絞り込み(フィルタのポップオー
   (2026-09-23、ファイルブラウザの右クリックと同じ形。サブメニューの中身は `CollectionMenuLibrary.createMenuNodes` / `addMenuNodes` を
   共有)は、ライブラリ機能が ON でシークレットウインドウでないときだけ出す。並ぶのは 1 冊ずつの本なので、作成は選んだ本をまとめて
   1 つのコレクションにし(名前を訊くシートはホームが持つ)、登録の結果はペインの下の知らせで伝える。「コピー」とドラッグは
-  上の「本のコピーとドラッグ」。詳細ペインは作らない(利用者の判断
+  上の「本のコピーとドラッグ」。「このアプリケーションで開く」「本の書き出し」(2026-09-23)はファイルブラウザ・コレクションの中と同じ部品
+  (`HomeBookOpenWith` / `FileBrowserBookSheet.Export.make` → `homeBookExportSheet`。Views/Welcome/CrossFeatureActions.swift)。
+  メニューバーの「Finder で表示」「ファイルブラウザで表示」「メタデータの編集…」は、1 冊だけ選んでいる本を相手にする
+  (選択を `WelcomeLibraryState.smartSelectedBookPaths` → `HomeMenuState.smartBookPaths` へ写し、依頼は `HomeMenuRequest` で画面が受ける)。
+  対象フォルダの行の右クリックに「Finder で表示」「ファイルブラウザで表示」、対象フォルダの欄はフォルダのドロップを受ける
+  (`SmartLibraryTargetAdding`。本のフォルダは足さない。シークレットウインドウでは受け口を付けない)。詳細ペインは作らない(利用者の判断
   2026-09-22。情報はこの「情報を見る」で足りる)。
 - **速さ**(2026-09-22。2,439 冊・Debug で実測): 前回の一覧を `Application Support/SmartLibrary/catalog.json` に保存し、
   画面を出したらまずそれを出して裏で集め直す(対象フォルダが変わっていれば使わない。Caches に置かないのは、macOS が消すと

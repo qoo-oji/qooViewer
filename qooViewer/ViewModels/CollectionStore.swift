@@ -769,6 +769,10 @@ final class CollectionStore: ObservableObject {
     /// 千冊規模の棚では合計で秒に近づく。自動登録フォルダの走査はこれをメインアクターの外で
     /// 回す(CollectionAutoFolderScanner.finishScan参照)。ストアの状態には一切触れない。
     nonisolated static func makePendingItem(for url: URL) -> PendingItem? {
+        // ブックマークから解決した URL(メタデータの編集・ビューアの「コレクションに登録」。2026-09-23)は、スコープを開けて
+        // いないとブックマークを作れない。落とされた URL・対象フォルダの中の本では何もしない。
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         guard let bookmarkData = try? url.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return nil }

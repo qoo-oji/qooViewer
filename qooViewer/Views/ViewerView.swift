@@ -1421,6 +1421,10 @@ struct ViewerView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
+        // ビューアの外(サイドパネル・メニューバー)や右クリックの「コレクションに登録」などの結果(AppState.viewerNotice。2026-09-23)。
+        .onChange(of: appState.viewerNotice) { _, notice in
+            if let notice { showToast(notice.message) }
+        }
         // 拡大率そのものが変わるたびにアニメーションさせると、ピンチ操作中ずっと数字が
         // ふわふわして読みにくいため、出す/消すの切り替わりだけをアニメーションさせる。
         .animation(.easeInOut(duration: 0.15), value: zoomIndicatorPercent == nil)
@@ -2405,6 +2409,15 @@ struct ViewerView: View {
                     view.appState.revealCurrentBookInFileBrowser(openWindow: view.openWindow)
                 }
             }
+        }
+        // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本をそのままコレクションへ。ライブラリ機能が OFF・シークレット
+        // ウインドウでは出さない(保存データへの書き込み)。その場限りの本(画像を直接開いた本・一時的な写し)は淡色。
+        // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
+        if preferences.libraryFeatureEnabled && !appState.isPrivateWindow {
+            AddToCollectionMenu(
+                books: [viewModel.book.sourceURL], isEnabled: !viewModel.book.leavesNoRecord,
+                report: { [weak appState] message in appState?.postViewerNotice(message) }
+            )
         }
 
         Divider()

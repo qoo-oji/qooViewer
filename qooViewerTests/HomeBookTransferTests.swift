@@ -90,4 +90,47 @@ struct HomeBookTransferTests {
         #expect(children.count == 1)
         #expect(!isEnabled)
     }
+
+    // MARK: - 機能をまたぐ項目(2026-09-23)
+
+    @Test("ホームの外からの「コレクションに登録」は、ライブラリ機能が OFF なら何もせず、ON なら登録して結果を知らせる")
+    func collectionAddingFollowsTheLibraryFlag() async throws {
+        let library = try InMemoryLibrary(label: "cross-feature-add")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cross-feature-add")
+        let preferences = suite.makePreferences()
+        let temporary = try TemporaryDirectory("cross-feature-add")
+        let first = temporary.url.appendingPathComponent("First.zip")
+        let second = temporary.url.appendingPathComponent("Second.zip")
+        try Data().write(to: first)
+        try Data().write(to: second)
+        let target = try #require(library.collections.libraries.first)
+        let pending = try #require(CollectionStore.makePendingItem(for: first))
+        let collection = try #require(library.collections.createCollection(name: "Shelf", in: target, items: [pending]))
+        let context = CollectionAddingContext(collectionStore: library.collections, coverExtractor: nil, preferences: preferences)
+        var messages: [String] = []
+
+        preferences.libraryFeatureEnabled = false
+        #expect(context.add([second], to: collection.id) { messages.append($0) } == nil)
+
+        preferences.libraryFeatureEnabled = true
+        await context.add([second], to: collection.id) { messages.append($0) }?.value
+        #expect(collection.items.count == 2)
+        #expect(messages.count == 1)
+    }
+
+    @Test("メニューバーの項目は、スマートライブラリで 1 冊だけ選んでいる本も相手にする(束・複数・ほかのモードでは相手が無い)")
+    func smartSelectionIsAMenuTarget() {
+        var state = HomeMenuState(isShown: true, mode: .smart, smartBookPaths: ["/tmp/qoo-sample/Book.zip"])
+        #expect(state.singleSmartBookTarget == "/tmp/qoo-sample/Book.zip")
+        #expect(state.hasSingleBookTarget)
+        state.smartBookPaths.append("/tmp/qoo-sample/Other.zip")
+        #expect(state.singleSmartBookTarget == nil)
+        state.smartBookPaths = ["/tmp/qoo-sample/Book.zip"]
+        state.mode = .browser
+        #expect(state.singleSmartBookTarget == nil)
+        state.mode = .smart
+        state.isShown = false
+        #expect(!state.hasSingleBookTarget)
+    }
 }

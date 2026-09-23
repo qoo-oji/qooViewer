@@ -44,7 +44,14 @@ struct SmartLibraryPane: View {
             catalog.activate(persistsMetadata: !appState.isPrivateWindow)
             state.update(books: catalog.books, shelves: store.shelves)
         }
-        .onDisappear { catalog.deactivate(persistsMetadata: !appState.isPrivateWindow) }
+        .onDisappear {
+            catalog.deactivate(persistsMetadata: !appState.isPrivateWindow)
+            home.smartSelectedBookPaths = []
+        }
+        // 選んでいる本をメニューバーの「Finder で表示」などの相手にする(2026-09-23。HomeMenuState.smartBookPaths)。
+        .onChange(of: state.selectedBookPaths, initial: true) { _, paths in
+            if home.smartSelectedBookPaths != paths { home.smartSelectedBookPaths = paths }
+        }
         .onChange(of: catalog.revision) { state.update(books: catalog.books, shelves: store.shelves) }
         .onChange(of: store.shelves) { state.update(books: catalog.books, shelves: store.shelves) }
     }
@@ -83,7 +90,12 @@ struct SmartLibrarySidebar: View {
     @EnvironmentObject private var store: SmartLibraryStore
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var folderAccess: FolderAccessStore
+    @EnvironmentObject private var appState: AppState
     @Environment(\.locale) private var locale
+    /// 対象フォルダの行の右クリックの「ファイルブラウザで表示」(2026-09-23)。
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
+    /// 対象フォルダの欄へフォルダをドラッグしている最中(受け口の強調)。
+    @State private var isFolderDropTargeted = false
 
     /// 編集中のスマートシェルフ(新しく作るときは id の無いもの)。
     @State private var editing: SmartShelfEditorTarget?
@@ -201,6 +213,14 @@ struct SmartLibrarySidebar: View {
                 }
                 .font(.callout)
                 .panelOutlinedContent()
+                .contentShape(Rectangle())
+                // 右クリックで Finder / ファイルブラウザでフォルダを見に行く(2026-09-23、利用者の指示。外すのは右の −)。
+                .contextMenu {
+                    Button("Show in Finder") { showFolderInFinder(folder.url) }
+                    if revealInFileBrowser.isFeatureEnabled {
+                        Button("Show in File Browser") { revealInFileBrowser(folder.url, isDirectory: true) }
+                    }
+                }
             }
             Button {
                 addFolder()
@@ -217,6 +237,54 @@ struct SmartLibrarySidebar: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .panelOutlinedContent()
             }
+        }
+        // ファイルブラウザ・Finder からフォルダを落として足す(2026-09-23)。シークレットウインドウでは受けない(ウインドウ全体の
+        // 「本を開く」へ回る)。このウインドウのホームから運び出している本は受けない(HomeBookDragTracker)。
+        .overlay {
+            if isFolderDropTargeted {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(-4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .modifier(SmartFolderDropTarget(
+            isEnabled: allowsEditing, isTargeted: $isFolderDropTargeted,
+            refusesDrop: { [weak appState] in appState.map { HomeBookDragTracker.isDragging(from: $0) } ?? false },
+            receive: { urls in addDroppedFolders(urls) }
+        ))
+    }
+
+    /// 対象フォルダを Finder で開く。在るかの確かめは FileIO の上で(ネットワークのボリュームで main を止めない)。
+    private func showFolderInFinder(_ url: URL) {
+        let path = url.path
+        Task { @MainActor in
+            if await FileIO.perform({ FileManager.default.fileExists(atPath: path) }) {
+                FinderReveal.reveal(url)
+            } else {
+                NSSound.beep()
+            }
+        }
+    }
+
+    /// 対象フォルダの欄へ落とされたフォルダを足す(2026-09-23、利用者の指示。ファイルブラウザの右クリックの「スマートライブラリの
+    /// 対象に追加」と同じ規則: 1 冊の本になるフォルダ・ファイルは足さない)。1 つも足せなければ鳴らす(足せたものは一覧に並ぶ)。
+    private func addDroppedFolders(_ urls: [URL]) {
+        guard allowsEditing, !urls.isEmpty else { return }
+        Task { @MainActor [appState, store, folderAccess] in
+            let folders = await FileIO.perform {
+                urls.filter { url in
+                    var isDirectory: ObjCBool = false
+                    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                }
+            }
+            let result = await SmartLibraryTargetAdding.add(
+                folders, store: store, folderAccess: folderAccess,
+                isFeatureEnabled: { [weak appState] in
+                    (appState?.preferences?.smartLibraryFeatureEnabled ?? false) && !(appState?.isPrivateWindow ?? true)
+                }
+            )
+            if result?.added.isEmpty ?? true { NSSound.beep() }
         }
     }
 
@@ -747,6 +815,11 @@ struct SmartLibraryContent: View {
     /// 右クリックの「コレクションを作成」「コレクションに登録」(2026-09-23、利用者の指示。ファイルブラウザの右クリックと同じ)。
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    /// 右クリックの「本の書き出し」(2026-09-23)。
+    @EnvironmentObject private var preferences: AppPreferences
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
     /// 表紙の下の文字の大きさ(行の高さの見積もり)と、ホイール1ノッチのスクロール量。
     @EnvironmentObject private var appearance: AppearanceSettings
     @Environment(\.openWindow) private var openWindow
@@ -780,6 +853,8 @@ struct SmartLibraryContent: View {
     /// 操作の結果の知らせ(「コレクションに登録」。ファイルブラウザの FileBrowserState.showToast と同じ見た目・長さ)。
     @State private var toastMessage: String?
     @State private var toastDismissTask: Task<Void, Never>?
+    /// 出している「本の書き出し」のシート。
+    @State private var exportRequest: HomeBookExportRequest?
 
     private static let spacing: CGFloat = 16
     private static let gridPadding: CGFloat = 16
@@ -821,6 +896,11 @@ struct SmartLibraryContent: View {
         }
         .sheet(item: $metadataTarget) { target in
             BookMetadataSheet(fileBrowserEntry: target.entry)
+        }
+        .homeBookExportSheet($exportRequest, allowsCoverSelection: !appState.isPrivateWindow)
+        // メニューバーの「Finder で表示」「ファイルブラウザで表示」(2026-09-23。選んでいる 1 冊。HomeMenuState.singleSmartBookTarget)。
+        .onChange(of: home.menuRequest) { _, _ in
+            handleBookMenuRequest()
         }
         // 操作の結果の知らせ。一覧の下に浮かべ、クリックは一覧へ通す(FileBrowserPane と同じ作り。文字の輪郭は OverlayToast が掛ける)。
         .overlay(alignment: .bottom) {
@@ -1249,6 +1329,7 @@ struct SmartLibraryContent: View {
                 onOpenIn: { openIn(book, $0) }
             )
             .disabled(!isSingle)
+            openWithMenu(for: book, isEnabled: isSingle)
             if allowsCollections {
                 Divider()
                 collectionMenuItems(for: targets)
@@ -1262,11 +1343,56 @@ struct SmartLibraryContent: View {
                     .disabled(!isSingle)
             }
             Button("Get Info") { getInfo(targets) }
+            Divider()
             if allowsEditing {
-                Divider()
                 Button("Edit Metadata…") { editMetadata(book) }
                     .disabled(!isSingle)
             }
+            // 「本の書き出し」(2026-09-23。ファイルブラウザの右クリックと同じ。書き出し自体は何も記録しないので、シークレット
+            // ウインドウでも使える ―― カバーの選択だけ出さない)。
+            BookExportMenu(isEnabled: isSingle && exportRequest == nil) { format in startExport(book, format: format) }
+        }
+    }
+
+    /// 「このアプリケーションで開く」(2026-09-23。コレクションの中の本と同じ中身。候補は名前だけで引く)。
+    @ViewBuilder
+    private func openWithMenu(for book: SmartBook, isEnabled: Bool) -> some View {
+        let title = String(localized: "Open With", language: locale)
+        if isEnabled {
+            Menu(title) { FileBrowserMenuNodeItems(nodes: openWithNodes(for: book)) }
+        } else {
+            FileBrowserDisabledSubmenu(title: title)
+        }
+    }
+
+    private func openWithNodes(for book: SmartBook) -> [FileBrowserMenuNode] {
+        let locale = locale
+        return OpenWithApplications.shared.menuNodes(
+            for: HomeBookOpenWith.applications(forBookAt: book.id), locale: locale,
+            open: { application in openWith(book, application: application) },
+            chooseOther: {
+                guard let application = OpenWithApplications.chooseApplication(locale: locale) else { return }
+                openWith(book, application: application)
+            }
+        )
+    }
+
+    private func openWith(_ book: SmartBook, application: URL) {
+        let locale = locale
+        withResolvedURL(for: book) { url in
+            HomeBookOpenWith.open(url, withApplicationAt: application, scoped: false, locale: locale)
+        }
+    }
+
+    /// 「本の書き出し」▸ 形式。保存先の決め方はファイルブラウザ・ビューアの右クリックと同じ(FileBrowserBookSheet.Export.make)。
+    private func startExport(_ book: SmartBook, format: BookExportFormat) {
+        guard exportRequest == nil else { return }
+        withResolvedURL(for: book) { url in
+            guard let export = FileBrowserBookSheet.Export.make(
+                url: url, bookID: book.id, isDirectory: book.kind == .folder, format: format, preferences: preferences,
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore
+            ) else { return }
+            exportRequest = HomeBookExportRequest(export: export)
         }
     }
 
@@ -1291,6 +1417,7 @@ struct SmartLibraryContent: View {
             Item(title: title("Open in New Normal Window"), isEnabled: isSingle, action: { openIn(book, .newNormalWindow) }),
             Item(title: title("Open in New Private Window"), isEnabled: isSingle, action: { openIn(book, .newPrivateWindow) }),
             Item(title: title("Open in New Tab"), isEnabled: isSingle, action: { openIn(book, .newTab) }),
+            Item(title: title("Open With"), isEnabled: isSingle, submenu: isSingle ? openWithNodes(for: book) : []),
         ]
         if allowsCollections {
             let libraries = collectionMenuLibraries()
@@ -1315,11 +1442,35 @@ struct SmartLibraryContent: View {
             items.append(Item(title: title("Show in File Browser"), isEnabled: isSingle, action: { showInFileBrowser(book) }))
         }
         items.append(Item(title: title("Get Info"), action: { getInfo(books) }))
+        items.append(.separator)
         if allowsEditing {
-            items.append(.separator)
             items.append(Item(title: title("Edit Metadata…"), isEnabled: isSingle, action: { editMetadata(book) }))
         }
+        items.append(Item(
+            title: title("Export Book"), isEnabled: isSingle && exportRequest == nil,
+            submenu: BookExportFormat.menuNodes(locale: locale) { format in startExport(book, format: format) }
+        ))
         return items
+    }
+
+    /// メニューバーから、選んでいる本を Finder / ファイルブラウザで表示する。在るかの確かめは右クリックと同じ(withResolvedURL)。
+    private func handleBookMenuRequest() {
+        guard let kind = home.takeMenuRequest(where: {
+            switch $0 {
+            case .showSmartBookInFinder, .showSmartBookInFileBrowser: true
+            default: false
+            }
+        }) else { return }
+        switch kind {
+        case .showSmartBookInFinder(let path):
+            guard let book = catalog.books.first(where: { $0.id == path }) else { return }
+            showInFinder([book])
+        case .showSmartBookInFileBrowser(let path):
+            guard revealInFileBrowser.isFeatureEnabled, let book = catalog.books.first(where: { $0.id == path }) else { return }
+            showInFileBrowser(book)
+        default:
+            break
+        }
     }
 
     // MARK: コレクション・コピー・ドラッグ(2026-09-23、利用者の指示)
@@ -1373,7 +1524,8 @@ struct SmartLibraryContent: View {
             guard home.isLibraryFeatureEnabled else { return }
             Task { @MainActor in
                 guard let result = await CollectionBookAdding.add(
-                    urls, to: collectionID, collectionStore: collectionStore, coverExtractor: coverExtractor
+                    urls, to: collectionID, collectionStore: collectionStore, coverExtractor: coverExtractor,
+                    isStillEnabled: { home.isLibraryFeatureEnabled }
                 ) else { return }
                 showToast(FileBrowserActions.addedToCollectionMessage(
                     addedTitles: result.addedTitles, requestedCount: result.requestedCount,
@@ -1851,5 +2003,21 @@ private struct SmartBookThumbnail: View {
         didFail = false
         image = made
         onImageRetained(made)
+    }
+}
+
+/// 対象フォルダの欄の受け口(使えないときは付けない ―― 付けたまま断ると、ウインドウ全体の受け口へ回らない)。
+private struct SmartFolderDropTarget: ViewModifier {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let refusesDrop: () -> Bool
+    let receive: ([URL]) -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.fileURLDropTarget(isTargeted: $isTargeted, refusesDrop: refusesDrop, receiveURLs: receive)
+        } else {
+            content
+        }
     }
 }

@@ -119,6 +119,29 @@ extension AppState {
     }
 }
 
+extension FileBrowserReveal {
+    /// 本のウインドウの外(メタデータの編集ウインドウなど。AppState が無い)からの「ファイルブラウザで表示」(2026-09-23)。
+    /// 行き先は環境設定「ファイルブラウザ」の新しいタブ/ウインドウ(派生元が無いので、タブも新しいウインドウになる)。
+    /// ファイルブラウザ機能が OFF なら何もしない(入り口の項目も出さない)。見つからなければ鳴らす。
+    @MainActor
+    static func revealWithoutWindow(_ url: URL, preferences: AppPreferences, openWindow: OpenWindowAction) {
+        guard preferences.fileBrowserFeatureEnabled else { return }
+        Task { @MainActor [weak preferences] in
+            guard let isDirectory = await isDirectory(at: url) else {
+                NSSound.beep()
+                return
+            }
+            guard let preferences, preferences.fileBrowserFeatureEnabled else { return }
+            let target = target(for: url, isDirectory: isDirectory)
+            let folder = target.folder ?? FileBrowserState.folderURL(url)
+            BookWindowOpener.openFolder(
+                folder, selecting: target.folder == nil ? nil : target.selecting,
+                to: preferences.fileBrowserRevealDestination.bookOpenDestination, from: nil, openWindow: openWindow
+            )
+        }
+    }
+}
+
 /// 「ファイルブラウザで開く」をビューの右クリックメニューから呼ぶための口。ContentView がウインドウの中身全体に入れる。
 ///
 /// ■ なぜ環境値か

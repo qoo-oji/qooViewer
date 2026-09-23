@@ -504,6 +504,7 @@ struct ContentView: View {
             // 選択は並びを固定して渡す(Setを配列にしただけだと、同じ選択でも並びが揺れて値が変わったことになる)。
             selectedCollectionIDs: isShelf && opened == nil ? welcomeLibrary.selectedCollectionIDs.sorted { $0.uuidString < $1.uuidString } : [],
             selectedItemIDs: isShelf && opened != nil ? welcomeLibrary.selectedItemIDs.sorted { $0.uuidString < $1.uuidString } : [],
+            smartBookPaths: isShown && welcomeLibrary.mode == .smart ? welcomeLibrary.smartSelectedBookPaths : [],
             shelfSort: opened != nil ? welcomeLibrary.itemSort : welcomeLibrary.collectionSort,
             browserViewMode: fileBrowser.viewMode,
             browserSortKey: fileBrowser.sortKey,
@@ -544,6 +545,8 @@ struct ContentView: View {
         .environment(\.revealInFileBrowser, RevealInFileBrowserAction(
             appState: appState, openWindow: openWindow, isFeatureEnabled: preferences.fileBrowserFeatureEnabled
         ))
+        // サイドパネル・ビューアの右クリックからの「コレクションに登録」などの結果を、このウインドウのビューアのトーストへ(2026-09-23)。
+        .environment(\.windowNotice, WindowNoticeAction(appState: appState))
         // メニューバー(アプリ全体で1つ)から「今アクティブなウインドウ」のAppStateを
         // 参照できるようにする(詳細はAppState.swiftのFocusedValues拡張のコメント参照)。
         .focusedSceneValue(\.qooViewerAppState, appState)

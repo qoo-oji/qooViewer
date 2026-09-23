@@ -112,8 +112,12 @@ final class MetadataEditorModel {
     /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
     @ObservationIgnored private var relocationAttempted: Set<String> = []
 
+    /// 本の実体の URL(保存データのブックマークから。右クリックの「開く」「コレクションに登録」。2026-09-23)。
+    @ObservationIgnored let resolveURL: (String) -> URL?
+
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
          preferences: AppPreferences, relocator: BookRecordRelocator?, resolveURL: @escaping (String) -> URL?) {
+        self.resolveURL = resolveURL
         self.relocator = relocator
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
@@ -553,6 +557,14 @@ struct MetadataBookTableView: View {
     var openParsingSettings: () -> Void
 
     @EnvironmentObject private var preferences: AppPreferences
+    /// 右クリックの「開く」「ファイルブラウザで表示」「コレクションに登録」(2026-09-23、利用者の指示)。
+    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    @EnvironmentObject private var directory: HomeMenuDirectoryStore
+    @Environment(\.collectionAdding) private var collectionAdding
+    @Environment(\.openWindow) private var openWindow
+    /// 「コレクションに登録」の結果の知らせ(一覧の下に浮かべる)。
+    @State private var toastMessage: String?
+    @State private var toastDismissTask: Task<Void, Never>?
     /// 出している確かめの窓(1 つの `.alert` で出す。body のコメント)。
     @State private var tableAlert: TableAlert?
 
@@ -620,6 +632,29 @@ struct MetadataBookTableView: View {
             case .delete(let ids):
                 Text(verbatim: "The metadata of %lld books is deleted and they are removed from this list. The books themselves are not deleted. This can't be undone.".ui(ids.count))
             }
+        }
+        .overlay(alignment: .bottom) {
+            ZStack {
+                if let toastMessage {
+                    OverlayToast(message: toastMessage)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 20)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.2), value: toastMessage)
+        }
+        .onDisappear { toastDismissTask?.cancel() }
+    }
+
+    private func showToast(_ message: String) {
+        toastDismissTask?.cancel()
+        toastMessage = message
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: FileBrowserState.toastDuration)
+            guard !Task.isCancelled else { return }
+            toastMessage = nil
         }
     }
 
@@ -783,6 +818,22 @@ struct MetadataBookTableView: View {
             tableAlert = .delete(ids)
         })
         items.append(.separator)
+        // ほかの機能へ(2026-09-23、利用者の指示)。開く・ファイルブラウザで表示は 1 冊だけ、見つからない本では淡色。
+        // 「コレクションに登録」は見つかる本だけを入れる。相手の機能が OFF なら出さない。
+        let found = books.filter { !$0.isMissing }
+        let single = books.count == 1 ? found.first : nil
+        items.append(Item(title: "Open".ui, isEnabled: single != nil) { if let single { openBook(single) } })
+        if preferences.fileBrowserFeatureEnabled {
+            items.append(Item(title: "Show in File Browser".ui, isEnabled: single != nil) {
+                if let single { showInFileBrowser(single) }
+            })
+        }
+        if preferences.libraryFeatureEnabled {
+            let libraries = CollectionMenuLibrary.libraries(from: directory.directory, locale: preferences.effectiveLocale)
+            items.append(Item(title: "Add to Collection".ui, isEnabled: !found.isEmpty,
+                              children: collectionItems(libraries) { addToCollection(found, collectionID: $0) }))
+        }
+        items.append(.separator)
         // どこにある本かを辿れるように(2026-09-22、利用者の要望)。見つからない本は、残っているいちばん近いフォルダを開く。
         items.append(Item(title: "Show in Finder".ui) { showInFinder(books) })
         items.append(Item(title: "Copy File Name".ui) {
@@ -795,6 +846,42 @@ struct MetadataBookTableView: View {
 }
 
 extension MetadataBookTableView {
+    /// 本の実体の URL。保存データのブックマークから解決し、無ければパス(対象フォルダなど、読む許可のある場所の本)。
+    fileprivate func bookURL(_ book: MetadataBookRow) -> URL {
+        model.resolveURL(book.id) ?? URL(fileURLWithPath: book.id)
+    }
+
+    /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(「お気に入りの編集」ウインドウから開くのと同じ)。
+    fileprivate func openBook(_ book: MetadataBookRow) {
+        BookWindowOpener.open(
+            BookOpenRequest(bookURL(book)), to: .newNormalWindow, from: nil,
+            launchCoordinator: launchCoordinator, openWindow: openWindow
+        )
+    }
+
+    fileprivate func showInFileBrowser(_ book: MetadataBookRow) {
+        FileBrowserReveal.revealWithoutWindow(bookURL(book), preferences: preferences, openWindow: openWindow)
+    }
+
+    /// 「コレクションに登録」▸ コレクション。結果は一覧の下に知らせる。
+    fileprivate func addToCollection(_ books: [MetadataBookRow], collectionID: UUID) {
+        let urls = books.map(bookURL)
+        collectionAdding.add(urls, to: collectionID) { [self] message in showToast(message) }
+    }
+
+    /// 「コレクションに登録」のサブメニュー(ライブラリが 1 つなら 1 段。CollectionMenuLibrary.addMenuNodes と同じ形)。
+    fileprivate func collectionItems(
+        _ libraries: [CollectionMenuLibrary], add: @escaping (UUID) -> Void
+    ) -> [MetadataBookTable.MenuItem] {
+        typealias Item = MetadataBookTable.MenuItem
+        func items(_ library: CollectionMenuLibrary) -> [Item] {
+            guard !library.collections.isEmpty else { return [Item(title: "No Collections".ui, isEnabled: false)] }
+            return library.collections.map { collection in Item(title: collection.name) { add(collection.id) } }
+        }
+        if libraries.count == 1, let only = libraries.first { return items(only) }
+        return libraries.map { Item(title: $0.name, children: items($0)) }
+    }
+
     /// 「Finder で表示」。実在する本は Finder で選び(`activateFileViewerSelecting` はこのアプリの読む権限を要らない)、
     /// 見つからない本(名前を変えた・消した・未接続のボリューム)は、残っているいちばん近いフォルダを開く。
     fileprivate func showInFinder(_ books: [MetadataBookRow]) {

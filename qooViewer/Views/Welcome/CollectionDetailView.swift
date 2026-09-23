@@ -23,6 +23,8 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var layoutStore: LayoutStore
+    /// 右クリックの「本の書き出し」(2026-09-23)。
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
     /// **値は読まない。**タイトル(caption(for:)と並び順「タイトル」)は
     /// `collectionStore.titleResolver`から取るが、あちらはpublishしないキャッシュなので、
     /// メタデータ/フォーマットが変わったときに描き直すための購読としてここに残す
@@ -93,6 +95,8 @@ struct CollectionDetailView: View {
     @State private var isDeletingCollection = false
     /// コレクションの設定のポップオーバー(LibraryPaneControls.isShowingSettingsのコメント)。
     @State private var isShowingSettings = false
+    /// 出している「本の書き出し」のシート(2026-09-23)。
+    @State private var exportRequest: HomeBookExportRequest?
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
@@ -533,6 +537,10 @@ struct CollectionDetailView: View {
         .sheet(item: $metadataTarget) { target in
             BookMetadataSheet(itemID: target.id, sourceURL: target.url, library: library)
         }
+        // 右クリックの「本の書き出し」(2026-09-23)。ほかのシートとは別の階層に付ける(上のコメントと同じ理由)。
+        .background {
+            Color.clear.homeBookExportSheet($exportRequest, allowsCoverSelection: allowsEditing)
+        }
     }
 
     private func cell(for item: CollectionItem) -> some View {
@@ -673,6 +681,9 @@ struct CollectionDetailView: View {
                 }
                 .disabled(!isSingle)
             }
+            // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は何も記録しないので、
+            // シークレットウインドウでも使える(カバーの選択だけ出さない)。
+            BookExportMenu(isEnabled: isSingle && exportRequest == nil) { format in startExport(item.id, format: format) }
             // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
             //
             // **「別のコレクションへ移す」は置かない**(2026-09-09に一度入れて同日に撤回した)。
@@ -727,33 +738,31 @@ struct CollectionDetailView: View {
 
     /// 選んだアプリで本を開く。コレクションが持つのはセキュリティスコープ付きのブックマークなので、スコープを開けたまま
     /// 渡し、アプリが受け取り終えてから閉じる(開けていないと、サンドボックスが相手のアプリへ読み取りの許可を渡せない)。
-    /// 失敗はアラートで知らせる(アプリの起動を待つ間にこの画面が消えていてもよいように、ビューの状態は使わない)。
+    /// 失敗はアラートで知らせる(HomeBookOpenWith.open。スマートライブラリの右クリックと共有)。
     private func openItem(_ itemID: UUID, withApplicationAt application: URL) {
         guard let item = collectionStore.item(withID: itemID) else { return }
         guard let url = collectionStore.resolvedExistingURL(for: item) else {
             missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
             return
         }
-        let locale = self.locale
-        let didStartAccessing = url.startAccessingSecurityScopedResource()
-        Task { @MainActor in
-            defer { if didStartAccessing { url.stopAccessingSecurityScopedResource() } }
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            do {
-                _ = try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: configuration)
-            } catch {
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = OpenWithApplications.failureTitle(application: application, locale: locale)
-                alert.informativeText = error.localizedDescription
-                if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                    alert.beginSheetModal(for: window) { _ in }
-                } else {
-                    alert.runModal()
-                }
-            }
+        HomeBookOpenWith.open(url, withApplicationAt: application, scoped: true, locale: locale)
+    }
+
+    /// 「本の書き出し」▸ 形式。保存先の決め方はファイルブラウザ・ビューアの右クリックと同じ(FileBrowserBookSheet.Export.make)。
+    /// 本はブックマークから解決した URL で渡す(書き出しがスコープを開けて読む。BookExportViewModel.exportOne)。
+    private func startExport(_ itemID: UUID, format: BookExportFormat) {
+        guard exportRequest == nil, let item = collectionStore.item(withID: itemID) else { return }
+        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
+            return
         }
+        let name = url.lastPathComponent
+        guard let export = FileBrowserBookSheet.Export.make(
+            url: url, bookID: item.bookID, isDirectory: !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)),
+            format: format, preferences: preferences, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            metadataStore: metadataStore, collectionStore: collectionStore
+        ) else { return }
+        exportRequest = HomeBookExportRequest(export: export)
     }
 
     // MARK: - コピー・ドラッグ(2026-09-23)

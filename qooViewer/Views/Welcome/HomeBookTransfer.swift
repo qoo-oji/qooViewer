@@ -233,12 +233,17 @@ enum CollectionBookAdding {
     }
 
     /// - Returns: 登録した結果。コレクションが待っている間に消された・入れる本が無ければ nil。
+    ///
+    /// - Parameter isStillEnabled: ブックマークを作り終えた後で訊く「ライブラリ機能はまだ ON か」。OFF にされていたら登録しない
+    ///   (OFF の間はコレクションの行に触らない。AppStores.applyLibraryFeature)。
     static func add(
         _ books: [URL], to collectionID: UUID,
-        collectionStore: CollectionStore?, coverExtractor: CollectionCoverExtractor?
+        collectionStore: CollectionStore?, coverExtractor: CollectionCoverExtractor?,
+        isStillEnabled: @MainActor () -> Bool = { true }
     ) async -> Result? {
         // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
         let pending = await CollectionStore.makePendingItems(for: books)
+        guard isStillEnabled() else { return nil }
         // 待っている間に消されたコレクションには足さない(idで引き直す。WelcomeDropHandling.handle と同じ)。
         guard let collectionStore, let collection = collectionStore.collection(withID: collectionID), !pending.isEmpty
         else { return nil }

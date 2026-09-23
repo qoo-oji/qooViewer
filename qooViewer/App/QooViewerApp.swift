@@ -339,7 +339,8 @@ struct QooViewerApp: App {
         if let itemID = appState.homeMenu.singleItemTarget {
             return collectionStore.item(withID: itemID)?.bookID
         }
-        return nil
+        // スマートライブラリで 1 冊だけ選んでいる本(2026-09-23)。
+        return appState.homeMenu.singleSmartBookTarget
     }
 
     /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
@@ -601,6 +602,17 @@ struct QooViewerApp: App {
             .environment(metadataRulesStore)
             .environmentObject(launchCoordinator)
             .environmentObject(resourceSampler)
+            // ビューア・サイドパネルの「コレクションに登録」(2026-09-23)。名前は写しから引き、ストアは購読しない
+            // (CollectionAddingContext の型コメント)。
+            .environmentObject(stores.homeMenuDirectory)
+            .environment(\.collectionAdding, collectionAddingContext)
+    }
+
+    /// 「コレクションに登録」に要るもの(CollectionAddingContext)。
+    private var collectionAddingContext: CollectionAddingContext {
+        CollectionAddingContext(
+            collectionStore: collectionStore, coverExtractor: collectionCoverExtractor, preferences: preferences
+        )
     }
 
     /// 「お気に入りの編集」ウインドウ。bodyから切り出してあるのは、この1つだけに
@@ -877,12 +889,15 @@ struct QooViewerApp: App {
                         actions.showInFinder(actions.state?.selectedEntries ?? [])
                     } else if let item = home.singleItemTarget {
                         appState.welcomeLibrary?.request(.showItemInFinder(item))
+                    } else if let path = home.singleSmartBookTarget {
+                        // スマートライブラリで選んでいる本(2026-09-23)。在るかの確かめと「本が見つかりません」はその画面が持つ。
+                        appState.welcomeLibrary?.request(.showSmartBookInFinder(path))
                     }
                 }
                 .disabled(
                     focusedAppState?.currentBook == nil
                         && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
-                        && menuCheckmarkState?.homeMenu.singleItemTarget == nil
+                        && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true
                 )
                 // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからは、行き先は常に
                 // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。コレクションの中で選んだ本は、
@@ -894,9 +909,25 @@ struct QooViewerApp: App {
                             appState.revealCurrentBookInFileBrowser(openWindow: openWindow)
                         } else if let item = appState.homeMenu.singleItemTarget {
                             appState.welcomeLibrary?.request(.showItemInFileBrowser(item))
+                        } else if let path = appState.homeMenu.singleSmartBookTarget {
+                            appState.welcomeLibrary?.request(.showSmartBookInFileBrowser(path))
                         }
                     }
-                    .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.singleItemTarget == nil)
+                    .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                }
+                // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本を相手にする(ビューアの右クリックと同じ)。
+                // ライブラリ機能が OFF の間は出さない。シークレットウインドウ・その場限りの本・本を開いていないときは淡色
+                // (AppState.canAddCurrentBookToCollection)。名前は「ホーム」メニューと同じ写し(HomeMenuDirectoryStore)。
+                if preferences.libraryFeatureEnabled {
+                    Menu("Add to Collection") {
+                        FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
+                            for: CollectionMenuLibrary.libraries(from: stores.homeMenuDirectory.directory, locale: currentLocale),
+                            locale: currentLocale
+                        ) { [weak focusedAppState, collectionAddingContext] collectionID in
+                            focusedAppState?.addCurrentBook(toCollection: collectionID, using: collectionAddingContext)
+                        })
+                    }
+                    .disabled(focusedAppState?.canAddCurrentBookToCollection != true)
                 }
 
                 Divider()
@@ -1818,6 +1849,10 @@ struct QooViewerApp: App {
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
+                // 右クリックの「開く」「コレクションに登録」(2026-09-23)。
+                .environmentObject(launchCoordinator)
+                .environmentObject(stores.homeMenuDirectory)
+                .environment(\.collectionAdding, collectionAddingContext)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }

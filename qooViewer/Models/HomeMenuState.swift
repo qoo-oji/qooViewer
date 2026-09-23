@@ -73,6 +73,9 @@ struct HomeMenuState: Equatable {
     var selectedCollectionIDs: [UUID] = []
     /// コレクションの中で選んでいる本(表示順)。
     var selectedItemIDs: [UUID] = []
+    /// スマートライブラリで選んでいる本のパス(2026-09-23。束は含めない)。メニューバーの「Finder で表示」「ファイルブラウザで表示」
+    /// 「メタデータの編集…」が相手にする。
+    var smartBookPaths: [String] = []
 
     // 表示メニューのチェックマーク(ホーム画面の間は、表示メニューの中身がこれに入れ替わる)。
     /// 本棚の並び順(コレクションの中なら本の並び、一覧ならコレクションの並び)。
@@ -111,6 +114,15 @@ struct HomeMenuState: Equatable {
         let targets = itemTargets
         return targets.count == 1 ? targets.first : nil
     }
+
+    /// スマートライブラリで 1 冊だけ選んでいる本(`singleItemTarget` のスマートライブラリ版)。
+    var singleSmartBookTarget: String? {
+        guard isShown, mode == .smart, smartBookPaths.count == 1 else { return nil }
+        return smartBookPaths.first
+    }
+
+    /// ホームで 1 冊だけ選んでいる本があるか(コレクションの中・スマートライブラリ)。
+    var hasSingleBookTarget: Bool { singleItemTarget != nil || singleSmartBookTarget != nil }
 
     // MARK: - 可否
 

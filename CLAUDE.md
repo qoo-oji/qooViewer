@@ -321,8 +321,10 @@ carries one provider and cannot set the operation mask); collection books keep t
 writing/dragging. A drop back onto the source window is refused (`HomeBookDragTracker`, asked through
 `bookFileDropTarget(refusesDrop:)` at drop time — the URLs load asynchronously, after the source has ended). Items in one
 feature that operate another (collections from the smart library/file browser, "Add to Smart Library Targets", "Show in File
-Browser") disappear when the target feature is off and re-check the flag after every await (docs/plans/feature-toggle-audit.md,
-2026-09-23 table).
+Browser", Add to Collection from the viewer/side panel/menu bar/Edit Metadata window) disappear when the target feature is off
+and re-check the flag after every await (docs/plans/feature-toggle-audit.md, 2026-09-23 table; shared parts in
+`Views/Welcome/CrossFeatureActions.swift`). Outside Home, collection names come from `HomeMenuDirectoryStore` and adding goes
+through the `\.collectionAdding` environment value — never observe `CollectionStore` from the viewer or side panel.
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in
