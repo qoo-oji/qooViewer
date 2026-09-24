@@ -66,6 +66,18 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         self.init(archive: try SevenZip.Archive(data: data))
     }
 
+    /// ネットワークボリューム上の 7z を、読み込み層(StagedFileSource)を通して読む(makeArchiveReader が選ぶ)。
+    ///
+    /// フォークの `Archive(reader:)`(LZMA SDK の `ISeekInStream` を呼び出し側の関数へ)。索引は末尾にまとまっているので
+    /// 一覧は数往復で済むが、ソリッドブロックの伸長は順読みで、直接読むと伸長(CPU)と転送が交互になった(通読 15 秒、ローカル
+    /// 4.9 秒)。読み込み層は順読みに先回りして取り寄せるので、両者が重なる(5.5 秒。docs/plans/network-volume-study.md)。
+    convenience init(source: RandomAccessSource) throws {
+        let reader = SevenZip.Archive.PositionalReader(size: Int64(source.size)) { offset, buffer in
+            positionalRead(source, offset, buffer)
+        }
+        self.init(archive: try SevenZip.Archive(reader: reader))
+    }
+
     private init(archive: SevenZip.Archive) {
         self.archive = archive
         self.entries = archive.entries

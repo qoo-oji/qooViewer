@@ -16,7 +16,7 @@
       "location" : "https://github.com/qoo-oji/SevenZip.swift",
       "state" : {
         "branch" : "streaming-extract",
-        "revision" : "0b4c1b96b5ba757d5db51441de7b663d8e5cf2e3"
+        "revision" : "f93e3eb5e89aec68396fe322c71e229855b60f83"
       }
     },
     {
@@ -25,7 +25,7 @@
       "location" : "https://github.com/qoo-oji/Unrar.swift",
       "state" : {
         "branch" : "memory-archive",
-        "revision" : "2d2982ecb94e4189db44f7690f0f1628186da01f"
+        "revision" : "70fe20d552c8b00ae1c35993d3759d68424c7050"
       }
     },
     {

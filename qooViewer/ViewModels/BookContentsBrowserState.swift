@@ -15,6 +15,8 @@ import CoreGraphics
 /// (ArchiveReadingの各実装はSendableではないため、MainActorとTask.detachedをまたいで
 /// 同じreaderインスタンスを受け渡すのはSwift 6の厳格な並行性チェック上安全ではない、
 /// という理由もある)。
+/// ただし**最上位の書庫の一覧だけは裏で取る**(`make(book:)`)。ネットワークボリューム上の書庫では、一覧 1 回が
+/// 「エントリ数 × 往復」になりうるため(2026-09-24)。readerは一覧を取った裏の処理が手放してからメインへ渡す。
 @MainActor
 final class BookContentsBrowserState: ObservableObject {
     @Published private(set) var entries: [BookInternalBrowsing.Entry] = []
@@ -106,38 +108,63 @@ final class BookContentsBrowserState: ObservableObject {
     /// 下段セクションを表示しない)。
     /// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
     /// かえって分かりづらいため非対応(SidePanelViewのコメントも参照)。
-    init?(book: MangaBook) {
+    convenience init?(book: MangaBook) {
         // 直接渡された画像ファイルの本(ユーザー要望)。sourceURLは先頭1ページの画像でしかなく
         // フォルダでも書庫でもないため、以下のsourceURLを見る判定には掛けられない。
         // 辿るべき中身の階層が無いので、渡された画像そのものを平坦な1階層として見せる。
         if book.origin == .imageFiles {
-            currentLevel = .imageFileList(book.pages.compactMap { page in
+            self.init(book: book, root: .imageFiles(book.pages.compactMap { page in
                 guard case .file(let url) = page.source else { return nil }
                 return url
-            })
-            currentLocator = nil
-            rootLevel = currentLevel
-            rootLocator = nil
-            reload()
+            }))
             return
         }
+        guard let root = Self.prepareRoot(of: book) else { return nil }
+        self.init(book: book, root: root)
+    }
 
+    /// 本の最上位の階層を、**メインスレッドを塞がずに**用意してから作る(ContentView はこちらを使う)。
+    ///
+    /// 書庫の本では最上位を作るのに書庫の一覧が要る。ZIPFoundation の一覧はエントリごとにローカルヘッダーを読むので、
+    /// ネットワークボリューム上の本では「エントリ数 × 往復」になり、メインスレッドで取ると数秒 UI が固まった
+    /// (2026-09-24 の実測: 1 往復 5ms の模擬で 200 ページの cbz が 2.7 秒。ビューアの初期化もその間待たされ、最初のページが
+    /// 遅れた。docs/plans/network-volume-study.md §2.1)。一覧までを裏で済ませ、状態オブジェクトはメインで組み立てる。
+    /// 階層を 1 段ずつ辿る以後の操作は、型コメントのとおりメインのまま(最上位の一覧に比べて軽い)。
+    static func make(book: MangaBook) async -> BookContentsBrowserState? {
+        if book.origin == .imageFiles { return BookContentsBrowserState(book: book) }
+        let prepared = await Task.detached(priority: .userInitiated) {
+            prepareRoot(of: book).map(PreparedRootHandoff.init)
+        }.value
+        guard let prepared else { return nil }
+        return BookContentsBrowserState(book: book, root: prepared.root)
+    }
+
+    /// 本の最上位の階層(フォルダ・書庫)。書庫なら開いて一覧まで取る。どちらでもなければ nil。
+    private nonisolated static func prepareRoot(of book: MangaBook) -> PreparedRoot? {
         let url = book.sourceURL
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+        if isDirectory.boolValue { return .folder(url) }
+        guard isArchiveFile(url.lastPathComponent),
+              let archive = try? NestedArchiveResolver.openRootArchive(at: url),
+              let allPaths = try? archive.reader.listFilePaths()
+        else { return nil }
+        return .archive(url, archive, allPaths)
+    }
 
-        if isDirectory.boolValue {
+    private init(book: MangaBook, root: PreparedRoot) {
+        switch root {
+        case .imageFiles(let urls):
+            currentLevel = .imageFileList(urls)
+            currentLocator = nil
+        case .folder(let url):
             currentLevel = .folder(url)
             currentLocator = nil
-        } else if isArchiveFile(url.lastPathComponent) {
-            guard let archive = try? NestedArchiveResolver.openRootArchive(at: url),
-                  let allPaths = try? archive.reader.listFilePaths() else { return nil }
+        case .archive(let url, let archive, let allPaths):
             // matchKeyPrefix: nil ― 本自身のルート書庫そのものなので、BookLoader.loadArchiveの
             // sortKeyPrefix: nilと同じ(sortKey/matchKeyはエントリのパスそのもの)。
             currentLevel = .archive(archive: archive, allPaths: allPaths, prefix: "", matchKeyPrefix: nil)
             currentLocator = ArchiveLocator(rootURL: url)
-        } else {
-            return nil
         }
         rootLevel = currentLevel
         rootLocator = currentLocator
@@ -243,7 +270,7 @@ final class BookContentsBrowserState: ObservableObject {
                 try documentLevel(fileName: url.lastPathComponent, matchKeyPrefix: url.path) {
                     // ディスク上に実在するので取り出しは要らない(フォルダの中の書庫と同じ)。
                     if isPDFFile(url.lastPathComponent) {
-                        return .pdf(CGPDFDocument(url as CFURL), .file(url))
+                        return .pdf(openPDFDocument(at: url), .file(url))
                     }
                     return .epub(try EpubStructureResolver.resolve(reader: try makeArchiveReader(for: url)))
                 },
@@ -494,4 +521,20 @@ final class BookContentsBrowserState: ObservableObject {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         return (error as? LocalizedError)?.errorDescription ?? String(localized: fallback, language: locale)
     }
+}
+
+/// 本の中身ブラウザの最上位の階層の下ごしらえ(`BookContentsBrowserState.prepareRoot`)。
+private nonisolated enum PreparedRoot {
+    case imageFiles([URL])
+    case folder(URL)
+    /// 本そのものの書庫(開いた状態)と、その一覧。
+    case archive(URL, OpenArchive, [String])
+}
+
+/// 裏で用意した最上位の階層を、メインへ渡すための箱(`BookContentsBrowserState.make(book:)`)。
+///
+/// 中の`OpenArchive`(の reader)はスレッド安全ではないが、用意した裏の処理はこの箱を返した時点で手放し、以後はメインだけが
+/// 触る(同時に 2 つのスレッドから使われることは無い)。そのための`@unchecked`。
+private nonisolated struct PreparedRootHandoff: @unchecked Sendable {
+    let root: PreparedRoot
 }

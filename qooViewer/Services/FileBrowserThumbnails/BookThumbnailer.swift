@@ -128,13 +128,13 @@ nonisolated enum BookThumbnailer {
                 return outcome(decodeEntry(path, in: reader, maxPixelSize: maxPixelSize))
             case .epub:
                 // 絵に要るのは先頭の 1 ページだけ。spine の残りの XHTML は読まない。
-                guard let reader = try? ZipArchiveReader(url: url),
+                guard let reader = try? makeArchiveReader(kind: .zip, url: url),
                       let structure = try? EpubStructureResolver.resolve(reader: reader, maxPages: 1),
                       let path = structure.pages.first?.entryPath
                 else { return .unavailable }
                 return outcome(decodeEntry(path, in: reader, maxPixelSize: maxPixelSize))
             case .pdf:
-                guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else { return .unavailable }
+                guard let document = openPDFDocument(at: url), let page = document.page(at: 1) else { return .unavailable }
                 return outcome(render(page, maxPixelSize: maxPixelSize))
             case .video, .application:
                 return .unavailable

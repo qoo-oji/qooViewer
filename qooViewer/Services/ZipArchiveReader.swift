@@ -78,7 +78,9 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         return made
     }
 
-    /// CRC はライブラリの既定どおり検証する(壊れた書庫の中身を黙って書き出さない)。
+    /// CRC は**照合されない**(2026-09-24 に確認)。ZIPFoundation の `Archive.extract(_:consumer:)` は CRC を計算して返すが、
+    /// エントリの CRC と比べるのは `FileManager.unzipItem` だけ。以前ここに「ライブラリの既定どおり検証する」と書いていたのは誤り。
+    /// 照合を足すと、今は表示・展開できている壊れかけの書庫のページが失敗に変わるので、挙動は変えていない。
     func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         _ = try archive.extract(entry, bufferSize: 1 << 18) { chunk in
@@ -101,11 +103,20 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     /// EpubStructureResolver / NestedArchiveResolver)が持つ。
     private static let reserveCapByteCount = 64 * 1024 * 1024
 
+    /// `data(at:)` の読みの単位の下限・上限(ZIPFoundation の既定が下限)。
+    private static let minimumReadChunk = defaultReadChunkSize
+    private static let maximumReadChunk = 4 * 1024 * 1024
+
     func data(at path: String) throws -> Data {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         var result = Data()
         result.reserveCapacity(Int(min(entry.uncompressedSize, UInt64(Self.reserveCapByteCount))))
-        _ = try archive.extract(entry) { chunk in
+        // 読みの単位はエントリの圧縮後の大きさ(16KB〜4MB)。ZIPFoundation の既定(16KB)だと 1 ページ 1MB で 60 回ほどの
+        // read() になり、1 回ごとに往復するボリューム(ネットワーク越し)では往復の数だけ待った(2026-09-24)。Apple の fread は
+        // 要求が内部バッファより大きいと呼び出し側のバッファへ直接読むので、ページ 1 枚がほぼ 1 回の read() で済む。
+        // deflate では伸長の出力バッファも同じ大きさになる(上限 4MB)。
+        let bufferSize = Int(min(max(entry.compressedSize, UInt64(Self.minimumReadChunk)), UInt64(Self.maximumReadChunk)))
+        _ = try archive.extract(entry, bufferSize: bufferSize) { chunk in
             result.append(chunk)
         }
         return result
@@ -159,7 +170,7 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     /// 以前は`extract(_:to:)`(ライブラリがファイルへ直接書く版)だったが、それだと書き出した
     /// 量を数えられず、索引が嘘をついている書庫を上限で止められなかった(監査で指摘)。
     /// チャンクごとに累計を数え、上限を超えた時点でthrowして伸長を打ち切る。書きかけの
-    /// ファイルは残さない。CRCの検証はライブラリの既定どおり行う(以前と同じ)。
+    /// ファイルは残さない。CRC は照合されない(readEntry のコメント)。
     func extract(at path: String, to url: URL, maxByteCount: Int) throws {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
@@ -240,7 +251,7 @@ nonisolated enum ZipDOSTime {
 /// 文字コードを選ぶ設計のうえ、この手の文字コードは互いのバイト列を「読めてしまう」ため、
 /// どちらか一方に倒れる。UTF-8だけは例外で、バイト列として厳密に検証できるため
 /// エントリ単位で先に拾う(下記のdecodedAsUTF8)。
-private nonisolated struct EntryNameDecoder {
+nonisolated struct EntryNameDecoder {
 
     /// 書庫全体から決めた文字コード。決められなければnil(＝補正しない)。
     private let archiveEncoding: String.Encoding?

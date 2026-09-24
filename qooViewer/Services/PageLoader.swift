@@ -235,8 +235,10 @@ actor PageLoader {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
+        // ネットワークボリューム上の本は、開いたら残りを裏で手元へ取り寄せる(読み進めるうちにいずれ全部要る。
+        // NetworkVolumeReading / StagedFileSource 参照)。
         self.resolver = NestedArchiveResolver(
-            limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes)
+            limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes), stagesWholeFile: true
         )
         imageCache.totalCostLimit = imageCacheLimitBytes
     }
@@ -1106,6 +1108,12 @@ actor PageLoader {
         }
     }
 
+    /// 先読みが走っているか(始めたものがまだ終わっていないか)。本全体の下調べが、最初の先読みを待つのに使う
+    /// (ViewerViewModel.warmUpWideImageCacheForEntireBook(after:)のコメント)。
+    var isPrefetching: Bool {
+        !prefetchTasks.isEmpty
+    }
+
     /// ユーザーがどちらへ読み進めているか(prefetch(around:)のdirection)。
     enum PrefetchDirection: Sendable {
         case unknown
@@ -1443,6 +1451,23 @@ actor PageLoader {
         }
     }
 
+    /// 本を開いたときの ComicInfo.xml の取り込み(ViewerViewModel.importComicInfoIfNeeded)のための解析。
+    ///
+    /// `ComicInfoResolver.resolve(bookAt:)` と同じものを探すが、**本そのものが書庫なら、このPageLoaderが既に開いている
+    /// 書庫の reader で読む**。以前は取り込みのたびに書庫を開き直していたため、1 冊を開くあいだに同じ書庫の一覧を
+    /// もう 1 回取っていた(ブックマークの無い本では開くたびに。ZIPFoundation の一覧はエントリごとにローカルヘッダーを
+    /// 読むので、ネットワークボリューム上では「エントリ数 × 往復」になる。2026-09-24。docs/plans/network-volume-study.md)。
+    ///
+    /// 探すのは**本そのものの書庫の直下**(`resolve(bookAt:)` と同じ)。`sourceComicInfo(bookSourceURL:)` は先頭ページの
+    /// 書庫を見るので、先頭ページが入れ子の書庫の中にある本では答えが違う ―― こちらを取り込みに使う。
+    /// 本が書庫でなければ(フォルダ)nil を返し、呼び出し側がフォルダを直接探す(actor の外で)。
+    func bookArchiveComicInfo() -> ComicInfo? {
+        guard !isReleased else { return nil }
+        let url = book.sourceURL
+        guard isArchiveFile(url.lastPathComponent), let reader = reader(for: ArchiveLocator(rootURL: url)) else { return nil }
+        return ComicInfoResolver.resolve(reader: reader)
+    }
+
     private func rawData(for source: PageSource) -> Data? {
         switch source {
         case .file(let url):
@@ -1489,7 +1514,8 @@ actor PageLoader {
         let document: CGPDFDocument?
         switch container {
         case .file(let url):
-            document = CGPDFDocument(url as CFURL)
+            // ネットワークボリューム上なら読み込み層を通し、残りを裏で取り寄せる(openPDFDocument のコメント)。
+            document = openPDFDocument(at: url, stagesWholeFile: true)
         case .entry(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }
             document = BookLoader.pdfDocument(atEntry: entryPath, in: reader)

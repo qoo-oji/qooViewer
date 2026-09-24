@@ -669,14 +669,16 @@ final class ViewerViewModel: ObservableObject {
         // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
         currentIndex = normalizedAnchorIndex(initialIndex)
 
-        startupTasks.append(Task { [weak self] in
+        let firstSpread = Task { [weak self] () -> Void in
             await self?.loadCurrentSpread()
-        })
+        }
+        startupTasks.append(firstSpread)
         // 本を開いた直後から、本全体についてバックグラウンドで横長判定を進めておく
         // (warmUpWideImageCacheForEntireBookのコメント参照。ユーザー報告: スクロールホイールを
         // 高速に連続して回すと、primeWideImageCache(around:radius:)によるcurrentIndex付近だけの
         // 先読みでは判定が追いつかず、まだ未判定の遠いページまで一気に進んでしまうことがある)。
-        warmUpWideImageCacheForEntireBook()
+        // 始めるのは最初の見開きを読み終えてから(warmUpWideImageCacheForEntireBook(after:)のコメント)。
+        warmUpWideImageCacheForEntireBook(after: firstSpread)
         // 環境設定「レイアウト」で指定されていれば、レイアウトの保存データを持っていない本を
         // 開いた時点で本全体を自動レイアウトする(autoLayoutForBookWithoutLayoutData参照)。
         startupTasks.append(Task { [weak self] in
@@ -1667,7 +1669,7 @@ final class ViewerViewModel: ObservableObject {
         guard bookmarks.isEmpty else { return }
         let sourceURL = book.sourceURL
         let entries: [EpubTOCEntry] = await Task.detached(priority: .utility) { () -> [EpubTOCEntry] in
-            guard let reader = try? ZipArchiveReader(url: sourceURL),
+            guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL),
                   let structure = try? EpubStructureResolver.resolve(reader: reader)
             else { return [] }
             return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
@@ -1691,7 +1693,7 @@ final class ViewerViewModel: ObservableObject {
         let sourceURL = book.sourceURL
         let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
             if isEpub {
-                guard let reader = try? ZipArchiveReader(url: sourceURL) else { return SourceBookMetadata() }
+                guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL) else { return SourceBookMetadata() }
                 return EpubStructureResolver.resolveMetadata(reader: reader)
             }
             return PDFStructureResolver.resolveMetadata(url: sourceURL)
@@ -1748,9 +1750,17 @@ final class ViewerViewModel: ObservableObject {
         guard needsMetadata || needsBookmarks || needsReadingDirection else { return }
 
         let sourceURL = book.sourceURL
-        guard let comicInfo = await Task.detached(priority: .utility, operation: { () -> ComicInfo? in
-            ComicInfoResolver.resolve(bookAt: sourceURL)
-        }).value else { return }
+        // 本そのものが書庫なら、PageLoader が開いている書庫の reader で読む(同じ書庫の一覧を取り直さない。
+        // PageLoader.bookArchiveComicInfo のコメント)。フォルダの本は従来どおり actor の外で探す。
+        let comicInfoOrNil: ComicInfo?
+        if isArchiveFile(sourceURL.lastPathComponent) {
+            comicInfoOrNil = await pageLoader.bookArchiveComicInfo()
+        } else {
+            comicInfoOrNil = await Task.detached(priority: .utility, operation: { () -> ComicInfo? in
+                ComicInfoResolver.resolve(bookAt: sourceURL)
+            }).value
+        }
+        guard let comicInfo = comicInfoOrNil else { return }
 
         // 解析中に他の経路(「メタデータの編集」ウインドウなど)でロックされた可能性があるため、
         // 書く側がもう一度確かめる(importSourceMetadataIfNeededと同じ)。
@@ -2420,6 +2430,9 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// 本全体の下調べが、最初の先読みの終わりを待つ上限(秒)。
+    private static let warmUpPrefetchWaitLimit: TimeInterval = 10
+
     /// 本を開いた直後に、本全体のページについて横長判定を低優先度のバックグラウンドタスクで
     /// 先に済ませておく。
     ///
@@ -2448,7 +2461,15 @@ final class ViewerViewModel: ObservableObject {
     /// 2回目以降はそこから読むので、この下調べは書庫に触らず一瞬で終わる。ソリッド7zでは
     /// 本1冊ぶんの伸長を毎回払っていた(監査 2026-09-04)ため。読む側の工夫(専用reader、
     /// サムネイルの同時生成)はPageLoader.scanPageのコメント参照。
-    private func warmUpWideImageCacheForEntireBook() {
+    ///
+    /// **始めるのは最初の見開きと、その周りの先読み(環境設定の枚数)を読み終えてから**(`firstSpread`、2026-09-24/25)。
+    /// 下調べは PageLoader の actor の上で書庫を読むので、同時に始めると最初の見開きの読み出しや先読みと同じ列に並ぶ。ローカル
+    /// では誤差だが、ネットワークボリューム上の本では 1 ページごとに往復が要り、最初の見開きがその後ろで待たされた
+    /// (docs/plans/network-volume-study.md §2.1)。先読みまで待つのは、開いた直後の数ページのページ送りを先に速くするため
+    /// (利用者の指摘 2026-09-25)。近傍の即時判定は primeWideImageCache が最初の見開きと一緒に済ませるので、遅らせても
+    /// 高速スクロールの保険としての役目は変わらない。先読みはページを送るたびに始め直されるので、待つのは上限
+    /// (`warmUpPrefetchWaitLimit`)まで。
+    private func warmUpWideImageCacheForEntireBook(after firstSpread: Task<Void, Never>) {
         let total = book.pages.count
         guard total > 0 else { return }
         let start = min(max(currentIndex, 0), total - 1)
@@ -2473,6 +2494,13 @@ final class ViewerViewModel: ObservableObject {
         // ViewerViewModelが解放されて止まる。PageLoaderは解放後の要求を空振りにする)。
         let pageLoader = self.pageLoader
         startupTasks.append(Task(priority: .utility) { [weak self] in
+            await firstSpread.value
+            // 最初の見開きの周りの先読み(loadCurrentSpread の終わりで始まる)が終わるまで待つ。上限あり。
+            let deadline = Date().addingTimeInterval(Self.warmUpPrefetchWaitLimit)
+            while !Task.isCancelled, Date() < deadline, await pageLoader.isPrefetching {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard !Task.isCancelled else { return }
             await pageLoader.loadPersistedPageSizes()
             await pageLoader.beginWholeBookScan()
             for pageIndex in order {

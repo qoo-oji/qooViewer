@@ -65,6 +65,8 @@ struct ContentView: View {
     /// (.onChange(of: appState.currentBook?.id)参照)。フォルダ/対応アーカイブ形式以外
     /// (PDF/EPUB)、または本を開いていないときはnil(下段セクション自体を表示しない)。
     @State private var bookContentsBrowser: BookContentsBrowserState?
+    /// 本の中身ブラウザを裏で用意している最中の作業(BookContentsBrowserState.make(book:))。本が替わったら取り消す。
+    @State private var bookContentsBrowserTask: Task<Void, Never>?
     /// サイドパネル側のホバー検知用ローカルモニタ。ViewerView.makeScrollMonitorとは
     /// 完全に独立した、X座標の帯だけを見る単純なもの。
     @State private var sidePanelHoverMonitor: Any?
@@ -1800,11 +1802,29 @@ struct ContentView: View {
         // 参照を外す前にその場で手放させる。SwiftUIが旧世代のビューを抱えているとdeinitが
         // 遅れるため、ARC任せにはしない(BookContentsBrowserState.releaseResources参照)。
         bookContentsBrowser?.releaseResources()
+        bookContentsBrowserTask?.cancel()
+        bookContentsBrowserTask = nil
         guard let book = appState.currentBook else {
             bookContentsBrowser = nil
             return
         }
-        let newBrowser = BookContentsBrowserState(book: book)
+        // 最上位の一覧(書庫の本)は裏で取る(BookContentsBrowserState.make(book:) のコメント。ネットワークボリューム上の本で
+        // メインスレッドが数秒止まった)。用意ができるまで下段は出さない ―― 前の本の一覧を残すと、別の本の行を押せてしまう。
+        bookContentsBrowser = nil
+        let bookID = book.id
+        bookContentsBrowserTask = Task { @MainActor in
+            let newBrowser = await BookContentsBrowserState.make(book: book)
+            // 用意している間に本が替わった・閉じた(同じ本を開き直した場合も、そちらの作業が作り直す)。
+            guard !Task.isCancelled, appState.currentBook?.id == bookID else {
+                newBrowser?.releaseResources()
+                return
+            }
+            installBookContentsBrowser(newBrowser)
+        }
+    }
+
+    /// 用意できた本の中身ブラウザを据える(updateBookContentsBrowserForCurrentBook の続き)。
+    private func installBookContentsBrowser(_ newBrowser: BookContentsBrowserState?) {
         newBrowser?.preferences = preferences
         // 一覧の並びを本のページ順に合わせる(BookContentsBrowserState.pageOrder参照)。
         newBrowser?.pageOrder = pageOrderMap()
@@ -1822,7 +1842,8 @@ struct ContentView: View {
         //
         // ここで現在値をそのまま渡して1回呼んでおけば、値が変わる場合は従来どおりonChangeが、
         // 変わらない場合(=古い値と新しい値が同じ=この呼び出しで正しい)はここが受け持つ。
-        // revealCurrentPageは冪等なので、両方走っても無害。
+        // revealCurrentPageは冪等なので、両方走っても無害。(一覧を裏で用意するようになってからは、用意している間に
+        // ページ送りがあってもここで最新の値を渡すので、取りこぼさない。)
         newBrowser?.revealCurrentPage(sortKeys: appState.currentVisiblePageSortKeys)
     }
 }

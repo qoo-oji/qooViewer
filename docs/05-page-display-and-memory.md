@@ -64,6 +64,11 @@ radius:displayedPageCount:direction:)` に「表示中の2ページの前後 rad
 アニメーションのループは世代番号で中断できるようにしてあります(以前、目的地を追い越す形で
 `currentIndex` が外から書き換わると無限ループになった)。
 
+本全体の横長判定の下調べ(`warmUpWideImageCacheForEntireBook`)は、**最初の見開きとその周りの先読みを読み終えてから**始めます
+(待つのは最大 10 秒。2026-09-25)。下調べも PageLoader の actor の上で書庫を読むので、同時に始めると表示と先読みがその後ろで待たされる
+―― ネットワークボリューム上の本で、最初の見開きが数秒遅れた([plans/network-volume-study.md](plans/network-volume-study.md))。近傍の判定は
+`primeWideImageCache` が最初の見開きと一緒に済ませます。
+
 ## サムネイルの3段階
 
 1. **進捗バー用(240px)**: プログレスバーのフィルムストリップとサイドパネルのページモード、

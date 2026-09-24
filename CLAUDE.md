@@ -100,6 +100,19 @@ itself rather than filename sort). All of this runs off the main actor via `Task
 scanning/extracting can be slow. The result is a `MangaBook` (Models/MangaBook.swift), whose `pages: [PageRef]`
 array is mutable so the viewer can reorder/exclude pages live without reopening the book.
 
+**Network volumes (2026-09-24/25)**: archives and PDFs on a volume without `MNT_LOCAL` (`NetworkVolumeReading`, via
+`MountTable`) are read through `StagedFileSource` — 64 KB blocks copied into a temp file (`TemporaryFileStore`), one large read
+per missing run, read-ahead scaled by bytes actually read sequentially, and (for books opened in the viewer, `stagesWholeFile`)
+the rest fetched in the background. The switch is in one place: `makeArchiveReader(kind:url:stagesWholeFile:)` and
+`openPDFDocument(at:)` — **new code that opens an archive or a PDF file must go through them**, never `ZipArchiveReader(url:)` /
+`CGPDFDocument(url)` directly. zip uses `CentralDirectoryZipReader` (listing from the central directory only; kept answer-for-answer
+identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the one intended difference is documented on the
+type), rar/7z use the forks' positional-reader entry points. Page keys are unchanged. Copies are not kept after use (user decision);
+`StagedFileRegistry` shares one source per file and holds at most 4 unused ones for 30 s (each holds 2 fds). Hidden escape hatch
+`qooViewer.pref.networkVolumeStagedReading = false`; tests mark their own folder with `NetworkVolumeReading.treatAsRemoteForTesting`.
+unrar's error state is per thread in the fork (`ErrHandler` was process-wide: one thread's failure became another's result).
+Study, measurements and decisions: `docs/plans/network-volume-study.md`.
+
 **Page image loading**: `PageLoader` (Services/PageLoader.swift) is an `actor` per opened book. It owns
 per-archive `ArchiveReading` readers and `CGPDFDocument`s, decodes images off-actor in background tasks,
 dedups in-flight requests for the same page, limits concurrent full-size decodes (display requests

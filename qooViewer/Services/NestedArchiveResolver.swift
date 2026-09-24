@@ -102,9 +102,13 @@ nonisolated final class NestedArchiveResolver {
     }
 
     private var limits: Limits
+    /// ネットワークボリューム上の本そのものの書庫を、残りまで裏で取り寄せるか(`makeArchiveReader(for:stagesWholeFile:)`)。
+    /// ビューアの PageLoader だけが true(本を読むので、いずれ全部要る)。
+    private let stagesWholeFile: Bool
 
-    init(limits: Limits) {
+    init(limits: Limits, stagesWholeFile: Bool = false) {
         self.limits = limits
+        self.stagesWholeFile = stagesWholeFile
     }
 
     // MARK: - 解決
@@ -256,7 +260,7 @@ nonisolated final class NestedArchiveResolver {
             created = try materialize(entryPath: entryPath, from: parent.reader)
         } else {
             created = OpenArchive(
-                reader: try makeArchiveReader(for: locator.rootURL),
+                reader: try makeArchiveReader(for: locator.rootURL, stagesWholeFile: stagesWholeFile),
                 byteCount: 0, storage: .rootFile, temporaryFile: nil
             )
         }

@@ -33,6 +33,16 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         try self.init(archive: Unrar.Archive(data: data))
     }
 
+    /// ネットワークボリューム上の rar を、読み込み層(StagedFileSource)を通して読む(makeArchiveReader が選ぶ)。
+    ///
+    /// フォークの `Archive.Source.reader`(unrar の `RAROpenArchiveCallback`)で、unrar の読み取りを読み込み層へ回す。
+    /// unrar はファイルごとのヘッダーを「7 バイト+残り」の 2 回の素の `read()` で読み、操作のたびに書庫を開き直すので、
+    /// 直接読むと Quick Open の無い書庫ではページを読むたびにヘッダーの数だけ往復した(1 往復 5ms の模擬で最初のページまで
+    /// 7.7 秒。docs/plans/network-volume-study.md)。読み込み層を通せば、一度取り寄せたヘッダーは手元から読む。
+    convenience init(source: RandomAccessSource) throws {
+        try self.init(archive: Unrar.Archive(source: .reader(positionalReader(for: source))))
+    }
+
     private init(archive: Unrar.Archive) throws {
         self.archive = archive
         self.entries = try archive.entries()
@@ -159,5 +169,19 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         guard let entry = entryByFileName[path] else { return nil }
         // clampingで変換する理由はSevenZipArchiveReaderの同名メソッド参照。
         return Int64(clamping: entry.uncompressedSize)
+    }
+}
+
+/// 読み込み層を、フォークの「位置を指定して読む」口の形に包む(rar・7z で共用)。短い読みは返さない
+/// (読み込み層はファイルの終わり以外で短く返さない)。失敗は -1(ライブラリ側で読み取りのエラーになる)。
+nonisolated func positionalRead(_ source: RandomAccessSource, _ offset: Int64, _ buffer: UnsafeMutableRawBufferPointer) -> Int {
+    guard offset >= 0, let data = try? source.read(at: UInt64(offset), count: buffer.count) else { return -1 }
+    data.copyBytes(to: buffer)
+    return data.count
+}
+
+private nonisolated func positionalReader(for source: RandomAccessSource) -> Unrar.Archive.PositionalReader {
+    Unrar.Archive.PositionalReader(size: Int64(source.size)) { offset, buffer in
+        positionalRead(source, offset, buffer)
     }
 }

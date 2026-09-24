@@ -122,7 +122,8 @@ protocol ArchiveReading {
 ```
 
 - `ZipArchiveReader`(ZIPFoundation)、`RarArchiveReader`(Unrar.swift フォーク)、
-  `SevenZipArchiveReader`(SevenZip.swift フォーク)。`ArchiveKind` と `makeArchiveReader(url:)` /
+  `SevenZipArchiveReader`(SevenZip.swift フォーク)。ネットワークボリューム上の zip は `CentralDirectoryZipReader`(下の
+  「ネットワークボリューム上の書庫」)。`ArchiveKind` と `makeArchiveReader(url:)` /
   `makeArchiveReader(kind:data:)` で作る。
 - `imageExtensions`(Info.plist と一致させる)、`archiveExtensions`、`isExcludedArchiveEntry`。
   後者は 2 つの判定の OR で、書庫のエントリを数え上げる側(`BookLoader.collectPages`)と
@@ -137,6 +138,28 @@ protocol ArchiveReading {
   - どちらも「ユーザーが自分で開いたもの」には効かない。隠しフォルダや隠しファイルそのものを
     ドロップ / ダイアログで開いた場合は普通に開く(列挙が外すのは中身だけ)。
 - reader は `Sendable` ではない。`PageLoader` の中でだけ触る。
+
+### ネットワークボリューム上の書庫(読み込み層、2026-09-24)
+
+ネットワーク越しのボリューム(マウントの `MNT_LOCAL` が立っていない。`NetworkVolumeReading`)にある書庫と PDF は、
+`makeArchiveReader(kind:url:)` / `openPDFDocument(at:)` が**読み込み層 `StagedFileSource` を通して**読みます。ローカル・外付けの
+ディスクは従来どおり各ライブラリが直接開きます。検討・実測・経緯は [plans/network-volume-study.md](plans/network-volume-study.md)。
+
+- **なぜ**: ネットワーク越しの読みは 1 回ごとに往復を待つ。ZIPFoundation の一覧はエントリごとにローカルヘッダーを読み、unrar は
+  ファイルごとのヘッダーを 2 回の素の `read()` で読むので、200 ページの本で数百〜数千回の往復になっていた(1 往復 5ms の模擬で、
+  cbz の最初の見開きまで 10.5 秒)。
+- **読み込み層**: ファイルを 64KB のブロックに分けて手元の一時ファイル(`TemporaryFileStore` のセッションのディレクトリ)へ写す。
+  足りない部分は連続する並びごとに 1 回の大きな読みで取り寄せ、順読みには読んだ量に応じて先読みし(上限 4MB)、ビューアで開いた本は
+  手が空いたら残りを裏で順に取り寄せる(`stagesWholeFile`。PageLoader だけ)。全部揃えばネットワーク上のファイルは閉じる。
+  **読み終えた写しは残さない**(利用者の判断 2026-09-24)。同じファイルは登録簿(`StagedFileRegistry`)で共有し、使われなくなってから
+  30 秒・直近 4 本までは残す(BookLoader → PageLoader の受け渡しのため。記述子を溜めないよう本数に上限)。
+- **形式ごと**: zip・cbz・epub は自前の `CentralDirectoryZipReader`(一覧を中央ディレクトリだけから作る。ZIPFoundation と答えを一致させて
+  あり、違うのは「途中のローカルヘッダーだけが壊れた書庫」を一覧に含めることだけ ―― 型コメント)。rar・7z はフォークの「呼び出し側の
+  関数から読む」入口([11](11-forked-dependencies.md))。PDF は `CGDataProvider` の直接読み出しで(`CGPDFDocument(url)` は mmap する)。
+- **ページのキーは変わらない**。読み込み層は reader の中の話で、`ArchiveLocator` はネットワーク上のパスのまま。
+- 隠し設定 `qooViewer.pref.networkVolumeStagedReading = false` で従来の読み方に戻せる(逃げ道)。テストは作業フォルダを
+  `NetworkVolumeReading.treatAsRemoteForTesting` で「ネットワーク上」に見立てる(`NetworkVolumeReadingTests`、`FixtureArchive.Input.staged`)。
+- フォルダの本(ページが別々のファイル)は対象外。ページの寸法を `CGImageSourceCreateWithURL`(mmap しうる)で読むのは残っている。
 
 ### zip のファイル名の文字コード
 

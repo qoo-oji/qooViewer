@@ -333,7 +333,7 @@ nonisolated enum BookLoader {
                 try Task.checkCancellation()
                 // 開けないPDFは読み飛ばす(書庫と同じ扱い。そのぶんのページが無いだけ)。
                 pages.append(contentsOf: pdfPages(
-                    of: CGPDFDocument(fileURL as CFURL),
+                    of: openPDFDocument(at: fileURL),
                     container: .file(fileURL),
                     idPrefix: fileURL.path,
                     sortKeyPrefix: fileURL.path
@@ -586,7 +586,8 @@ nonisolated enum BookLoader {
     /// ため、本を開くたびに毎回コストをかける必要が無く、ViewerViewModelが必要になったタイミングで
     /// 都度読み込む(autoImportPDFOutlineAsBookmarksIfNeeded参照)。
     private static func loadPDF(_ url: URL) throws -> MangaBook {
-        guard let document = CGPDFDocument(url as CFURL) else { throw BookLoaderError.notFound }
+        // ネットワークボリューム上なら読み込み層を通す(openPDFDocument のコメント)。
+        guard let document = openPDFDocument(at: url) else { throw BookLoaderError.notFound }
         let pageCount = document.numberOfPages
         guard pageCount > 0 else { throw BookLoaderError.noPages }
 
@@ -615,7 +616,8 @@ nonisolated enum BookLoader {
     /// 1枚も特定できなかった場合は、通常のnoPagesとは区別してepubNotPictureBookを返し、
     /// ユーザーに理由が伝わるようにする。
     private static func loadEpub(_ url: URL) throws -> MangaBook {
-        let reader = try ZipArchiveReader(url: url)
+        // EPUB は zip コンテナ。makeArchiveReader を通す(ネットワークボリューム上なら読み込み層を通る)。
+        let reader = try makeArchiveReader(kind: .zip, url: url)
         let structure: EpubStructure
         do {
             structure = try EpubStructureResolver.resolve(reader: reader)

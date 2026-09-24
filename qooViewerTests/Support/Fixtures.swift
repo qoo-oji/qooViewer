@@ -143,6 +143,9 @@ nonisolated enum FixtureArchive {
         case file
         /// 一度メモリへ読んでから開く(`makeArchiveReader(kind:data:)`)。
         case memory
+        /// ネットワークボリューム上の書庫と同じ経路: 読み込み層(`StagedFileSource`)を通して読む
+        /// (`makeArchiveReader(kind:url:)` がネットワーク上で選ぶ reader)。zip は `CentralDirectoryZipReader`。
+        case staged
 
         var description: String { rawValue }
     }
@@ -157,6 +160,18 @@ nonisolated enum FixtureArchive {
                 throw ArchiveReaderError.cannotOpen
             }
             return try makeArchiveReader(kind: kind, data: try Data(contentsOf: url))
+        case .staged:
+            guard let kind = archiveKind(forFileName: url.lastPathComponent) else {
+                throw ArchiveReaderError.cannotOpen
+            }
+            // 登録簿は通さない(テストどうしで共有しない)。裏の取り寄せも回して、前景の読みと混ざる経路を通す。
+            let source = try StagedFileSource(url: url)
+            source.startBackgroundFill()
+            switch kind {
+            case .zip: return try CentralDirectoryZipReader(source: source)
+            case .sevenZip: return try SevenZipArchiveReader(source: source)
+            case .rar: return try RarArchiveReader(source: source)
+            }
         }
     }
 }

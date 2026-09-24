@@ -48,6 +48,7 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `a3d93ae` Fix Entry.modified and publish the restart counter | 本家由来の日時の不具合(下記)と、`folderStreamRestartCount` の public 化 |
 | `dd39320` Release the Archive when its last reference goes | 本家由来の参照循環(下記)。`Archive` が一度も解放されていなかった |
 | `35800eb` Merge upstream v0.4.0 | 上の4件が upstream に入ったので取り込み。参照循環の直し方は upstream の案(`Entry.archive` 削除)に寄せ、フォーク側の回避策は捨てた(下記) |
+| `f93e3eb` Add reading an archive through a caller-supplied positional reader | `Archive(reader:)` / `Archive.PositionalReader`。`7zMemInStream.c` に「呼び出し側の関数から読む」`ISeekInStream`(`CCallbackInStream`)を足した。ネットワークボリューム上の 7z を qooViewer の読み込み層(`StagedFileSource`)経由で読むため(2026-09-24。[plans/network-volume-study.md](plans/network-volume-study.md))。短い読みを返してよい(LZMA SDK が繰り返す)。`Archive` が reader を保持する |
 | `0b4c1b9` Add a limit on whole-block decoding in the BCJ2 fallback | `Archive.maxWholeBlockBytes`。フォールバック(`extract`)の前にブロックの宣言の伸長後の大きさ(`SzAr_GetFolderUnpackSize`)と比べ、超えたら何も確保せずに `LZMAError.blockTooLarge` を投げる。既定は nil(従来どおり)。qooViewer はファイルブラウザの一覧の絵(BookThumbnailer)だけが 64MB を付ける(2026-09-14 の 2 回目の監査 20) |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
@@ -200,6 +201,8 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 | `376bd1a` / `8beb4e5` | Swift のワークフローをフォークのブランチで・手動でも走らせる |
 | `2fa1c08` Include <climits> for INT_MAX in the in-memory read path | Linux のビルドの修正 |
 | `2d2982e` Add reading every entry of an archive in one pass | `Archive.forEachEntry(_:)`(下の「全エントリを 1 回で読む」)。2026-09-14 |
+| `485f7d3` Add reading an archive through a caller-supplied positional reader | `Archive.Source.reader(PositionalReader)` / `RAROpenArchiveCallback`(下の「呼び出し側の関数から読む」)。2026-09-24 |
+| `70fe20d` Keep unrar's error state per thread | `ErrHandler` を `thread_local` に(下の「複数のスレッドで同時に読む」)。2026-09-25 |
 
 メモリ上の書庫(`2fb14dc`):
 
@@ -232,12 +235,35 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
   中身は `RAR_TEST` のコールバックで渡すので CRC も検証される。閉包が投げたらその場で止めて投げ直す。同じ書庫で 2.2 秒。
 - ページの表示(1 枚ずつの `extract`)は変えていない。ソリッドの RAR で後ろのページほど遅いのは本家から同じ。
 
+呼び出し側の関数から読む(`485f7d3`、2026-09-24。フォークの `docs/MemoryArchive.md`):
+
+- メモリモードと同じ形で、`File` に `CbRead` / `CbCtx` と `OpenCallback()` を足した(位置と大きさはメモリモードの `MemPos` / `MemSize` を
+  共用し、`DirectRead` だけが関数を呼ぶ)。DLL に `RAROpenArchiveCallback`、Swift に `Archive.Source.reader(PositionalReader)`。
+- ネットワークボリューム上の rar を qooViewer の読み込み層(`StagedFileSource`)経由で読むため
+  ([plans/network-volume-study.md](plans/network-volume-study.md))。unrar はヘッダーを「7 バイト+残り」の 2 回の素の `read()` で読み、
+  操作のたびに書庫を開き直すので、SMB では 1 回ごとに往復を待っていた。
+- unrar の `File::Read` は**短い読みを「データの終わり」と受け取る**(ディスクのファイルは終わりでしか短く返さないため)。Swift 側の
+  橋渡しが、バッファが埋まるまで(または 0 / -1 まで)読み手を繰り返し呼ぶ。
+
+複数のスレッドで同時に読む(`70fe20d`、2026-09-25):
+
+- unrar は操作の結果を 1 つのオブジェクト `ErrHandler` に持ち、DLL は `RARReadHeaderEx` / `RARProcessFile` の最後にその値を返す
+  (`RAROpenArchiveEx` は `ErrHandler.Clean()` で消す)。本家ではこれが**プロセスに 1 つ**なので、別のスレッドで別の書庫を読んでいると、
+  片方の失敗(CRC エラー・壊れた書庫)が、もう片方の成功した読みの戻り値になっていた(`badData` / `unknown`)。
+- qooViewer ではテストを並べて走らせたときに見つかった(壊れた rar のテストと同時に走った無関係な rar の読みが、ときどき失敗した)。
+  アプリでも、壊れた rar の一覧の絵と別の rar の本の読み出しが重なれば起きうる(既存の不具合。読み込み層とは無関係に、ファイルから
+  読む経路でも起きていた)。
+- `global.hpp` / `array.hpp` の宣言を `thread_local` にした。DLL の 1 回の操作は呼び出したスレッドで完結する(内部のワーカースレッドを
+  使う `RAR_SMP` は Windows でしか定義されない)。フォークの `ConcurrencyTests` が、片方のスレッドで CRC エラーの書庫を読み続けながら
+  もう片方で正常な書庫を読み、一度も失敗しないことを確かめる(修正前は 400 周で 8 回失敗した)。
+
 ### qooViewer 側の使い方
 
 `Services/RarArchiveReader.swift` がこのフォークの利用者で、`ArchiveReading` に
 `init(data:)` 相当の入口があります。入れ子の rar も 7z と同じく、予算内ならメモリから、
 超えれば一時ファイルから開きます(`NestedArchiveResolver`)。展開(`ArchiveReading.readEntriesInArchiveOrder`)は
-`forEachEntry` を使います。
+`forEachEntry` を使います。ネットワークボリューム上の rar は `init(source:)`(`Source.reader`)で読み込み層を通します
+(`makeArchiveReader(kind:url:)` が選ぶ)。7z も同じく `SevenZipArchiveReader.init(source:)`(`Archive(reader:)`)。
 
 ### 既知の制限
 

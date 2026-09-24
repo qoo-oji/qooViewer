@@ -275,23 +275,41 @@ nonisolated func archiveKind(forFileName fileName: String) -> ArchiveKind? {
 }
 
 /// ディスク上の書庫ファイルを開いて、適切な ArchiveReading の実装を返す。
-nonisolated func makeArchiveReader(for url: URL) throws -> ArchiveReading {
+///
+/// - Parameter stagesWholeFile: ネットワークボリューム上の書庫なら、残りを裏で手元へ取り寄せ始める(ビューアで本を開いた
+///   PageLoader だけが true。一覧の絵・表紙・ComicInfo のように最初の数ページしか読まない読みでは、フォルダを表示した
+///   だけで中の本を丸ごと取り寄せないよう false。NetworkVolumeReading 参照)。
+nonisolated func makeArchiveReader(for url: URL, stagesWholeFile: Bool = false) throws -> ArchiveReading {
     guard let kind = archiveKind(forFileName: url.lastPathComponent) else {
         throw ArchiveReaderError.cannotOpen
     }
-    return try makeArchiveReader(kind: kind, url: url)
+    return try makeArchiveReader(kind: kind, url: url, stagesWholeFile: stagesWholeFile)
 }
 
 /// 形式が既に分かっている場合の版(NestedArchiveResolverが一時ファイルを開くときに使う。
 /// 一時ファイルの拡張子は元のエントリ名から付け直しているが、形式は取り出した時点で
 /// 確定しているので、そちらを信じるほうが素直)。
-nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL) throws -> ArchiveReading {
+///
+/// **ネットワークボリューム上の書庫はここで読み込み層(StagedFileSource)を通す**(2026-09-24。docs/plans/network-volume-study.md)。
+/// 本の読み込み・ビューア・サイドパネル・ComicInfo・一覧の絵・表紙・展開は、どれもここ(か `makeArchiveReader(for:)`)で
+/// 書庫を開くので、呼び出し側は読み方の違いを知らなくてよい。ページのキー(`PageRef.id`/`sortKey`)は変わらない
+/// (読み込み層は reader の中の話で、`ArchiveLocator` はネットワーク上のパスのまま)。
+nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL, stagesWholeFile: Bool = false) throws -> ArchiveReading {
     switch kind {
     case .zip:
+        if let source = NetworkVolumeReading.stagedSource(for: url, startsBackgroundFill: stagesWholeFile) {
+            return try CentralDirectoryZipReader(source: source)
+        }
         return try ZipArchiveReader(url: url)
     case .sevenZip:
+        if let source = NetworkVolumeReading.stagedSource(for: url, startsBackgroundFill: stagesWholeFile) {
+            return try SevenZipArchiveReader(source: source)
+        }
         return try SevenZipArchiveReader(url: url)
     case .rar:
+        if let source = NetworkVolumeReading.stagedSource(for: url, startsBackgroundFill: stagesWholeFile) {
+            return try RarArchiveReader(source: source)
+        }
         return try RarArchiveReader(url: url)
     }
 }
