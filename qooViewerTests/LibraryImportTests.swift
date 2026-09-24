@@ -813,7 +813,7 @@ struct LibraryImportTests {
         defer { origin.close() }
         let target = try #require(origin.collections.libraries.first)
         origin.collections.rename(target, to: "Manga")
-        origin.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end)
+        origin.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end, fit: .pad)
         let pending = try #require(CollectionStore.makePendingItem(for: source.book.sourceURL))
         let created = try #require(
             origin.collections.createCollection(name: "シリーズ", in: target, items: [pending])
@@ -837,6 +837,7 @@ struct LibraryImportTests {
         // カバーの見せ方もライブラリの属性なので一緒に運ぶ。
         #expect(copied.coverAspectRatio == .square)
         #expect(copied.coverCropAnchor == .end)
+        #expect(copied.coverFit == .pad)
         // 自動登録フォルダもパスとして運ばれる(その場所が実在するときだけ設定される)。
         #expect(collection.autoFolderURL?.path == autoFolder.path)
     }
@@ -918,7 +919,7 @@ struct LibraryImportTests {
         #expect(library.collections.pinnedFirstCollection(in: target)?.name == "シリーズ")
     }
 
-    @Test("カバーの見せ方が入っていない古い JSON を読んでも、既定(2:3・中央)のまま")
+    @Test("カバーの見せ方が入っていない古い JSON を読んでも、既定(2:3・中央・切り取る)のまま")
     func anolderFileLeavesTheCoverAppearanceAlone() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-collection-legacy")
         let library = try InMemoryLibrary(label: "import-collection-legacy")
@@ -932,6 +933,7 @@ struct LibraryImportTests {
         let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
         #expect(target.coverAspectRatio == .portrait)
         #expect(target.coverCropAnchor == .center)
+        #expect(target.coverFit == .crop)
     }
 
     // MARK: - 監査の指摘(2026-09-13)の回帰

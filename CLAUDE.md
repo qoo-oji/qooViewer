@@ -318,7 +318,10 @@ in the same group/filters/selection; it was the pane's `@StateObject` until 2026
 is applied by `SmartLibraryViewState.update(books:shelves:)` making first-author-only copies, so facets, conditions, search,
 sort and the list column all agree; the DB and `catalog.json` are never touched. "Cover Shape"
 (`AppPreferences.smartLibraryCoverShape` / `SmartLibraryCoverShape`: match the image — the default, uncropped in a 2:3 frame —
-or 2:3 / 1:1 / 3:2 cropped when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. "Keep When Cropping"
+or 2:3 / 1:1 / 3:2 cropped when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. "Fit to Shape"
+(`AppPreferences.smartLibraryCoverFit` / `CoverFit`, 2026-09-24) is the same crop-or-add-margins choice libraries have per library
+(`BookLibrary.coverFit`): margins keep the frame size and centre the uncropped cover (a padded library tile bakes each cover
+stretched to its cell and the tile un-stretches it with `coverAspect` — margins are never baked). "Keep When Cropping"
 (`AppPreferences.smartLibraryCoverCropAnchor`) is only the default, as the library's is: a book's own
 `BookLayoutSettings.coverCropAnchor` wins. That per-book value is shared by the library and the smart library: every place
 that sets it offers the same four choices, "No Setting" (nil — follow whichever view's own setting) / Top-Left / Center /

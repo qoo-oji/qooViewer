@@ -10,6 +10,8 @@ import SwiftUI
 /// - **残す位置** … 画像の比が枠と違うぶんをどこで切るか。切る軸(左右か上下か)は画像ごとに
 ///   決まるので、選択肢は軸に依存しない3つ(CoverCropAnchor参照)。ラベルだけは両方の軸を
 ///   併記する ―― 「始端」では何が起きるのか読めないため。
+/// - **形の合わせ方** … 比が枠と違う画像を、切って枠を埋めるか、切らずに余白を付けて収めるか(CoverFit。
+///   ユーザー要望 2026-09-24)。余白を付ける間は切らないので、「残す位置」は押せない。
 /// - **常に先頭/末尾に表示** … ここで指定したコレクションだけ、並び順(名前順・更新順…)に
 ///   関わらず必ず端に出る(ユーザー要望 2026-09-10)。未分類の本をまとめておく棚が並び替えの
 ///   たびに移動して探しにくい、というのが動機。既定はどちらも「指定なし」で、そのときは
@@ -60,6 +62,15 @@ struct LibrarySettingsPopover: View {
                 }
             }
 
+            group("Fit to Shape") {
+                Picker(selection: fitSelection) {
+                    Text("Crop to Fill").tag(CoverFit.crop)
+                    Text("Add Margins").tag(CoverFit.pad)
+                } label: {
+                    EmptyView()
+                }
+            }
+
             group("Keep When Cropping") {
                 Picker(selection: cropAnchorSelection) {
                     Text("Top / Left").tag(CoverCropAnchor.start)
@@ -69,6 +80,8 @@ struct LibrarySettingsPopover: View {
                     EmptyView()
                 }
             }
+            // 余白を付けて収める間は何も切らない(CoverFit)。
+            .disabled(library.coverFit == .pad)
 
             // コレクションが1つも無いライブラリでは、選ぶ先が「指定なし」しか無いので節ごと
             // 出さない(空のメニューを開けても意味が無い)。
@@ -152,7 +165,7 @@ struct LibrarySettingsPopover: View {
             get: { library.coverAspectRatio },
             set: {
                 collectionStore.setCoverAppearance(
-                    library, aspectRatio: $0, anchor: library.coverCropAnchor
+                    library, aspectRatio: $0, anchor: library.coverCropAnchor, fit: library.coverFit
                 )
             }
         )
@@ -179,7 +192,18 @@ struct LibrarySettingsPopover: View {
             get: { library.coverCropAnchor },
             set: {
                 collectionStore.setCoverAppearance(
-                    library, aspectRatio: library.coverAspectRatio, anchor: $0
+                    library, aspectRatio: library.coverAspectRatio, anchor: $0, fit: library.coverFit
+                )
+            }
+        )
+    }
+
+    private var fitSelection: Binding<CoverFit> {
+        Binding(
+            get: { library.coverFit },
+            set: {
+                collectionStore.setCoverAppearance(
+                    library, aspectRatio: library.coverAspectRatio, anchor: library.coverCropAnchor, fit: $0
                 )
             }
         )

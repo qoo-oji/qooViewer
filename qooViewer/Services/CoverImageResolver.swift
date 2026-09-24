@@ -93,6 +93,22 @@ nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
     }
 }
 
+/// 画像の比が枠の比と違うとき、**切って埋めるか、余白を付けて収めるか**(ユーザー要望 2026-09-24)。
+///
+/// - `.crop` … 枠いっぱいに描き、はみ出したぶんを切る(`CoverCropAnchor`の所を残す)。これまでの動作で既定
+/// - `.pad` … 画像を切らずに枠の中へ収め、足りない側(上下か左右)に余白を付ける。画像は枠の中央に置き、余白は
+///   透明(下の地がそのまま見える)。残す位置は使わない
+///
+/// 「縦長の本と横長の本が混ざる棚で、横長の表紙の左右が切られて何の本か分からない」のを避けたい人のための選択肢。
+/// 枠の大きさは変わらないので、一覧の並び(同じ大きさの札が整然と並ぶ)はそのまま保たれる。
+///
+/// 保存先はライブラリ(BookLibrary.coverFitRaw)と環境設定「スマートライブラリ」(AppPreferences.smartLibraryCoverFit)。
+/// 本ごとの指定は持たない。rawValueを明示的な文字列にしてあるのは、そのままDBとJSONに書くため。
+nonisolated enum CoverFit: String, Sendable, CaseIterable {
+    case crop
+    case pad
+}
+
 /// 「この本のカバーは何か」を決める唯一の場所。
 ///
 /// 同じ問いに答える場所が以前は2つあった ―― 書き出し(EpubExporter/CbzExporter)と、
@@ -307,12 +323,18 @@ nonisolated enum CoverImageResolver {
     ///   - croppedWidth: 切り出した**後**に欲しい幅(画素)。
     ///   - targetAspect: 枠の比(幅 ÷ 高さ)。
     ///   - imageAspect: 元のカバーの比。0以下(まだ分からない)なら枠の比とみなす。
+    ///   - fit: `.pad`(余白を付けて収める)なら、切らずに枠へ収めた大きさの長辺を返す。`croppedWidth`はそのとき
+    ///     「枠の幅」の意味になる。
     static func decodePixelSize(
-        croppedWidth: CGFloat, targetAspect: CGFloat, imageAspect: CGFloat
+        croppedWidth: CGFloat, targetAspect: CGFloat, imageAspect: CGFloat, fit: CoverFit = .crop
     ) -> CGFloat {
         let neededWidth = max(1, croppedWidth)
         guard targetAspect > 0 else { return neededWidth }
         let imageAspect = imageAspect > 0 ? imageAspect : targetAspect
+        if fit == .pad {
+            let fitted = fittedSize(aspect: imageAspect, in: CGSize(width: neededWidth, height: neededWidth / targetAspect))
+            return max(1, max(fitted.width, fitted.height))
+        }
         if imageAspect > targetAspect {
             // 左右を切る。切った後の幅がneededWidthになるように、元の幅を逆算する。
             return neededWidth / targetAspect * max(imageAspect, 1)
@@ -331,5 +353,15 @@ nonisolated enum CoverImageResolver {
     static func cropsAnyEdge(imageAspect: CGFloat, targetAspect: CGFloat) -> Bool {
         guard imageAspect > 0, targetAspect > 0 else { return false }
         return abs(imageAspect - targetAspect) > targetAspect * 0.01
+    }
+
+    /// 比(幅 ÷ 高さ)`aspect`の長方形を、縦横比を保ったまま`box`に収めた大きさ(`CoverFit.pad`の絵の大きさ)。
+    /// 比が分からない(0以下)ときは`box`そのもの。
+    static func fittedSize(aspect: CGFloat, in box: CGSize) -> CGSize {
+        guard aspect > 0, box.width > 0, box.height > 0 else { return box }
+        if aspect > box.width / box.height {
+            return CGSize(width: box.width, height: box.width / aspect)
+        }
+        return CGSize(width: box.height * aspect, height: box.height)
     }
 }

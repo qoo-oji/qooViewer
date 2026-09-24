@@ -192,6 +192,7 @@ struct BookMetadataSheet: View {
                             width: Self.coverWidth, locale: locale,
                             smartLibraryCrop: fromSmartLibrary
                                 ? .init(shape: preferences.smartLibraryCoverShape,
+                                        fit: preferences.smartLibraryCoverFit,
                                         defaultAnchor: preferences.smartLibraryCoverCropAnchor)
                                 : nil
                         )
@@ -499,6 +500,7 @@ private struct CoverArea: View {
             item: item, coverStore: coverStore,
             aspectRatio: library.coverAspectRatio,
             anchor: controller.cropAnchor(forBookID: item.bookID) ?? library.coverCropAnchor,
+            fit: library.coverFit,
             displayWidth: width
         )
         .frame(width: width)
@@ -596,6 +598,8 @@ private struct FileBrowserCoverArea: View {
     /// スマートライブラリの表紙の見せ方(環境設定「スマートライブラリ」の値)。
     struct SmartLibraryCrop {
         let shape: SmartLibraryCoverShape
+        /// 形の合わせ方(余白を付けるなら切らない)。
+        let fit: CoverFit
         /// 本ごとの指定が無いときに残す位置。
         let defaultAnchor: CoverCropAnchor
     }
@@ -624,8 +628,8 @@ private struct FileBrowserCoverArea: View {
         )
     }
 
-    /// 切る比(スマートライブラリの版で、形が切る形のときだけ)。
-    private var cropAspect: CGFloat? { smartLibraryCrop?.shape.cropAspect }
+    /// 切る比(スマートライブラリの版で、形が切る形・合わせ方が切るときだけ)。
+    private var cropAspect: CGFloat? { smartLibraryCrop.flatMap { $0.shape.cropAspect(fit: $0.fit) } }
 
     /// 枠の高さ(幅に対する比)。スマートライブラリの版はその形の比。
     private var frameHeightRatio: CGFloat { smartLibraryCrop?.shape.heightRatio ?? Self.heightRatio }

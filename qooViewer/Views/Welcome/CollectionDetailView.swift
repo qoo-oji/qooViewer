@@ -556,6 +556,7 @@ struct CollectionDetailView: View {
                 coverStore: collectionStore.coverStore,
                 aspectRatio: library.coverAspectRatio,
                 anchor: cropAnchor(for: item),
+                fit: library.coverFit,
                 displayWidth: state.coverSize,
                 exists: collectionStore.cachedFileExists(for: item),
                 isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),

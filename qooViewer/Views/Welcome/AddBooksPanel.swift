@@ -155,6 +155,7 @@ struct AddBooksPanel: View {
                 coverStore: collectionStore.coverStore,
                 aspectRatio: library?.coverAspectRatio ?? .portrait,
                 anchor: library?.coverCropAnchor ?? .center,
+                fit: library?.coverFit ?? .crop,
                 displayWidth: 22,
                 exists: collectionStore.cachedFileExists(for: item),
                 isExtracting: coverExtractor.inFlightItemIDs.contains(item.id)

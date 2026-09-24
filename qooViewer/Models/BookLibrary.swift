@@ -82,6 +82,11 @@ final class BookLibrary {
     /// 「未設定」の状態を持たせず必ず具体的な値にしておく。既定は中央。
     var coverCropAnchorRaw: String = CoverCropAnchor.center.rawValue
 
+    /// 画像の比が枠と違うとき、切って埋めるか余白を付けて収めるか(ユーザー要望 2026-09-24)。CoverFit.rawValueを保存する。
+    /// 本ごとの指定は無い。**属性の後追加なので宣言時のデフォルト値が要る**(SwiftDataの軽量マイグレーション)。
+    /// 既存の行はすべて従来どおりの「切り取る」で入る。
+    var coverFitRaw: String = CoverFit.crop.rawValue
+
     /// **常に先頭に表示するコレクション**のid(ユーザー要望 2026-09-10)。nil = 指定なし
     /// (すべて並び順に従う。既定)。末尾用と2つで1組。
     ///
@@ -131,6 +136,12 @@ final class BookLibrary {
     var coverCropAnchor: CoverCropAnchor {
         get { CoverCropAnchor.stored(coverCropAnchorRaw) ?? .center }
         set { coverCropAnchorRaw = newValue.rawValue }
+    }
+
+    /// 切るか余白を付けるか(既定は切る)。保存済みの値が読めないときも切る。
+    var coverFit: CoverFit {
+        get { CoverFit(rawValue: coverFitRaw) ?? .crop }
+        set { coverFitRaw = newValue.rawValue }
     }
 
 

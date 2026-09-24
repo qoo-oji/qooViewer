@@ -447,6 +447,7 @@ enum LibraryImportExportService {
                 name: library.displayName(language: AppLanguage.currentLocale),
                 coverAspectRatio: library.coverAspectRatio.rawValue,
                 coverCropAnchor: library.coverCropAnchor.rawValue,
+                coverFit: library.coverFit.rawValue,
                 // 常に先頭/末尾の指定は**名前で**書き出す(ExportedLibrary.pinnedFirstCollection)。
                 pinnedFirstCollection: collectionStore.pinnedFirstCollection(in: library)?.name,
                 pinnedLastCollection: collectionStore.pinnedLastCollection(in: library)?.name,
@@ -975,11 +976,13 @@ enum LibraryImportExportService {
             let importedAspect = exportedLibrary.coverAspectRatio
                 .flatMap(CoverAspectRatio.init(rawValue:))
             let importedAnchor = CoverCropAnchor.stored(exportedLibrary.coverCropAnchor)
-            if importedAspect != nil || importedAnchor != nil {
+            let importedFit = exportedLibrary.coverFit.flatMap(CoverFit.init(rawValue:))
+            if importedAspect != nil || importedAnchor != nil || importedFit != nil {
                 collectionStore.setCoverAppearance(
                     library,
                     aspectRatio: importedAspect ?? library.coverAspectRatio,
-                    anchor: importedAnchor ?? library.coverCropAnchor
+                    anchor: importedAnchor ?? library.coverCropAnchor,
+                    fit: importedFit ?? library.coverFit
                 )
             }
 

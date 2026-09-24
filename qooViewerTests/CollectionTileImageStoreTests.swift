@@ -153,6 +153,83 @@ struct CollectionTileImageStoreTests {
         }
     }
 
+    @Test("余白を付けるライブラリの札は、カバーを切らずにセルいっぱいへ引き伸ばして焼く(表示側が元の比へ戻す)")
+    func aPaddedSheetKeepsTheWholeCover() async throws {
+        let harness = try makeHarness("tiles-compose-pad")
+        // 横長(3:1)で、左・中・右の 3 等分を赤・緑・青に塗ったカバー。2:3 の枠へ中央で切ると緑しか残らない。
+        let cover = try #require(Self.threeBandImage(width: 300, height: 100))
+        let itemID = UUID()
+        try await harness.covers.write(cover, for: itemID)
+        let cells = [CollectionTileImageRequest.Cell(itemID: itemID, anchor: .center, coverAspect: 3)]
+        let size = CollectionTileLayout.sheetPixelSize(.portrait)
+        let pixelSize = max(size.width, size.height)
+
+        func sheet(_ fit: CoverFit) async throws -> CGImage {
+            try #require(await harness.tiles.image(
+                for: CollectionTileImageRequest(collectionID: UUID(), aspectRatio: .portrait, fit: fit, cells: cells),
+                pixelSize: pixelSize
+            ))
+        }
+        func edges(of sheet: CGImage) throws -> (left: Int, right: Int) {
+            let rect = CollectionTileLayout.cellRect(
+                index: 0, inImageOfSize: (sheet.width, sheet.height), aspectRatio: .portrait
+            )
+            let cell = try #require(sheet.cropping(to: rect))
+            let y = cell.height / 2
+            return (try #require(Self.dominantChannel(in: cell, x: 3, y: y)),
+                    try #require(Self.dominantChannel(in: cell, x: cell.width - 4, y: y)))
+        }
+
+        let padded = try edges(of: try await sheet(.pad))
+        #expect(padded.left == 0, "左端は赤")
+        #expect(padded.right == 2, "右端は青")
+        let cropped = try edges(of: try await sheet(.crop))
+        #expect(cropped.left == 1 && cropped.right == 1, "切ると中央の緑だけが残る")
+    }
+
+    @Test("余白を付けるかどうかで指紋が変わる")
+    func theSignatureFollowsTheFit() {
+        let cells = [CollectionTileImageRequest.Cell(itemID: UUID(), anchor: .center, coverAspect: 1.5)]
+        let id = UUID()
+        let crop = CollectionTileImageRequest(collectionID: id, aspectRatio: .portrait, fit: .crop, cells: cells)
+        let pad = CollectionTileImageRequest(collectionID: id, aspectRatio: .portrait, fit: .pad, cells: cells)
+        // 切るときの指紋は、この設定を足す前(fit を渡さない)と同じ ―― 焼いてある札がそのまま使える。
+        let legacy = CollectionTileImageRequest(collectionID: id, aspectRatio: .portrait, cells: cells)
+        #expect(crop.signature == legacy.signature)
+        #expect(crop.signature != pad.signature)
+    }
+
+    /// 左・中・右の 3 等分を赤・緑・青に塗った画像。
+    private static func threeBandImage(width: Int, height: Int) -> CGImage? {
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+        let band = CGFloat(width) / 3
+        for (index, color) in [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)].enumerated() {
+            context.setFillColor(red: color.0, green: color.1, blue: color.2, alpha: 1)
+            context.fill(CGRect(x: band * CGFloat(index), y: 0, width: band, height: CGFloat(height)))
+        }
+        return context.makeImage()
+    }
+
+    /// 画像の (x, y)(左上原点)の画素で、いちばん強い色の成分(0 = 赤・1 = 緑・2 = 青)。
+    private static func dominantChannel(in image: CGImage, x: Int, y: Int) -> Int? {
+        guard let pixel = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            ) else { return false }
+            context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        guard drawn else { return nil }
+        let channels = Array(bytes[0..<3])
+        return channels.indices.max { channels[$0] < channels[$1] }
+    }
+
     @Test("冊数が足りない札も焼ける(空きセルは表示側が描く)")
     func aPartlyFilledTileIsStillBaked() async throws {
         let harness = try makeHarness("tiles-partial")
@@ -269,5 +346,18 @@ struct CollectionTileImageStoreTests {
             CoverImageResolver.decodePixelSize(
                 croppedWidth: 100, targetAspect: target, imageAspect: 0) == 150
         )
+    }
+
+    @Test("余白を付けるときの復号サイズは、枠へ収めた絵の長辺")
+    func theDecodeSizeForPaddingIsTheFittedLongSide() {
+        let target = CoverAspectRatio.portrait.value
+        // 幅 100 の 2:3 の枠(高さ 150)。横長の絵は幅いっぱい(100 × 50)、縦長の絵は高さいっぱい(75 × 150)。
+        #expect(CoverImageResolver.decodePixelSize(
+            croppedWidth: 100, targetAspect: target, imageAspect: 2, fit: .pad) == 100)
+        #expect(CoverImageResolver.decodePixelSize(
+            croppedWidth: 100, targetAspect: target, imageAspect: 0.5, fit: .pad) == 150)
+        // 切るより小さくて済む(捨てるぶんが無い)。
+        #expect(CoverImageResolver.decodePixelSize(croppedWidth: 100, targetAspect: target, imageAspect: 2, fit: .pad)
+            < CoverImageResolver.decodePixelSize(croppedWidth: 100, targetAspect: target, imageAspect: 2))
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import QooMetaKit
 import QooMetaRules
+import SwiftUI
 import Testing
 
 @testable import qooViewer
@@ -254,6 +255,17 @@ struct SmartLibraryTests {
         #expect(abs(SmartLibraryCoverShape.landscape.heightRatio - 2.0 / 3.0) < 0.0001)
         // 保存した値の綴り(変えると利用者の設定が既定へ戻る)。
         #expect(SmartLibraryCoverShape.allCases.map(\.rawValue) == ["matchImage", "portrait", "square", "landscape"])
+    }
+
+    @Test("形の合わせ方: 余白を付けるなら切らずに枠の中央、「実際の画像に合わせる」はこれまでどおり下に揃える")
+    func coverFit() {
+        #expect(SmartLibraryCoverShape.square.cropAspect(fit: .crop) == CoverAspectRatio.square.value)
+        #expect(SmartLibraryCoverShape.square.cropAspect(fit: .pad) == nil)
+        #expect(SmartLibraryCoverShape.matchImage.cropAspect(fit: .crop) == nil)
+        #expect(SmartLibraryCoverShape.landscape.uncroppedAlignment == .center)
+        #expect(SmartLibraryCoverShape.matchImage.uncroppedAlignment == .bottom)
+        // 保存した値の綴り(ライブラリの DB・保存データの JSON・環境設定で共通)。
+        #expect(CoverFit.allCases.map(\.rawValue) == ["crop", "pad"])
     }
 
     @Test("「シリーズでまとめる」の ON/OFF だった頃の保存値は、シリーズで束ねる設定として読む")

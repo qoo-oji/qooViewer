@@ -75,6 +75,7 @@ final class AppPreferences: ObservableObject {
         static let smartLibraryUsesFirstAuthorOnly = "qooViewer.pref.smartLibrary.usesFirstAuthorOnly"
         static let smartLibraryCoverShape = "qooViewer.pref.smartLibrary.coverShape"
         static let smartLibraryCoverCropAnchor = "qooViewer.pref.smartLibrary.coverCropAnchor"
+        static let smartLibraryCoverFit = "qooViewer.pref.smartLibrary.coverFit"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
@@ -860,6 +861,12 @@ final class AppPreferences: ObservableObject {
     @Published var smartLibraryCoverCropAnchor: CoverCropAnchor {
         didSet { defaults.set(smartLibraryCoverCropAnchor.rawValue, forKey: Keys.smartLibraryCoverCropAnchor) }
     }
+    /// スマートライブラリで表紙の比が形と違うとき、切って埋めるか余白を付けて収めるか(2026-09-24、利用者の要望。既定は
+    /// 切る = この設定を足す前の見た目)。ライブラリの「形の合わせ方」(`BookLibrary.coverFit`)に当たる。表紙の形が
+    /// 「実際の画像に合わせる」の間は切らないので効かない。
+    @Published var smartLibraryCoverFit: CoverFit {
+        didSet { defaults.set(smartLibraryCoverFit.rawValue, forKey: Keys.smartLibraryCoverFit) }
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1328,6 +1335,7 @@ final class AppPreferences: ObservableObject {
         ) ?? .matchImage
         self.smartLibraryCoverCropAnchor =
             CoverCropAnchor.stored(defaults.string(forKey: Keys.smartLibraryCoverCropAnchor)) ?? .center
+        self.smartLibraryCoverFit = CoverFit(rawValue: defaults.string(forKey: Keys.smartLibraryCoverFit) ?? "") ?? .crop
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
@@ -1567,6 +1575,7 @@ extension AppPreferences {
                 Keys.smartLibraryUsesFirstAuthorOnly,
                 Keys.smartLibraryCoverShape,
                 Keys.smartLibraryCoverCropAnchor,
+                Keys.smartLibraryCoverFit,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -1691,6 +1700,7 @@ extension AppPreferences {
             smartLibraryUsesFirstAuthorOnly = source.smartLibraryUsesFirstAuthorOnly
             smartLibraryCoverShape = source.smartLibraryCoverShape
             smartLibraryCoverCropAnchor = source.smartLibraryCoverCropAnchor
+            smartLibraryCoverFit = source.smartLibraryCoverFit
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

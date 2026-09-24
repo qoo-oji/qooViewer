@@ -14,6 +14,9 @@ import SwiftUI
 /// 切ったうえでなお端数が出るぶんは`.scaledToFill()`で埋める ―― 一覧としては、比の違う画像が
 /// 背の高さをばらつかせるより、同じ大きさの札が整然と並ぶほうが目的(どの本かを見分ける)に適う。
 ///
+/// ライブラリの「形の合わせ方」が「余白を付ける」(`fit == .pad`、ユーザー要望 2026-09-24)なら切らない。セルの枠の
+/// 大きさはそのままで、画像を枠の中央へ縦横比を保って収め、足りない側は透明のまま残す(角丸は画像そのものに掛ける)。
+///
 /// ■ 状態の描き分け
 /// - `.pending`(まだ抽出していない): 薄い地だけ。抽出中(`isExtracting`)ならスピナーを重ねる
 /// - `.failed`(壊れている・実体が見つからない): 灰色の地 + 形式バッジ。何の本かは分かる
@@ -43,6 +46,8 @@ struct CollectionCoverThumbnail: View {
     /// 比が合わないときに残す位置。呼び出し側が「本ごとの上書き ?? ライブラリの既定」を
     /// 解決して渡す(この部品はDBを見ない)。
     var anchor: CoverCropAnchor = .center
+    /// 切って埋めるか、余白を付けて収めるか(ライブラリの設定)。`.pad`なら`anchor`は使わない。
+    var fit: CoverFit = .crop
     /// 表示上の幅(pt)。復号する画素数の上限を決めるためだけに使う(枠の大きさはレイアウトが
     /// 決める)。CollectionCoverStore.image(for:maxPixelSize:)のコメント参照。
     let displayWidth: CGFloat
@@ -75,9 +80,18 @@ struct CollectionCoverThumbnail: View {
             switch item.coverState {
             case .ready:
                 if let image {
-                    Image(decorative: image, scale: 1)
-                        .resizable()
-                        .scaledToFill()
+                    if fit == .pad {
+                        // 枠の大きさを先に取る(画像だけだと、ZStackが収めた画像の大きさに縮み、セルの大きさがばらつく)。
+                        Color.clear
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(shape)
+                    } else {
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .scaledToFill()
+                    }
                 } else {
                     placeholder(Color.primary.opacity(0.06))
                 }
@@ -107,11 +121,11 @@ struct CollectionCoverThumbnail: View {
         .opacity(exists ? 1 : 0.35)
         // 読み直しの契機。抽出のやり直し(カバーの変更)はcoverStatusをいったん.pendingへ
         // 戻してから.readyにするので状態を鍵に含め、状態を変えずに絵だけ差し替わったときの
-        // ためにcoverRevisionも含める。比と位置は**切り直し**が要るので含める(歯車で比を
+        // ためにcoverRevisionも含める。比と位置と合わせ方は**切り直し**が要るので含める(歯車で比を
         // 変えた瞬間に、抽出を待たずに一覧が変わるのはこのため)。復号サイズの段は、スライダー・
         // ピンチで大きくしたときに粗いまま引き伸ばさないため(decodeTierのコメント参照)。
         .task(
-            id: "\(item.id.uuidString)-\(item.coverStatus)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)-\(decodeTier)"
+            id: "\(item.id.uuidString)-\(item.coverStatus)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)-\(fit.rawValue)-\(decodeTier)"
         ) {
             await loadImage()
         }
@@ -149,14 +163,14 @@ struct CollectionCoverThumbnail: View {
         // 帳簿へは**切る前**の画像を渡す。CGImage.cropping(to:)が返すのは元画像を参照する
         // 部分画像で、実際に確保されている画素は切る前のぶんだから(LazyCellImageBudget)。
         onImageRetained?(loaded)
-        image = CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
+        image = fit == .pad ? loaded : CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
         loadedTier = tier
         loadedContentKey = key
     }
 
     /// 大きさ以外で絵が変わる要素(読み直しの鍵から復号サイズの段を除いたもの)。
     private var contentKey: String {
-        "\(item.id.uuidString)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)"
+        "\(item.id.uuidString)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)-\(fit.rawValue)"
     }
 
     /// 復号する画素数の上限。Retinaぶんを見込んで実寸の2倍を要求する。切って捨てるぶんの
@@ -165,7 +179,7 @@ struct CollectionCoverThumbnail: View {
     private var decodeMaxPixelSize: CGFloat {
         CoverImageResolver.decodePixelSize(
             croppedWidth: displayWidth * 2, targetAspect: aspectRatio.value,
-            imageAspect: CGFloat(item.coverAspect)
+            imageAspect: CGFloat(item.coverAspect), fit: fit
         )
     }
 

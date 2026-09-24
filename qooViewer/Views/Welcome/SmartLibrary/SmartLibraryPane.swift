@@ -1169,7 +1169,7 @@ struct SmartLibraryContent: View {
                         case .book(let book):
                             SmartBookCell(
                                 book: book, width: state.coverSize, coverShape: preferences.smartLibraryCoverShape,
-                                cropAnchor: cropAnchor(for: book),
+                                coverFit: preferences.smartLibraryCoverFit, cropAnchor: cropAnchor(for: book),
                                 // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
                                 showsAuthorOnly: state.grouping == .author && state.openedGroup == nil,
                                 isSelected: isSelected, isFocused: isGridFocused,
@@ -1182,6 +1182,7 @@ struct SmartLibraryContent: View {
                         case .group(let grouping, let name, let books):
                             SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize,
                                            coverShape: preferences.smartLibraryCoverShape,
+                                           coverFit: preferences.smartLibraryCoverFit,
                                            cropAnchor: books.first.map(cropAnchor(for:)) ?? .center,
                                            isSelected: isSelected, isFocused: isGridFocused,
                                            savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained)
@@ -1775,6 +1776,8 @@ private struct SmartBookCell: View {
     let width: CGFloat
     /// 表紙の形(環境設定「スマートライブラリ」。枠の高さと、切るかどうか)。
     var coverShape: SmartLibraryCoverShape = .matchImage
+    /// 形の合わせ方(環境設定「スマートライブラリ」)。余白を付けるなら切らない。
+    var coverFit: CoverFit = .crop
     /// 切るときに残す位置(本ごとの指定 ?? 環境設定。`SmartLibraryContent.cropAnchor(for:)`)。
     var cropAnchor: CoverCropAnchor = .center
     /// 著者名だけを出す(著者でまとめた一覧の、1 冊だけの著者の本。束の下と揃える)。著者の無い本は題を出す
@@ -1795,7 +1798,8 @@ private struct SmartBookCell: View {
         let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * coverShape.heightRatio,
-                               cropAspect: coverShape.cropAspect, cropAnchor: cropAnchor, isSelected: isSelected, isFocused: isFocused,
+                               cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
+                               alignment: coverShape.uncroppedAlignment, isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
                 if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
@@ -1868,6 +1872,7 @@ private struct SmartGroupCell: View {
     let books: [SmartBook]
     let width: CGFloat
     var coverShape: SmartLibraryCoverShape = .matchImage
+    var coverFit: CoverFit = .crop
     /// 前に出す 1 冊目の表紙を切るときに残す位置。
     var cropAnchor: CoverCropAnchor = .center
     var isSelected = false
@@ -1910,7 +1915,8 @@ private struct SmartGroupCell: View {
                 // 紙をずらすぶん(右と上に 2 枚ぶん)を空けて、表紙はその内側に描く。
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
-                    cropAspect: coverShape.cropAspect, cropAnchor: cropAnchor,
+                    cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
+                    alignment: coverShape.uncroppedAlignment,
                     stack: .init(layers: 2, offset: offset, count: books.count),
                     isSelected: isSelected, isFocused: isFocused,
                     savesToDisk: savesToDisk, onImageRetained: onImageRetained
@@ -1953,6 +1959,8 @@ private struct SmartBookThumbnail: View {
     var cropAspect: CGFloat?
     /// 切るときに残す位置(切らないときは使わない)。
     var cropAnchor: CoverCropAnchor = .center
+    /// 絵を枠のどこへ置くか(切らないときだけ違いが出る。`SmartLibraryCoverShape.uncroppedAlignment`)。
+    var alignment: Alignment = .bottom
     var stack: Stack?
     /// 選択の枠(表紙の絵の実際の大きさに掛ける ―― 枠に掛けると細長い表紙の左右が空く。紙と同じ理由)。
     var isSelected = false
@@ -1977,7 +1985,7 @@ private struct SmartBookThumbnail: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: alignment) {
             if let image {
                 // 絵を描く大きさ(紙とバッジをこの大きさに合わせる)。切らないなら絵を枠に収めた大きさ、切るならその比の枠。
                 let box = CGSize(width: width, height: height)
@@ -2013,7 +2021,7 @@ private struct SmartBookThumbnail: View {
                     }
             }
         }
-        .frame(width: width, height: height, alignment: .bottom)
+        .frame(width: width, height: height, alignment: alignment)
         // 鍵(更新日時・サイズ・inode)も入れる: 探し直してファイルが差し替わっていたと分かったら、新しい表紙を引き直す。
         // 切るかどうかも入れる(切るときは大きめに引く。`load`)。
         .task(id: "\(book.id)|\(Int(width))|\(cropAspect != nil)|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {

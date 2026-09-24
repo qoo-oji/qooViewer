@@ -167,6 +167,7 @@ struct CollectionStoreTests {
         let target = try #require(library.collections.libraries.first)
         #expect(target.coverAspectRatio == .portrait)
         #expect(target.coverCropAnchor == .center)
+        #expect(target.coverFit == .crop)
         #expect(target.coverAspectRatio.tileCellCount == 6)
     }
 
@@ -177,14 +178,16 @@ struct CollectionStoreTests {
         let first = try #require(library.collections.libraries.first)
         let second = try #require(library.collections.createLibrary(name: "CG"))
 
-        library.collections.setCoverAppearance(second, aspectRatio: .square, anchor: .start)
+        library.collections.setCoverAppearance(second, aspectRatio: .square, anchor: .start, fit: .pad)
 
         #expect(second.coverAspectRatio == .square)
         #expect(second.coverCropAnchor == .start)
+        #expect(second.coverFit == .pad)
         // 1:1 の札は 2 列 2 段 = 4 冊(CoverAspectRatio.tileColumns)。
         #expect(second.coverAspectRatio.tileCellCount == 4)
         #expect(first.coverAspectRatio == .portrait)
         #expect(first.coverCropAnchor == .center)
+        #expect(first.coverFit == .crop)
     }
 
     @Test("札の割り付けは、どの比でもほぼ正方形に収まる組み合わせになっている")
@@ -215,7 +218,7 @@ struct CollectionStoreTests {
         let item = try #require(collection.items.first)
         library.collections.setCoverStatus(.ready, aspect: 1.6, for: item)
 
-        library.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end)
+        library.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end, fit: .pad)
 
         // 保存してあるのは切っていない画像なので、比を変えても抽出待ちには戻らない
         // (CoverImageResolver.cropped(_:to:anchor:) のコメント)。

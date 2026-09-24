@@ -289,7 +289,7 @@ struct AppPreferencesTests {
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
             "fileBrowserImageFolderOpenAction",
         ],
-        .smartLibrary: ["smartLibraryUsesFirstAuthorOnly", "smartLibraryCoverShape", "smartLibraryCoverCropAnchor"],
+        .smartLibrary: ["smartLibraryUsesFirstAuthorOnly", "smartLibraryCoverShape", "smartLibraryCoverCropAnchor", "smartLibraryCoverFit"],
         // キー・マウスの割り当ては KeyBindingStore が持つ(各画面が自分で store 側を呼ぶ)。
         // 「フォルダのアクセス権」「リセット」には戻すべき設定が無い。
         .keyboard: [], .mouse: [], .modeInput: [], .access: [], .reset: [],

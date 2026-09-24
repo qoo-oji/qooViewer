@@ -135,6 +135,37 @@ struct StorePersistenceTests {
             == ["/books/finished": true, "/books/reading": false])
     }
 
+    @Test("ライブラリの「形の合わせ方」は、開き直しても残る")
+    func libraryCoverFitSurvivesReopening() throws {
+        let store = try DisposableStore("library-cover-fit")
+        do {
+            let container = try store.openCurrent()
+            let padded = BookLibrary(name: "Padded")
+            padded.coverFit = .pad
+            container.mainContext.insert(padded)
+            container.mainContext.insert(BookLibrary(name: "Cropped"))
+            try container.mainContext.save()
+        }
+        let container = try store.openCurrent()
+        let libraries = try container.mainContext.fetch(FetchDescriptor<BookLibrary>())
+        #expect(Dictionary(uniqueKeysWithValues: libraries.map { ($0.name, $0.coverFit) })
+            == ["Padded": .pad, "Cropped": .crop])
+    }
+
+    @Test("1.54のストアのライブラリは、「形の合わせ方」の列を足した後は「切り取る」で入る")
+    func libraryFrom1_54StartsCropping() throws {
+        let store = try DisposableStore("library-cover-fit-1.54")
+        do {
+            let container = try store.open(SchemaSnapshot_1_54.types)
+            container.mainContext.insert(SchemaSnapshot_1_54.BookLibrary(name: "Shelf"))
+            try container.mainContext.save()
+        }
+        let container = try store.openCurrent()
+        let library = try #require(try container.mainContext.fetch(FetchDescriptor<BookLibrary>()).first)
+        #expect(library.name == "Shelf")
+        #expect(library.coverFit == .crop)
+    }
+
     @Test("1.54のストアのメタデータは、欄を足した後も同じ値で読め、足した欄は空")
     func metadataFrom1_54KeepsItsValues() throws {
         let store = try DisposableStore("metadata-1.54")

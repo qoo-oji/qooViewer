@@ -3248,6 +3248,22 @@
         }
       }
     },
+    "Add Margins" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Margins"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "余白を付ける"
+          }
+        }
+      }
+    },
     "Add Right Page to Bookmarks" : {
       "localizations" : {
         "en" : {
@@ -8637,6 +8653,22 @@
         }
       }
     },
+    "Crop to Fill" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop to Fill"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切り取って埋める"
+          }
+        }
+      }
+    },
     "Current Name" : {
       "localizations" : {
         "en" : {
@@ -13628,6 +13660,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "横幅に合わせる(単ページ)"
+          }
+        }
+      }
+    },
+    "Fit to Shape" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to Shape"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "形の合わせ方"
           }
         }
       }
@@ -28768,22 +28816,6 @@
         }
       }
     },
-    "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリのアイコン表示に並ぶ表紙の形。「実際の画像に合わせる」は、縦長(2:3)の枠の中に表紙を切らずにそのままの形で表示します。ほかの形では、表紙を枠いっぱいに合わせ、はみ出した部分を切り取ります。"
-          }
-        }
-      }
-    },
     "The “-” or “~” left at the end of a series name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30144,6 +30176,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「X side A」「X side B」のシリーズ名は「X」になります"
+          }
+        }
+      }
+    },
+    "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. With the other shapes, Fit to Shape decides what happens to a cover that doesn’t match." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. With the other shapes, Fit to Shape decides what happens to a cover that doesn’t match."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリのアイコン表示に並ぶ表紙の形。「実際の画像に合わせる」は、縦長(2:3)の枠の中に表紙を切らずにそのままの形で表示します。ほかの形では、形の合わない表紙をどう扱うかを「形の合わせ方」で選べます。"
           }
         }
       }
@@ -32967,6 +33015,22 @@
         }
       }
     },
+    "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with empty space above and below or on both sides. Has no effect with Match the Image." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with empty space above and below or on both sides. Has no effect with Match the Image."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表紙の縦横比が上の形と違うときの扱い。「切り取って埋める」は表紙を枠いっぱいに合わせ、はみ出した部分を切り取ります。「余白を付ける」は表紙を切らずに枠の中央に収め、上下または左右に余白を付けます。「実際の画像に合わせる」のときは効きません。"
+          }
+        }
+      }
+    },
     "What you change on screen is kept as a **diff** laid over the bundled defaults. You can edit it here directly, or write it to a file and carry it elsewhere. If a word you added holds the name of one of your books, the written file holds it too." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -33530,18 +33594,18 @@
         }
       }
     },
-    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image." : {
+    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image or Add Margins." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image."
+            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image or Add Margins."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(メタデータの編集で表紙を右クリック)。「実際の画像に合わせる」のときは効きません。"
+            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(メタデータの編集で表紙を右クリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
           }
         }
       }

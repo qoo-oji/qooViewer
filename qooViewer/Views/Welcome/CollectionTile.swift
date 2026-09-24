@@ -47,6 +47,8 @@ struct CollectionTile: View {
     let tileStore: CollectionTileImageStore
     /// このライブラリのカバーの縦横比。セルの形とここの割り付けの両方がこれで決まる。
     let aspectRatio: CoverAspectRatio
+    /// 切って埋めるか、余白を付けて収めるか(ライブラリの設定。CoverFit)。
+    var fit: CoverFit = .crop
     /// 札の地の色(ライブラリの設定。既定は明暗どちらにも馴染む薄い地)。
     var backgroundColor: Color = Color.primary.opacity(0.07)
     /// タイルの一辺の目安(スライダーの値)。角丸とセルの復号サイズの見積もりに使う。
@@ -226,7 +228,7 @@ struct CollectionTile: View {
             // 切り分けは控えから取る(SliceCacheの型コメント参照)。ここで毎回切り直すと、
             // サイドパネルの表示・非表示のたびに画面中の札が描き直しになる。
             let slices = sliceCache.slices(forKey: key, sheet: sheet, aspectRatio: aspectRatio)
-            grid { index in bakedCell(index, slices: slices, count: request.cells.count) }
+            grid { index in bakedCell(index, slices: slices, cells: request.cells) }
         } else {
             grid { index in liveCell(index) }
         }
@@ -234,18 +236,33 @@ struct CollectionTile: View {
 
     /// 焼いた絵から切り出した1セル。`CGImage.cropping(to:)`は元画像を参照する部分画像を
     /// 作るだけで、画素のコピーは起きない(CoverImageResolver.cropped(_:to:anchor:)と同じ)。
+    ///
+    /// 余白を付けるライブラリ(`fit == .pad`)では、セルには画像がセルいっぱいに引き伸ばして焼いてあるので
+    /// (CollectionTileImageRequest.fit)、元の比へ戻して枠の中央に描く。余白は透明で、札の地がそのまま見える。
     @ViewBuilder
-    private func bakedCell(_ index: Int, slices: [CGImage], count: Int) -> some View {
-        if index < count, index < slices.count {
-            Image(decorative: slices[index], scale: 1)
-                .resizable()
-                .aspectRatio(aspectRatio.value, contentMode: .fit)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: cellWidth),
-                        style: .continuous
-                    )
-                )
+    private func bakedCell(
+        _ index: Int, slices: [CGImage], cells: [CollectionTileImageRequest.Cell]
+    ) -> some View {
+        if index < cells.count, index < slices.count {
+            let shape = RoundedRectangle(
+                cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: cellWidth),
+                style: .continuous
+            )
+            if fit == .pad {
+                Color.clear
+                    .aspectRatio(aspectRatio.value, contentMode: .fit)
+                    .overlay {
+                        Image(decorative: slices[index], scale: 1)
+                            .resizable()
+                            .aspectRatio(CGFloat(cells[index].coverAspect), contentMode: .fit)
+                            .clipShape(shape)
+                    }
+            } else {
+                Image(decorative: slices[index], scale: 1)
+                    .resizable()
+                    .aspectRatio(aspectRatio.value, contentMode: .fit)
+                    .clipShape(shape)
+            }
         } else {
             emptyCell
         }
@@ -260,6 +277,7 @@ struct CollectionTile: View {
                 coverStore: coverStore,
                 aspectRatio: aspectRatio,
                 anchor: cropAnchor(item),
+                fit: fit,
                 displayWidth: cellWidth,
                 exists: exists(item),
                 isExtracting: isExtracting(item),
@@ -291,12 +309,14 @@ struct CollectionTile: View {
         cells.reserveCapacity(items.count)
         for item in items {
             guard item.coverState == .ready, exists(item) else { return nil }
+            // 余白を付けるときは、表示側が元の比へ戻して描く(bakedCell)。比が分からない本は生のセルで描く。
+            if fit == .pad, item.coverAspect <= 0 { return nil }
             cells.append(
                 .init(itemID: item.id, anchor: cropAnchor(item), coverAspect: item.coverAspect)
             )
         }
         return CollectionTileImageRequest(
-            collectionID: collection.id, aspectRatio: aspectRatio, cells: cells
+            collectionID: collection.id, aspectRatio: aspectRatio, fit: fit, cells: cells
         )
     }
 

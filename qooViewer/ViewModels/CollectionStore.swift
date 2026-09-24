@@ -587,20 +587,22 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
-    /// このライブラリのカバーの見せ方(縦横比と、比が合わないときに残す位置)を書き込む
-    /// (ユーザー要望 2026-09-09。歯車 → LibrarySettingsPopover)。
+    /// このライブラリのカバーの見せ方(縦横比と、比が合わないときに残す位置・切るか余白を付けるか)を書き込む
+    /// (ユーザー要望 2026-09-09、余白は 2026-09-24。歯車 → LibrarySettingsPopover)。
     ///
     /// カバー画像そのものは作り直さない ―― 保存してあるのは切っていない画像で、枠へ合わせるのは
     /// 表示のたびに行うため、切り替えは即時かつ無損失(CoverImageResolver.cropped(_:to:anchor:)
     /// のコメント参照)。`.collectionsDidChange`で他のウインドウの一覧も描き直される。
     func setCoverAppearance(
-        _ library: BookLibrary, aspectRatio: CoverAspectRatio, anchor: CoverCropAnchor
+        _ library: BookLibrary, aspectRatio: CoverAspectRatio, anchor: CoverCropAnchor, fit: CoverFit
     ) {
-        guard library.coverAspectRatio != aspectRatio || library.coverCropAnchor != anchor else {
+        guard library.coverAspectRatio != aspectRatio || library.coverCropAnchor != anchor
+                || library.coverFit != fit else {
             return
         }
         library.coverAspectRatio = aspectRatio
         library.coverCropAnchor = anchor
+        library.coverFit = fit
         saveAndNotify()
         reload()
     }

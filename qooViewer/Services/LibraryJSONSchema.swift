@@ -78,6 +78,9 @@ struct ExportedLibrary: Codable {
     var coverAspectRatio: String?
     /// 比が合わないときに残す位置(CoverCropAnchor.rawValue)。
     var coverCropAnchor: String?
+    /// 比が合わないとき、切るか余白を付けるか(CoverFit.rawValue。2026-09-24)。上の2つと同じくOptionalで、
+    /// 無ければ取り込み側の既定(切る)のまま(formatVersionは据え置き)。
+    var coverFit: String?
     /// 常に先頭に表示するコレクションの**名前**(ユーザー要望 2026-09-10)。指定なしならnil。
     ///
     /// **idではなく名前で書き出す。** 取り込み側ではコレクションを作り直すのでidは一致せず、

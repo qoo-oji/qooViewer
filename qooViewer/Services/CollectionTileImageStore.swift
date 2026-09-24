@@ -91,6 +91,13 @@ nonisolated struct CollectionTileImageRequest: Sendable, Equatable {
     /// 差し替えられると指紋と食い違う。
     let collectionID: UUID
     let aspectRatio: CoverAspectRatio
+    /// 切って埋めるか、余白を付けて収めるか(ライブラリの設定。CoverFit)。
+    ///
+    /// `.pad`のセルは**切らない画像を、セルいっぱいに引き伸ばして**焼く(余白は焼かない)。表示側が、そのセルを
+    /// 元の比(`Cell.coverAspect`)へ戻して枠の中央に描く(CollectionTile.bakedCell)。余白を絵に焼くと、その色が
+    /// 札の地の色(明暗の外観・利用者の指定で変わる)と合わないうえ、縮めて復号したときに縁へ余白の色がにじむ。
+    /// 引き伸ばした軸は元の画素数以上あるので、表示で縮めて戻しても粗くならない。
+    let fit: CoverFit
     /// 描くセル(先頭`aspectRatio.tileCellCount`冊まで)。**空きセルは含めない** ――
     /// 冊数が足りないぶんは表示側が空きとして描く。
     let cells: [Cell]
@@ -103,11 +110,14 @@ nonisolated struct CollectionTileImageRequest: Sendable, Equatable {
     /// (CollectionStore.invalidateTileImages(forItemID:))。
     let signature: String
 
-    init(collectionID: UUID, aspectRatio: CoverAspectRatio, cells: [Cell]) {
+    init(collectionID: UUID, aspectRatio: CoverAspectRatio, fit: CoverFit = .crop, cells: [Cell]) {
         self.collectionID = collectionID
         self.aspectRatio = aspectRatio
+        self.fit = fit
         self.cells = cells
         var text = aspectRatio.rawValue
+        // 切るときは何も足さない ―― この設定を足す前に焼いた札の指紋が変わらず、そのまま使える。
+        if fit == .pad { text += "|pad" }
         for cell in cells {
             text += "|\(cell.itemID.uuidString):\(cell.anchor.rawValue):"
             text += String(format: "%.4f", cell.coverAspect)
@@ -339,13 +349,14 @@ actor CollectionTileImageStore {
         for (index, item) in request.cells.enumerated() {
             let decodeSize = CoverImageResolver.decodePixelSize(
                 croppedWidth: CGFloat(cell.width), targetAspect: aspectRatio.value,
-                imageAspect: CGFloat(item.coverAspect)
+                imageAspect: CGFloat(item.coverAspect), fit: request.fit
             )
             guard let cover = await coverStore.image(for: item.itemID, maxPixelSize: decodeSize)
             else { return nil }
-            let cropped = CoverImageResolver.cropped(
-                cover, to: aspectRatio.value, anchor: item.anchor
-            )
+            // 余白を付けるなら切らずにセルいっぱいへ引き伸ばす(`CollectionTileImageRequest.fit`のコメント)。
+            let cropped = request.fit == .pad
+                ? cover
+                : CoverImageResolver.cropped(cover, to: aspectRatio.value, anchor: item.anchor)
             let rect = CollectionTileLayout.cellRect(
                 index: index, inImageOfSize: sheet, aspectRatio: aspectRatio
             )

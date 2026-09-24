@@ -332,6 +332,7 @@ struct CollectionGridView: View {
             coverStore: collectionStore.coverStore,
             tileStore: collectionStore.tileStore,
             aspectRatio: library.coverAspectRatio,
+            fit: library.coverFit,
             backgroundColor: appearance.effectiveCollectionTileBackground,
             size: state.tileSize,
             nameFontSize: appearance.collectionTileNameFontSize,
