@@ -57,6 +57,10 @@ struct SmartLibraryListView: NSViewRepresentable {
     var onSort: (SmartSortKey, Bool) -> Void
     /// 行を開く(本は開き、束は中へ)。
     var onActivate: (SmartGridItem) -> Void
+    /// その場に開いている束(作ったときに開き直す)と、開閉の知らせ(本を開いて戻ってきても開いたままにするため。
+    /// `SmartLibraryViewState.expandedListGroupIDs`)。
+    let expandedGroupIDs: Set<String>
+    var onExpansionChange: (Set<String>) -> Void
     /// ⌘↑(束から出る)。出られなければ false。
     var onLeaveGroup: () -> Bool
     /// 右クリックした行と、相手にする行(選択に入っていれば選択の全部)。
@@ -284,6 +288,7 @@ struct SmartLibraryListView: NSViewRepresentable {
             isApplying = true
             defer { isApplying = false }
             var needsReload = false
+            if initial { expandedIDs = parent.expandedGroupIDs }
             if locale != parent.locale {
                 locale = parent.locale
                 dateFormatter = DateFormatter()
@@ -314,6 +319,14 @@ struct SmartLibraryListView: NSViewRepresentable {
             }
             applySortDescriptor(parent, to: outline)
             applySelection(parent.selection, to: outline)
+            // 作ったとき(本を開いて戻ってきた・グリッドから切り替えた)は、選んでいる行が見える所から。作った直後の表はまだ
+            // 寸法が 0 なので、SwiftUI が大きさを決めた後(次の周回)で動かす。
+            if initial, !outline.selectedRowIndexes.isEmpty {
+                DispatchQueue.main.async { [weak outline] in
+                    guard let outline, let row = outline.selectedRowIndexes.first else { return }
+                    outline.scrollRowToVisible(row)
+                }
+            }
             if !initial, lastScrollResetSerial != parent.scrollResetSerial, outline.numberOfRows > 0 {
                 outline.scrollRowToVisible(0)
             }
@@ -422,12 +435,16 @@ struct SmartLibraryListView: NSViewRepresentable {
 
         /// 行を開閉すると縞の位置がずれるので、見えている行の縞を塗り直す。
         func outlineViewItemDidExpand(_ notification: Notification) {
-            if let node = notification.userInfo?["NSObject"] as? Node { expandedIDs.insert(node.id) }
+            if let node = notification.userInfo?["NSObject"] as? Node, expandedIDs.insert(node.id).inserted {
+                parent?.onExpansionChange(expandedIDs)
+            }
             restripe()
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
-            if !isApplying, let node = notification.userInfo?["NSObject"] as? Node { expandedIDs.remove(node.id) }
+            if !isApplying, let node = notification.userInfo?["NSObject"] as? Node, expandedIDs.remove(node.id) != nil {
+                parent?.onExpansionChange(expandedIDs)
+            }
             restripe()
         }
 

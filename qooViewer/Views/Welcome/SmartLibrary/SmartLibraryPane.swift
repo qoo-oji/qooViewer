@@ -18,13 +18,15 @@ import SwiftUI
 /// 本棚と同じ部品を使う。
 struct SmartLibraryPane: View {
     @ObservedObject var home: WelcomeLibraryState
+    /// 表示の状態。**ウインドウに1つで、ContentView が持つ**(本を開いて戻ってきたとき、開いていた束・絞り込み・選択のまま。
+    /// ペインの `@StateObject` だった頃は、本を開くたびに作り直されて束の一覧へ戻っていた。2026-09-24、利用者の報告)。
+    @ObservedObject var state: SmartLibraryViewState
     let allowsEditing: Bool
 
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var store: SmartLibraryStore
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
-    @StateObject private var state = SmartLibraryViewState()
     @State private var liveSidebarWidth: CGFloat?
     @State private var dragStartWidth: CGFloat = 0
 
@@ -1247,6 +1249,14 @@ struct SmartLibraryContent: View {
         .onChange(of: state.revealRequest) { _, request in
             if let request { reveal(request.id) }
         }
+        // 本を開いて戻ってきたとき(状態はウインドウが持つので、選んでいた本も開いていた束も残っている)・リストから切り替えたときは、
+        // 選んでいる枠が見える所から(2026-09-24。グリッドは作り直されて先頭から描かれるので、開いた本が画面の外に残っていた)。
+        .onAppear {
+            if let id = state.selection.cursor.flatMap({ state.selection.contains($0) ? $0 : nil })
+                ?? state.gridItems.first(where: { state.selection.contains($0.id) })?.id {
+                reveal(id)
+            }
+        }
         // 絞り込み・検索・並べ替え・棚・束ね方を変えたら先頭から(`SmartLibraryViewState.scrollResetSerial`)。
         .onChange(of: state.scrollResetSerial) { _, _ in
             pendingRevealID = nil
@@ -1256,6 +1266,8 @@ struct SmartLibraryContent: View {
             proxy.size
         } action: { size in
             gridSize = size
+            // 列の数はこの寸法から割り出す。寸法より先に届いた「見せて」は、寸法が決まってからやり直す。
+            if let pendingRevealID { reveal(pendingRevealID) }
         }
     }
 
@@ -1696,6 +1708,8 @@ struct SmartLibraryContent: View {
                 state.sortAscending = ascending
             },
             onActivate: { item in activate(item) },
+            expandedGroupIDs: state.expandedListGroupIDs,
+            onExpansionChange: { [state] ids in state.expandedListGroupIDs = ids },
             onLeaveGroup: { [state] in
                 guard state.openedGroup != nil else { return false }
                 state.openedGroup = nil

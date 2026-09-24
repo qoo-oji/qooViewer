@@ -310,7 +310,8 @@ record the found books in `MetadataCorpusStore` → assemble from DB values (it 
 Support/SmartLibrary/catalog.json and shown first, **with each book's thumbnail cache key** so covers come from the disk
 cache without touching the (possibly network) file (`FileBrowserThumbnailProvider.thumbnail(…knownKey:)`). Switching the
 feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/scan and makes every entry
-point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window) holds smart collections
+point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window — held by `ContentView` like `FileBrowserState`, so returning Home after opening a book lands
+in the same group/filters/selection; it was the pane's `@StateObject` until 2026-09-24 and reset on every book open) holds smart collections
 (`SmartShelf` in code), facet buttons with multi-select and pins, filters, sort and grouping by author/series
 (`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`; behaviour settings have their own Settings pane
 (`SettingsPane.smartLibrary`, 2026-09-23) — "Use Only the First Author" (`AppPreferences.smartLibraryUsesFirstAuthorOnly`)

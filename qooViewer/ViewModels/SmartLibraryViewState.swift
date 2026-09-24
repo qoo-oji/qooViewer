@@ -102,6 +102,9 @@ final class SmartLibraryViewState: ObservableObject {
             }
         }
     }
+    /// リスト表示でその場に開いている束(`SmartGridItem.groupID`)。保存しないが、状態はウインドウが持つので、本を開いて
+    /// 戻ってきたときも開いたまま(2026-09-24。リストの表は戻るたびに作り直される)。表が書き換えるだけで、画面は描き直さない。
+    var expandedListGroupIDs: Set<String> = []
     /// 表紙のグリッドかリストか(2026-09-22、利用者の指示)。保存する。選択・絞り込み・束はどちらでも同じものを使う。
     @Published var viewMode: SmartLibraryViewMode {
         didSet {

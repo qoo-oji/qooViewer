@@ -135,6 +135,10 @@ struct ContentView: View {
     /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3)。本を開いている間もこの
     /// ウインドウの中に残り、戻ってきたときは離れたときのフォルダのまま(FileBrowserState参照)。
     @StateObject private var fileBrowser: FileBrowserState
+    /// ホームのスマートライブラリの表示の状態(開いている束・絞り込み・検索・選択)。**ウインドウに1つ**で、本を開いている間も
+    /// ここに残る ―― 束(著者・シリーズの疑似フォルダ)の中の本を開いて「ホーム」へ戻ったとき、束の一覧ではなく同じ束の中へ
+    /// 戻るため(2026-09-24、利用者の報告。それまではペインが `@StateObject` で持っていて、本を開くたびに作り直されていた)。
+    @StateObject private var smartLibrary = SmartLibraryViewState()
     /// メニューバーへ出す「選んだ項目で押せるか」の覚え書き(`fileBrowserMenuSelection`)。
     @State private var fileBrowserMenuSelectionMemo = FileBrowserMenuSelectionMemo()
 
@@ -268,7 +272,7 @@ struct ContentView: View {
                         )
                             .id(book.id)
                     } else {
-                        WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser)
+                        WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser, smartLibrary: smartLibrary)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

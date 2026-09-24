@@ -34,6 +34,8 @@ struct WelcomeView: View {
     @ObservedObject var state: WelcomeLibraryState
     /// ファイルブラウザの閲覧状態(改善要望7 段階3)。ウインドウに1つ(ContentViewが持つ)。
     let fileBrowser: FileBrowserState
+    /// スマートライブラリの表示の状態。ウインドウに1つ(ContentViewが持つ。開いている束へ戻れるように)。
+    let smartLibrary: SmartLibraryViewState
 
     /// 編集操作を許すか。シークレットウインドウでは常にfalse(型コメント参照)。
     private var allowsEditing: Bool { !appState.isPrivateWindow }
@@ -66,7 +68,7 @@ struct WelcomeView: View {
             } else if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
             } else if state.mode == .smart, state.isSmartLibraryFeatureEnabled {
-                SmartLibraryPane(home: state, allowsEditing: allowsEditing)
+                SmartLibraryPane(home: state, state: smartLibrary, allowsEditing: allowsEditing)
             } else if let library {
                 WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)
             } else {
