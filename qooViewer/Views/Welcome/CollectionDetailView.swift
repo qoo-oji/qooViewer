@@ -262,7 +262,7 @@ struct CollectionDetailView: View {
     /// 本の実体のURLを解決して渡す。見つからなければ「本が見つかりません」を出す(右クリックの各項目と同じ)。
     private func withExistingURL(ofItemWithID id: UUID, perform: (URL) -> Void) {
         guard let item = collectionStore.item(withID: id) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
             missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
             return
         }
@@ -611,7 +611,7 @@ struct CollectionDetailView: View {
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
                 onOpenIn: { destination in
-                    guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                    guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
                         missingBook = MissingBook(
                         id: item.id, title: item.title,
                         reason: collectionStore.location(for: item)
@@ -640,7 +640,7 @@ struct CollectionDetailView: View {
             // そのまま渡せば`FinderReveal`の既定の経路が種別を判定できる
             // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
             Button("Show in Finder") {
-                guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
                     missingBook = MissingBook(
                         id: item.id, title: item.title,
                         reason: collectionStore.location(for: item)
@@ -653,7 +653,7 @@ struct CollectionDetailView: View {
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                    guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
                         missingBook = MissingBook(
                             id: item.id, title: item.title,
                             reason: collectionStore.location(for: item)
@@ -673,7 +673,7 @@ struct CollectionDetailView: View {
             Divider()
             Button("Edit Metadata…") {
                 guard allowsEditing else { return }
-                guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
                     missingBook = MissingBook(
                         id: item.id, title: item.title,
                         reason: collectionStore.location(for: item)
@@ -743,7 +743,7 @@ struct CollectionDetailView: View {
     /// 失敗はアラートで知らせる(HomeBookOpenWith.open。スマートライブラリの右クリックと共有)。
     private func openItem(_ itemID: UUID, withApplicationAt application: URL) {
         guard let item = collectionStore.item(withID: itemID) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
             missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
             return
         }
@@ -754,7 +754,7 @@ struct CollectionDetailView: View {
     /// 本はブックマークから解決した URL で渡す(書き出しがスコープを開けて読む。BookExportViewModel.exportOne)。
     private func startExport(_ itemID: UUID, format: BookExportFormat) {
         guard exportRequest == nil, let item = collectionStore.item(withID: itemID) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
             missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
             return
         }
@@ -786,7 +786,7 @@ struct CollectionDetailView: View {
         let requests = targets.map { (id: $0.id, bookmark: $0.bookmarkData) }
         Task { @MainActor in
             let resolved = await FileIO.perform {
-                requests.map { (id: $0.id, url: CollectionStore.existingURL(fromBookmark: $0.bookmark)) }
+                requests.map { (id: $0.id, url: CollectionStore.existingURL(fromBookmark: $0.bookmark, purpose: .userOpen)) }
             }
             let urls = resolved.compactMap(\.url)
             guard !urls.isEmpty else {
@@ -877,7 +877,7 @@ struct CollectionDetailView: View {
     }
 
     private func open(_ item: CollectionItem) {
-        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
             missingBook = MissingBook(
                         id: item.id, title: item.title,
                         reason: collectionStore.location(for: item)

@@ -344,14 +344,13 @@ final class FavoritesStore: ObservableObject {
     /// ブックマークデータからURLを解決する。メインアクターの外から呼べるよう`nonisolated`を
     /// 明示している(このプロジェクトの既定のアクター隔離はMainActorのため。
     /// Services/ArchiveReading.swift冒頭のコメント参照)。
-    nonisolated static func resolvedURL(fromBookmark data: Data) -> URL? {
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
+    ///
+    /// - Parameter purpose: 利用者が開く操作なら `.userOpen`(繋がっていないボリュームへ繋ぎに行く)。既定は裏の解決
+    ///   (繋ぎに行かない。BookmarkResolution)。
+    nonisolated static func resolvedURL(
+        fromBookmark data: Data, purpose: BookmarkResolution.Purpose = .background
+    ) -> URL? {
+        BookmarkResolution.resolve(data, purpose: purpose)
     }
 
     /// ブックマークデータが指す実体がまだ存在するかどうか。`nonisolated`の理由は上と同じ。
@@ -960,8 +959,8 @@ final class FavoritesStore: ObservableObject {
     // MARK: - 開く前のURL解決・存在確認
 
     /// 保存済みのブックマークからURLを解決する(実際にファイル/フォルダが存在するかまでは確認しない)。
-    func resolvedURL(for favorite: FavoriteBook) -> URL? {
-        Self.resolvedURL(fromBookmark: favorite.bookmarkData)
+    func resolvedURL(for favorite: FavoriteBook, purpose: BookmarkResolution.Purpose = .background) -> URL? {
+        Self.resolvedURL(fromBookmark: favorite.bookmarkData, purpose: purpose)
     }
 
     /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
@@ -986,8 +985,8 @@ final class FavoritesStore: ObservableObject {
     /// (要望5: 開く前の存在チェック)。呼び出し側(AppState.openFavorite、
     /// QooViewerApp.openFavorite(_:asTab:))は、これがnilを返した場合に
     /// 「見つかりません。お気に入りから削除しますか?」というアラートを表示する。
-    func resolvedExistingURL(for favorite: FavoriteBook) -> URL? {
-        guard let url = resolvedURL(for: favorite) else { return nil }
+    func resolvedExistingURL(for favorite: FavoriteBook, purpose: BookmarkResolution.Purpose = .background) -> URL? {
+        guard let url = resolvedURL(for: favorite, purpose: purpose) else { return nil }
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer {
             if didStartAccessing {

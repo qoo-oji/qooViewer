@@ -43,13 +43,7 @@ nonisolated enum BookURLResolver {
     }
 
     private static func resolvedExistingURL(fromBookmark data: Data) -> URL? {
-        var isStale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 

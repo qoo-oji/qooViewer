@@ -4401,7 +4401,7 @@ struct ViewerView: View {
     ///
     /// 見つからなかった場合は、通常の「開く」(AppState.openFavorite)と同じくアラートを出す。
     private func openFavorite(_ favorite: FavoriteBook, to destination: BookOpenDestination) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
             appState.missingFavorite = favorite
             return
         }

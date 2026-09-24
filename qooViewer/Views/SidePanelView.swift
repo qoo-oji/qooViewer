@@ -1516,13 +1516,13 @@ private struct SidePanelFavoriteRow: View {
             )
             Divider()
             Button("Show in Finder") {
-                guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
+                guard let url = favoritesStore.resolvedExistingURL(for: book, purpose: .userOpen) else { return }
                 FinderReveal.reveal(url)
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
+                    guard let url = favoritesStore.resolvedExistingURL(for: book, purpose: .userOpen) else { return }
                     revealInFileBrowser(url)
                 }
             }

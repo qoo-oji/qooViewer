@@ -1401,7 +1401,7 @@ struct ContentView: View {
             // アラートを出す(シークレットウインドウでは「お気に入りから削除」は出ない ――
             // 保存データへの変更にあたるため。missingFavoriteの扱いはViewerView側が持つ)。
             onOpenFavoriteInNewWindow: { favorite, destination in
-                guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+                guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
                     appState.missingFavorite = favorite
                     return
                 }

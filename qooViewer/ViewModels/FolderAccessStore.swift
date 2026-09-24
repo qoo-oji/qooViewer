@@ -173,13 +173,8 @@ final class FolderAccessStore: ObservableObject {
     }
 
     private func resolvedURL(from data: Data) -> URL? {
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
+        // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
+        BookmarkResolution.resolve(data)
     }
 
     /// - Parameter reusingOpenedFolders: いま開いているフォルダ(ブックマークに書かれたパスが `accessedURLsByPath` にあるもの)は

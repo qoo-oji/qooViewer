@@ -809,7 +809,7 @@ final class AppState: ObservableObject {
     /// (要望5: 見つからない場合はmissingFavoriteをセットしてアラートを出す。実際に開く処理は
     /// open(url:)にそのまま委譲する)。
     func openFavorite(_ favorite: FavoriteBook) {
-        guard let favoritesStore, let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let favoritesStore, let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
             missingFavorite = favorite
             return
         }

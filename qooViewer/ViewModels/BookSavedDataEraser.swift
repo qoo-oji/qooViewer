@@ -52,17 +52,20 @@ nonisolated struct BookExistenceProbe: Sendable {
     ///    `.unknown` として扱う(誤って「消えた」と表示して削除を促さないため)。
     func evaluate() -> Result {
         for data in bookmarkCandidates {
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
+            guard let url = BookmarkResolution.resolve(data) else { continue }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             return FileManager.default.fileExists(atPath: url.path) ? .exists : .missing
         }
         if FileManager.default.fileExists(atPath: bookID) { return .exists }
-        return isPathCovered ? .missing : .unknown
+        return isPathCovered && !isOnAnUnmountedVolume ? .missing : .unknown
+    }
+
+    /// 記録したパスが、いま繋がっていないボリュームの上か。そこでは許可済みのフォルダの中でも「無い」と言えない ――
+    /// ブックマークは繋ぎに行かずに失敗する(BookmarkResolution)し、以前は繋ぎに行って失敗していた(NAS の電源が落ちて
+    /// いると、許可済みの共有の本が「実体の無い本」に数えられた)。マウントの一覧だけを見て、パスには触らない。
+    private var isOnAnUnmountedVolume: Bool {
+        MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: bookID))
     }
 
     /// **記録したパス(`bookID`)に今**、本があるか。メタデータの編集ウインドウが使う(本をパスで並べ、パスで登録するため)。
@@ -80,11 +83,7 @@ nonisolated struct BookExistenceProbe: Sendable {
     /// そのパス(`movedTo`)。呼び出し側は保存データをそこへ付け替える(`BookRecordRelocator`)。
     func locateAtRecordedPath() -> (result: Result, movedTo: String?) {
         for data in bookmarkCandidates {
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
+            guard let url = BookmarkResolution.resolve(data) else { continue }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             // ゴミ箱へ移った本は「無い」(BookLocationResolver と同じ決まり)。ブックマークはゴミ箱の中まで追うので、ここで
@@ -99,7 +98,7 @@ nonisolated struct BookExistenceProbe: Sendable {
         let result = Self.bookResult(at: bookID)
         if result != .missing { return (result, nil) }
         // 見えないのが「無い」からか「アクセス権が無い」からかは、許可済みのフォルダの中でしか区別できない(evaluate と同じ)。
-        return (FileManager.default.fileExists(atPath: bookID) || isPathCovered ? .missing : .unknown, nil)
+        return (FileManager.default.fileExists(atPath: bookID) || (isPathCovered && !isOnAnUnmountedVolume) ? .missing : .unknown, nil)
     }
 
     /// 記録したパスにあるのが**本ではないフォルダ**(棚・中間のフォルダ・空のフォルダ)だと確かめられたか。起動時の掃除
@@ -107,11 +106,7 @@ nonisolated struct BookExistenceProbe: Sendable {
     /// 別の場所を指す)は false** ―― 消すのは、その場所にあって中を読めて、本ではないと分かったフォルダだけ。
     func isNonBookFolderAtRecordedPath() -> Bool {
         for data in bookmarkCandidates {
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
+            guard let url = BookmarkResolution.resolve(data) else { continue }
             guard Self.isSamePlace(recorded: bookID, resolved: url) else { return false }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }

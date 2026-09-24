@@ -321,16 +321,12 @@ final class BookmarkStore: ObservableObject {
     /// フォールバックを持つため、ここで重複して持たせる必要が無い)。
     /// JSON書き出し(6節)で、ブックマークを持つ本のページを読み込む(pageIndex→pageKey変換)ために
     /// 使う(詳細はLibraryImportExportService.resolveURL参照)。
-    func resolvedURLFromBookmarkData(forBookID bookID: String) -> URL? {
+    func resolvedURLFromBookmarkData(
+        forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background
+    ) -> URL? {
         for candidate in bookmarks(forBookID: bookID) {
             guard let data = candidate.bookmarkData else { continue }
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ), FileManager.default.fileExists(atPath: url.path) {
+            if let url = BookmarkResolution.resolve(data, purpose: purpose), FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
         }
@@ -444,10 +440,7 @@ final class BookmarkStore: ObservableObject {
     func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
         for bookmark in allBookmarks() where bookmark.fileNodeIdentifier == identifier {
             guard let data = bookmark.bookmarkData else { continue }
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-            ), FileManager.default.fileExists(atPath: url.path) {
+            if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
         }

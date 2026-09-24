@@ -82,11 +82,10 @@ nonisolated enum BookLocationResolver {
         /// 解決の失敗が「そのファイルはもう無い」と言っているか(下のsaysNoSuchFile参照)。
         var resolutionSaysNoSuchFile = false
         do {
-            var isStale = false
-            resolved = try URL(
-                resolvingBookmarkData: probe.bookmark, options: .withSecurityScope,
-                relativeTo: nil, bookmarkDataIsStale: &isStale
-            )
+            // 繋がっていないボリュームへは繋ぎに行かない(BookmarkResolution)。そのときの失敗は実体が無いときと同じ
+            // NSFileNoSuchFileError(4)になる(実測 2026-09-24)が、下で「そのボリュームが付いているか」を別に確かめるので
+            // `.missing` にはならない。
+            resolved = try BookmarkResolution.resolveOrThrow(probe.bookmark)
             // isStaleは見るが失敗扱いにはしない ―― 同一ボリューム内のリネーム・移動でも立つ
             // (実測: ゴミ箱へ移動した本は stale=true で解決でき、実体もある)。
         } catch let error as NSError {
@@ -145,8 +144,9 @@ nonisolated enum BookLocationResolver {
         guard scopedError.code == NSFileReadCorruptFileError else { return false }
         do {
             var isStale = false
+            // ここも繋ぎに行かない(BookmarkResolution のコメント)。
             _ = try URL(
-                resolvingBookmarkData: bookmark, options: [], relativeTo: nil,
+                resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting], relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             )
             return false

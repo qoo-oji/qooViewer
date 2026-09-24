@@ -1959,7 +1959,7 @@ struct QooViewerApp: App {
     /// ファイル/フォルダが存在するかを確認する(要望5)。見つからなければ、通常の「開く」
     /// (AppState.openFavorite)と同じくmissingFavoriteをセットしてアラートを出す。
     private func openFavorite(_ favorite: FavoriteBook, asTab: Bool) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
             focusedAppState?.missingFavorite = favorite
             return
         }
@@ -1986,7 +1986,7 @@ struct QooViewerApp: App {
         guard let targetAppState, targetAppState.currentBook != nil else {
             if let targetAppState {
                 targetAppState.openFavorite(favorite)
-            } else if let url = favoritesStore.resolvedExistingURL(for: favorite) {
+            } else if let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) {
                 openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
             }
             return

@@ -458,13 +458,9 @@ final class RecentFilesStore: ObservableObject {
     }
 
     private nonisolated static func resolvedURL(from data: Data) -> URL? {
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
+        // 裏の確かめ(revalidate)も開く直前(resolveForOpening)も、繋がっていないボリュームは先に弾いてあるので繋ぎに行かない
+        // (BookmarkResolution)。
+        BookmarkResolution.resolve(data)
     }
 }
 

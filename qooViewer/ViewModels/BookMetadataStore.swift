@@ -592,12 +592,9 @@ final class BookMetadataStore: ObservableObject {
     /// bookIDからこの本の実URLを解決する(LayoutStore.resolvedURLと同じ考え方)。
     /// セキュリティスコープ付きブックマークが無い/解決できない場合は素のパスへフォールバックし、
     /// どちらでもファイルが見つからなければnilを返す。
-    func resolvedURL(forBookID bookID: String) -> URL? {
+    func resolvedURL(forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background) -> URL? {
         if let data = metadata(forBookID: bookID)?.bookmarkData {
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-            ), FileManager.default.fileExists(atPath: url.path) {
+            if let url = BookmarkResolution.resolve(data, purpose: purpose), FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
         }

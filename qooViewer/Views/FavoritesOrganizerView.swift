@@ -714,7 +714,7 @@ struct FavoritesOrganizerView: View {
     private func openFavorite(
         _ favorite: FavoriteBook, to destination: BookOpenDestination, relativeTo activeAppState: AppState?
     ) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
             activeAppState?.missingFavorite = favorite
             return
         }

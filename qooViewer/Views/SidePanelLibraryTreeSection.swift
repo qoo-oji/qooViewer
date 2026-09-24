@@ -239,7 +239,7 @@ struct SidePanelLibraryTreeSection: View {
     /// アラート(「本が見つかりません」)はウェルカム画面のコレクションの中が持っており、細い
     /// パネルの行からは淡く描いてあることで伝える。
     private func resolvedURL(_ item: CollectionItem) -> URL? {
-        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
             NSSound.beep()
             return nil
         }

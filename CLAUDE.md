@@ -391,7 +391,12 @@ migration; it is neither read nor written.
 Directly opening a single archive/PDF file only grants access to that file, not sibling files in the same
 folder — features like "open file in same folder" / "previous/next book" need the user to separately grant
 folder access (`FolderAccessStore`, security-scoped bookmarks). Keep this constraint in mind for any
-feature that reads files the user didn't explicitly pick.
+feature that reads files the user didn't explicitly pick. **Resolve bookmarks only through `BookmarkResolution`**
+(2026-09-24): the default `.background` adds `.withoutMounting` + `.withoutUI`, because a plain `.withSecurityScope`
+resolution mounts the volume — a powered-off NAS then shows macOS's "problem connecting to the server" dialog 30 s later,
+and ejected disk images get re-attached. Only explicit open actions pass `.userOpen`. An unmounted volume fails with the
+same `NSFileNoSuchFileError` as a deleted file, so never read "missing" from a failed resolution alone — check `MountTable`
+(docs/10「裏の解決は繋がっていないボリュームへ繋ぎに行かない」).
 
 **Localization**: `Resources/Localizable.xcstrings` is a String Catalog (English base + Japanese). The
 in-app display language setting (`AppPreferences.displayLanguage`) is independent of the OS locale. SwiftUI

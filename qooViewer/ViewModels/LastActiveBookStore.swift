@@ -45,13 +45,9 @@ enum LastActiveBookStore {
     /// SwiftDataのModelContextを使うため、ここでは行わない)。
     static func resolve(defaults: UserDefaults = .standard) -> URL? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
-        var isStale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        ) else { return nil }
+        // 起動時に自動で開き直すものなので、繋がっていない共有へは繋ぎに行かない(BookmarkResolution。NAS の電源が落ちていると
+        // 起動のたびに 30 秒後にダイアログが出る)。
+        guard let url = BookmarkResolution.resolve(data) else { return nil }
         // ゴミ箱へ移した本は開き直さない(BookLocationResolver.isInTrash。ブックマークはゴミ箱の中まで追う。2026-09-22 の監査)。
         guard !BookLocationResolver.isInTrash(url) else { return nil }
 

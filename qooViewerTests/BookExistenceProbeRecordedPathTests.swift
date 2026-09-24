@@ -73,4 +73,24 @@ struct BookExistenceProbeRecordedPathTests {
         #expect(BookExistenceProbe(bookID: path, bookmarkCandidates: [], isPathCovered: false)
             .evaluateAtRecordedPath() == .unknown)
     }
+
+    @Test("繋がっていないボリュームの上の本は、許可済みの場所でも missing と言わない(NAS の電源が落ちているとき)")
+    func aBookOnAnUnmountedVolumeIsUnknown() {
+        // マウントされていない /Volumes の下(マウントの一覧だけで判定するので、パスには触らない)。
+        let path = "/Volumes/qooViewerTestsNotMounted-\(UUID().uuidString)/book.cbz"
+        let probe = BookExistenceProbe(bookID: path, bookmarkCandidates: [], isPathCovered: true)
+        #expect(probe.evaluate() == .unknown)
+        #expect(probe.evaluateAtRecordedPath() == .unknown)
+    }
+
+    @Test("裏の解決は繋がっていないボリュームへ繋ぎに行かず画面も出さない、開く操作は繋ぎに行く")
+    func backgroundResolutionNeverMounts() {
+        let background = BookmarkResolution.options(for: .background)
+        #expect(background.contains(.withSecurityScope))
+        #expect(background.contains(.withoutMounting))
+        #expect(background.contains(.withoutUI))
+        let userOpen = BookmarkResolution.options(for: .userOpen)
+        #expect(userOpen.contains(.withSecurityScope))
+        #expect(!userOpen.contains(.withoutMounting))
+    }
 }

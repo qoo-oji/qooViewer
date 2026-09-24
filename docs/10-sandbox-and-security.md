@@ -86,6 +86,24 @@ FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り
 - 履歴の削除ウインドウには「実在するか」の列を**意図的に置かない**。
 - メインアクターの外へ渡すのは `Sendable` な値(UUID・Data)に写し取ってから。
 
+### 裏の解決は繋がっていないボリュームへ繋ぎに行かない(2026-09-24)
+
+既定のオプション(`.withSecurityScope` だけ)で解決すると、指す先のボリュームが繋がっていなければ**繋ぎに行く**。
+NAS の電源が落ちていると約 30 秒後に macOS の「サーバ“…”への接続で問題が起きました」が出る(どのアプリのせいかは
+書かれない。利用者の報告)。統合ログで、qooViewer が外付けの取り外しの知らせを受けてブックマークを十数件解決した直後に
+ScopedBookmarkAgent が `smb://…` のマウントを求め、30 秒後に NetAuthAgent が起動したのを確かめた。取り出した
+ディスクイメージも既定の解決で**勝手に付け直される**(実測)。
+
+解決はすべて `BookmarkResolution` を通す。裏で自動に行う解決(在りかの確かめ・移動の検出・カバーの抽出・書き出し・
+取り込み・起動時の復元・パネルの最初の場所)は `.background` = `.withoutMounting` + `.withoutUI`、利用者が本を**開く**
+操作(コレクション・お気に入り・ブックマーク一覧から開く、Finder に表示…)だけ `.userOpen` で従来どおり繋ぎに行く。
+引数の既定は `.background`(新しい呼び出しが既定のままでも、ダイアログを出す側には倒れない)。
+
+繋がっていないボリュームの上の本は、`.withoutMounting` で**約 10ms で `NSFileNoSuchFileError`(4)** ―― 実体が無いときと
+同じコードで失敗する(実測 2026-09-24)。したがって「無い」と言い切る所は、ボリュームが付いているかを**マウントの一覧で**
+別に確かめる(`BookLocationResolver.isVolumeAvailable`、`BookExistenceProbe` の `isOnAnUnmountedVolume`。後者は以前、
+許可済みの共有の上の本を NAS が落ちている間「実体の無い本」に数えていた)。
+
 ### 存在確認の判定順(LibraryCleanupViewModel.evaluate)
 
 1. いずれかのストアのブックマークから URL を解決できるなら、開いて `fileExists`(最も確実)。

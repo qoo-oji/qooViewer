@@ -31,10 +31,8 @@ struct LastUsedFolderMemory {
 
     func lastFolder() -> URL? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-        )
+        // パネルの最初の場所を決めるだけなので、繋がっていない共有へは繋ぎに行かない(BookmarkResolution)。
+        return BookmarkResolution.resolve(data)
     }
 
     /// - Parameter panelDirectory: フォルダを選ぶパネルなら、閉じた時点で見ていた場所(`NSOpenPanel.directoryURL`)。

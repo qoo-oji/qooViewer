@@ -157,8 +157,8 @@ final class LayoutStore: ObservableObject {
     /// フォルダがまだ存在するか確認する。無ければbookIDの素のパスへフォールバックする)。
     /// 「ブックマーク・レイアウトの編集」ウインドウが、今開いていない本のサムネイルを
     /// 読み込む・EPUB出力する際に使う。
-    func resolvedURL(forBookID bookID: String) -> URL? {
-        Self.resolvedURL(bookmarkData: bookLayoutSettings(forBookID: bookID)?.bookmarkData, bookID: bookID)
+    func resolvedURL(forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background) -> URL? {
+        Self.resolvedURL(bookmarkData: bookLayoutSettings(forBookID: bookID)?.bookmarkData, bookID: bookID, purpose: purpose)
     }
 
     /// 上の実体。ブックマークの解決と存在確認は、対象が未接続の外付け/ネットワークボリュームを
@@ -167,15 +167,14 @@ final class LayoutStore: ObservableObject {
     /// メインアクター限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
     /// DBを読む部分(bookLayoutSettings)は呼び出し側がメインアクターで済ませ、ここへは
     /// Sendableな値だけを渡す。
-    nonisolated static func resolvedURL(bookmarkData: Data?, bookID: String) -> URL? {
+    ///
+    /// `purpose`: 利用者が開く操作なら `.userOpen`(繋がっていないボリュームへ繋ぎに行く)。既定は繋ぎに行かない(BookmarkResolution)。
+    nonisolated static func resolvedURL(
+        bookmarkData: Data?, bookID: String, purpose: BookmarkResolution.Purpose = .background
+    ) -> URL? {
         if let bookmarkData {
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ), FileManager.default.fileExists(atPath: url.path) {
+            if let url = BookmarkResolution.resolve(bookmarkData, purpose: purpose),
+               FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
         }
@@ -354,10 +353,7 @@ final class LayoutStore: ObservableObject {
     func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
         for settings in allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
             guard let data = settings.bookmarkData else { continue }
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-            ), FileManager.default.fileExists(atPath: url.path) {
+            if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
         }
@@ -944,10 +940,7 @@ final class LayoutStore: ObservableObject {
     /// externalCoverBookmarkDataからURLを解決する(resolvedURL(forBookID:)と同じ考え方)。
     func resolvedExternalCoverURL(forBookID bookID: String) -> URL? {
         guard let data = bookLayoutSettings(forBookID: bookID)?.externalCoverBookmarkData else { return nil }
-        var isStale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-        ), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 
