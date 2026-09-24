@@ -47,6 +47,9 @@ struct PanelSurfaceSettingsView: View {
         case collectionTileBackground
         /// スマートライブラリのシリーズの束の、後ろの紙の色(「未指定 = 既定」から離れるとき)。
         case smartLibrarySeriesSheet
+        /// ライブラリ/スマートライブラリの「余白を付ける」ときの余白の色(「未指定 = 既定の白」から離れるとき)。
+        case collectionCoverMargin
+        case smartLibraryCoverMargin
 
         var id: Self { self }
 
@@ -58,6 +61,7 @@ struct PanelSurfaceSettingsView: View {
             case .pageBorder, .filmstripHighlight: "Custom Highlight Color"
             case .collectionTileBackground: "Custom Tile Background Color"
             case .smartLibrarySeriesSheet: "Custom Series Stack Color"
+            case .collectionCoverMargin, .smartLibraryCoverMargin: "Custom Cover Margin Color"
             }
         }
     }
@@ -373,6 +377,17 @@ struct PanelSurfaceSettingsView: View {
             ) {
                 colorTarget = .smartLibrarySeriesSheet
             }
+            // 環境設定「スマートライブラリ」の「形の合わせ方」が「余白を付ける」のときの余白(2026-09-24、利用者の要望。既定は白)。
+            SettingsColorRow(
+                "Cover Margin Color",
+                color: appearance.effectiveSmartLibraryCoverMargin,
+                help: "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings.",
+                reset: appearance.smartLibraryCoverMarginColor == nil
+                    ? nil
+                    : { appearance.smartLibraryCoverMarginColor = nil }
+            ) {
+                colorTarget = .smartLibraryCoverMargin
+            }
             // 束の冊数バッジ(ライブラリの札のものと同じ 3 段。2026-09-22、利用者の要望)。
             SettingsPicker("Book Count Badge Size", selection: $appearance.smartLibraryBadgeSize)
         } header: {
@@ -412,6 +427,18 @@ struct PanelSurfaceSettingsView: View {
                     : { appearance.collectionTileBackgroundColor = nil }
             ) {
                 colorTarget = .collectionTileBackground
+            }
+            // ライブラリの設定(歯車)の「形の合わせ方」が「余白を付ける」のときの余白(2026-09-24、利用者の要望。既定は白)。
+            // ライブラリごとではなくアプリで 1 つ(札の地の色と同じく外観の設定)。
+            SettingsColorRow(
+                "Cover Margin Color",
+                color: appearance.effectiveCollectionCoverMargin,
+                help: "Fills the space around a cover when a library’s Fit to Shape is set to Add Margins.",
+                reset: appearance.collectionCoverMarginColor == nil
+                    ? nil
+                    : { appearance.collectionCoverMarginColor = nil }
+            ) {
+                colorTarget = .collectionCoverMargin
             }
         } header: {
             Text("Library")
@@ -580,6 +607,10 @@ struct PanelSurfaceSettingsView: View {
         case .smartLibrarySeriesSheet:
             appearance.smartLibrarySeriesSheetColor
                 ?? RGBColorValue(red: 200, green: 200, blue: 200)
+        case .collectionCoverMargin:
+            appearance.collectionCoverMarginColor ?? AppearanceSettings.defaultCoverMarginRGB
+        case .smartLibraryCoverMargin:
+            appearance.smartLibraryCoverMarginColor ?? AppearanceSettings.defaultCoverMarginRGB
         }
     }
 
@@ -610,6 +641,10 @@ struct PanelSurfaceSettingsView: View {
             appearance.collectionTileBackgroundColor = color
         case .smartLibrarySeriesSheet:
             appearance.smartLibrarySeriesSheetColor = color
+        case .collectionCoverMargin:
+            appearance.collectionCoverMarginColor = color
+        case .smartLibraryCoverMargin:
+            appearance.smartLibraryCoverMarginColor = color
         }
     }
 
@@ -634,7 +669,7 @@ struct PanelSurfaceSettingsView: View {
             }
             filmstripHighlightOptionBeforeCustomizing = nil
         // 札の地の色もプリセットを持たない(ダイアログを開くだけでは何も変わらない)。
-        case .collectionTileBackground, .smartLibrarySeriesSheet:
+        case .collectionTileBackground, .smartLibrarySeriesSheet, .collectionCoverMargin, .smartLibraryCoverMargin:
             break
         }
     }

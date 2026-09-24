@@ -202,6 +202,9 @@ func mutateEveryAppearanceSetting(_ a: AppearanceSettings) {
     a.homeGridWheelScrollRows += 1
     a.smartLibrarySeriesSheetColor = a.smartLibrarySeriesSheetColor.map(otherColor)
         ?? RGBColorValue(red: 30, green: 60, blue: 20)
+    // 既定は nil(= 白)。
+    a.collectionCoverMarginColor = otherColor(a.collectionCoverMarginColor ?? AppearanceSettings.defaultCoverMarginRGB)
+    a.smartLibraryCoverMarginColor = otherColor(a.smartLibraryCoverMarginColor ?? AppearanceSettings.defaultCoverMarginRGB)
     // 既定は nil(= システムの標準のタイトルバー)。札の地の色と同じ。
     a.titleBarColor = a.titleBarColor.map(otherColor) ?? RGBColorValue(red: 60, green: 20, blue: 30)
     for surface in PanelSurface.allCases {

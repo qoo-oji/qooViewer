@@ -36,6 +36,12 @@ enum SmartLibraryCoverShape: String, CaseIterable, Identifiable, Hashable {
         fit == .pad ? nil : cropAspect
     }
 
+    /// 「余白を付ける」ときの枠の比と余白の色。余白を付けない(切る・「実際の画像に合わせる」)なら nil。
+    func padding(fit: CoverFit, color: Color) -> (aspect: CGFloat, color: Color)? {
+        guard fit == .pad, let cropAspect else { return nil }
+        return (cropAspect, color)
+    }
+
     /// 切らずに描くとき、絵を枠のどこへ置くか。「実際の画像に合わせる」はこれまでどおり下に揃える(棚に立てた本のように、
     /// 表紙の下端と題の行が揃う)。ほかの形で余白を付けるときは中央(上下左右に同じだけ余白を付ける。2026-09-24、利用者の要望)。
     var uncroppedAlignment: Alignment {

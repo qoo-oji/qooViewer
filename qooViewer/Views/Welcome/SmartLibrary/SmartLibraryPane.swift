@@ -1799,6 +1799,7 @@ private struct SmartBookCell: View {
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * coverShape.heightRatio,
                                cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
+                               padding: coverShape.padding(fit: coverFit, color: appearance.effectiveSmartLibraryCoverMargin),
                                alignment: coverShape.uncroppedAlignment, isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
@@ -1916,6 +1917,7 @@ private struct SmartGroupCell: View {
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
                     cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
+                    padding: coverShape.padding(fit: coverFit, color: appearance.effectiveSmartLibraryCoverMargin),
                     alignment: coverShape.uncroppedAlignment,
                     stack: .init(layers: 2, offset: offset, count: books.count),
                     isSelected: isSelected, isFocused: isFocused,
@@ -1959,6 +1961,9 @@ private struct SmartBookThumbnail: View {
     var cropAspect: CGFloat?
     /// 切るときに残す位置(切らないときは使わない)。
     var cropAnchor: CoverCropAnchor = .center
+    /// 「余白を付ける」ときの枠の比(幅 ÷ 高さ)と余白の色(`SmartLibraryCoverShape.padding(fit:color:)`)。nil なら余白を付けない。
+    /// 付けるときは、その比の枠を余白の色で塗って絵を中央に収め、枠ごと 1 枚の表紙として描く(紙・バッジ・選択の枠も枠に合わせる)。
+    var padding: (aspect: CGFloat, color: Color)?
     /// 絵を枠のどこへ置くか(切らないときだけ違いが出る。`SmartLibraryCoverShape.uncroppedAlignment`)。
     var alignment: Alignment = .bottom
     var stack: Stack?
@@ -1989,14 +1994,19 @@ private struct SmartBookThumbnail: View {
             if let image {
                 // 絵を描く大きさ(紙とバッジをこの大きさに合わせる)。切らないなら絵を枠に収めた大きさ、切るならその比の枠。
                 let box = CGSize(width: width, height: height)
-                let size = cropAspect.map { Self.fittedSize(aspect: $0, in: box) } ?? Self.fittedSize(of: image, in: box)
+                let size = (cropAspect ?? padding?.aspect).map { Self.fittedSize(aspect: $0, in: box) }
+                    ?? Self.fittedSize(of: image, in: box)
                 // 切るのは表示のたび(ライブラリのカバーと同じ。CoverImageResolver.cropped のコメント)。CGImage の切り出しは
                 // 画素を写さないので軽い。切った後の端数は下の .fill と枠で吸収する。
                 let drawn = cropAspect.map { CoverImageResolver.cropped(image, to: $0, anchor: cropAnchor) } ?? image
-                Image(decorative: drawn, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: cropAspect == nil ? .fit : .fill)
+                ZStack {
+                    // 余白を付けるときは枠を余白の色で塗る(ライブラリの CollectionCoverThumbnail と同じ見た目)。
+                    if let padding { padding.color }
+                    Image(decorative: drawn, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: cropAspect == nil ? .fit : .fill)
+                }
                     .frame(width: size.width, height: size.height)
                     .clipShape(shape)
                     .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)

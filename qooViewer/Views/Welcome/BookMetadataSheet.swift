@@ -612,6 +612,8 @@ private struct FileBrowserCoverArea: View {
     var smartLibraryCrop: SmartLibraryCrop?
 
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
+    /// 余白を付けるときの余白の色(スマートライブラリの版。環境設定「外観」→「ホーム」→「スマートライブラリ」)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @State private var image: CGImage?
     /// 絵を作れなかった(読めない本・画像の無い本)。読み込み中の印を出し続けないため。
     @State private var didFail = false
@@ -648,6 +650,18 @@ private struct FileBrowserCoverArea: View {
                         .frame(width: width, height: width * frameHeightRatio)
                         .clipShape(shape)
                         .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                } else if let smartLibraryCrop, smartLibraryCrop.fit == .pad, smartLibraryCrop.shape.cropAspect != nil {
+                    // 余白を付ける形(スマートライブラリのグリッドと同じ見た目。SmartBookThumbnail.padding)。
+                    ZStack {
+                        appearance.effectiveSmartLibraryCoverMargin
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                    }
+                    .frame(width: width, height: width * frameHeightRatio)
+                    .clipShape(shape)
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
                 } else {
                     Image(decorative: image, scale: 1)
                         .resizable()

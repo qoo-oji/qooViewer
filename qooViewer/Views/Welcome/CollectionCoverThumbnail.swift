@@ -15,7 +15,9 @@ import SwiftUI
 /// 背の高さをばらつかせるより、同じ大きさの札が整然と並ぶほうが目的(どの本かを見分ける)に適う。
 ///
 /// ライブラリの「形の合わせ方」が「余白を付ける」(`fit == .pad`、ユーザー要望 2026-09-24)なら切らない。セルの枠の
-/// 大きさはそのままで、画像を枠の中央へ縦横比を保って収め、足りない側は透明のまま残す(角丸は画像そのものに掛ける)。
+/// 大きさはそのままで、画像を枠の中央へ縦横比を保って収め、足りない側を余白の色(環境設定「外観」→「ホーム」→「ライブラリ」の
+/// 「余白の色」、既定は白)で塗る。枠ごと塗って角丸も枠に掛けるので、表紙は枠の形のカードに見える(最初は余白を透明にして
+/// いたが、横長の表紙を縦長の枠に収めても地が透けるだけで縦長に見えなかった。利用者の報告)。
 ///
 /// ■ 状態の描き分け
 /// - `.pending`(まだ抽出していない): 薄い地だけ。抽出中(`isExtracting`)ならスピナーを重ねる
@@ -61,6 +63,8 @@ struct CollectionCoverThumbnail: View {
     /// 保持した画像の大きさを呼び出し側の帳簿(LazyCellImageBudget)へ伝える。
     var onImageRetained: ((CGImage) -> Void)?
 
+    @EnvironmentObject private var appearance: AppearanceSettings
+
     @State private var image: CGImage?
     /// いま持っている絵を、どの復号サイズの段(decodeTier)で読んだか。
     @State private var loadedTier = 0
@@ -81,12 +85,12 @@ struct CollectionCoverThumbnail: View {
             case .ready:
                 if let image {
                     if fit == .pad {
-                        // 枠の大きさを先に取る(画像だけだと、ZStackが収めた画像の大きさに縮み、セルの大きさがばらつく)。
-                        Color.clear
+                        // 余白の色で枠いっぱいを塗る(これが枠の大きさも決める ―― 画像だけだと、ZStackが収めた画像の大きさに
+                        // 縮み、セルの大きさがばらつく)。
+                        appearance.effectiveCollectionCoverMargin
                         Image(decorative: image, scale: 1)
                             .resizable()
                             .scaledToFit()
-                            .clipShape(shape)
                     } else {
                         Image(decorative: image, scale: 1)
                             .resizable()

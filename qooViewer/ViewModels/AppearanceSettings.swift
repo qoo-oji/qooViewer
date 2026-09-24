@@ -60,6 +60,8 @@ final class AppearanceSettings: ObservableObject {
         static let collectionTileBackgroundColor = "qooViewer.pref.collectionTileBackgroundColor"
         static let smartLibraryCaptionFontSize = "qooViewer.pref.smartLibraryCaptionFontSize"
         static let smartLibrarySeriesSheetColor = "qooViewer.pref.smartLibrarySeriesSheetColor"
+        static let collectionCoverMarginColor = "qooViewer.pref.collectionCoverMarginColor"
+        static let smartLibraryCoverMarginColor = "qooViewer.pref.smartLibraryCoverMarginColor"
         static let smartLibraryBadgeSize = "qooViewer.pref.smartLibraryBadgeSize"
         static let homeListWheelScrollRows = "qooViewer.pref.homeListWheelScrollRows"
         static let homeGridWheelScrollRows = "qooViewer.pref.homeGridWheelScrollRows"
@@ -284,6 +286,31 @@ final class AppearanceSettings: ObservableObject {
         }
     }
 
+    /// ライブラリの「形の合わせ方」が「余白を付ける」(`CoverFit.pad`)のとき、表紙の周りの余白を塗る色(2026-09-24、利用者の要望)。
+    /// **nil = 既定の白**(`defaultCoverMargin`)。余白を透明にしていた最初の版では、横長の表紙を縦長の枠に収めても地が
+    /// 透けるだけで縦長の形に見えなかった(利用者の報告)。枠ごと塗って、表紙を枠の形のカードとして見せる。
+    @Published var collectionCoverMarginColor: RGBColorValue? {
+        didSet {
+            // nilは「キーごと消す」(collectionTileBackgroundColorと同じ理由)。
+            if let hexString = collectionCoverMarginColor?.hexString {
+                defaults.set(hexString, forKey: profile.key(Keys.collectionCoverMarginColor))
+            } else {
+                defaults.removeObject(forKey: profile.key(Keys.collectionCoverMarginColor))
+            }
+        }
+    }
+
+    /// スマートライブラリの同じもの(環境設定「スマートライブラリ」の「形の合わせ方」が「余白を付ける」のとき)。**nil = 既定の白**。
+    @Published var smartLibraryCoverMarginColor: RGBColorValue? {
+        didSet {
+            if let hexString = smartLibraryCoverMarginColor?.hexString {
+                defaults.set(hexString, forKey: profile.key(Keys.smartLibraryCoverMarginColor))
+            } else {
+                defaults.removeObject(forKey: profile.key(Keys.smartLibraryCoverMarginColor))
+            }
+        }
+    }
+
     // MARK: - ホーム画面のホイールのスクロール量(ユーザー要望 2026-09-23)
 
     /// ホーム画面の**リスト**の上でマウスホイールを1ノッチ回したときに、何行ぶんスクロールするか。
@@ -359,6 +386,20 @@ final class AppearanceSettings: ObservableObject {
     /// 実際に束の紙を塗るのに使う色(effectiveCollectionTileBackground と同じ形)。
     var effectiveSmartLibrarySeriesSheet: Color {
         smartLibrarySeriesSheetColor?.color ?? Self.defaultSmartLibrarySeriesSheet
+    }
+
+    /// 色を指定していないときの、表紙の余白の色(利用者の指定で白。明暗の外観には追従しない)。
+    static let defaultCoverMarginRGB = RGBColorValue(red: 255, green: 255, blue: 255)
+    static let defaultCoverMargin = defaultCoverMarginRGB.color
+
+    /// 実際にライブラリの表紙の余白を塗るのに使う色。
+    var effectiveCollectionCoverMargin: Color {
+        collectionCoverMarginColor?.color ?? Self.defaultCoverMargin
+    }
+
+    /// 実際にスマートライブラリの表紙の余白を塗るのに使う色。
+    var effectiveSmartLibraryCoverMargin: Color {
+        smartLibraryCoverMarginColor?.color ?? Self.defaultCoverMargin
     }
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
@@ -785,6 +826,10 @@ final class AppearanceSettings: ObservableObject {
             ?? .small
         self.smartLibrarySeriesSheetColor =
             defaults.string(forKey: profile.key(Keys.smartLibrarySeriesSheetColor)).flatMap(RGBColorValue.init(hexString:))
+        self.collectionCoverMarginColor =
+            defaults.string(forKey: profile.key(Keys.collectionCoverMarginColor)).flatMap(RGBColorValue.init(hexString:))
+        self.smartLibraryCoverMarginColor =
+            defaults.string(forKey: profile.key(Keys.smartLibraryCoverMarginColor)).flatMap(RGBColorValue.init(hexString:))
         self.homeListWheelScrollRows =
             AppPreferences.storedDouble(defaults.object(forKey: profile.key(Keys.homeListWheelScrollRows)), default: 3, range: Self.homeListWheelScrollRowsRange)
         self.homeGridWheelScrollRows =
@@ -854,9 +899,11 @@ final class AppearanceSettings: ObservableObject {
             Keys.collectionTileNameFontSize,
             Keys.collectionTileBadgeSize,
             Keys.collectionTileBackgroundColor,
+            Keys.collectionCoverMarginColor,
             // スマートライブラリも画面上は「外観」→「ホーム」にある(PanelSurfaceSettingsView.smartLibrarySection)。
             Keys.smartLibraryCaptionFontSize,
             Keys.smartLibrarySeriesSheetColor,
+            Keys.smartLibraryCoverMarginColor,
             Keys.smartLibraryBadgeSize,
             // ホーム画面のホイールのスクロール量も、画面上は「外観」→「ホーム」にある
             // (PanelSurfaceSettingsView.homeScrollingSection。ページ一覧のものと同じ扱い)。
@@ -896,6 +943,8 @@ final class AppearanceSettings: ObservableObject {
         collectionTileBackgroundColor = source.collectionTileBackgroundColor
         smartLibraryCaptionFontSize = source.smartLibraryCaptionFontSize
         smartLibrarySeriesSheetColor = source.smartLibrarySeriesSheetColor
+        collectionCoverMarginColor = source.collectionCoverMarginColor
+        smartLibraryCoverMarginColor = source.smartLibraryCoverMarginColor
         smartLibraryBadgeSize = source.smartLibraryBadgeSize
         homeListWheelScrollRows = source.homeListWheelScrollRows
         homeGridWheelScrollRows = source.homeGridWheelScrollRows

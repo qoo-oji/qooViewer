@@ -8557,6 +8557,22 @@
         }
       }
     },
+    "Cover Margin Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cover Margin Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "余白の色"
+          }
+        }
+      }
+    },
     "Cover Shape" : {
       "localizations" : {
         "en" : {
@@ -8729,6 +8745,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カスタム背景色"
+          }
+        }
+      }
+    },
+    "Custom Cover Margin Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Cover Margin Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "余白のカスタム色"
           }
         }
       }
@@ -13448,6 +13480,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "空の欄だけ埋める"
+          }
+        }
+      }
+    },
+    "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定「スマートライブラリ」の「形の合わせ方」が「余白を付ける」のとき、表紙の周りの余白を塗る色。"
+          }
+        }
+      }
+    },
+    "Fills the space around a cover when a library’s Fit to Shape is set to Add Margins." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fills the space around a cover when a library’s Fit to Shape is set to Add Margins."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリの設定の「形の合わせ方」が「余白を付ける」のとき、表紙の周りの余白を塗る色。"
           }
         }
       }

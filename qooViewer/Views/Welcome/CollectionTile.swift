@@ -78,6 +78,8 @@ struct CollectionTile: View {
         var image: CGImage
     }
     @State private var loadedSheet: LoadedSheet?
+    /// 余白を付けるときの余白の色(環境設定「外観」→「ホーム」→「ライブラリ」)。
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     /// 焼いた絵を切り分けた結果の控え。**参照型**にしてあるのは、bodyの中で埋めても
     /// ビューの再評価を起こさないため(`@State`の値をbodyから書き換えることはできない)。
@@ -238,7 +240,7 @@ struct CollectionTile: View {
     /// 作るだけで、画素のコピーは起きない(CoverImageResolver.cropped(_:to:anchor:)と同じ)。
     ///
     /// 余白を付けるライブラリ(`fit == .pad`)では、セルには画像がセルいっぱいに引き伸ばして焼いてあるので
-    /// (CollectionTileImageRequest.fit)、元の比へ戻して枠の中央に描く。余白は透明で、札の地がそのまま見える。
+    /// (CollectionTileImageRequest.fit)、元の比へ戻して枠の中央に描き、周りを余白の色で塗る(CollectionCoverThumbnail と同じ見た目)。
     @ViewBuilder
     private func bakedCell(
         _ index: Int, slices: [CGImage], cells: [CollectionTileImageRequest.Cell]
@@ -249,14 +251,14 @@ struct CollectionTile: View {
                 style: .continuous
             )
             if fit == .pad {
-                Color.clear
+                appearance.effectiveCollectionCoverMargin
                     .aspectRatio(aspectRatio.value, contentMode: .fit)
                     .overlay {
                         Image(decorative: slices[index], scale: 1)
                             .resizable()
                             .aspectRatio(CGFloat(cells[index].coverAspect), contentMode: .fit)
-                            .clipShape(shape)
                     }
+                    .clipShape(shape)
             } else {
                 Image(decorative: slices[index], scale: 1)
                     .resizable()
