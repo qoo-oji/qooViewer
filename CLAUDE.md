@@ -319,8 +319,9 @@ is applied by `SmartLibraryViewState.update(books:shelves:)` making first-author
 sort and the list column all agree; the DB and `catalog.json` are never touched. "Cover Shape"
 (`AppPreferences.smartLibraryCoverShape` / `SmartLibraryCoverShape`: match the image — the default, uncropped in a 2:3 frame —
 or 2:3 / 1:1 / 3:2 cropped when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. "Fit to Shape"
-(`AppPreferences.smartLibraryCoverFit` / `CoverFit`, 2026-09-24) is the same crop-or-add-margins choice libraries have per library
-(`BookLibrary.coverFit`): margins keep the frame size, centre the uncropped cover and fill the frame with the margin colour
+(`AppPreferences.smartLibraryCoverFit` / `CoverFit`, 2026-09-24) is the same crop / add-margins / by-orientation choice libraries have per
+library (`BookLibrary.coverFit`; by orientation crops covers facing the frame's way and pads the rest, decided per cover by
+`CoverFit.resolved`, and is unavailable — hidden and reset to crop — for a square frame): margins keep the frame size, centre the uncropped cover and fill the frame with the margin colour
 (`AppearanceSettings.collectionCoverMarginColor` / `smartLibraryCoverMarginColor`, default white — transparent margins did not read
 as the chosen shape); a padded library tile bakes each cover stretched to its cell and the tile un-stretches it with `coverAspect`,
 so margins are never baked. "Keep When Cropping"

@@ -239,7 +239,7 @@ struct CollectionTile: View {
     /// 焼いた絵から切り出した1セル。`CGImage.cropping(to:)`は元画像を参照する部分画像を
     /// 作るだけで、画素のコピーは起きない(CoverImageResolver.cropped(_:to:anchor:)と同じ)。
     ///
-    /// 余白を付けるライブラリ(`fit == .pad`)では、セルには画像がセルいっぱいに引き伸ばして焼いてあるので
+    /// 余白を付ける表紙(`fit` を表紙の比で解決して `.pad`。「向きで切り替える」なら表紙ごとに違う)では、セルには画像がセルいっぱいに引き伸ばして焼いてあるので
     /// (CollectionTileImageRequest.fit)、元の比へ戻して枠の中央に描き、周りを余白の色で塗る(CollectionCoverThumbnail と同じ見た目)。
     @ViewBuilder
     private func bakedCell(
@@ -250,7 +250,7 @@ struct CollectionTile: View {
                 cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: cellWidth),
                 style: .continuous
             )
-            if fit == .pad {
+            if fit.resolved(imageAspect: CGFloat(cells[index].coverAspect), frameAspect: aspectRatio.value) == .pad {
                 appearance.effectiveCollectionCoverMargin
                     .aspectRatio(aspectRatio.value, contentMode: .fit)
                     .overlay {
@@ -312,7 +312,8 @@ struct CollectionTile: View {
         for item in items {
             guard item.coverState == .ready, exists(item) else { return nil }
             // 余白を付けるときは、表示側が元の比へ戻して描く(bakedCell)。比が分からない本は生のセルで描く。
-            if fit == .pad, item.coverAspect <= 0 { return nil }
+            if fit.resolved(imageAspect: CGFloat(item.coverAspect), frameAspect: aspectRatio.value) == .pad,
+               item.coverAspect <= 0 { return nil }
             cells.append(
                 .init(itemID: item.id, anchor: cropAnchor(item), coverAspect: item.coverAspect)
             )

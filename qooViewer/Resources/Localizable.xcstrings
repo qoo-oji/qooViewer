@@ -5990,6 +5990,22 @@
         }
       }
     },
+    "By Orientation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By Orientation"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向きで切り替える"
+          }
+        }
+      }
+    },
     "CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names." : {
       "localizations" : {
         "en" : {
@@ -33079,18 +33095,18 @@
         }
       }
     },
-    "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with empty space above and below or on both sides. Has no effect with Match the Image." : {
+    "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with margins above and below or on both sides. By Orientation crops covers that face the same way as the shape (portrait or landscape) and adds margins to the others; it isn’t available for Square. Has no effect with Match the Image." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with empty space above and below or on both sides. Has no effect with Match the Image."
+            "value" : "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with margins above and below or on both sides. By Orientation crops covers that face the same way as the shape (portrait or landscape) and adds margins to the others; it isn’t available for Square. Has no effect with Match the Image."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "表紙の縦横比が上の形と違うときの扱い。「切り取って埋める」は表紙を枠いっぱいに合わせ、はみ出した部分を切り取ります。「余白を付ける」は表紙を切らずに枠の中央に収め、上下または左右に余白を付けます。「実際の画像に合わせる」のときは効きません。"
+            "value" : "表紙の縦横比が上の形と違うときの扱い。「切り取って埋める」は表紙を枠いっぱいに合わせ、はみ出した部分を切り取ります。「余白を付ける」は表紙を切らずに枠の中央に収め、上下または左右に余白を付けます。「向きで切り替える」は、形と同じ向き(縦長・横長)の表紙は切り取り、違う向きの表紙には余白を付けます(正方形では選べません)。「実際の画像に合わせる」のときは効きません。"
           }
         }
       }

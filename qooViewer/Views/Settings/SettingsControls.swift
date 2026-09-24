@@ -364,25 +364,31 @@ struct SettingsPicker<Value: SettingsOption>: View {
     @Binding private var selection: Value
     /// いちばん長い選択肢の幅(`widthProbe`が測る)。選ぶたびにボタンの幅が動かないように使う。
     @State private var widestTitleWidth: CGFloat?
+    /// 並べる選択肢(既定はすべて)。いまの状態では選べない選択肢を外すのに使う(2026-09-24、「形の合わせ方」の
+    /// 「向きで切り替える」は正方形の枠では選べない)。**外した値が選ばれたままにならないよう、呼び出し側が値を直す。**
+    private let isOptionShown: (Value) -> Bool
 
     /// - Parameters:
     ///   - title: 項目名(例: 「開始ページ」)。
     ///   - help: 補足。ホバーの吹き出しで出る。
+    ///   - isOptionShown: 並べる選択肢(既定はすべて)。
     init(
         _ title: LocalizedStringKey,
         selection: Binding<Value>,
-        help: LocalizedStringKey? = nil
+        help: LocalizedStringKey? = nil,
+        isOptionShown: @escaping (Value) -> Bool = { _ in true }
     ) {
         self.title = title
         self._selection = selection
         self.help = help
+        self.isOptionShown = isOptionShown
     }
 
     var body: some View {
         SettingRow(title, help: help) {
             SettingsPopUp(width: nil) {
                 Picker(selection: $selection) {
-                    ForEach(Array(Value.allCases)) { option in
+                    ForEach(Array(Value.allCases).filter(isOptionShown)) { option in
                         Text(option.shortTitleKey).tag(option)
                     }
                 } label: {

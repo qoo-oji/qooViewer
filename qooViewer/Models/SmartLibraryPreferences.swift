@@ -11,7 +11,8 @@ import SwiftUI
 /// 切る形では、表紙を枠いっぱいに合わせ、はみ出した部分を「切り取るときに残す位置」で切る(2026-09-23、ライブラリと同じく
 /// 既定は環境設定 `AppPreferences.smartLibraryCoverCropAnchor`、本ごとの指定 `BookLayoutSettings.coverCropAnchor` が勝つ。
 /// 決めるのは `SmartLibraryContent.cropAnchor(for:)`)。「形の合わせ方」(`AppPreferences.smartLibraryCoverFit`、2026-09-24)が
-/// 「余白を付ける」なら切らずに枠の中央へ収める(`cropAspect(fit:)` / `uncroppedAlignment`)。
+/// 「余白を付ける」なら切らずに枠の中央へ収めて余白の色で塗り、「向きで切り替える」なら表紙ごとにどちらかを選ぶ
+/// (`CoverFit.resolved`。決めるのは表紙の絵が届いてから ―― SmartBookThumbnail)。
 /// どの形でもセルの高さは揃う(`SmartLibraryContent` の行の位置の割り出しが頼っている。`SmartCaptionLines`)。
 enum SmartLibraryCoverShape: String, CaseIterable, Identifiable, Hashable {
     case matchImage
@@ -29,17 +30,6 @@ enum SmartLibraryCoverShape: String, CaseIterable, Identifiable, Hashable {
         case .square: CoverAspectRatio.square.value
         case .landscape: CoverAspectRatio.landscape.value
         }
-    }
-
-    /// 実際に切る比。形が切る形でも、「形の合わせ方」が余白を付ける(`CoverFit.pad`)なら nil(切らずに枠へ収める)。
-    func cropAspect(fit: CoverFit) -> CGFloat? {
-        fit == .pad ? nil : cropAspect
-    }
-
-    /// 「余白を付ける」ときの枠の比と余白の色。余白を付けない(切る・「実際の画像に合わせる」)なら nil。
-    func padding(fit: CoverFit, color: Color) -> (aspect: CGFloat, color: Color)? {
-        guard fit == .pad, let cropAspect else { return nil }
-        return (cropAspect, color)
     }
 
     /// 切らずに描くとき、絵を枠のどこへ置くか。「実際の画像に合わせる」はこれまでどおり下に揃える(棚に立てた本のように、
@@ -81,6 +71,7 @@ extension CoverFit: @MainActor SettingsOption {
         switch self {
         case .crop: "Crop to Fill"
         case .pad: "Add Margins"
+        case .byOrientation: "By Orientation"
         }
     }
 }

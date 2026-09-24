@@ -257,15 +257,52 @@ struct SmartLibraryTests {
         #expect(SmartLibraryCoverShape.allCases.map(\.rawValue) == ["matchImage", "portrait", "square", "landscape"])
     }
 
-    @Test("形の合わせ方: 余白を付けるなら切らずに枠の中央、「実際の画像に合わせる」はこれまでどおり下に揃える")
+    @Test("形の合わせ方: 「実際の画像に合わせる」はこれまでどおり下に揃え、値の綴りは変えない")
     func coverFit() {
-        #expect(SmartLibraryCoverShape.square.cropAspect(fit: .crop) == CoverAspectRatio.square.value)
-        #expect(SmartLibraryCoverShape.square.cropAspect(fit: .pad) == nil)
-        #expect(SmartLibraryCoverShape.matchImage.cropAspect(fit: .crop) == nil)
         #expect(SmartLibraryCoverShape.landscape.uncroppedAlignment == .center)
         #expect(SmartLibraryCoverShape.matchImage.uncroppedAlignment == .bottom)
         // 保存した値の綴り(ライブラリの DB・保存データの JSON・環境設定で共通)。
-        #expect(CoverFit.allCases.map(\.rawValue) == ["crop", "pad"])
+        #expect(CoverFit.allCases.map(\.rawValue) == ["crop", "pad", "byOrientation"])
+    }
+
+    @Test("向きで切り替える: 枠と同じ向きの表紙は切り、違う向き・正方形の表紙は余白。比が分からなければ切る")
+    func coverFitByOrientation() {
+        let portrait = CoverAspectRatio.portrait.value
+        let landscape = CoverAspectRatio.landscape.value
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 0.7, frameAspect: portrait) == .crop)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 1.5, frameAspect: portrait) == .pad)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 1.5, frameAspect: landscape) == .crop)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 0.7, frameAspect: landscape) == .pad)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 1, frameAspect: portrait) == .pad)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 1, frameAspect: landscape) == .pad)
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 0, frameAspect: portrait) == .crop)
+        // 正方形の枠では選べない。値が残っていても切る。
+        #expect(!CoverFit.allowsByOrientation(frameAspect: 1))
+        #expect(CoverFit.byOrientation.resolved(imageAspect: 1.5, frameAspect: 1) == .crop)
+        #expect(CoverFit.byOrientation.available(frameAspect: 1) == .crop)
+        #expect(CoverFit.byOrientation.available(frameAspect: portrait) == .byOrientation)
+        #expect(CoverFit.pad.available(frameAspect: 1) == .pad)
+        // 切る・余白は表紙の比に関わらずそのまま。
+        #expect(CoverFit.pad.resolved(imageAspect: 0.7, frameAspect: portrait) == .pad)
+        #expect(CoverFit.crop.resolved(imageAspect: 1.5, frameAspect: portrait) == .crop)
+    }
+
+    @Test("スマートライブラリの形を正方形にすると、「向きで切り替える」は「切り取って埋める」へ戻る")
+    func squareShapeResetsByOrientation() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let preferences = AppPreferences(defaults: suite.defaults)
+        preferences.smartLibraryCoverShape = .portrait
+        preferences.smartLibraryCoverFit = .byOrientation
+        preferences.smartLibraryCoverShape = .landscape
+        #expect(preferences.smartLibraryCoverFit == .byOrientation)
+        preferences.smartLibraryCoverShape = .square
+        #expect(preferences.smartLibraryCoverFit == .crop)
+        // 余白を付けるは正方形でも選べるので残る。
+        preferences.smartLibraryCoverFit = .pad
+        preferences.smartLibraryCoverShape = .portrait
+        preferences.smartLibraryCoverShape = .square
+        #expect(preferences.smartLibraryCoverFit == .pad)
     }
 
     @Test("「シリーズでまとめる」の ON/OFF だった頃の保存値は、シリーズで束ねる設定として読む")

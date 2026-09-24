@@ -117,7 +117,7 @@ nonisolated struct CollectionTileImageRequest: Sendable, Equatable {
         self.cells = cells
         var text = aspectRatio.rawValue
         // 切るときは何も足さない ―― この設定を足す前に焼いた札の指紋が変わらず、そのまま使える。
-        if fit == .pad { text += "|pad" }
+        if fit != .crop { text += "|\(fit.rawValue)" }
         for cell in cells {
             text += "|\(cell.itemID.uuidString):\(cell.anchor.rawValue):"
             text += String(format: "%.4f", cell.coverAspect)
@@ -347,14 +347,16 @@ actor CollectionTileImageStore {
         context.fill(CGRect(x: 0, y: 0, width: sheet.width, height: sheet.height))
 
         for (index, item) in request.cells.enumerated() {
+            // 「向きで切り替える」はこの表紙の比で解決する(表示側の CollectionTile.bakedCell と同じ判定)。
+            let fit = request.fit.resolved(imageAspect: CGFloat(item.coverAspect), frameAspect: aspectRatio.value)
             let decodeSize = CoverImageResolver.decodePixelSize(
                 croppedWidth: CGFloat(cell.width), targetAspect: aspectRatio.value,
-                imageAspect: CGFloat(item.coverAspect), fit: request.fit
+                imageAspect: CGFloat(item.coverAspect), fit: fit
             )
             guard let cover = await coverStore.image(for: item.itemID, maxPixelSize: decodeSize)
             else { return nil }
             // 余白を付けるなら切らずにセルいっぱいへ引き伸ばす(`CollectionTileImageRequest.fit`のコメント)。
-            let cropped = request.fit == .pad
+            let cropped = fit == .pad
                 ? cover
                 : CoverImageResolver.cropped(cover, to: aspectRatio.value, anchor: item.anchor)
             let rect = CollectionTileLayout.cellRect(

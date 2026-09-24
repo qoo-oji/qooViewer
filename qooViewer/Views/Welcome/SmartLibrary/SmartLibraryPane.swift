@@ -1798,8 +1798,8 @@ private struct SmartBookCell: View {
         let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * coverShape.heightRatio,
-                               cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
-                               padding: coverShape.padding(fit: coverFit, color: appearance.effectiveSmartLibraryCoverMargin),
+                               frameAspect: coverShape.cropAspect, fit: coverFit, cropAnchor: cropAnchor,
+                               marginColor: appearance.effectiveSmartLibraryCoverMargin,
                                alignment: coverShape.uncroppedAlignment, isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
@@ -1916,8 +1916,8 @@ private struct SmartGroupCell: View {
                 // 紙をずらすぶん(右と上に 2 枚ぶん)を空けて、表紙はその内側に描く。
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
-                    cropAspect: coverShape.cropAspect(fit: coverFit), cropAnchor: cropAnchor,
-                    padding: coverShape.padding(fit: coverFit, color: appearance.effectiveSmartLibraryCoverMargin),
+                    frameAspect: coverShape.cropAspect, fit: coverFit, cropAnchor: cropAnchor,
+                    marginColor: appearance.effectiveSmartLibraryCoverMargin,
                     alignment: coverShape.uncroppedAlignment,
                     stack: .init(layers: 2, offset: offset, count: books.count),
                     isSelected: isSelected, isFocused: isFocused,
@@ -1955,15 +1955,17 @@ private struct SmartBookThumbnail: View {
     let book: SmartBook
     let width: CGFloat
     let height: CGFloat
-    /// 切り取る枠の比(幅 ÷ 高さ。`SmartLibraryCoverShape.cropAspect`)。nil なら切らずに枠へ収める。
-    /// 切るときは、その比の枠を `width`×`height` に収めた大きさで描く(束は紙のずらし幅を引いた箱なので、箱の比と
-    /// 少し違う)。絵をその比に切って(`cropAnchor` の所を残す)枠いっぱいに描く。
-    var cropAspect: CGFloat?
+    /// 枠の比(幅 ÷ 高さ。`SmartLibraryCoverShape.cropAspect`)。nil(「実際の画像に合わせる」)なら切らずに箱へ収める。
+    /// 枠があるときは、その比の枠を `width`×`height` に収めた大きさで描く(束は紙のずらし幅を引いた箱なので、箱の比と
+    /// 少し違う)。切るか余白を付けるかは `fit` を**この表紙の比で**解決して決める(`CoverFit.resolved`。「向きで切り替える」は
+    /// 表紙ごとに違うので、絵が届いてから決める)。切るなら絵をその比に切って(`cropAnchor` の所を残す)枠いっぱいに、
+    /// 余白なら枠を `marginColor` で塗って絵を中央に収め、枠ごと 1 枚の表紙として描く(紙・バッジ・選択の枠も枠に合わせる)。
+    var frameAspect: CGFloat?
+    var fit: CoverFit = .crop
     /// 切るときに残す位置(切らないときは使わない)。
     var cropAnchor: CoverCropAnchor = .center
-    /// 「余白を付ける」ときの枠の比(幅 ÷ 高さ)と余白の色(`SmartLibraryCoverShape.padding(fit:color:)`)。nil なら余白を付けない。
-    /// 付けるときは、その比の枠を余白の色で塗って絵を中央に収め、枠ごと 1 枚の表紙として描く(紙・バッジ・選択の枠も枠に合わせる)。
-    var padding: (aspect: CGFloat, color: Color)?
+    /// 余白を付けるときの余白の色。
+    var marginColor: Color = AppearanceSettings.defaultCoverMargin
     /// 絵を枠のどこへ置くか(切らないときだけ違いが出る。`SmartLibraryCoverShape.uncroppedAlignment`)。
     var alignment: Alignment = .bottom
     var stack: Stack?
@@ -1992,6 +1994,12 @@ private struct SmartBookThumbnail: View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)
         ZStack(alignment: alignment) {
             if let image {
+                // この表紙に実際に使う合わせ方(枠が無ければ nil = 切らずに収める)。
+                let mode = frameAspect.map {
+                    fit.resolved(imageAspect: image.height > 0 ? CGFloat(image.width) / CGFloat(image.height) : 0, frameAspect: $0)
+                }
+                let cropAspect = mode == .crop ? frameAspect : nil
+                let padding = mode == .pad ? frameAspect.map { (aspect: $0, color: marginColor) } : nil
                 // 絵を描く大きさ(紙とバッジをこの大きさに合わせる)。切らないなら絵を枠に収めた大きさ、切るならその比の枠。
                 let box = CGSize(width: width, height: height)
                 let size = (cropAspect ?? padding?.aspect).map { Self.fittedSize(aspect: $0, in: box) }
@@ -2034,7 +2042,7 @@ private struct SmartBookThumbnail: View {
         .frame(width: width, height: height, alignment: alignment)
         // 鍵(更新日時・サイズ・inode)も入れる: 探し直してファイルが差し替わっていたと分かったら、新しい表紙を引き直す。
         // 切るかどうかも入れる(切るときは大きめに引く。`load`)。
-        .task(id: "\(book.id)|\(Int(width))|\(cropAspect != nil)|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
+        .task(id: "\(book.id)|\(Int(width))|\(frameAspect != nil && fit != .pad)|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
             await load()
         }
     }
@@ -2109,7 +2117,7 @@ private struct SmartBookThumbnail: View {
         }
         // 切るときは、枠からはみ出して捨てるぶんも見込んで 1.5 倍で引く(2:3 の絵を 1:1 や 3:2 の枠いっぱいに合わせると、
         // 長いほうの辺は枠の長いほうの辺の 1.5 倍になる。3:2 の絵を 2:3 の枠に合わせても同じ)。
-        let displaySize = max(width, height) * (cropAspect == nil ? 1 : 1.5)
+        let displaySize = max(width, height) * (frameAspect == nil || fit == .pad ? 1 : 1.5)
         let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: displaySize, scale: displayScale)
         // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
         let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk,

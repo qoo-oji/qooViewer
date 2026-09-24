@@ -630,8 +630,14 @@ private struct FileBrowserCoverArea: View {
         )
     }
 
-    /// 切る比(スマートライブラリの版で、形が切る形・合わせ方が切るときだけ)。
-    private var cropAspect: CGFloat? { smartLibraryCrop.flatMap { $0.shape.cropAspect(fit: $0.fit) } }
+    /// 絵の比(幅 ÷ 高さ)。
+    static func aspect(of image: CGImage) -> CGFloat {
+        image.height > 0 ? CGFloat(image.width) / CGFloat(image.height) : 0
+    }
+
+    /// 枠の比(スマートライブラリの版で、形が「実際の画像に合わせる」でないときだけ)。切るか余白を付けるかは、絵が届いてから
+    /// その比で決める(`CoverFit.resolved`。「向きで切り替える」は表紙ごとに違う)。
+    private var cropAspect: CGFloat? { smartLibraryCrop.flatMap { $0.shape.cropAspect } }
 
     /// 枠の高さ(幅に対する比)。スマートライブラリの版はその形の比。
     private var frameHeightRatio: CGFloat { smartLibraryCrop?.shape.heightRatio ?? Self.heightRatio }
@@ -640,7 +646,8 @@ private struct FileBrowserCoverArea: View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         ZStack {
             if let image {
-                if let cropAspect, let smartLibraryCrop {
+                if let cropAspect, let smartLibraryCrop,
+                   smartLibraryCrop.fit.resolved(imageAspect: Self.aspect(of: image), frameAspect: cropAspect) == .crop {
                     // 本ごとの指定 ?? 環境設定の所を残して切る(スマートライブラリのグリッドと同じ。SmartLibraryContent.cropAnchor)。
                     let anchor = controller.cropAnchor(forBookID: bookID) ?? smartLibraryCrop.defaultAnchor
                     Image(decorative: CoverImageResolver.cropped(image, to: cropAspect, anchor: anchor), scale: 1)
@@ -650,8 +657,8 @@ private struct FileBrowserCoverArea: View {
                         .frame(width: width, height: width * frameHeightRatio)
                         .clipShape(shape)
                         .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
-                } else if let smartLibraryCrop, smartLibraryCrop.fit == .pad, smartLibraryCrop.shape.cropAspect != nil {
-                    // 余白を付ける形(スマートライブラリのグリッドと同じ見た目。SmartBookThumbnail.padding)。
+                } else if cropAspect != nil {
+                    // 余白を付ける(「向きで切り替える」で余白になった表紙も)。スマートライブラリのグリッドと同じ見た目(SmartBookThumbnail)。
                     ZStack {
                         appearance.effectiveSmartLibraryCoverMargin
                         Image(decorative: image, scale: 1)

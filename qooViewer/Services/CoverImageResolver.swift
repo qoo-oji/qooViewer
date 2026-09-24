@@ -97,7 +97,12 @@ nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
 ///
 /// - `.crop` … 枠いっぱいに描き、はみ出したぶんを切る(`CoverCropAnchor`の所を残す)。これまでの動作で既定
 /// - `.pad` … 画像を切らずに枠の中へ収め、足りない側(上下か左右)に余白を付ける。画像は枠の中央に置き、余白は
-///   透明(下の地がそのまま見える)。残す位置は使わない
+///   余白の色(AppearanceSettings の `collectionCoverMarginColor` / `smartLibraryCoverMarginColor`、既定は白)で塗る。残す位置は使わない
+/// - `.byOrientation` … 表紙ごとに、画像の向き(縦長・横長)が枠の向きと**同じなら切り、違えば余白を付ける**(2026-09-24、利用者の
+///   要望)。縦長の枠なら縦長の表紙は枠いっぱいに、横長の表紙は全体が見えるように並ぶ。正方形の画像はどちらの向きでもないので
+///   余白を付ける。**枠が正方形のときは選べない**(どの表紙も向きが同じとも違うとも言えない。利用者の判断)―― 設定の面では出さず
+///   (ラジオ 1 つだけの `.disabled` は効かなかった)、形を正方形へ変えたら `.crop` へ戻す(`available(frameAspect:)`)。読み込んだ値が
+///   正方形 + これでも `.crop` として描く
 ///
 /// 「縦長の本と横長の本が混ざる棚で、横長の表紙の左右が切られて何の本か分からない」のを避けたい人のための選択肢。
 /// 枠の大きさは変わらないので、一覧の並び(同じ大きさの札が整然と並ぶ)はそのまま保たれる。
@@ -107,6 +112,34 @@ nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
 nonisolated enum CoverFit: String, Sendable, CaseIterable {
     case crop
     case pad
+    case byOrientation
+
+    /// この比の枠で `.byOrientation` を選べるか(正方形の枠では選べない)。
+    static func allowsByOrientation(frameAspect: CGFloat) -> Bool {
+        frameAspect > 0 && abs(frameAspect - 1) > 0.01
+    }
+
+    /// この比の枠で使える値。正方形の枠で `.byOrientation` なら `.crop`(形を正方形へ変えたときの戻し先)。
+    func available(frameAspect: CGFloat) -> CoverFit {
+        self == .byOrientation && !Self.allowsByOrientation(frameAspect: frameAspect) ? .crop : self
+    }
+
+    /// 1 枚の表紙に実際に使う合わせ方(`.crop` か `.pad`)。
+    ///
+    /// - Parameters:
+    ///   - imageAspect: 表紙の比(幅 ÷ 高さ)。0 以下(まだ分からない)なら `.byOrientation` は `.crop` として扱う
+    ///     (この設定を足す前と同じ見た目)。
+    ///   - frameAspect: 枠の比。
+    func resolved(imageAspect: CGFloat, frameAspect: CGFloat) -> CoverFit {
+        switch self {
+        case .crop, .pad:
+            return self
+        case .byOrientation:
+            guard Self.allowsByOrientation(frameAspect: frameAspect), imageAspect > 0 else { return .crop }
+            let sameOrientation = frameAspect < 1 ? imageAspect < 1 : imageAspect > 1
+            return sameOrientation ? .crop : .pad
+        }
+    }
 }
 
 /// 「この本のカバーは何か」を決める唯一の場所。
@@ -324,12 +357,13 @@ nonisolated enum CoverImageResolver {
     ///   - targetAspect: 枠の比(幅 ÷ 高さ)。
     ///   - imageAspect: 元のカバーの比。0以下(まだ分からない)なら枠の比とみなす。
     ///   - fit: `.pad`(余白を付けて収める)なら、切らずに枠へ収めた大きさの長辺を返す。`croppedWidth`はそのとき
-    ///     「枠の幅」の意味になる。
+    ///     「枠の幅」の意味になる。`.byOrientation` はこの表紙について解決してから使う。
     static func decodePixelSize(
         croppedWidth: CGFloat, targetAspect: CGFloat, imageAspect: CGFloat, fit: CoverFit = .crop
     ) -> CGFloat {
         let neededWidth = max(1, croppedWidth)
         guard targetAspect > 0 else { return neededWidth }
+        let fit = fit.resolved(imageAspect: imageAspect, frameAspect: targetAspect)
         let imageAspect = imageAspect > 0 ? imageAspect : targetAspect
         if fit == .pad {
             let fitted = fittedSize(aspect: imageAspect, in: CGSize(width: neededWidth, height: neededWidth / targetAspect))

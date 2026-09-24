@@ -22,7 +22,13 @@ struct SmartLibrarySettingsView: View {
                 SettingsPicker(
                     "Fit to Shape",
                     selection: $preferences.smartLibraryCoverFit,
-                    help: "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with empty space above and below or on both sides. Has no effect with Match the Image."
+                    help: "What to do with a cover whose proportions differ from the shape above. Crop to Fill fills the frame and crops what doesn’t fit. Add Margins shows the whole cover centered in the frame, with margins above and below or on both sides. By Orientation crops covers that face the same way as the shape (portrait or landscape) and adds margins to the others; it isn’t available for Square. Has no effect with Match the Image.",
+                    // 正方形では「向きで切り替える」を選べない(CoverFit.byOrientation)。形を正方形にしたときの値の戻しは
+                    // AppPreferences.smartLibraryCoverShape が持つ。
+                    isOptionShown: { option in
+                        option != .byOrientation || preferences.smartLibraryCoverShape.cropAspect
+                            .map(CoverFit.allowsByOrientation(frameAspect:)) ?? true
+                    }
                 )
                 .disabled(preferences.smartLibraryCoverShape == .matchImage)
                 // ライブラリの「切り取るときに残す位置」を持ち込んだもの(2026-09-23、利用者の要望)。本ごとの指定(メタデータの編集

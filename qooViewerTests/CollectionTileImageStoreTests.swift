@@ -197,6 +197,9 @@ struct CollectionTileImageStoreTests {
         let legacy = CollectionTileImageRequest(collectionID: id, aspectRatio: .portrait, cells: cells)
         #expect(crop.signature == legacy.signature)
         #expect(crop.signature != pad.signature)
+        let byOrientation = CollectionTileImageRequest(collectionID: id, aspectRatio: .portrait, fit: .byOrientation, cells: cells)
+        #expect(byOrientation.signature != pad.signature)
+        #expect(byOrientation.signature != crop.signature)
     }
 
     /// 左・中・右の 3 等分を赤・緑・青に塗った画像。

@@ -596,6 +596,9 @@ final class CollectionStore: ObservableObject {
     func setCoverAppearance(
         _ library: BookLibrary, aspectRatio: CoverAspectRatio, anchor: CoverCropAnchor, fit: CoverFit
     ) {
+        // 正方形の枠では「向きで切り替える」は選べない(CoverFit.byOrientation)。形を正方形へ変えたとき・読み込んだ値がそうなって
+        // いるときは「切り取って埋める」へ戻す。
+        let fit = fit.available(frameAspect: aspectRatio.value)
         guard library.coverAspectRatio != aspectRatio || library.coverCropAnchor != anchor
                 || library.coverFit != fit else {
             return

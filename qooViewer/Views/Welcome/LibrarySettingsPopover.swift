@@ -11,7 +11,8 @@ import SwiftUI
 ///   決まるので、選択肢は軸に依存しない3つ(CoverCropAnchor参照)。ラベルだけは両方の軸を
 ///   併記する ―― 「始端」では何が起きるのか読めないため。
 /// - **形の合わせ方** … 比が枠と違う画像を、切って枠を埋めるか、切らずに余白を付けて収めるか(CoverFit。
-///   ユーザー要望 2026-09-24)。余白を付ける間は切らないので、「残す位置」は押せない。
+///   ユーザー要望 2026-09-24)。3 つ目の「向きで切り替える」は表紙ごとに、向きが枠と同じなら切り、違えば余白を付ける
+///   (同日)。枠が正方形の間は出さない(CoverFit.byOrientation。正方形へ変えたら「切り取って埋める」へ戻る)。余白を付ける間は切らないので、「残す位置」は押せない。
 /// - **常に先頭/末尾に表示** … ここで指定したコレクションだけ、並び順(名前順・更新順…)に
 ///   関わらず必ず端に出る(ユーザー要望 2026-09-10)。未分類の本をまとめておく棚が並び替えの
 ///   たびに移動して探しにくい、というのが動機。既定はどちらも「指定なし」で、そのときは
@@ -66,6 +67,11 @@ struct LibrarySettingsPopover: View {
                 Picker(selection: fitSelection) {
                     Text("Crop to Fill").tag(CoverFit.crop)
                     Text("Add Margins").tag(CoverFit.pad)
+                    // 正方形の枠では選べないので出さない(CoverFit.byOrientation)。淡色にしたかったが、`.radioGroup` の
+                    // 選択肢 1 つだけに付けた `.disabled` は効かない(描画を画素で比べて確かめた、2026-09-24)。
+                    if CoverFit.allowsByOrientation(frameAspect: library.coverAspectRatio.value) {
+                        Text("By Orientation").tag(CoverFit.byOrientation)
+                    }
                 } label: {
                     EmptyView()
                 }

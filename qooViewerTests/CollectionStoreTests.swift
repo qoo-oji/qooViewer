@@ -190,6 +190,17 @@ struct CollectionStoreTests {
         #expect(first.coverFit == .crop)
     }
 
+    @Test("ライブラリの形を正方形にすると、「向きで切り替える」は「切り取って埋める」へ戻る")
+    func squareAspectResetsByOrientation() throws {
+        let library = try InMemoryLibrary(label: "collections-cover-fit-square")
+        defer { library.close() }
+        let target = try #require(library.collections.libraries.first)
+        library.collections.setCoverAppearance(target, aspectRatio: .portrait, anchor: .center, fit: .byOrientation)
+        #expect(target.coverFit == .byOrientation)
+        library.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .center, fit: target.coverFit)
+        #expect(target.coverFit == .crop)
+    }
+
     @Test("札の割り付けは、どの比でもほぼ正方形に収まる組み合わせになっている")
     func thetileLayoutStaysSquareForEveryRatio() {
         // セルの幅を w・間隔を s とすると、幅 = 列 × w + (列 - 1)s、

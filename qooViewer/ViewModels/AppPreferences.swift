@@ -853,7 +853,13 @@ final class AppPreferences: ObservableObject {
     /// スマートライブラリのアイコン表示に並ぶ表紙の形(2026-09-23、利用者の要望。既定「実際の画像に合わせる」=
     /// この設定を足す前の見た目)。`SmartLibraryCoverShape` の型コメント。
     @Published var smartLibraryCoverShape: SmartLibraryCoverShape {
-        didSet { defaults.set(smartLibraryCoverShape.rawValue, forKey: Keys.smartLibraryCoverShape) }
+        didSet {
+            defaults.set(smartLibraryCoverShape.rawValue, forKey: Keys.smartLibraryCoverShape)
+            // 正方形では「向きで切り替える」を選べない(CoverFit.byOrientation)ので「切り取って埋める」へ戻す。
+            if let aspect = smartLibraryCoverShape.cropAspect, smartLibraryCoverFit.available(frameAspect: aspect) != smartLibraryCoverFit {
+                smartLibraryCoverFit = smartLibraryCoverFit.available(frameAspect: aspect)
+            }
+        }
     }
     /// スマートライブラリで表紙を切るとき、既定でどこを残すか(2026-09-23、利用者の要望。既定は中央 = この設定を足す前の
     /// 見た目)。ライブラリの「切り取るときに残す位置」(`BookLibrary.coverCropAnchor`)に当たり、同じく**本ごとの指定
