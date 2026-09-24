@@ -77,6 +77,8 @@ EPUB(`page-progression-direction`、`rendition:spread`、ページ単位の spre
 PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が持つ情報は、
 `LayoutStore.importSourceLayoutIfNeeded(for:)` が**初めて開いたときに1回だけ** DB へ書き、
 `didImportSourceLayout` を立てます。以後は DB が権威で、ユーザーは自由に変えられます。
+ComicInfo.xml だけは開いた後に非同期で読むので、読み終える前にユーザーが向きを変えていたら、その向きを取り込んだことに
+します(2026-09-25。[06](06-persistence.md#読書位置の行への書き込みviewerviewmodelpersiststate))。
 
 **以前は逆でした。** ファイルの指定が常に勝ち、読み方向・見開きのトグルは
 グレーアウト(`isReadingDirectionLocked` など)していましたが、「取り込んだ結果ユーザーが何も

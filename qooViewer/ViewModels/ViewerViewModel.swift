@@ -50,6 +50,12 @@ final class ViewerViewModel: ObservableObject {
     }
     @Published var displayMode: DisplayMode
     @Published var readingDirection: ReadingDirection
+    /// このウインドウが最後に読書位置の行へ書いた(または開いたときに行から読んだ)表示の設定。persistState はこれと違う
+    /// 項目だけを書く(同じ本を開いている別のウインドウの変更を書き戻さないため。persistState のコメント)。
+    private var persistedDisplaySettings: (displayMode: DisplayMode, readingDirection: ReadingDirection, scalingMode: ScalingMode)
+        = (.spread, .rightToLeft, .fitToScreen)
+    /// このウインドウで利用者が読み方向を変えたか(ComicInfo.xml の取り込みが、利用者の選択を上書きしないため)。
+    private var hasUserChangedReadingDirection = false
     @Published var scalingMode: ScalingMode
     @Published private(set) var currentImages: [CGImage] = [] {
         didSet {
@@ -527,16 +533,23 @@ final class ViewerViewModel: ObservableObject {
         } else if let existingState {
             state = existingState
         } else {
+            // 中身が差し替わっていると判断した本から引き継ぐ表示の設定(読み方向・見開き/単ページ・拡大縮小)。
+            var carriedOver: (displayMode: DisplayMode, readingDirection: ReadingDirection, scalingMode: ScalingMode)?
             if let fetchedState, contentLooksReplaced {
-                // 中身が差し替わっていると判断した本: 古いブックマークと読書状態を削除する。
-                let staleBookID = fetchedState.bookID
-                let staleBookmarkDescriptor = FetchDescriptor<Bookmark>(
-                    predicate: #Predicate<Bookmark> { $0.bookID == staleBookID }
-                )
-                if let staleBookmarks = try? modelContext.fetch(staleBookmarkDescriptor) {
-                    for bookmark in staleBookmarks {
-                        modelContext.delete(bookmark)
-                    }
+                // 中身が差し替わっていると判断した本: 読書位置は捨てて先頭から始める。
+                //
+                // **読み方向・見開き/単ページ・拡大縮小は引き継ぎ、ブックマークは指しているページが今の中身にもあるものを残す**
+                // (2026-09-25)。以前はどちらもすべて捨てていたが、判定はページ数・更新日時・大きさを見るだけなので、フォルダに
+                // 表紙を 1 枚足した・メタデータを書き足したといった「同じ本のまま」の変化でも起き、選んだ読み方向とブックマークが
+                // 黙って消えていた(1.71 の「読み方向が記憶されない」の報告の調査で見つけた)。読み方向などは中身に依らない
+                // 利用者の選択で、ブックマークはページの鍵(ファイル名)で引くので、鍵が今もある分は同じページを指す。
+                carriedOver = (fetchedState.displayMode, fetchedState.readingDirection, fetchedState.scalingMode)
+                let currentKeys = Set(incomingBook.pages.map(\.sortKey))
+                // #Predicate での絞り込みは 0 件を返すことがある(上の BookReadingState のフェッチのコメント)ので、全件から選ぶ。
+                let allBookmarks = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+                for bookmark in allBookmarks where bookmark.bookID == fetchedState.bookID {
+                    if let key = bookmark.pageKey, currentKeys.contains(key) { continue }
+                    modelContext.delete(bookmark)
                 }
                 modelContext.delete(fetchedState)
             }
@@ -545,8 +558,9 @@ final class ViewerViewModel: ObservableObject {
             // 設計コンセプト11.1節、AppPreferences.defaultReadingDirection参照)を明示的に渡す。
             state = BookReadingState(
                 bookID: bookID,
-                readingDirection: preferences.defaultReadingDirection,
-                scalingMode: preferences.defaultScalingMode
+                displayMode: carriedOver?.displayMode ?? .spread,
+                readingDirection: carriedOver?.readingDirection ?? preferences.defaultReadingDirection,
+                scalingMode: carriedOver?.scalingMode ?? preferences.defaultScalingMode
             )
             modelContext.insert(state)
             // 新しい本を開いたとき(初めて開く本、または中身が差し替わったと判断した本)だけ、
@@ -566,6 +580,8 @@ final class ViewerViewModel: ObservableObject {
         state.recordedSourceModificationDate = currentFingerprint.modificationDate
         state.recordedSourceFileSize = currentFingerprint.fileSize
         self.readingState = state
+        // 行から読んだ値を「書いた値」の起点にする(persistState はこれと違う項目だけを書く)。
+        self.persistedDisplaySettings = (state.displayMode, state.readingDirection, state.scalingMode)
 
         // 見開きかどうかは、下の「開始ページ」の判定(initialEdgeの.lastが最後の見開きの
         // 先頭を求める)より**先に**要るため、ここで確定させておく。優先順位と
@@ -1504,6 +1520,7 @@ final class ViewerViewModel: ObservableObject {
     /// 読み方向を切り替える。ロックを廃止した理由と、BookLayoutSettings側へ書き戻す理由は
     /// toggleDisplayMode()と同じ(そちらのコメント参照)。
     func toggleReadingDirection() {
+        hasUserChangedReadingDirection = true
         resetPinchZoom()
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
@@ -1789,10 +1806,16 @@ final class ViewerViewModel: ObservableObject {
             // (DBに上書きが無く、保存済みの読書状態も無い)のときだけ、メモリ上で読み方向を
             // 切り替える(init側のprivateHintと同じ優先順位)。
             if let direction = comicInfo.readingDirection,
-               bookLayoutSettings?.readingDirectionOverride == nil, !hasSavedReadingState {
+               bookLayoutSettings?.readingDirectionOverride == nil, !hasSavedReadingState,
+               !hasUserChangedReadingDirection {
                 readingDirection = direction
             }
-        } else if needsReadingDirection, let direction = comicInfo.readingDirection {
+        } else if needsReadingDirection, let fileDirection = comicInfo.readingDirection {
+            // ComicInfo.xml を読んでいる間に利用者が向きを変えていたら、**利用者の向きを取り込んだことにする**(2026-09-25)。
+            // 以前はファイルの向きで上書きしていたので、初めて開いた本で読み込みが終わる前に切り替えると(ネットワーク上の本では
+            // 数秒の隙があった)、画面の向きが戻され、次に開いても戻っていた。取り込まずに見送ると次に開いたときにまた取り込んで
+            // しまうので、利用者の向きを上書きとして記録し、取り込み済みにする。
+            let direction = hasUserChangedReadingDirection ? readingDirection : fileDirection
             var seeded = book
             seeded.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: direction, forcedDisplayMode: nil)
             layoutStore.importSourceLayoutIfNeeded(for: seeded)
@@ -2228,9 +2251,20 @@ final class ViewerViewModel: ObservableObject {
         // (Bookmark.pageKey / BookReadingState.lastPageKeyのコメント参照)。
         readingState.lastPageKey = book.pages.indices.contains(currentIndex)
             ? book.pages[currentIndex].sortKey : nil
-        readingState.displayMode = displayMode
-        readingState.readingDirection = readingDirection
-        readingState.scalingMode = scalingMode
+        // 読み方向・見開き/単ページ・拡大縮小は、**このウインドウで変わったときだけ書く**(2026-09-25)。同じ本を 2 つの
+        // ウインドウで開いていると(「次の本へ」などは、その本が別のウインドウで開いていても自分のウインドウで開く)、両方が同じ
+        // 行を握る。以前は毎回すべての項目を書いていたので、片方で向きを変えても、もう片方がページを送るたびに古い向きで
+        // 書き戻していた。読書位置は、最後に読んだウインドウのものを残す(従来どおり)。
+        if displayMode != persistedDisplaySettings.displayMode {
+            readingState.displayMode = displayMode
+        }
+        if readingDirection != persistedDisplaySettings.readingDirection {
+            readingState.readingDirection = readingDirection
+        }
+        if scalingMode != persistedDisplaySettings.scalingMode {
+            readingState.scalingMode = scalingMode
+        }
+        persistedDisplaySettings = (displayMode, readingDirection, scalingMode)
         readingState.updatedAt = Date()
 
         // シークレットウインドウ: readingStateはコンテキスト外のインスタンスなので上の代入は

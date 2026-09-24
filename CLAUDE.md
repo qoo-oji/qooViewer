@@ -147,6 +147,11 @@ silently drops it (this is how collection covers were lost on overwrite imports 
 "migrates" a newer store down to an older model and drops the columns that model doesn't know; on
 2026-09-11 launching the previous release did exactly that to 131 collection covers. Never run an older
 build of the app (including a test host built from an old tag) against real data.
+**Reading state** (`BookReadingState`, 2026-09-25): a book that "looks replaced" (`ContentFingerprint`: page count *before*
+exclusions, plus mtime/size — folders are compared by page count only, their mtime moves with `.DS_Store`) restarts at the
+first page but keeps its direction/display/scaling and every bookmark whose `pageKey` still exists; `persistState` writes the
+display settings only when that viewer changed them (two viewers can hold the same row). These rules fixed 1.71's "reading
+direction is not remembered"; `ReadingStateReplacementTests` / `FeatureTogglePersistenceTests` pin them.
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is
 persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file — must decide whether it joins

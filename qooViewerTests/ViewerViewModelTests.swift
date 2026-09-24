@@ -166,7 +166,7 @@ struct ViewerViewModelTests {
 
     // MARK: - 中身の差し替え
 
-    @Test("中身が差し替わった本は、古い読書位置とブックマークを捨てて開き直す")
+    @Test("中身が差し替わった本は、古い読書位置を捨てて開き直す(ブックマークは、指すページが残っていれば残す)")
     func replacedContentDropsTheStaleRows() async throws {
         let harness = try ViewerHarness()
         defer { harness.close() }
@@ -186,9 +186,11 @@ struct ViewerViewModelTests {
 
         let reopened = await harness.open(replaced)
         #expect(reopened.currentIndex == 0)
-        // 古い行は消えて、作りたての行に置き換わっている(初めて開く本と同じ扱い)。
+        // 古い行は消えて、作りたての行に置き換わっている(読書位置は先頭から)。
         #expect(harness.readingState(for: replaced)?.lastPageIndex == 0)
-        #expect(harness.bookmarks(for: replaced).isEmpty)
+        // ブックマークを付けた 5 ページ目(p05)は残っているので、ブックマークも残す(2026-09-25。以前はすべて捨てていた。
+        // ReadingStateReplacementTests)。
+        #expect(harness.bookmarks(for: replaced).count == 1)
     }
 
     // MARK: - ブックマークの鍵
