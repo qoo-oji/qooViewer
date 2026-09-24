@@ -798,7 +798,8 @@ struct ExportCoverPickerContent: View {
     @State private var loadedBook: MangaBook?
     @State private var loadFailed = false
     @State private var pageLoader: PageLoader?
-    @State private var thumbnails: [String: CGImage] = [:]
+    /// 一覧の行のサムネイルの控え(行が作り直されても読み直さないため)。`ExportCoverPickerThumbnails` のコメント。
+    @State private var thumbnails = ExportCoverPickerThumbnails()
     /// いま選んでいるページ(まだ確定していない)。開いた時点では、既に指定されているページ。
     @State private var selectedPageKey: String?
 
@@ -917,7 +918,7 @@ struct ExportCoverPickerContent: View {
                     bookSourceURL: loadedBook.sourceURL,
                     index: index,
                     pageLoader: pageLoader,
-                    thumbnails: $thumbnails,
+                    thumbnails: thumbnails,
                     isSelected: selectedPageKey == page.sortKey,
                     onSelect: { selectedPageKey = page.sortKey }
                 )
@@ -1040,9 +1041,10 @@ private struct ExportCoverPickerPageRow: View {
     let bookSourceURL: URL
     let index: Int
     let pageLoader: PageLoader?
-    /// 小さいサムネイル画像のキャッシュ。ExportCoverPickerContent側の@Stateを共有し、
-    /// popoverを開閉しても読み込み直さないようにする(BookmarkListView.thumbnailsと同じ考え方)。
-    @Binding var thumbnails: [String: CGImage]
+    /// 小さいサムネイル画像の控え。ExportCoverPickerContent側が持ち、行が作り直されても読み込み直さないようにする。
+    let thumbnails: ExportCoverPickerThumbnails
+    /// この行に出すサムネイル。**行が自分で持つ**(`ExportCoverPickerThumbnails` のコメント)。
+    @State private var thumbnail: CGImage?
     /// いまこの行が選ばれているか(選ぶだけで、確定は下の「選択」ボタン)。
     let isSelected: Bool
     let onSelect: () -> Void
@@ -1107,8 +1109,20 @@ private struct ExportCoverPickerPageRow: View {
         }
         .buttonStyle(.plain)
         .task(id: page.id) {
-            guard thumbnails[page.id] == nil, let pageLoader else { return }
-            thumbnails[page.id] = await pageLoader.thumbnail(at: index)
+            if let cached = thumbnails.images[page.id] {
+                thumbnail = cached
+                return
+            }
+            guard let pageLoader else { return }
+            // **行の `.task` が取り消されても読み込みは止めない**(外側の Task で包む。取り消しは中へ伝わらない)。
+            // この一覧(List = NSTableView)は、スクロールの途中で**見えたままの行の `.task` を取り消し**、そのまま
+            // やり直さないことがある(2026-09-24 に計測: 末尾の数行が「取り消し」で終わり、スピナーのまま残った)。
+            // 取り消されると PageLoader が途中で nil を返すので、絵を最後まで作って控えと自分へ入れる。
+            let index = index
+            let image = await Task { await pageLoader.thumbnail(at: index) }.value
+            guard let image else { return }
+            thumbnails.images[page.id] = image
+            thumbnail = image
         }
     }
 
@@ -1117,7 +1131,7 @@ private struct ExportCoverPickerPageRow: View {
         ZStack {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
-            if let image = thumbnails[page.id] {
+            if let image = thumbnail ?? thumbnails.images[page.id] {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -1199,4 +1213,17 @@ private struct ExportCoverPickerPageRow: View {
             previewPixelSize = pixelSize
         }
     }
+}
+
+/// カバーを選ぶ画面の一覧のサムネイルの控え(2026-09-24)。
+///
+/// **観測しない参照型**にしてある。以前は親(ExportCoverPickerContent)の `@State` の辞書を `@Binding` で各行へ渡し、
+/// 行の `.task` がそこへ書き込んでいた。ところが `List`(macOS では NSTableView)の行は、親の辞書が変わっても**描き直され
+/// ない**ことがある ―― スクロールで現れた行は、読み込みが終わってもスピナーのまま残り、カーソルを乗せて描き直された時に
+/// やっと絵が出た(利用者の報告。48 ページの本で、末尾の行の読み込みは開いて 1.7 秒で終わっていたのに、行の描画は最後まで
+/// 「絵なし」だったのをログで確かめた)。いまは行が自分の `@State` に絵を入れて自分を描き直し、この控えは作り直された行が
+/// 読み直さずに済むためだけに使う。
+@MainActor
+final class ExportCoverPickerThumbnails {
+    var images: [String: CGImage] = [:]
 }
