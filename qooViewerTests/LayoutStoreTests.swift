@@ -105,40 +105,68 @@ struct LayoutStoreTests {
                 == .possiblyReplaced(pageCountMatches: false))
     }
 
-    @Test("ページ数は同じでも中身が変わったら疑う(pageCountMatches: true)")
+    /// `makeSource` と同じページを cbz に固めた本。`variant` を変えると、同じページ数で中身の違う書庫になる。
+    private func makeArchive(in temporary: TemporaryDirectory, pageCount: Int = 4, variant: UInt8 = 0) async throws -> MangaBook {
+        let pagesFolder = temporary.file("pages-\(variant)")
+        try FixtureFolder.make(at: pagesFolder, pages: (1...pageCount).map {
+            FixtureFolder.Page(String(format: "%03d.jpg", $0), number: UInt8($0) &+ variant)
+        })
+        var builder = ZipFixtureBuilder()
+        for index in 1...pageCount {
+            let name = String(format: "%03d.jpg", index)
+            builder.add(name, try Data(contentsOf: pagesFolder.appendingPathComponent(name)), stored: true)
+        }
+        let url = temporary.file("book.cbz")
+        try builder.write(to: url)
+        return try await FixtureBook.load(url)
+    }
+
+    @Test("書庫の本: ページ数は同じでも中身が変わったら疑う(pageCountMatches: true)")
     func replacingTheContentWithTheSamePageCountIsStillFlagged() async throws {
         let library = try InMemoryLibrary(label: "layout-replace-same-count")
         defer { library.close() }
-        let source = try await makeSource("layout-replace-same-count")
+        let temporary = try TemporaryDirectory("layout-replace-same-count")
+        let book = try await makeArchive(in: temporary)
+        library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
+
+        // 同じページ数の別の書庫で置き換える(大きさ・更新日時が変わる)。
+        try await Task.sleep(for: .milliseconds(1100))
+        let reopened = try await makeArchive(in: temporary, variant: 50)
+        #expect(reopened.pages.count == book.pages.count)
+        #expect(library.layouts.checkContentReplacement(book: reopened)
+                == .possiblyReplaced(pageCountMatches: true))
+    }
+
+    @Test("フォルダの本: ページ数が同じなら、フォルダの更新日時が変わっただけでは疑わない(.DS_Store などでも変わるため)")
+    func aFolderWhoseDateChangedIsNotFlagged() async throws {
+        let library = try InMemoryLibrary(label: "layout-folder-date")
+        defer { library.close() }
+        let source = try await makeSource("layout-folder-date")
         library.layouts.setPageLayoutState(for: source.book, pageKey: source.keys[0], state: .single)
 
-        // ページ数は変えずにフォルダの更新日時だけ動かす(1 枚差し替えたのと同じ形)。
         let directory = source.temporary.file("book")
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: directory.path)
         let reopened = try await FixtureBook.load(directory)
-        #expect(reopened.pages.count == source.book.pages.count)
-        #expect(library.layouts.checkContentReplacement(book: reopened)
-                == .possiblyReplaced(pageCountMatches: true))
+        #expect(library.layouts.checkContentReplacement(book: reopened) == .unaffected)
     }
 
     @Test("「そのまま適用する」を選ぶと基準が今の指紋へ更新され、次からは疑われない")
     func acceptingTheCurrentContentUpdatesTheBaseline() async throws {
         let library = try InMemoryLibrary(label: "layout-replace-accept")
         defer { library.close() }
-        let source = try await makeSource("layout-replace-accept")
-        library.layouts.setPageLayoutState(for: source.book, pageKey: source.keys[0], state: .single)
+        let temporary = try TemporaryDirectory("layout-replace-accept")
+        let book = try await makeArchive(in: temporary)
+        library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
 
-        let directory = source.temporary.file("book")
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: directory.path)
-        let reopened = try await FixtureBook.load(directory)
+        try await Task.sleep(for: .milliseconds(1100))
+        let reopened = try await makeArchive(in: temporary, variant: 50)
         #expect(library.layouts.checkContentReplacement(book: reopened) != .unaffected)
 
         library.layouts.acceptCurrentContent(book: reopened)
         #expect(library.layouts.checkContentReplacement(book: reopened) == .unaffected)
         // レイアウトそのものは残っている(「そのまま適用する」なので)。
-        #expect(library.pageStates(forBookID: reopened.id) == [source.keys[0]: .single])
+        #expect(library.pageStates(forBookID: reopened.id) == [book.pages[0].sortKey: .single])
     }
 
     // MARK: - 1 冊ぶんの削除

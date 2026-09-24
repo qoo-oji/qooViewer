@@ -468,7 +468,13 @@ final class ViewerViewModel: ObservableObject {
         // 値と1つでも異なれば「差し替えられた別の内容」とみなす。
         // 指紋の計算・比較ロジック自体はContentFingerprintへ切り出してある(BookLayoutSettingsも
         // 同じ仕組みを使うため。詳細はContentFingerprint.swift参照)。
-        let currentFingerprint = ContentFingerprint.current(for: preparedBook)
+        //
+        // **ページ数は除外・並べ替えを当てる前の本(incomingBook)で数える**(2026-09-25)。以前は除外を当てた後の本
+        // (preparedBook)で数えていたが、記録するのは開いたときだけなので、読んでいる途中でページを除外すると次に開いた
+        // ときに枚数が合わず「差し替えられた」と判断され、読書位置・読み方向・ブックマークが消えていた(1.71 の「読み方向が
+        // 記憶されない」の報告。2026-09-25 に再現)。除外はユーザーの操作で、本の中身が変わったわけではない。
+        // レイアウト側の判定(LayoutStore.checkContentReplacement)も除外前の本で数えている。
+        let currentFingerprint = ContentFingerprint.current(for: incomingBook)
 
         // #Predicate<BookReadingState> { $0.bookID == bookID }による絞り込みフェッチが、
         // レイアウト変更直後などに0件を誤って返すことがある不具合が実機で確認された
@@ -487,8 +493,14 @@ final class ViewerViewModel: ObservableObject {
                 fileSize: $0.recordedSourceFileSize
             )
         }
+        // 1.71 までに記録された行は除外を当てた後の枚数を持っている。その枚数とも一致すれば同じ本とみなす(下で除外前の
+        // 枚数に記録し直す)。これが無いと、除外のある本はこの版へ上げた直後に一度だけ同じ誤判定で消えてしまう。
+        var comparableFingerprint = currentFingerprint
+        if let recordedCount = fetchedState?.recordedPageCount, recordedCount == preparedBook.pages.count {
+            comparableFingerprint.pageCount = recordedCount
+        }
         let contentLooksReplaced = ContentFingerprint.looksReplaced(
-            recorded: recordedFingerprint, current: currentFingerprint
+            recorded: recordedFingerprint, current: comparableFingerprint
         )
         // 「以前から読んでいる本」として扱ってよいのは、データが見つかり、かつ中身が
         // 差し替えられていないと判断できた場合だけ。差し替えられていた場合は、古い読書状態と

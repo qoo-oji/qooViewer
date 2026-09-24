@@ -45,7 +45,8 @@ nonisolated enum NetworkVolumeReading {
         guard stat(url.path, &st) == 0 else { return true }
         let values = try? FileManager.default.temporaryDirectory.resourceValues(forKeys: [.volumeAvailableCapacityKey])
         guard let available = values?.volumeAvailableCapacity else { return true }
-        return Int64(available) >= Int64(st.st_size) + 1 << 30
+        let margin: Int64 = 1 << 30
+        return Int64(available) >= Int64(st.st_size) + margin
     }
 
     // MARK: - テスト

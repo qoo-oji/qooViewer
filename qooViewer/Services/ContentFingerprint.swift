@@ -16,6 +16,12 @@ enum ContentFingerprint {
         var pageCount: Int
         var modificationDate: Date?
         var fileSize: Int64?
+        /// 本がフォルダか。**フォルダの更新日時は比べない**(looksReplaced)。フォルダの更新日時は中の項目が増減・改名される
+        /// たびに変わり、Finder が表示の設定を書く `.DS_Store`、ネットワークや FAT の `._` ファイルでも変わる ―― 中身の
+        /// 目印にならない。比べていたため、Finder でフォルダを表示しただけで「差し替えられた」と判断され、読書位置・
+        /// 読み方向・ブックマークが消えていた(1.71 の「読み方向が記憶されない」の報告。2026-09-25 に再現)。
+        /// フォルダの本はページ数だけで判定する(同じ枚数の別の本へ丸ごと入れ替えた場合は検知できない)。
+        var isDirectory: Bool = false
     }
 
     /// 記録済みの指紋(SwiftDataモデルに保存されている3属性)。3つとも揃っていない
@@ -29,12 +35,13 @@ enum ContentFingerprint {
     /// 今開こうとしているMangaBookから、現在の指紋を計算する。
     static func current(for book: MangaBook) -> Snapshot {
         let sourceResourceValues = try? book.sourceURL.resourceValues(
-            forKeys: [.contentModificationDateKey, .fileSizeKey]
+            forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]
         )
         return Snapshot(
             pageCount: book.pages.count,
             modificationDate: sourceResourceValues?.contentModificationDate,
-            fileSize: sourceResourceValues?.fileSize.map(Int64.init)
+            fileSize: sourceResourceValues?.fileSize.map(Int64.init),
+            isDirectory: sourceResourceValues?.isDirectory ?? false
         )
     }
 
@@ -45,8 +52,10 @@ enum ContentFingerprint {
     ///   (既存のBookReadingStateの挙動をそのまま踏襲)。
     static func looksReplaced(recorded: Recorded?, current: Snapshot) -> Bool {
         guard let recorded, let recordedPageCount = recorded.pageCount else { return false }
-        return recordedPageCount != current.pageCount
-            || recorded.modificationDate != current.modificationDate
+        if recordedPageCount != current.pageCount { return true }
+        // フォルダの本は更新日時(とサイズ。フォルダでは取れない)を比べない(Snapshot.isDirectory のコメント)。
+        if current.isDirectory { return false }
+        return recorded.modificationDate != current.modificationDate
             || recorded.fileSize != current.fileSize
     }
 }

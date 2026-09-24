@@ -60,6 +60,15 @@ struct ContentFingerprintTests {
             current: ContentFingerprint.Snapshot(pageCount: 10, modificationDate: nil, fileSize: nil)))
     }
 
+    @Test("フォルダの本は更新日時を比べない(ページ数だけで判定する)")
+    func aFolderIsComparedByPageCountOnly() {
+        var folder = current(date: now.addingTimeInterval(3600), size: nil)
+        folder.isDirectory = true
+        #expect(!ContentFingerprint.looksReplaced(recorded: recorded(size: nil), current: folder))
+        folder.pageCount = 11
+        #expect(ContentFingerprint.looksReplaced(recorded: recorded(size: nil), current: folder))
+    }
+
     // MARK: - 実際の本から測る
 
     @Test("フォルダの本: ページ数と更新日時は取れ、ファイルサイズは取れない")

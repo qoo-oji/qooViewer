@@ -64,6 +64,10 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
     private var nameDecoder: EntryNameDecoder?
     private var descriptors: [ArchiveEntryDescriptor]?
 
+    /// 最初にまとめて読む末尾の大きさ。EOCD(22)+コメント(最大 65535)+ZIP64 の locator(20)と record(56)+余裕。
+    /// 型を決めた定数にしてある(`min(fileSize, 65_535 + 22 + …)` と書くと、Xcode 26.6 の型推論が時間切れで失敗した。CI、2026-09-25)。
+    private static let tailWindow: UInt64 = 65_535 + 22 + 20 + 56 + 1024
+
     /// 取り出しの 1 回の読みの上限。smbfs は 1 回の read を 256KB〜1MB の要求に分けて並べて送るので、1 回 ≒ 1 往復+転送。
     private static let readChunk = 4 * 1024 * 1024
 
@@ -81,8 +85,8 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
     // MARK: - 中央ディレクトリ
 
     private func readCentralDirectory() throws {
-        // 末尾をまとめて読む。EOCD(22)+コメント(最大 65535)+ZIP64 の locator(20)と record(56)が収まる大きさ。
-        let tailLength = Int(min(fileSize, 65_535 + 22 + 20 + 56 + 1024))
+        // 末尾をまとめて読む(tailWindow)。
+        let tailLength = Int(min(fileSize, Self.tailWindow))
         var tailStart = fileSize - UInt64(tailLength)
         var tail = try read(tailStart, tailLength)
 
@@ -214,7 +218,12 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
             let next = o + 4 + size
             guard next <= extra.count else { return nil }
             if id == 0x0001 {
-                let expected = (uncompressed ? 8 : 0) + (compressed ? 8 : 0) + (offset ? 8 : 0) + (disk ? 4 : 0)
+                // 型を決めて 1 つずつ足す(リテラルと三項演算子を 1 つの式に重ねると、古いコンパイラの型推論が重い)。
+                var expected: Int = 0
+                if uncompressed { expected += 8 }
+                if compressed { expected += 8 }
+                if offset { expected += 8 }
+                if disk { expected += 4 }
                 guard expected + 4 == next - o else { return nil }
                 var r = o + 4
                 var values: (uncompressed: UInt64, compressed: UInt64, offset: UInt64) = (0, 0, 0)
