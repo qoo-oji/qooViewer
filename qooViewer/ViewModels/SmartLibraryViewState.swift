@@ -176,9 +176,24 @@ final class SmartLibraryViewState: ObservableObject {
     /// 画面から渡された本の一覧(集めたまま)。
     private var sourceBooks: [SmartBook] = []
     /// 絞り込み・並べ替えに使う本(`sourceBooks` に著者の設定を当てたもの。`usesFirstAuthorOnly`)。
-    private var books: [SmartBook] = []
-    private var shelves: [SmartShelf] = []
+    private var books: [SmartBook] = [] {
+        didSet {
+            // 本が変われば、棚の数え・検索の文字列の控えは作り直す(`shelfResults` / `searchHaystacks`)。
+            shelfResults = nil
+            searchHaystacks = nil
+        }
+    }
+    private var shelves: [SmartShelf] = [] {
+        didSet { if shelves != oldValue { shelfResults = nil } }
+    }
     private var recomputeTask: Task<Void, Never>?
+
+    /// スマートシェルフごとの数と、選んでいるシェルフの本(`recompute`。2026-09-25 の監査)。本・シェルフ・時刻(分)が同じ間は数え直さない。
+    /// 検索の 1 文字・ボタンの 1 つ・並べ方を変えるたびに、全シェルフの条件を全冊に当て直していた(条件の文字は本ごとに畳み直す)。
+    /// 「何日以内」の条件があるので、分が変われば数え直す。
+    private var shelfResults: (minute: Int, selectedShelfID: UUID?, counts: [UUID?: Int], selectedBooks: [SmartBook])?
+    /// 検索に当てる文字列(本ごと。`recompute`)。本が変わるまで使い回す(打つたびに全冊の欄を畳み直していた)。
+    private var searchHaystacks: [String: String]?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -397,6 +412,15 @@ final class SmartLibraryViewState: ObservableObject {
         }
     }
 
+    /// 検索に当てる、この本の文字列(ファイル名と主な欄を畳んで改行でつないだもの)。
+    private static func searchHaystack(of book: SmartBook) -> String {
+        LibrarySearchQuery.normalized(
+            ([book.fileName, book.metadata.title] + book.metadata.authors
+                + [book.metadata.series, book.metadata.genre, book.metadata.source, book.metadata.event,
+                   book.metadata.info])
+                .filter { !$0.isEmpty }.joined(separator: "\n"))
+    }
+
     /// 著者の設定を当てた本の一覧(`usesFirstAuthorOnly`)。OFF なら渡されたまま、ON なら著者が 2 人以上の本だけ先頭の 1 人にする。
     nonisolated static func applyingAuthorSetting(_ books: [SmartBook], firstAuthorOnly: Bool) -> [SmartBook] {
         guard firstAuthorOnly else { return books }
@@ -410,11 +434,17 @@ final class SmartLibraryViewState: ObservableObject {
 
     /// 並べる本を作り直す(型コメントの順に絞る)。
     func recompute(now: Date = Date()) {
-        var counts: [UUID?: Int] = [nil: books.count]
-        for shelf in shelves { counts[shelf.id] = books.lazy.filter { shelf.conditions.matches($0, now: now) }.count }
-        shelfCounts = counts
-
-        var current = selectedShelf.map { shelf in books.filter { shelf.conditions.matches($0, now: now) } } ?? books
+        let minute = Int((now.timeIntervalSinceReferenceDate / 60).rounded(.down))
+        var current: [SmartBook]
+        if let cached = shelfResults, cached.minute == minute, cached.selectedShelfID == selectedShelfID {
+            current = cached.selectedBooks
+        } else {
+            var counts: [UUID?: Int] = [nil: books.count]
+            for shelf in shelves { counts[shelf.id] = books.lazy.filter { shelf.conditions.matches($0, now: now) }.count }
+            if counts != shelfCounts { shelfCounts = counts }
+            current = selectedShelf.map { shelf in books.filter { shelf.conditions.matches($0, now: now) } } ?? books
+            shelfResults = (minute, selectedShelfID, counts, current)
+        }
         shelfBookCount = current.count
         if quickFilter.isActive { current = current.filter { quickFilter.matches($0, now: now) } }
         let selection = facetSelection
@@ -425,14 +455,13 @@ final class SmartLibraryViewState: ObservableObject {
         facetValues = values
         if selection.isActive { current = current.filter { selection.matches($0) } }
         if let query = LibrarySearchQuery(searchText) {
+            var haystacks = searchHaystacks ?? [:]
             current = current.filter { book in
-                let haystack = LibrarySearchQuery.normalized(
-                    ([book.fileName, book.metadata.title] + book.metadata.authors
-                        + [book.metadata.series, book.metadata.genre, book.metadata.source, book.metadata.event,
-                           book.metadata.info])
-                        .filter { !$0.isEmpty }.joined(separator: "\n"))
+                let haystack = haystacks[book.id] ?? Self.searchHaystack(of: book)
+                haystacks[book.id] = haystack
                 return query.matches(normalized: haystack)
             }
+            searchHaystacks = haystacks
         }
         visibleBooks = SmartSort.sorted(current, by: sortKey, ascending: sortAscending)
         if let openedGroup {

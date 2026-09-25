@@ -72,6 +72,37 @@ actor BookPageListCache {
         /// 要らず、フォルダの更新日時は指紋として信用できない)。
         var pageSizes: [String: [Int]]?
 
+        /// 本のファイルに**取り込むものが無かった**ことの記録(2026-09-25 の監査)。同じ本体(指紋一致)の間だけ使う。
+        ///
+        /// ComicInfo.xml・EPUB の目次・PDF のアウトライン・EPUB/PDF の書誌情報の取り込み(ViewerViewModel)は「初めて開いたとき
+        /// 1 度だけ」だが、ファイルに何も無かったときは取り込んだ印が付かないので、開くたびに探し直していた(PDF は 2〜3 回
+        /// 開き直して解析、EPUB は全ページの XHTML を読み直し、フォルダの本は中の一覧を取り直す)。無かったことだけを覚え、
+        /// 本体が変われば(指紋が変われば)また探す。**あったものは覚えない**(取り込みそのものは今までどおり DB の印で 1 度だけ)。
+        var sourceProbe: SourceProbe?
+
+        struct SourceProbe: Codable, Sendable, Equatable {
+            /// ComicInfo.xml が無い(書庫の本・フォルダの本)。
+            var comicInfoIsAbsent: Bool?
+            /// ComicInfo.xml はあるが、書誌情報・読み方向・ブックマークのそれぞれを持っていない。
+            var comicInfoLacksMetadata: Bool?
+            var comicInfoLacksReadingDirection: Bool?
+            var comicInfoLacksBookmarks: Bool?
+            /// EPUB の目次・PDF のアウトラインが空。
+            var tableOfContentsIsEmpty: Bool?
+            /// EPUB / PDF の書誌情報が空。
+            var sourceMetadataIsEmpty: Bool?
+
+            /// `other` の分かっている項目で上書きする。
+            mutating func merge(_ other: SourceProbe) {
+                if let value = other.comicInfoIsAbsent { comicInfoIsAbsent = value }
+                if let value = other.comicInfoLacksMetadata { comicInfoLacksMetadata = value }
+                if let value = other.comicInfoLacksReadingDirection { comicInfoLacksReadingDirection = value }
+                if let value = other.comicInfoLacksBookmarks { comicInfoLacksBookmarks = value }
+                if let value = other.tableOfContentsIsEmpty { tableOfContentsIsEmpty = value }
+                if let value = other.sourceMetadataIsEmpty { sourceMetadataIsEmpty = value }
+            }
+        }
+
         /// 現在の版。
         /// 2: ページの並びを**正準順**(compareCanonicalPageOrder。Finderと同じ照合)で持つように
         ///    変更。版1は`.numeric`順で保存されているため、正準順として使うと並びが狂う。
@@ -226,10 +257,12 @@ actor BookPageListCache {
         let previousData = try? Data(contentsOf: url)
         // 本を開くたびに書き直すが、ページ寸法は読み込みでは分からない(Entry.pageSizesの
         // コメント参照)。同じ本体なら前回のぶんを引き継ぐ。
-        if entry.pageSizes == nil, entry.fingerprint != nil, let previousData,
+        if entry.fingerprint != nil, entry.pageSizes == nil || entry.sourceProbe == nil, let previousData,
            let previous = try? JSONDecoder().decode(Entry.self, from: previousData),
            previous.fingerprint == entry.fingerprint {
-            entry.pageSizes = previous.pageSizes
+            if entry.pageSizes == nil { entry.pageSizes = previous.pageSizes }
+            // 取り込むものが無かった記録も同じ本体のあいだ引き継ぐ(Entry.sourceProbe)。
+            if entry.sourceProbe == nil { entry.sourceProbe = previous.sourceProbe }
         }
         guard let data = try? Self.encode(entry) else { return }
         // 中身が前と同じなら書き直さない(2026-09-25 の監査。本を開くたび・隣の本へ移るたびに、同じ中身の数十 KB を
@@ -285,6 +318,32 @@ actor BookPageListCache {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return try encoder.encode(entry)
+    }
+
+    /// 本のファイルに取り込むものが無かった記録(Entry.sourceProbe)。本体の今の指紋が保存時と一致するときだけ返す
+    /// (指紋はここで読む ―― 呼び出し側のメインアクターでファイルに触らない)。
+    @concurrent nonisolated func sourceProbe(forBookID bookID: String, sourceURL: URL) async -> Entry.SourceProbe? {
+        guard let fingerprint = Entry.Fingerprint.current(for: sourceURL),
+              let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint
+        else { return nil }
+        return entry.sourceProbe
+    }
+
+    /// 取り込むものが無かったことを書き足す(分かっている項目だけ上書き)。本体の今の指紋が保存時と一致する Entry があるときだけ
+    /// 書く(Entry そのものは本の読み込みが作る。storePageSizes と同じ)。
+    @concurrent nonisolated func storeSourceProbe(_ probe: Entry.SourceProbe, forBookID bookID: String, sourceURL: URL) async {
+        guard let fingerprint = Entry.Fingerprint.current(for: sourceURL),
+              let url = fileURL(forBookID: bookID),
+              let data = try? Data(contentsOf: url),
+              var entry = try? JSONDecoder().decode(Entry.self, from: data),
+              entry.fingerprint == fingerprint
+        else { return }
+        var merged = entry.sourceProbe ?? Entry.SourceProbe()
+        merged.merge(probe)
+        guard merged != entry.sourceProbe else { return }
+        entry.sourceProbe = merged
+        guard let encoded = try? Self.encode(entry) else { return }
+        try? encoded.write(to: url, options: .atomic)
     }
 
     /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。

@@ -331,8 +331,9 @@ final class KeyBindingStore: ObservableObject {
     }
 
     func setWheelBehavior(_ behavior: WheelScrollBehavior, in mode: ScalingMode) {
+        guard modeWheelBehaviors[mode] != behavior else { return }
         modeWheelBehaviors[mode] = behavior
-        persist()
+        persistWheelBehaviors()
     }
 
     /// そのモードでの「上/下/左/右へスクロール」1回あたりの移動量(ポイント)。
@@ -341,8 +342,11 @@ final class KeyBindingStore: ObservableObject {
     }
 
     func setScrollStep(_ step: Double, in mode: ScalingMode) {
+        guard modeScrollSteps[mode] != step else { return }
         modeScrollSteps[mode] = step
-        persist()
+        // スライダーのドラッグ中は 1 目盛りごとに呼ばれるので、変わった 1 つだけを書く(2026-09-25 の監査。以前は割り当て 6 つの
+        // JSON を目盛りごとに全部書き直していた)。
+        persistScrollSteps()
     }
 
     // MARK: - 設定画面からの参照・編集(フォールバックなし、モード単位)
@@ -437,10 +441,18 @@ final class KeyBindingStore: ObservableObject {
         // モード別はScalingModeのrawValueをキーにした入れ子の辞書として1つにまとめて保存する。
         persistModeBindings(modeKeyBindings, forKey: modeKeyDefaultsKey)
         persistModeBindings(modeMouseBindings, forKey: modeMouseDefaultsKey)
+        persistWheelBehaviors()
+        persistScrollSteps()
+    }
+
+    private func persistWheelBehaviors() {
         let wheels = Dictionary(uniqueKeysWithValues: modeWheelBehaviors.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(wheels) {
             defaults.set(data, forKey: modeWheelDefaultsKey)
         }
+    }
+
+    private func persistScrollSteps() {
         let steps = Dictionary(uniqueKeysWithValues: modeScrollSteps.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(steps) {
             defaults.set(data, forKey: modeScrollStepDefaultsKey)

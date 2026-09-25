@@ -339,6 +339,8 @@ final class ViewerViewModel: ObservableObject {
     private var layoutReloadDebounceTask: Task<Void, Never>?
     /// デバウンス待ちの間に受け取ったfocusPageKey(複数あれば最後の非nilを採用する)。
     private var pendingLayoutReloadFocusPageKey: String?
+    /// 共有のディスクキャッシュを使うか(init の `usesDiskCaches`)。取り込むものが無かった記録(sourceProbe)もこれに従う。
+    private let usesSharedDiskCaches: Bool
 
     /// - Parameter initialPageID: 開いた直後に表示したいページの`PageRef.id`(=ファイルのパス)。
     ///   「同じフォルダの画像をすべて開く」が、直前まで見ていた画像のページへ着地させるために使う
@@ -457,6 +459,7 @@ final class ViewerViewModel: ObservableObject {
         }
         let initialContrastCorrectionEnabled = prepared.settings?.contrastCorrectionEnabled ?? false
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
+        self.usesSharedDiskCaches = usesDiskCaches ?? !skipsPersistence
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
             usesThumbnailDiskCache: usesDiskCaches ?? !skipsPersistence,
@@ -1727,6 +1730,8 @@ final class ViewerViewModel: ObservableObject {
     /// 2回目以降はbookmarks.isEmptyがfalseになるため、そもそもこのメソッド自体が呼ばれない)。
     private func autoImportEpubTableOfContentsAsBookmarksIfNeeded() async {
         guard bookmarks.isEmpty else { return }
+        // 前に開いたとき目次が空だった(同じ本体のまま)なら、読み直さない(sourceProbe のコメント)。
+        if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         let sourceURL = book.sourceURL
         let entries: [EpubTOCEntry] = await Task.detached(priority: .utility) { () -> [EpubTOCEntry] in
             guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL),
@@ -1734,7 +1739,27 @@ final class ViewerViewModel: ObservableObject {
             else { return [] }
             return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
         }.value
+        if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
+    }
+
+    /// この本のファイルに取り込むものが無かった記録(BookPageListCache.Entry.sourceProbe。2026-09-25 の監査)。取り込み
+    /// (ComicInfo.xml・目次・アウトライン・書誌情報)の前に見て、前に開いたときに無かったもの(同じ本体のまま)を探し直さない。
+    /// 記録の残らない本(シークレットウインドウ・その場限りの本)は読みも書きもしない(キャッシュを書かない約束。
+    /// AppState.isPrivateWindow のコメント)。
+    private func sourceProbe() async -> BookPageListCache.Entry.SourceProbe? {
+        guard !skipsPersistence, usesSharedDiskCaches else { return nil }
+        return await BookPageListCache.shared.sourceProbe(forBookID: book.id, sourceURL: book.sourceURL)
+    }
+
+    /// 取り込むものが無かったことを書き足す(sourceProbe)。待たない。
+    private func noteSourceProbe(_ probe: BookPageListCache.Entry.SourceProbe) {
+        guard !skipsPersistence, usesSharedDiskCaches else { return }
+        let bookID = book.id
+        let sourceURL = book.sourceURL
+        Task.detached(priority: .background) {
+            await BookPageListCache.shared.storeSourceProbe(probe, forBookID: bookID, sourceURL: sourceURL)
+        }
     }
 
     // MARK: - 書誌メタデータの自動取り込み(ユーザー要望)
@@ -1750,6 +1775,9 @@ final class ViewerViewModel: ObservableObject {
     /// (autoImportEpubTableOfContentsAsBookmarksIfNeededと同じ方針)。
     private func importSourceMetadataIfNeeded(isEpub: Bool) async {
         guard needsSourceMetadataImport else { return }
+        // 前に開いたとき書誌情報が空だった(同じ本体のまま)なら、読み直さない(sourceProbe のコメント)。行に「取り込み済み」の印を
+        // 付けて済ませないのは、印の無い行だけが「ファイル名の読みだけの行」として掃除の対象になるため(BookMetadata.isParsedOnly)。
+        if await sourceProbe()?.sourceMetadataIsEmpty == true { return }
         let sourceURL = book.sourceURL
         let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
             if isEpub {
@@ -1759,7 +1787,10 @@ final class ViewerViewModel: ObservableObject {
             return PDFStructureResolver.resolveMetadata(url: sourceURL)
         }.value
 
-        guard !metadata.isEmpty else { return }
+        guard !metadata.isEmpty else {
+            noteSourceProbe(.init(sourceMetadataIsEmpty: true))
+            return
+        }
         storeSourceMetadata(metadata)
     }
 
@@ -1808,6 +1839,15 @@ final class ViewerViewModel: ObservableObject {
         // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。
         let needsReadingDirection = layoutStore.bookLayoutSettings(forBookID: book.id)?.didImportSourceLayout != true
         guard needsMetadata || needsBookmarks || needsReadingDirection else { return }
+        // 前に開いたとき(同じ本体のまま)、要るものが ComicInfo.xml に無かったなら探し直さない(sourceProbe のコメント。
+        // フォルダの本は中の一覧を取り直し、書庫の本は全エントリの名前を見て回るので、開くたびに払っていた)。
+        if let probe = await sourceProbe() {
+            let absent = probe.comicInfoIsAbsent == true
+            let lacksAllNeeded = (!needsMetadata || absent || probe.comicInfoLacksMetadata == true)
+                && (!needsBookmarks || absent || probe.comicInfoLacksBookmarks == true)
+                && (!needsReadingDirection || absent || probe.comicInfoLacksReadingDirection == true)
+            if lacksAllNeeded { return }
+        }
 
         let sourceURL = book.sourceURL
         // 本そのものが書庫なら、PageLoader が開いている書庫の reader で読む(同じ書庫の一覧を取り直さない。
@@ -1820,7 +1860,16 @@ final class ViewerViewModel: ObservableObject {
                 ComicInfoResolver.resolve(bookAt: sourceURL)
             }).value
         }
-        guard let comicInfo = comicInfoOrNil else { return }
+        guard let comicInfo = comicInfoOrNil else {
+            noteSourceProbe(.init(comicInfoIsAbsent: true))
+            return
+        }
+        noteSourceProbe(.init(
+            comicInfoIsAbsent: false,
+            comicInfoLacksMetadata: comicInfo.sourceBookMetadata.isEmpty,
+            comicInfoLacksReadingDirection: comicInfo.readingDirection == nil,
+            comicInfoLacksBookmarks: comicInfo.bookmarks.isEmpty
+        ))
 
         // 解析中に他の経路(「メタデータの編集」ウインドウなど)でロックされた可能性があるため、
         // 書く側がもう一度確かめる(importSourceMetadataIfNeededと同じ)。
@@ -1893,9 +1942,11 @@ final class ViewerViewModel: ObservableObject {
     private func autoImportPDFOutlineAsBookmarksIfNeeded() async {
         guard bookmarks.isEmpty else { return }
         let sourceURL = book.sourceURL
+        if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         let entries = await Task.detached(priority: .utility) { () -> [PDFOutlineEntry] in
             PDFStructureResolver.resolveOutline(url: sourceURL)
         }.value
+        if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
     }
 
