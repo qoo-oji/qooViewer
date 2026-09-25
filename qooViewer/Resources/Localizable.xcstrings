@@ -28094,6 +28094,22 @@
         }
       }
     },
+    "Spread or Single Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spread or Single Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見開き/単ページ"
+          }
+        }
+      }
+    },
     "Spread Right" : {
       "localizations" : {
         "en" : {
@@ -32757,6 +32773,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存したデータが壊れて読み込めなくなったとき(アプリの更新後など)にだけ使ってください。\nフォルダのアクセス権を除く、qooViewerが保存したすべてのデータを削除します。"
+          }
+        }
+      }
+    },
+    "Used for books you open for the first time. Books you have opened before keep their own setting, and EPUB and PDF books that specify one use it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used for books you open for the first time. Books you have opened before keep their own setting, and EPUB and PDF books that specify one use it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初めて開く本に使います。一度開いた本は本ごとの設定を保ち、見開き/単ページを指定しているEPUB・PDFはその指定に従います。"
           }
         }
       }

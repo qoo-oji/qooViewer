@@ -403,6 +403,21 @@ final class LayoutStore: ObservableObject {
         settingsByBookID()[bookID]
     }
 
+    /// この本を最後にビューアでどう表示していたか(`BookReadingState` の読み方向・見開き/単ページ)。行が無ければ nil。
+    ///
+    /// ビューアの読み方向・見開きの切り替えは、本ごとの上書き(`BookLayoutSettings`)が**既にある本にしか**書き戻さず、
+    /// 無い本では `BookReadingState` にだけ保存する(`ViewerViewModel.toggleReadingDirection()`)。本を開いていない場所
+    /// ―― 書き出しウインドウ・ブックマークとレイアウトの編集ウインドウ ―― が「上書きが無ければ環境設定の既定」で済ませると、
+    /// r キーで左開きに直して読んでいた本が既定の右開きとして扱われる(2026-09-26 の点検で見つけた)。その間に挟むための値。
+    /// 絞り込みは全件フェッチの後に Swift 側で行う(`#Predicate` が 0 件を返すことがある。上のコメント参照)。
+    func lastShownDisplaySettings(forBookID bookID: String)
+        -> (readingDirection: ReadingDirection, displayMode: DisplayMode)?
+    {
+        let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        guard let state = states.first(where: { $0.bookID == bookID }) else { return nil }
+        return (state.readingDirection, state.displayMode)
+    }
+
     /// bookIDに対応するBookLayoutSettingsを取得し、無ければ新規作成して返す(挿入済み、
     /// 未保存)。新規作成時は、現在のbookの指紋を記録しておく(以後の差し替え検知の基準になる)。
     /// 実際に何らかのレイアウトデータを書き込む直前にだけ呼ぶ(単に「参照したいだけ」の場合は

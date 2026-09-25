@@ -24,13 +24,25 @@ struct OpeningSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
-            // 初めて開く本の読み方向(2026-09-25)。以前は初回起動時にシステムの言語から一度だけ決めた値を
-            // 画面に出さずに使っていた(AppPreferences.defaultReadingDirectionSetting参照)。
+            // 初めて開く本に使う表示の設定。どれも本を開いたあとは本ごとに覚えるので、ここは最初の値だけを決める。
+            // 読み方向(2026-09-25)は以前は初回起動時にシステムの言語から一度だけ決めた値を画面に出さずに使っていて
+            // (AppPreferences.defaultReadingDirectionSetting参照)、見開き/単ページ(2026-09-26)は見開き固定だった。
+            // 表示モードは「画像の表示」から移した(3つを1か所で決められるように。AppPreferences.defaultScalingMode)。
             Section {
                 SettingsPicker(
                     "Reading Direction",
                     selection: $preferences.defaultReadingDirectionSetting,
                     help: "Used for books you open for the first time. Match Display Language uses right-to-left for Japanese and left-to-right for other languages. Books you have opened before keep their own reading direction, and EPUB and PDF books that specify one use it."
+                )
+                SettingsPicker(
+                    "Spread or Single Page",
+                    selection: $preferences.defaultDisplayMode,
+                    help: "Used for books you open for the first time. Books you have opened before keep their own setting, and EPUB and PDF books that specify one use it."
+                )
+                SettingsPicker(
+                    "Display Mode",
+                    selection: $preferences.defaultScalingMode,
+                    help: "Used the first time a book is opened. Changing it later affects only that book."
                 )
             } header: {
                 Text("Opening a New Book")

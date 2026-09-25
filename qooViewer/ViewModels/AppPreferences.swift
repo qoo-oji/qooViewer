@@ -25,6 +25,7 @@ final class AppPreferences: ObservableObject {
         static let autoHideCursor = "qooViewer.pref.autoHideCursor"
         static let slideshowInterval = "qooViewer.pref.slideshowInterval"
         static let defaultScalingMode = "qooViewer.pref.defaultScalingMode"
+        static let defaultDisplayMode = "qooViewer.pref.defaultDisplayMode"
         static let treatTrackpadFlickAsWheel = "qooViewer.pref.treatTrackpadFlickAsWheel"
         static let invertTwoFingerScrolling = "qooViewer.pref.invertTwoFingerScrolling"
         static let quitWhenLastWindowClosed = "qooViewer.pref.quitWhenLastWindowClosed"
@@ -197,9 +198,19 @@ final class AppPreferences: ObservableObject {
     @Published var slideshowInterval: Double {
         didSet { defaults.set(slideshowInterval, forKey: Keys.slideshowInterval) }
     }
-    /// 新しく開いた本に最初に適用する表示モード
+    /// 新しく開いた本に最初に適用する表示モード(拡大縮小の方式)。環境設定「本を開く」の「初めて開く本」。
+    ///
+    /// 以前は「画像の表示」画面にあったが、読み方向・見開き/単ページの既定と並べるため「本を開く」へ移した
+    /// (2026-09-26、利用者が「初めて開く本の表示モードは設定できない」と探し当てられなかった)。
     @Published var defaultScalingMode: ScalingMode {
         didSet { defaults.set(defaultScalingMode.rawValue, forKey: Keys.defaultScalingMode) }
+    }
+    /// 新しく開いた本に最初に適用する見開き/単ページ。環境設定「本を開く」の「初めて開く本」。
+    ///
+    /// 以前は`ViewerViewModel`で見開き固定(`.spread`)になっていて、変える方法が無かった(2026-09-26、利用者の指摘)。
+    /// `DisplayMode.rawValue`は表示用の日本語("見開き")なので、保存には`stableID`を使う(JSON と同じ理由)。
+    @Published var defaultDisplayMode: DisplayMode {
+        didSet { defaults.set(defaultDisplayMode.stableID, forKey: Keys.defaultDisplayMode) }
     }
     /// トラックパッドでのページ送りに、Macの「ページ間をスワイプ」ジェスチャー(フリック)を
     /// 使用する。ONにすると、トラックパッドの2本指の縦スクロールによるページ送りは行われなく
@@ -1266,6 +1277,7 @@ final class AppPreferences: ObservableObject {
         self.autoHideCursor = defaults.object(forKey: Keys.autoHideCursor) as? Bool ?? true
         self.slideshowInterval = Self.storedDouble(defaults.object(forKey: Keys.slideshowInterval), default: 5, range: 0.5...30)
         self.defaultScalingMode = ScalingMode(rawValue: defaults.string(forKey: Keys.defaultScalingMode) ?? "") ?? .fitToScreen
+        self.defaultDisplayMode = DisplayMode(stableID: defaults.string(forKey: Keys.defaultDisplayMode) ?? "") ?? .spread
         self.treatTrackpadFlickAsWheel = defaults.object(forKey: Keys.treatTrackpadFlickAsWheel) as? Bool ?? true
         self.invertTwoFingerScrolling = defaults.object(forKey: Keys.invertTwoFingerScrolling) as? Bool ?? false
         self.quitWhenLastWindowClosed = defaults.object(forKey: Keys.quitWhenLastWindowClosed) as? Bool ?? false
@@ -1512,10 +1524,12 @@ extension AppPreferences {
                 Keys.favoriteOpenBehavior,
                 Keys.spreadBookmarkTargetBehavior,
                 Keys.defaultReadingDirection,
+                Keys.defaultDisplayMode,
+                // 「画像の表示」から移した(defaultScalingModeのコメント)。
+                Keys.defaultScalingMode,
             ]
         case .rendering:
             return [
-                Keys.defaultScalingMode,
                 Keys.maxUpscalePercent,
                 Keys.maxPinchZoomPercent,
                 Keys.interpolationQuality,
@@ -1664,8 +1678,9 @@ extension AppPreferences {
             favoriteOpenBehavior = source.favoriteOpenBehavior
             spreadBookmarkTargetBehavior = source.spreadBookmarkTargetBehavior
             defaultReadingDirectionSetting = source.defaultReadingDirectionSetting
-        case .rendering:
+            defaultDisplayMode = source.defaultDisplayMode
             defaultScalingMode = source.defaultScalingMode
+        case .rendering:
             maxUpscalePercent = source.maxUpscalePercent
             maxPinchZoomPercent = source.maxPinchZoomPercent
             interpolationQuality = source.interpolationQuality

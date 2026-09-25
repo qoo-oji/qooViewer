@@ -68,6 +68,11 @@
 (前の版へ戻したとき用。保存データの JSON には入れない ―― `SettingsBackup.excludedKeys`)。新しいキーは
 `qooViewer.pref.defaultReadingDirectionSetting`。
 
+同じ「初めて開く本」に、見開き/単ページ(`AppPreferences.defaultDisplayMode`、既定は見開き。保存は `DisplayMode.stableID`)と
+表示モード(`defaultScalingMode`、既定は画面内に収める)も並ぶ。見開き/単ページは 2026-09-26 まで `ViewerViewModel` で
+見開き固定だった。表示モードは以前「画像の表示」にあったのを、3 つを 1 か所で決められるようここへ移した(「初期設定に戻す」の
+担当も `.rendering` から `.opening` へ)。どれも効くのは `BookReadingState` を作るときだけ(読み方向と同じ)。
+
 ### PageLayoutOverride(ページ単位)
 
 `(bookID, pageKey)` → `PageLayoutState`。「レイアウトなし」は行が**存在しない**ことで表します
@@ -214,7 +219,10 @@ ComicInfo.xml だけは開いた後に非同期で読むので、読み終える
 - 除外を解除したページは、ファイル名基準の位置へ挿入し直す(除外中は位置がそのまま残るため)。
 - `pageLayoutStates` は書き込み完了後に1回だけ確定したスナップショット(行ごとにフェッチすると
   書き込みの合間の状態を拾う)。
-- `effectiveReadingDirection` はファイルのヒント > DB > 既定(`BookReadingState` は読まない)。
+- `effectiveReadingDirection` はビューアで開いたときと同じ順: DB の上書き > まだ取り込んでいないファイルのヒント >
+  最後にビューアで表示していた向き(`BookReadingState`。作成時・`load`・この本宛ての `layoutDataDidChange` で読み直す) > 既定。
+  2026-09-26 まではファイルのヒント > DB > 既定で、取り込み後に変えた EPUB の向きと、r キーで切り替えただけの本の向きが
+  見開き右/左の計算に効いていなかった。
 
 左ペインは `BookmarkStore.groups`(本ごとのまとめ)で、「ブックマークがある本のみ/レイアウト
 情報がある本のみ」で絞り込み、ダブルクリックで本を開いてジャンプできます(今開いていない本は

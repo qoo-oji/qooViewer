@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 
 /// 環境設定ウインドウの「画像の表示」画面。画像そのものの描画・表示のされ方に関する設定
-/// (拡大率・補間品質・既定表示モード・見開き判定の閾値・先読み枚数)をまとめる。
+/// (拡大率・補間品質・見開き判定の閾値・先読み枚数)をまとめる。
 ///
 /// 背景色は、アプリの外観に関する設定を1画面へ集約する方針(ユーザー要望)により
 /// 「外観」画面(AppearanceSettingsView)へ移した。背景色は「画像がどう描かれるか」ではなく
@@ -14,11 +14,7 @@ struct RenderingSettingsView: View {
     var body: some View {
         SettingsPaneContainer {
             Section {
-                SettingsPicker(
-                    "Default Display Mode",
-                    selection: $preferences.defaultScalingMode,
-                    help: "Used the first time a book is opened. Changing it later affects only that book."
-                )
+                // 「既定の表示モード」は「本を開く」の「初めて開く本」へ移した(AppPreferences.defaultScalingMode)。
                 SettingsSlider(
                     "Maximum Upscale for Images Smaller Than the Window",
                     value: $preferences.maxUpscalePercent,

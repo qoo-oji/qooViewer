@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 
 @testable import qooViewer
@@ -142,6 +143,49 @@ struct BookExportViewModelTests {
         env.library.layouts.setForcedDisplayMode(for: book, .spread)
         #expect(viewModel.prepare(row: row, book: book, displayState: openSingle)
             .forcedDisplayMode == .spread)
+    }
+
+    @Test("書き出しウインドウでは、上書きが無ければ最後にビューアで表示していた読み方向・見開きを使う")
+    func theLastShownStateFillsInWithoutAnOverride() throws {
+        let env = try Environment()
+        defer { env.close() }
+        env.preferences.defaultReadingDirectionSetting = .rightToLeft
+        let viewModel = env.makeViewModel()
+        let book = env.book("book")
+        let row = env.row(for: book)
+        // ビューアの r キーでの切り替えは、上書きの無い本では BookReadingState にだけ残る(2026-09-26 まで無視されていた)。
+        env.library.context.insert(
+            BookReadingState(bookID: book.id, displayMode: .single, readingDirection: .leftToRight))
+
+        let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+        #expect(prepared.readingDirection == .leftToRight)
+        #expect(prepared.forcedDisplayMode == .single)
+        // 本ごとの上書きのほうが強い。
+        env.library.layouts.setReadingDirectionOverride(for: book, .rightToLeft)
+        #expect(viewModel.prepare(row: row, book: book, displayState: nil).readingDirection == .rightToLeft)
+    }
+
+    @Test("まだ取り込んでいないファイル自身の指定は、最後の表示状態・既定より先に使い、取り込み済みなら見ない")
+    func anUnimportedSourceHintComesBeforeTheLastShownState() throws {
+        let env = try Environment()
+        defer { env.close() }
+        env.preferences.defaultReadingDirectionSetting = .leftToRight
+        let viewModel = env.makeViewModel()
+        var book = env.book("book")
+        book.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: .rightToLeft, forcedDisplayMode: .single)
+        let row = env.row(for: book)
+
+        let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+        #expect(prepared.readingDirection == .rightToLeft)
+        #expect(prepared.forcedDisplayMode == .single)
+
+        // 取り込んだ後に利用者が上書きを消した本では、ファイルの指定には戻らない(ビューアと同じ)。
+        env.library.layouts.importSourceLayoutIfNeeded(for: book)
+        env.library.layouts.setReadingDirectionOverride(for: book, nil)
+        env.library.layouts.setForcedDisplayMode(for: book, nil)
+        let afterImport = viewModel.prepare(row: row, book: book, displayState: nil)
+        #expect(afterImport.readingDirection == .leftToRight)
+        #expect(afterImport.forcedDisplayMode == nil)
     }
 
     // MARK: - ブックマークの解決

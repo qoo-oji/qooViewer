@@ -100,9 +100,10 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.favoriteOpenBehavior = otherCase(p.favoriteOpenBehavior)
     p.spreadBookmarkTargetBehavior = otherCase(p.spreadBookmarkTargetBehavior)
     p.defaultReadingDirectionSetting = otherCase(p.defaultReadingDirectionSetting)
+    p.defaultDisplayMode = otherCase(p.defaultDisplayMode)
+    p.defaultScalingMode = otherCase(p.defaultScalingMode)
 
     // MARK: 画像の見え方
-    p.defaultScalingMode = otherCase(p.defaultScalingMode)
     p.maxUpscalePercent += 1
     p.maxPinchZoomPercent += 1
     p.interpolationQuality = otherCase(p.interpolationQuality)

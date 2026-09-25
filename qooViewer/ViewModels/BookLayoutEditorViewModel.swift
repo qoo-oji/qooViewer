@@ -116,23 +116,34 @@ final class BookLayoutEditorViewModel: ObservableObject {
     private var securityScopedURL: URL?
 
     /// この本の実効的な読み方向。「見開き右/見開き左」を実際の画面上の右/左と一致させるため、
-    /// anchor(forPageKey:explicitState:in:)/anchorPinStates/setPageLayoutの計算にこれを使う
-    /// (ViewerViewModel.readingDirectionと同じ優先順位: ソースファイル自身(EPUB/PDF)由来 >
-    /// DB保存値 > 環境設定の既定値。
-    /// ただしViewerViewModelと異なり、この編集ウインドウは「最後に読んでいた位置」を持つ
-    /// BookReadingStateまで読み込まないため、そこは含めない。ビューアの読み方向トグルボタンで
-    /// 一時的に切り替えただけ(BookLayoutSettingsへは保存されない)の場合はここでは反映されない
-    /// が、通常はこの編集ウインドウの読み方向ドロップダウンで変更するとBookLayoutSettingsへ
-    /// 保存されるため、実用上はビューアの表示と一致する)。
+    /// anchor(forPageKey:explicitState:in:)/anchorPinStates/setPageLayoutの計算にこれを使う。
+    /// 優先順位はビューアで開いたときと同じ: 本ごとの上書き(BookLayoutSettings) > まだ取り込んでいない
+    /// ファイル自身(EPUB/PDF/ComicInfo)の指定 > 最後にビューアで表示していた向き(BookReadingState) > 環境設定の既定値。
+    ///
+    /// ■ 2026-09-26 に直した2点(「暗黙の既定値」の点検)
+    /// 以前はファイルの指定を上書きより**先に**見ていた(ファイルの指定が常に勝った頃の名残。CLAUDE.md
+    /// 「EPUB/PDF layout is a seed」)。EPUB の向きを変えたあとも、見開き右/左の計算だけがファイルの向きで行われていた。
+    /// ファイルの指定は初めて開いたときに上書きとして取り込まれる(LayoutStore.importSourceLayoutIfNeeded)ので、
+    /// 取り込み済みの本では見ない。
+    /// また BookReadingState を見ておらず、「ビューアの r キーで切り替えただけの本(上書きは作られない)では
+    /// ずれるが、実用上は一致する」としていたが、実際には上書きの無い本ではいつもずれていた。
     /// (以前はprivateだったが、ユーザー報告: 編集ウインドウの読み方向ドロップダウンが
     /// 上書き未設定のときに常に「既定」と表示され、実際に画面がどちら向きで開かれるのか
     /// 分からなかったため、BookmarkListView.swift側のPickerがこの実効値を直接表示できるよう
     /// 公開した。)
     var effectiveReadingDirection: ReadingDirection {
-        book?.sourceLayoutHint?.pageProgressionDirection
-            ?? layoutStore.bookLayoutSettings(forBookID: bookID)?.readingDirectionOverride
-            ?? preferences.defaultReadingDirection
+        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        if let override = settings?.readingDirectionOverride { return override }
+        if settings?.didImportSourceLayout != true, let hint = book?.sourceLayoutHint?.pageProgressionDirection {
+            return hint
+        }
+        return lastShownReadingDirection ?? preferences.defaultReadingDirection
     }
+
+    /// 最後にビューアで表示していた読み方向(LayoutStore.lastShownDisplaySettings)。effectiveReadingDirection は
+    /// ページごとの計算で何度も読まれるので、DB の全件フェッチを毎回しないよう控えておく。作ったときと load()、
+    /// この本宛ての layoutDataDidChange で読み直す(BookReadingState 自身には変更通知が無い)。
+    private var lastShownReadingDirection: ReadingDirection?
 
     /// この本のレイアウトデータが、このViewModel自身の書き込みメソッドを経由せずに変更された
     /// 場合(例: BookmarkListView.swift「レイアウトを全削除」ボタンがlayoutStore.
@@ -152,6 +163,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         self.layoutStore = layoutStore
         self.preferences = preferences
         self.bookmarkStore = bookmarkStore
+        self.lastShownReadingDirection = layoutStore.lastShownDisplaySettings(forBookID: bookID)?.readingDirection
 
         let ownBookID = bookID
         layoutDataChangeObserver = NotificationCenter.default.addObserver(
@@ -164,6 +176,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
             MainActor.assumeIsolated {
                 let changedBookID = notification.userInfo?["bookID"] as? String
                 guard changedBookID == nil || changedBookID == ownBookID else { return }
+                self?.reloadLastShownReadingDirection()
                 self?.refreshEffectiveIndices()
             }
         }
@@ -191,6 +204,10 @@ final class BookLayoutEditorViewModel: ObservableObject {
         Task { await loader?.releaseAllResources() }
     }
 
+    private func reloadLastShownReadingDirection() {
+        lastShownReadingDirection = layoutStore.lastShownDisplaySettings(forBookID: bookID)?.readingDirection
+    }
+
     /// releaseResources()が既に走ったか(二重の後始末を避ける。ViewerViewModelと同じ形)。
     private var hasReleasedResources = false
 
@@ -211,6 +228,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     func load() async {
         loadState = .loading
         isBookReady = false
+        reloadLastShownReadingDirection()
 
         let cached = await BookPageListCache.shared.pageList(forBookID: bookID)
         let cachedDescriptors = cached?.pages.map {
@@ -277,6 +295,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// - Parameter usesDiskCaches: `PageLoader` が共有のディスクキャッシュ(サムネイル・
     ///   ページ寸法)を使うか。既定はこれまでどおり使う。
     func load(book loaded: MangaBook, usesDiskCaches: Bool = true) {
+        reloadLastShownReadingDirection()
         book = loaded
         pageLoader = PageLoader(
             book: loaded, usesThumbnailDiskCache: usesDiskCaches,

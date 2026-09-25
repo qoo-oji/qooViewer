@@ -29,6 +29,7 @@ struct AppPreferencesTests {
         #expect(p.maxUpscalePercent == 200)
         #expect(p.interpolationQuality == .high)
         #expect(p.defaultScalingMode == .fitToScreen)
+        #expect(p.defaultDisplayMode == .spread)
         #expect(p.appearance.backgroundColorOption == .black)
         #expect(p.reopenBehavior == .resume)
         #expect(p.finderOpenBehavior == .replaceCurrentBook)
@@ -277,9 +278,10 @@ struct AppPreferencesTests {
         .opening: [
             "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior",
             "spreadBookmarkTargetBehavior", "defaultReadingDirectionSetting",
+            "defaultDisplayMode", "defaultScalingMode",
         ],
         .rendering: [
-            "defaultScalingMode", "maxUpscalePercent", "maxPinchZoomPercent", "interpolationQuality",
+            "maxUpscalePercent", "maxPinchZoomPercent", "interpolationQuality",
             "loupeMagnificationPercent", "loupeDiameter", "singlePageAspectRatioThreshold",
         ],
         .reading: [

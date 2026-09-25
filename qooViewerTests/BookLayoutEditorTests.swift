@@ -31,6 +31,33 @@ struct BookLayoutEditorTests {
         return readable + excluded
     }
 
+    @Test("読み方向は ビューアで開いたときと同じ順(上書き > 未取り込みのファイルの指定 > 最後の表示 > 既定)で決まる")
+    func theEffectiveReadingDirectionMatchesTheViewer() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.defaultReadingDirectionSetting = .rightToLeft
+        var book = try await harness.makeBook(pageCount: 4)
+
+        // 何も無ければ既定。
+        #expect(makeEditor(harness, book).effectiveReadingDirection == .rightToLeft)
+
+        // ビューアの r キーで切り替えた本(上書きは作られず BookReadingState にだけ残る)。2026-09-26 まで無視されていた。
+        let viewer = await harness.open(book)
+        viewer.toggleReadingDirection()
+        await viewer.settle()
+        #expect(harness.library.layouts.bookLayoutSettings(forBookID: book.id)?.readingDirectionOverride == nil)
+        #expect(makeEditor(harness, book).effectiveReadingDirection == .leftToRight)
+
+        // まだ取り込んでいないファイル自身の指定は、最後の表示より先。
+        book.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: .rightToLeft, forcedDisplayMode: nil)
+        #expect(makeEditor(harness, book).effectiveReadingDirection == .rightToLeft)
+
+        // 取り込んだ後に利用者が変えた上書きは、ファイルの指定より強い(以前はファイルの指定が勝っていた)。
+        harness.library.layouts.importSourceLayoutIfNeeded(for: book)
+        harness.library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
+        #expect(makeEditor(harness, book).effectiveReadingDirection == .leftToRight)
+    }
+
     @Test("行は本のページ順に並び、除外ページだけ読書順の番号を持たない")
     func rowsFollowThePageOrder() async throws {
         let harness = try ViewerHarness()

@@ -39,7 +39,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// 機能そのものの ON/OFF は、ライブラリ・ファイルブラウザと並べて「一般」に置いたまま(3 つの組でホームの形が
     /// 決まるので、1 か所で見比べられるように)。
     case smartLibrary
-    /// 本を開くときの挙動(初めて開く本の読み方向・再開時の開始ページ・Finder/お気に入りからの開き先)。
+    /// 本を開くときの挙動(初めて開く本の読み方向・見開き/単ページ・表示モード、再開時の開始ページ、Finder/お気に入りからの開き先)。
     case opening
     /// 画像そのものの見え方(拡大率・補間品質・背景色・ルーペ・見開き判定・先読み)。
     case rendering

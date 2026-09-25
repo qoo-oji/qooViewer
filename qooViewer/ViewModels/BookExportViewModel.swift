@@ -89,7 +89,8 @@ class BookExportViewModel: ObservableObject {
         let pageOrderOverride: [String]?
         /// pageKey(PageRef.sortKey) -> レイアウト状態。
         let pageOverrides: [String: PageLayoutState]
-        /// 本ごとの上書き。無い場合はnil(サブクラス側で環境設定の既定へ落とすかを判断する)。
+        /// 見開き/単ページ。本ごとの上書き・画面・ファイル自身の指定・最後にビューアで表示していた状態のどれも無ければnil
+        /// (一度も開いていない本。サブクラス側で指定を書かない)。
         let forcedDisplayMode: DisplayMode?
         /// 本ごとの上書きが無い場合は環境設定の既定読み方向で埋めた、常に確定した読み方向。
         ///
@@ -831,17 +832,28 @@ class BookExportViewModel: ObservableObject {
             )
         }
 
+        // 本ごとの上書き > 画面 > まだ取り込んでいないファイル自身の指定 > 最後にビューアで表示していた状態 > 環境設定の既定値。
+        // 画面の値が入るのは「いま開いている本を書き出す」経路だけ(OpenBookDisplayState参照)。
+        //
+        // 3つの書き出しウインドウでは、以前は上書きが無ければすぐ既定値だった。ビューアの切り替えは上書きの無い本では
+        // BookReadingStateにしか残らないので、r キーで左開きに直して読んでいた本が既定の右開きで書き出されていた。
+        // 一度も開いていない EPUB/PDF も、ファイル自身の向きではなく既定値で書き出されていた(2026-09-26 の点検)。
+        // 順序はビューアで開いたときと同じ(ファイルの指定は初めて開いたときに上書きとして取り込まれ、以後は見ない)。
+        let unimportedHint = settings?.didImportSourceLayout == true ? nil : book.sourceLayoutHint
+        let lastShown = displayState == nil ? layoutStore.lastShownDisplaySettings(forBookID: row.bookID) : nil
         let prepared = PreparedBook(
             row: row,
             book: book,
             pageOrderOverride: pageOrderOverride,
             pageOverrides: overrides,
-            // DB > 画面 > 環境設定の既定値。画面の値が入るのは「いま開いている本を書き出す」
-            // 経路だけで、3つの書き出しウインドウではこれまでどおりDB > 既定値になる
-            // (OpenBookDisplayState参照)。
-            forcedDisplayMode: settings?.forcedDisplayMode ?? displayState?.displayMode,
+            forcedDisplayMode: settings?.forcedDisplayMode
+                ?? displayState?.displayMode
+                ?? unimportedHint?.forcedDisplayMode
+                ?? lastShown?.displayMode,
             readingDirection: settings?.readingDirectionOverride
                 ?? displayState?.readingDirection
+                ?? unimportedHint?.pageProgressionDirection
+                ?? lastShown?.readingDirection
                 ?? preferences.defaultReadingDirection,
             bookmarks: exportBookmarks,
             coverOverride: resolveCoverOverride(settings: settings),

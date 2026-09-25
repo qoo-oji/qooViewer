@@ -410,6 +410,10 @@ progression direction / forced spread) or per-page spread hints, those are impor
 change reading direction / spread / per-page layout for EPUB and PDF just like any other format.
 Priority is DB (`BookLayoutSettings` / `PageLayoutOverride`) > `BookReadingState`, with the file's own hint
 used only as a fallback for pages the import didn't cover (see `ViewerViewModel.layoutHint(at:)`).
+Places that decide a book's direction/spread without an open viewer (the export windows, the Edit Bookmarks & Layout window)
+use the viewer's chain: override > file hint not yet imported (`didImportSourceLayout`) > the last shown `BookReadingState`
+(`LayoutStore.lastShownDisplaySettings` — the viewer's toggles write only there when the book has no override) > the "New Books"
+defaults in Settings ▸ Opening (2026-09-26; before that they skipped straight to the preference default).
 
 This replaced an earlier design in which the file's declaration always won and the corresponding
 toggles were locked and grayed out. `isReadingDirectionLocked`/`isDisplayModeLocked`/

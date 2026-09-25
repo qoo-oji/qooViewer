@@ -49,6 +49,15 @@ extension DefaultReadingDirection: SettingsOption {
     }
 }
 
+extension DisplayMode: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .spread: return "Spread"
+        case .single: return "Single Page"
+        }
+    }
+}
+
 // MARK: - 一般
 
 extension AppLanguage: SettingsOption {

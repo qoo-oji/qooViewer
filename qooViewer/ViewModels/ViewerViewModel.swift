@@ -533,7 +533,7 @@ final class ViewerViewModel: ObservableObject {
                 // 鍵も一緒に写す。落とすと、実効順で記録されたlastPageIndexが下の鍵変換で
                 // 「従来順の番号」として誤解釈され、並びが入れ替わる本で読書位置がずれる。
                 lastPageKey: existingState?.lastPageKey,
-                displayMode: existingState?.displayMode ?? .spread,
+                displayMode: existingState?.displayMode ?? preferences.defaultDisplayMode,
                 readingDirection: existingState?.readingDirection ?? preferences.defaultReadingDirection,
                 scalingMode: existingState?.scalingMode ?? preferences.defaultScalingMode
             )
@@ -577,7 +577,7 @@ final class ViewerViewModel: ObservableObject {
             // 設計コンセプト11.1節、AppPreferences.defaultReadingDirectionSetting参照)を明示的に渡す。
             state = BookReadingState(
                 bookID: bookID,
-                displayMode: carriedOver?.displayMode ?? .spread,
+                displayMode: carriedOver?.displayMode ?? preferences.defaultDisplayMode,
                 readingDirection: carriedOver?.readingDirection ?? preferences.defaultReadingDirection,
                 scalingMode: carriedOver?.scalingMode ?? preferences.defaultScalingMode
             )
