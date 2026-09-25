@@ -56,6 +56,11 @@ struct BookLayoutEditorTests {
         harness.library.layouts.importSourceLayoutIfNeeded(for: book)
         harness.library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
         #expect(makeEditor(harness, book).effectiveReadingDirection == .leftToRight)
+
+        // 上の 2 回の書き込みは、開いたままのビューアにレイアウト変更として届き、約 1 フレーム後に読み直し(と保存)が走る。
+        // 待たずに終えると、テストの後始末でコンテナが解放された後にその保存が走り、テストホストごと落ちる
+        // (「ModelContext.save() called after its ModelContainer has been deallocated」。2026-09-26 に CI の macOS 27 で踏んだ)。
+        await viewer.settle()
     }
 
     @Test("行は本のページ順に並び、除外ページだけ読書順の番号を持たない")

@@ -989,6 +989,12 @@ final class ViewerViewModel: ObservableObject {
     func releaseResources() {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
+        // デバウンス待ちの保存は、ここで確定させて止める(2026-09-26)。以前は止めておらず、手放した後も 0.4 秒後に
+        // modelContext.save() が走った。ウインドウの willClose 経路は onDisappear の flushPendingSave を通らないので
+        // 確定は要る。その後で走り出す保存は scheduleSave が断る(下の描き直しの Task は取り消しても走り切ることがある)。
+        // テストでは、この遅れた保存がテストの後始末で解放されたコンテナに当たってテストホストごと落ちた
+        // (「ModelContext.save() called after its ModelContainer has been deallocated」、CI の macOS 27)。
+        flushPendingSave()
         Self.openBookCounter.withLock { $0 -= 1 }
         Self.unregisterOpenBook(openBookRegistryID)
         // スライドショーもここで止める(監査で指摘)。通常はhandleOnDisappearが先に
@@ -2372,7 +2378,8 @@ final class ViewerViewModel: ObservableObject {
 
     /// 読書位置の行をディスクへ書く(少し待ってまとめて)。シークレットウインドウでは書かない。
     private func scheduleSave() {
-        guard !skipsPersistence else { return }
+        // 手放した後は保存しない(releaseResources のコメント。取り消した描き直しの残りがここへ来ることがある)。
+        guard !skipsPersistence, !hasReleasedResources else { return }
         // 実際のディスクへの保存(modelContext.save())は、ホイール操作などで素早く連続して
         // ページ送りされるたびに毎回行うとメインスレッドの処理が詰まり、画像の更新が
         // 遅れる原因になる。そのため保存だけは少し間隔を空けてまとめて行う(デバウンス)。
