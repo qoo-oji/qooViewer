@@ -136,7 +136,7 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
 | `CollectionCoverSourceStore`(struct) | `.../CollectionCoverSources/<uuid>.jpg`。利用者が指定した画像の**複製**(長辺 1536px、JPEG 0.85)。**作り直しの元**で本単位 |
 | `CoverImageResolver`(nonisolated) | 「この本の表紙はどの画像か」を決める唯一の場所(上書き > 実効1ページ目)と、枠へ収める切り方 `cropped(_:to:anchor:)` |
 | `CollectionCoverExtractor`(MainActor) | アプリ全体で1本の待ち行列。**同時1件**、上から順に埋まる。本を丸ごと開いて先頭ページを復号するので、並列にするとビューアの邪魔になる |
-| `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない) |
+| `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない)。復号した絵はアプリで 1 つのメモリ LRU(`CollectionCoverStore.memoryCache`、800 枚・64MB。鍵は item・差し替えの回数・大きさ)から引く ―― 以前は戻るたび・作り直すたび・ウインドウごとに全セルが JPEG を読み直した(2026-09-25)。書く・消すと捨てる。ライブラリを OFF にすると手放す |
 | `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
 
 **表紙の元画像(`CollectionCoverSources`)は、参照が無くてもすぐには消さない**(2026-09-13)。
@@ -226,6 +226,12 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
 (抜いた・共有が落ちた)ときは `.pending` のまま、JPEG を書けなかった(ディスクが一杯)ときは
 `.pending` のまま `deferredItemIDs` に入れて**次のアクティブ化まで積まない**(入れないと、他の本の
 抽出が終わるたびの `refill()` で失敗を繰り返す)。表紙を選び直したときも見送りは解ける。
+
+**抽出役の回り方**(2026-09-25 の監査)。抽出役は `.collectionsDidChange` で `refill()` するが、自分が結果(`.ready` / `.failed` 等)を
+書いただけの知らせ(userInfo の `isCoverResult`)では積み直さない ―― 以前は 1 冊終わるたびに全登録を走査して積み直し、冊数の 2 乗の
+仕事になっていた。ブックマークの解決と存在確認は `FileIO` で行い(以前はメイン)、解決している間の本は `resolvingItemIDs` に入れて、
+その間の `refill()` が同じ本を二重に積まないようにする(`await` を挟んだために一度そうなって、テストが 1 回多い抽出を捉えた)。
+抽出中・解決中に表紙の指定が変わった本は `redoAfterExtraction` へ積む(以前は終わった抽出が古い絵で `.ready` にした)。
 
 カバーの選び直しは `CoverOverrideController`(元は `BookExportViewModel` の一部)に切り出してあり、
 本を開いていない画面からも同じ操作になる。**`@State` に入れた `ObservableObject` は購読されない**
@@ -950,7 +956,13 @@ StackNest では画面の上にある絞り込み(フィルタのポップオー
   記録は残り、メタデータの対象は変わらない。対象フォルダを外すと、その記録も外れる。
   Debug の保存データで起動直後に 2 秒ほど待たされたのは、表紙の作り直し待ちが 2,104 冊あり抽出役がメインスレッドで
   ブックマークを解決していたため(本番の保存データでは起きない)。
-- 本を集め直すのは画面が出ている間だけ(`activate` / `deactivate`)。フォルダを探し直すのは、対象フォルダが変わったとき・アプリ自身が
+- 本を集め直すのは画面が出ている間だけ(`activate(client:)` / `deactivate(client:)`。画面ごとの印で、ウインドウの `willClose` からも外す ――
+  2026-09-25 の監査。以前は数だけ数えていて、閉じたウインドウの onDisappear が来ないと「出ている」のまま集め直し続けた)。
+  集め直した一覧が前と同じなら `books` を差し替えず `revision` も進めない(以前は毎回すべてのグリッドとファセットを組み直した)。
+  起動後の最初の集め直しで同じ `catalog.json` を書き直さない。表紙のセルは段(tier)が上がったときと出どころの鍵
+  (`FileBrowserThumbnailProvider.sourceKey`)が変わったときだけ引き直し、切った絵は控える(以前は幅が 1pt 変わるたび・どれかの
+  表紙ができるたびに全セルが引き直した)。シェルフの結果と検索の文字列は `SmartLibraryViewState` が控える(本・シェルフ・分が
+  変われば作り直す)。フォルダを探し直すのは、対象フォルダが変わったとき・アプリ自身が
   その中を動かしたとき・アプリの外で動いた本を付け替えたとき・ボリュームを付けた/外したとき・「本を探し直す」を押したとき。
   対象フォルダのボリュームが繋がっていない回は catalog.json を上書きしない(2026-09-22 の監査。以前は空の一覧で上書きした)。
 - 起動時の刈り込みは、記録した本の一覧(`MetadataCorpusStore`)に無い、読みだけの行を消す(まだ一度も探していない対象フォルダの中は残す)。

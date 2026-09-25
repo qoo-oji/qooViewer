@@ -151,6 +151,9 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 `LaunchCoordinator.pendingEditorInitialFocus` のような共有オブジェクト経由で渡します。
 一度作られた補助ウインドウの ViewModel は閉じてもアプリ終了まで使い回されるので、変更通知を
 購読して一覧を読み直す必要があります(`BookExportViewModel` / `MetadataEditorViewModel`)。
+ただし**閉じている間は読み直さない**: 書き出しウインドウの ViewModel は閉じている間は印だけ付け、次に出たときに 1 回読む
+(`BookExportViewModel.setPresented`、2026-09-25 の監査。以前は一度開くと、閉じた後も知らせのたびに対象全冊のブックマークを解決して
+実在を確かめていた)。新しい補助ウインドウも同じ形にします。
 
 **新しいウインドウ/タブで本を開く**経路は `BookWindowOpener.open(_:to:from:)` の1本に集約されて
 います(フォルダをファイルブラウザで開くのは `BookWindowOpener.openFolder`。ウインドウを見つけて置く後半は共有)。行き先は `BookOpenDestination`(引き継ぐ新ウインドウ/必ず通常/必ずシークレット/タブ)、

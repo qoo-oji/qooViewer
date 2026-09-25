@@ -152,6 +152,14 @@ exclusions, plus mtime/size — folders are compared by page count only, their m
 first page but keeps its direction/display/scaling and every bookmark whose `pageKey` still exists; `persistState` writes the
 display settings only when that viewer changed them (two viewers can hold the same row). These rules fixed 1.71's "reading
 direction is not remembered"; `ReadingStateReplacementTests` / `FeatureTogglePersistenceTests` pin them.
+**Efficiency audit (2026-09-25; `docs/plans/efficiency-audit-2026-09-25.md`)**: per-window work that mirrors something only runs
+while it is on screen — the side panel's folder browser (`SidePanelBrowserState.setVisible`) and book-contents browser
+(`ContentView.isBookContentsPaneOnScreen`) only mark themselves stale while hidden and catch up when shown, the export window's
+VM likewise (`setPresented`), the smart-library catalog counts per-screen clients (`activate(client:)`). Cells ask for thumbnails
+again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on the provider's global `revision` alone. Store
+notifications that concern particular books carry their IDs (`BookRelocationPlan.relocatedBookIDsUserInfoKey`,
+`ViewerViewModel.notificationConcerns`). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
+`BookPageListCache.Entry.sourceProbe` — never by setting `didImportSourceMetadata`, which would change `isParsedOnly`.
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is
 persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file — must decide whether it joins

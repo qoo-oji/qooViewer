@@ -219,6 +219,14 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 - 書き出しウインドウのカバー列の「実質的な先頭ページ」名(`resolveDefaultCoverName`)。
 - 一括リネームの「表紙」ブックマークの鍵。
 - ソリッド 7z の下調べを2回目以降スキップする(`pageSizes`)。
+- 「ファイルに無かった」ことを覚える(`Entry.sourceProbe`、2026-09-25)。ComicInfo.xml・EPUB の目次・PDF のアウトライン・
+  EPUB/PDF の書誌情報は、取り込めたときだけ DB に印が付くので、何も持たない本は開くたびに探し直していた(PDF は 2〜3 回
+  開き直して解析)。指紋が同じ間だけ「無かった」を信じ、ファイルが変われば項目ごと捨てる。`BookMetadata.didImportSourceMetadata`
+  を立てて代わりにしないのは、印の無い行だけが掃除の対象(`isParsedOnly`)だから。シークレットウインドウと
+  `cachesPageList: false` の読み込みでは読み書きしない。
+
+開くたびの `store` は、前と同じ中身なら書き直さない(鍵を並べて書く `.sortedKeys` なのでバイト列が揃う。更新日時は
+刈り込みに使うので、古いときだけ触る ―― `DiskCacheAccessStamp`)。
 
 環境設定「キャッシュ」から容量の確認と削除ができます。EPUB は `folderPath` を持たない
 (古いキャッシュに残っていても読まない)。

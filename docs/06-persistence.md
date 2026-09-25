@@ -8,7 +8,7 @@
 | ブックマーク | SwiftData `Bookmark` | `BookmarkStore` / `ViewerViewModel` | 無制限(自動削除しない) |
 | レイアウト(本全体) | SwiftData `BookLayoutSettings` | `LayoutStore` | 無制限 |
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
-| お気に入り(**無効化中**) | SwiftData `FavoriteBook` / `FavoriteFolder` | `FavoritesStore` | 上限 999 件、フォルダ3階層(`FavoritesLimits`)。改善要望5で UI の入り口をすべて閉じた(`FavoritesFeature.isEnabled == false`)。モデル・ストア・ウインドウ・JSON は残してあり、フラグを true に戻せば以前の登録がそのまま見える |
+| お気に入り(**無効化中**) | SwiftData `FavoriteBook` / `FavoriteFolder` | `FavoritesStore` | 上限 999 件、フォルダ3階層(`FavoritesLimits`)。改善要望5で UI の入り口をすべて閉じた(`FavoritesFeature.isEnabled == false`)。モデル・ストア・ウインドウ・JSON は残してあり、フラグを true に戻せば以前の登録がそのまま見える。無効の間は実体の確かめ直し・メニューを閉じたときの読み直しを始めない(2026-09-25) |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
 | コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
@@ -261,6 +261,14 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 「マネージドオブジェクトは既に新しい値になっていて変更前が読めない」ため、自分の現在値
 (`isContrastCorrectionEnabled` / `readingDirection` / `displayMode`)との比較で差分を取ります。
 
+通知は**どの本のものかを付ける**(2026-09-25 の監査)。本を問わない通知は開いている全冊のビューアに全件のフェッチと組み直しをさせる
+(付け替えは移動・リネームのたびに起きる)ので、`LayoutStore` / `BookmarkStore` の付け替え(`applyBookRelocation`)は付け替えた本の ID を
+`BookRelocationPlan.relocatedBookIDsUserInfoKey` で付け、ビューアは `ViewerViewModel.notificationConcerns` で自分の本(新旧どちらか)の
+ものだけ受ける。本を開くときの Bookmark の全件フェッチ・ファイルの識別子(`FileNodeIdentifier`)は 1 回ずつにして、5 つのストアの
+`reconcileBookIDIfMoved(book:knownIdentifier:)` へ同じ値を渡す(以前は全件フェッチが 2〜3 回、識別子が最大 7 回)。差し替えと判断して
+ブックマークを消したときも `.bookmarksDidChange` を出す(以前は出さず、編集ウインドウの一覧が消えた行を持ち続けた)。
+`BookMetadataStore.allRecords()` は `revision` が同じ間は控えを返す。
+
 ## UserDefaults のストア
 
 ### AppPreferences
@@ -317,6 +325,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   (取り下げても元に戻る)。
 - 値は1件ずつ解決する(`resolveActions`)。辞書ごと `[String: ViewerAction]` にデコードすると
   知らない操作名1つで丸ごと既定値に戻ってしまう。改名した操作は `renamedActions` で読み替える。
+- ホイールの振る舞い・スクロール量の設定(`setWheelBehavior` / `setScrollStep`)は、値が変わらなければ何もせず、変わった 1 つの
+  塊だけを書く(2026-09-25。以前は全部の辞書を毎回書き直した)。
 - `fillingMissingDefaults`: 保存データに無い既定(後から足した操作)を、「そのキーが未使用で、
   その操作に割り当てが1つも無い」ときだけ補う。表示モード別の上書きには適用しない
   (項目が無いこと自体が「基本へフォールバック」の意味)。
