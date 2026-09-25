@@ -173,6 +173,15 @@ final class SmartLibraryViewState: ObservableObject {
     private var revealSerial = 0
 
     private let defaults: UserDefaults
+    /// 本を集める役(SmartLibraryCatalog)に付けた「出ている」印を外す口。ペインが出たときに置く(SmartLibraryPane)。
+    var catalogActivationRelease: (() -> Void)?
+
+    /// 本を集める役に付けた印を外す(ウインドウを閉じたとき。ContentView の willClose ―― onDisappear が来ないことがある)。
+    /// 付けていなければ何もしない。
+    func releaseCatalogActivation() {
+        catalogActivationRelease?()
+    }
+
     /// 画面から渡された本の一覧(集めたまま)。
     private var sourceBooks: [SmartBook] = []
     /// 絞り込み・並べ替えに使う本(`sourceBooks` に著者の設定を当てたもの。`usesFirstAuthorOnly`)。

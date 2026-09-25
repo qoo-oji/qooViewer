@@ -1213,6 +1213,8 @@ struct ContentView: View {
                 // 普段は本が閉じたときの onChange が手放すが、ウインドウごと閉じたときにそれが走る保証は無い。
                 bookContentsBrowserTask?.cancel()
                 bookContentsBrowser?.releaseResources()
+                // スマートライブラリの本集めに付けた印も外す(onDisappear が来ないと、画面が無いのに集め直し続ける)。
+                smartLibrary.releaseCatalogActivation()
                 tokens.removeAll()
             }
         })

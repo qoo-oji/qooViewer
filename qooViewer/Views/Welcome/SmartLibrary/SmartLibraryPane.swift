@@ -44,13 +44,19 @@ struct SmartLibraryPane: View {
         .coordinateSpace(.named(Self.coordinateSpace))
         // シークレットウインドウに出している間は、並べた本を DB へ登録しない(SmartLibraryCatalog.persistingCount)。
         .onAppear {
-            catalog.activate(persistsMetadata: !appState.isPrivateWindow)
+            catalog.activate(client: state, persistsMetadata: !appState.isPrivateWindow)
+            // ウインドウごと閉じたときに onDisappear が来ないことがあるので、ContentView の willClose からも外せるようにする
+            // (SmartLibraryViewState.releaseCatalogActivation)。
+            state.catalogActivationRelease = { [weak catalog, weak state] in
+                guard let catalog, let state else { return }
+                catalog.deactivate(client: state)
+            }
             // 本を渡す前に著者の設定を当てておく(先に渡すと、設定を当て直す分だけ 2 度並べ直す)。
             state.usesFirstAuthorOnly = preferences.smartLibraryUsesFirstAuthorOnly
             state.update(books: catalog.books, shelves: store.shelves)
         }
         .onDisappear {
-            catalog.deactivate(persistsMetadata: !appState.isPrivateWindow)
+            catalog.deactivate(client: state)
             home.smartSelectedBookPaths = []
         }
         // 選んでいる本をメニューバーの「Finder で表示」などの相手にする(2026-09-23。HomeMenuState.smartBookPaths)。

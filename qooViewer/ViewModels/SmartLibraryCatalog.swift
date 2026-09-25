@@ -157,6 +157,25 @@ final class SmartLibraryCatalog: ObservableObject {
         scheduleRebuild(rescan: false, delay: .zero)
     }
 
+    /// 画面ごとの印(`activate(client:persistsMetadata:)`)。同じ画面が 2 度付けても 1 回と数え、外すのも 1 回だけ。
+    private var activeClients: [ObjectIdentifier: Bool] = [:]
+
+    /// 画面(`client`。ウインドウごとの SmartLibraryViewState)が出た。`activate` と同じだが、同じ画面の付け外しが重なっても
+    /// 数を狂わせない(2026-09-25 の監査。ウインドウを閉じたときに onDisappear が来ないことがあり、ContentView の willClose からも
+    /// 外すため ―― 外し損ねると、画面が無いのにメタデータの変更・ボリュームの着脱のたびに集め直し続けた)。
+    func activate(client: AnyObject, persistsMetadata: Bool) {
+        let id = ObjectIdentifier(client)
+        guard isFeatureEnabled, activeClients[id] == nil else { return }
+        activeClients[id] = persistsMetadata
+        activate(persistsMetadata: persistsMetadata)
+    }
+
+    /// 画面(`client`)が消えた。付けていなければ何もしない。
+    func deactivate(client: AnyObject) {
+        guard let persistsMetadata = activeClients.removeValue(forKey: ObjectIdentifier(client)) else { return }
+        deactivate(persistsMetadata: persistsMetadata)
+    }
+
     func deactivate(persistsMetadata: Bool = true) {
         if persistsMetadata { persistingCount = max(0, persistingCount - 1) }
         activeCount = max(0, activeCount - 1)
