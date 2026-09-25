@@ -84,9 +84,20 @@ final class BookMetadataStore: ObservableObject {
     }
 
     /// すべての行を、qooMeta との受け渡しの形で。
+    ///
+    /// **`revision` が同じ間は作り直さない**(2026-09-25 の監査)。行ごとに 10 余りの欄を読み、直した欄の JSON を解くので、数千行で
+    /// 数十ミリ秒かかる。メタデータ生成は 1 回の読み直しで 2〜3 回、スマートライブラリは集め直すたびに呼ぶ。行の中身(値・ロック・
+    /// 直した欄・ルールセット)と行の出入り・付け替えは、どれもこのストアの書き込み口を通り、最後に `revision` を進める
+    /// (識別子・ブックマーク・取り込みの印だけを書く口は進めないが、それらは受け渡しの形に入っていない)。
     func allRecords() -> [String: BookMetadataRecord] {
-        metadataByBookID().mapValues(\.record)
+        if let cachedRecords, cachedRecords.revision == revision { return cachedRecords.records }
+        let records = metadataByBookID().mapValues(\.record)
+        cachedRecords = (revision, records)
+        return records
     }
+
+    /// `allRecords()` の控え(作った時点の `revision` と一緒に)。
+    private var cachedRecords: (revision: UInt64, records: [String: BookMetadataRecord])?
 
     /// この本にメタデータが登録されているか。
     func isRegistered(bookID: String) -> Bool {

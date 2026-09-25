@@ -79,37 +79,116 @@ nonisolated enum StorageUsageScanner {
         var databaseStoreURL: URL
     }
 
-    /// コレクション表紙の合計(焼いた絵 + 元画像の複製)。どちらも無ければnil。
-    private static func coverBytes(_ locations: Locations) -> Int? {
-        let rendered = locations.collectionCoverDirectory.flatMap { directorySize(at: $0)?.bytes }
-        let sources = locations.collectionCoverSourceDirectory.flatMap { directorySize(at: $0)?.bytes }
-        guard rendered != nil || sources != nil else { return nil }
-        return (rendered ?? 0) + (sources ?? 0)
-    }
-
     /// 呼び出し側のTaskが取り消されたら、途中で打ち切ってnilを返す(ディレクトリの列挙の
     /// 途中でTask.isCancelledを見る)。「今すぐ更新」の連打で走査が丸ごと並走しないため。
+    ///
+    /// ■ コンテナは 1 回だけ辿る(2026-09-25 の監査)
+    /// 内訳のフォルダはどれもコンテナの中にある。以前はコンテナ全体を辿った後、内訳のフォルダをもう一度 1 つずつ辿っていた
+    /// (サムネイルのキャッシュの数万ファイルを 15 秒ごとに 2 度ずつ stat)。今はコンテナを辿りながら、ファイルをそれが入っている
+    /// 内訳へ振り分ける。コンテナの外にある内訳(テストや、サンドボックスでない実行)だけ、今までどおり別に辿る。
+    /// 「無い」(nil)と「空」(0)の区別は、内訳のフォルダがあるかどうかで決める(今までと同じ)。
     static func scan(_ locations: Locations) -> StorageUsage? {
-        let session = directorySize(at: locations.sessionTemporaryDirectory)
-        let stale = staleTemporarySize(in: locations.temporaryRoot)
-        let container = directorySize(at: locations.containerRoot)
+        let rootPath = comparablePath(locations.containerRoot)
+        var session: DirectorySize?
+        var thumbnails: DirectorySize?
+        var pageLists: DirectorySize?
+        var covers: DirectorySize?
+        var coverSources: DirectorySize?
+        var tiles: DirectorySize?
+        var fileBrowserThumbnails: DirectorySize?
+        // 内訳のフォルダがあれば 0 から数え始める。コンテナの中にあれば、下の 1 回の走査で振り分けるための接頭辞を返す。
+        func bucket(_ directory: URL?, into total: inout DirectorySize?) -> String? {
+            guard let directory, isExistingDirectory(directory) else { return nil }
+            let path = comparablePath(directory)
+            guard path.hasPrefix(rootPath + "/") else {
+                total = directorySize(at: directory)
+                return nil
+            }
+            total = DirectorySize(bytes: 0, fileCount: 0)
+            return path
+        }
+        let sessionPath = bucket(locations.sessionTemporaryDirectory, into: &session)
+        let thumbnailPath = bucket(locations.thumbnailCacheDirectory, into: &thumbnails)
+        let pageListPath = bucket(locations.pageListCacheDirectory, into: &pageLists)
+        let coverPath = bucket(locations.collectionCoverDirectory, into: &covers)
+        let coverSourcePath = bucket(locations.collectionCoverSourceDirectory, into: &coverSources)
+        let tilePath = bucket(locations.collectionTileDirectory, into: &tiles)
+        let fileBrowserThumbnailPath = bucket(locations.fileBrowserThumbnailCacheDirectory, into: &fileBrowserThumbnails)
+        // 他の起動が残した一時ファイル(`tmp/` 直下の残骸)。直下の一覧で決め、中身の量は下の 1 回の走査で数える。
+        var stale = staleTemporaryEntries(in: locations.temporaryRoot)
+        let staleDirectories = comparablePath(locations.temporaryRoot).hasPrefix(rootPath + "/") ? stale.directories : []
+        if staleDirectories.isEmpty, !stale.directories.isEmpty {
+            // コンテナの外(テストや、サンドボックスでない実行)なら今までどおり別に辿る。
+            stale.bytes += stale.directories.reduce(0) { $0 + (directorySize(at: URL(fileURLWithPath: $1, isDirectory: true))?.bytes ?? 0) }
+        }
+
+        var container: DirectorySize?
+        if isExistingDirectory(locations.containerRoot),
+           let enumerator = FileManager.default.enumerator(
+               at: locations.containerRoot, includingPropertiesForKeys: Array(sizeKeys), options: []
+           ) {
+            var total = DirectorySize(bytes: 0, fileCount: 0)
+            for case let url as URL in enumerator {
+                if Task.isCancelled { return nil }
+                guard let values = try? url.resourceValues(forKeys: sizeKeys),
+                      values.isSymbolicLink != true,
+                      values.isRegularFile == true
+                else { continue }
+                let size = values.fileSize ?? 0
+                total.bytes += size
+                total.fileCount += 1
+                let path = comparablePath(url)
+                func isIn(_ prefix: String?) -> Bool { prefix.map { path.hasPrefix($0 + "/") } ?? false }
+                if isIn(sessionPath) {
+                    session?.bytes += size
+                    session?.fileCount += 1
+                } else if isIn(thumbnailPath) {
+                    thumbnails?.bytes += size
+                } else if isIn(pageListPath) {
+                    pageLists?.bytes += size
+                } else if isIn(coverPath) {
+                    covers?.bytes += size
+                } else if isIn(coverSourcePath) {
+                    coverSources?.bytes += size
+                } else if isIn(tilePath) {
+                    tiles?.bytes += size
+                } else if isIn(fileBrowserThumbnailPath) {
+                    fileBrowserThumbnails?.bytes += size
+                } else if staleDirectories.contains(where: { path.hasPrefix($0 + "/") }) {
+                    stale.bytes += size
+                }
+            }
+            container = total
+        }
         guard !Task.isCancelled else { return nil }
+        let coverTotal: Int? = covers == nil && coverSources == nil ? nil : (covers?.bytes ?? 0) + (coverSources?.bytes ?? 0)
         return StorageUsage(
             containerBytes: container.map(\.bytes),
             sessionTemporaryBytes: session?.bytes ?? 0,
             sessionTemporaryFileCount: session?.fileCount ?? 0,
             staleTemporaryBytes: stale.bytes,
             staleTemporaryEntryCount: stale.entryCount,
-            thumbnailCacheBytes: locations.thumbnailCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
-            pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
-            collectionCoverBytes: coverBytes(locations),
-            collectionTileBytes: locations.collectionTileDirectory.flatMap { directorySize(at: $0)?.bytes },
-            fileBrowserThumbnailCacheBytes: locations.fileBrowserThumbnailCacheDirectory.flatMap {
-                directorySize(at: $0)?.bytes
-            },
+            thumbnailCacheBytes: thumbnails?.bytes,
+            pageListCacheBytes: pageLists?.bytes,
+            collectionCoverBytes: coverTotal,
+            collectionTileBytes: tiles?.bytes,
+            fileBrowserThumbnailCacheBytes: fileBrowserThumbnails?.bytes,
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()
         )
+    }
+
+    /// 前方一致で比べるためのパス(`/private` の有無を揃え、末尾の `/` を落とす)。
+    private static func comparablePath(_ url: URL) -> String {
+        var path = url.standardizedFileURL.path
+        if path.hasPrefix("/private/var/") || path.hasPrefix("/private/tmp/") { path = String(path.dropFirst("/private".count)) }
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
+    private static func isExistingDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private struct DirectorySize {
@@ -142,22 +221,30 @@ nonisolated enum StorageUsageScanner {
         return DirectorySize(bytes: total, fileCount: count)
     }
 
-    /// `tmp/`直下で、他セッションの残骸と判定されるエントリの合計。判定は起動時の掃除と
-    /// 同じ`TemporaryFileStore.isStaleEntry`。
-    private static func staleTemporarySize(in temporaryRoot: URL) -> (bytes: Int, entryCount: Int) {
+    /// `tmp/`直下で、他セッションの残骸と判定されるエントリ。判定は起動時の掃除と同じ`TemporaryFileStore.isStaleEntry`。
+    /// ファイルの残骸はその大きさを `bytes` に足し、フォルダの残骸は中身を数えずにパス(`comparablePath`)を返す
+    /// (中身はコンテナの 1 回の走査で数える。`scan`)。
+    private static func staleTemporaryEntries(
+        in temporaryRoot: URL
+    ) -> (bytes: Int, entryCount: Int, directories: [String]) {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: temporaryRoot, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [.skipsHiddenFiles]
-        ) else { return (0, 0) }
+        ) else { return (0, 0, []) }
         var bytes = 0
         var count = 0
+        var directories: [String] = []
         for entry in entries {
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             let isDirectory = values?.isDirectory ?? false
             guard TemporaryFileStore.isStaleEntry(entry, isDirectory: isDirectory) else { continue }
             count += 1
-            bytes += isDirectory ? (directorySize(at: entry)?.bytes ?? 0) : (values?.fileSize ?? 0)
+            if isDirectory {
+                directories.append(comparablePath(entry))
+            } else {
+                bytes += values?.fileSize ?? 0
+            }
         }
-        return (bytes, count)
+        return (bytes, count, directories)
     }
 
     /// ストア本体が無ければnil。WAL/SHMは無いことも普通なので、あるぶんだけ足す。

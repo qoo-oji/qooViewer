@@ -246,7 +246,19 @@ final class FileBrowserState: ObservableObject {
     /// 待つ側は`settle()`を使う。
     private(set) var loadTask: Task<Void, Never>?
 
-    private var allEntries: [FileBrowserEntry] = []
+    private var allEntries: [FileBrowserEntry] = [] {
+        didSet { normalizedNamesCache = nil }
+    }
+    /// `allEntries` の名前を照合用に畳んだもの(同じ並び)。絞り込みを始めたときに 1 度だけ作る(`filteredAllEntries`)。
+    private var normalizedNamesCache: [String]?
+
+    /// `allEntries` を今の絞り込みの文字で絞ったもの。
+    private func filteredAllEntries() -> [FileBrowserEntry] {
+        guard LibrarySearchQuery(filterText) != nil else { return allEntries }
+        let names = normalizedNamesCache ?? allEntries.map { LibrarySearchQuery.normalized($0.displayName) }
+        normalizedNamesCache = names
+        return FileBrowserListing.filtered(allEntries, normalizedNames: names, by: filterText)
+    }
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
     private var generation = 0
@@ -535,6 +547,10 @@ final class FileBrowserState: ObservableObject {
         let mine = generation
         loadTask?.cancel()
         let folder = currentFolder
+        // 並べ替えも読み込みと一緒に FileIO の上で(2026-09-25 の監査)。`localizedStandardCompare` の比較は数万件で数百ミリ秒に
+        // なり、以前はメインで、アクティブ化・ホームへ戻る・FSEvents のたびに走っていた。読んでいる間に並びの設定が変わっていたら、
+        // `apply` がメインで並べ直す。
+        let sort = self.sort
         isLoading = true
         needsReloadAfterLoad = false
         inFlightFolderID = .some(Self.id(of: folder))
@@ -551,19 +567,19 @@ final class FileBrowserState: ObservableObject {
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
             if let folder {
                 do {
-                    outcome = .success(try await FileIO.perform { try FileBrowserListing.entries(in: folder) })
+                    outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder)) })
                 } catch is CancellationError {
                     return
                 } catch {
                     outcome = .failure(FileBrowserLoadError.classify(error, folder: folder))
                 }
             } else {
-                outcome = .success(await FileIO.perform { FileBrowserListing.volumeEntries(mountTable: .current()) })
+                outcome = .success(await FileIO.perform { sort.sorted(FileBrowserListing.volumeEntries(mountTable: .current())) })
             }
             guard let self, self.generation == mine else { return }
             switch outcome {
             case .success(let list):
-                self.apply(list)
+                self.apply(list, sortedWith: sort)
             case .failure(.notFound), .failure(.volumeUnavailable):
                 // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)。空の一覧に
                 // 「見つかりません」を出して止まるより、残っている祖先へ移るほうが次の操作に進める。
@@ -679,10 +695,14 @@ final class FileBrowserState: ObservableObject {
 
     // MARK: - 読み込み結果の適用
 
-    private func apply(_ list: [FileBrowserEntry]) {
-        isLoading = false
-        loadError = nil
-        allEntries = sort.sorted(list)
+    /// - Parameter sortedWith: `list` を並べた設定(`reload` が読み込みと一緒に並べる)。今の設定と違えば並べ直す。
+    private func apply(_ list: [FileBrowserEntry], sortedWith: FolderBrowserSort) {
+        if isLoading { isLoading = false }
+        if loadError != nil { loadError = nil }
+        let sorted = sortedWith == sort ? list : sort.sorted(list)
+        // 読み直しても中身が同じ(アクティブ化・ホームへ戻る・関係の無い FSEvents のほとんど)なら差し替えない。差し替えは
+        // `applyFilter` の比較で一覧の作り直し(reloadData と見えているセルの絵の頼み直し)を呼ばない。
+        if sorted != allEntries { allEntries = sorted }
         settleRenameRequest()
         // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
         // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。
@@ -696,7 +716,7 @@ final class FileBrowserState: ObservableObject {
             pendingReveal = nil
             // 絞り込みで隠れていたら出す(選んだのに見えない、を作らない)。移動の直後は空なので、
             // ここで効くのは同じフォルダの中の項目を reveal したときだけ。
-            if !FileBrowserListing.filtered(allEntries, by: filterText).contains(where: { $0.id == reveal }) {
+            if !filteredAllEntries().contains(where: { $0.id == reveal }) {
                 filterText = ""
             }
             selection = [reveal]
@@ -712,7 +732,7 @@ final class FileBrowserState: ObservableObject {
             // 置いた項目が絞り込みで 1 つも見えないなら、絞り込みを解く(reveal と同じ「選んだのに見えない、を作らない」。2026-09-19 の
             // 監査の L5: 以前は効果音だけ鳴って一覧が何も変わらなかった)。
             if !present.isEmpty, !filterText.isEmpty,
-               !FileBrowserListing.filtered(allEntries, by: filterText).contains(where: { present.contains($0.id) }) {
+               !filteredAllEntries().contains(where: { present.contains($0.id) }) {
                 filterText = ""
             }
             applyFilter()
@@ -737,7 +757,7 @@ final class FileBrowserState: ObservableObject {
             renameRequest = nil
             return
         }
-        if !filterText.isEmpty, !FileBrowserListing.filtered(allEntries, by: filterText).contains(where: { $0.id == request.id }) {
+        if !filterText.isEmpty, !filteredAllEntries().contains(where: { $0.id == request.id }) {
             filterText = ""
         }
     }
@@ -798,8 +818,13 @@ final class FileBrowserState: ObservableObject {
     }
 
     private func applyFilter() {
-        entries = FileBrowserListing.filtered(allEntries, by: filterText)
-        entriesRevision &+= 1
+        // 同じ一覧なら差し替えない(2026-09-25 の監査)。`entriesRevision` はリスト・アイコン表示の `reloadData`(と見えているセルの
+        // 絵の頼み直し)の合図なので、読み直しても何も変わっていない回に進めると、見た目の変わらない作り直しが走っていた。
+        let filtered = filteredAllEntries()
+        if filtered != entries {
+            entries = filtered
+            entriesRevision &+= 1
+        }
         // 見えなくなった項目を選択から外す(filterTextのコメント)。
         let visible = Set(entries.map(\.id))
         let kept = selection.intersection(visible)

@@ -213,6 +213,16 @@ nonisolated enum FileBrowserListing {
         return entries.filter { query.matches(normalized: LibrarySearchQuery.normalized($0.displayName)) }
     }
 
+    /// 上と同じ絞り込みを、照合用に畳んだ名前(`entries` と同じ並び)を受け取って行う(FileBrowserState が 1 度だけ畳んで使い回す ――
+    /// 畳むのは 1 件数マイクロ秒で、数万件のフォルダでは 1 文字打つたびに数十ミリ秒になった。2026-09-25 の監査)。
+    static func filtered(
+        _ entries: [FileBrowserEntry], normalizedNames: [String], by text: String
+    ) -> [FileBrowserEntry] {
+        guard let query = LibrarySearchQuery(text) else { return entries }
+        guard normalizedNames.count == entries.count else { return filtered(entries, by: text) }
+        return zip(entries, normalizedNames).compactMap { query.matches(normalized: $1) ? $0 : nil }
+    }
+
     /// 実際のホームフォルダ。**`FileManager.homeDirectoryForCurrentUser`はサンドボックスではコンテナを
     /// 返す**ので、パスワードデータベースから引く(qooLibrary 実測)。
     static func realHomeDirectory() -> URL {
