@@ -221,6 +221,20 @@ final class BookContentsBrowserState: ObservableObject {
         didSet { if pageOrder != oldValue { reload() } }
     }
 
+    /// `matchKey` の画像が `bookPages`(AppState.currentBookPages)の何ページ目か。本のページでなければ nil。
+    ///
+    /// 並び順の表(`pageOrder`。同じ currentBookPages から作る)で引き、表が一覧と揃っていない瞬間(ページ一覧が変わった直後、
+    /// 表が流し込まれる前の 1 回の描画)だけ線形に探す(2026-09-25 の監査。行の右クリックメニューは行の body の一部として毎回
+    /// 作られるので、以前は描き直しのたびに「見えている行の数 × ページ数」の比較をしていた ―― ページ送りのたびにも)。
+    func pageIndex(ofMatchKey matchKey: String, in bookPages: [PageRef]) -> Int? {
+        if let index = pageOrder[matchKey], bookPages.indices.contains(index), bookPages[index].sortKey == matchKey {
+            return index
+        }
+        // 表と一覧の数が揃っていて表に無いなら、本のページではない(除外したページ・入れ子の書庫の中だけの画像)。
+        if pageOrder.count == bookPages.count, pageOrder[matchKey] == nil { return nil }
+        return bookPages.firstIndex(where: { $0.sortKey == matchKey })
+    }
+
     func reload() {
         do {
             entries = try BookInternalBrowsing.entries(
@@ -466,7 +480,7 @@ final class BookContentsBrowserState: ObservableObject {
     /// 意図的な割り切り)。
     func resolveImageClick(on entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> ImageClickResult {
         guard entry.isImage else { return .unavailable }
-        if let index = bookPages.firstIndex(where: { $0.sortKey == entry.matchKey }) {
+        if let index = pageIndex(ofMatchKey: entry.matchKey, in: bookPages) {
             return .jumpToPage(index)
         }
         guard let locator = currentLocator, let url = materializedURL(for: locator) else {

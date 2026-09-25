@@ -97,11 +97,12 @@ actor FileBrowserThumbnailDiskCache {
 
     // MARK: - 読み書き
 
-    /// 保存してある JPEG。無ければ nil。読めたら最終アクセスとして更新日時を触る(刈り込みの基準)。
+    /// 保存してある JPEG。無ければ nil。読めたら最終アクセスとして更新日時を触る(刈り込みの基準。古くなったときだけ ――
+    /// DiskCacheAccessStamp)。
     /// `@concurrent`: 呼び出し側(メインアクター)の上でファイルを読まない(ThumbnailDiskCache.thumbnail のコメント)。
     @concurrent nonisolated func data(for key: FileBrowserThumbnailKey) async -> Data? {
         guard await isEnabled, let url = fileURL(for: key), let data = try? Data(contentsOf: url) else { return nil }
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        DiskCacheAccessStamp.touchIfStale(url.path)
         return data
     }
 

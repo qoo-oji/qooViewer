@@ -180,10 +180,18 @@ final class CollectionCoverExtractor: ObservableObject {
         }
         // 本が増えた/やり直しの印が付いた、を取りこぼさないための保険。まだ抽出していない本を
         // 拾うだけなので、自分の書き込みで呼ばれても何も起きない(収束する)。
+        //
+        // 抽出の結果を書いただけの知らせ(`collectionsDidChangeIsCoverResultKey`)では組み直さない(2026-09-25 の監査)。
+        // 結果は新しい「抽出待ち」を生まないのに、組み直しは全登録を走査する(`seedSignatures` と `itemsAwaitingCover`)ので、
+        // 1 冊終わるたびに走らせると、登録の多い棚の作り直しでメインを冊数の 2 乗ぶん使っていた。
         let collectionsObserver = NotificationCenter.default.addObserver(
             forName: .collectionsDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refill() }
+        ) { [weak self] notification in
+            let isCoverResult = notification.userInfo?[Notification.Name.collectionsDidChangeIsCoverResultKey] as? Bool == true
+            MainActor.assumeIsolated {
+                guard !isCoverResult else { return }
+                self?.refill()
+            }
         }
         // 一時的な理由で見送ったitemを、戻ってきた時点で積み直す(deferredItemIDsのコメント参照)。
         let activationObserver = NotificationCenter.default.addObserver(
@@ -484,7 +492,13 @@ final class CollectionCoverExtractor: ObservableObject {
         // 抽出に使う条件はここでだけ組み立てる。控えに要るのは「どの画像か」を表す2列だけなので、
         // 控えのほうは本を解決せずにDBの値から作る(signature(forBookID:)参照)。
         let snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
-        let url = collectionStore.resolvedExistingURL(for: item)
+        // ブックマークの解決と存在確認はボリュームへの問い合わせなので、メインスレッドでは行わない(2026-09-25 の監査。応答しない
+        // 共有の上の本 1 冊ごとに、`fileExists` がメインを秒単位で止めうる)。`existingURL` は FileIO の上から呼ぶための口。
+        let bookmarkData = item.bookmarkData
+        let generationBeforeResolving = runGeneration
+        let url = await FileIO.perform { CollectionStore.existingURL(fromBookmark: bookmarkData) }
+        // 解決を待つ間に取り消された(ライブラリ機能を OFF にした・`cancelAll()`)なら、何もせずに戻る(下の読み込み後の確認と同じ)。
+        guard !Task.isCancelled, runGeneration == generationBeforeResolving, isLibraryFeatureEnabled else { return }
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
         //
@@ -519,11 +533,14 @@ final class CollectionCoverExtractor: ObservableObject {
             // 読んでいる途中で本が見えなくなった(外付けを抜いた・共有が落ちた)なら、本が壊れて
             // いるとは言えない。`.pending`のまま置き、実体確認の結果が変われば積み直される
             // (deferredItemIDsのコメント・型コメント「実体が見つからない本」参照)。
+            let currentBookmark = current.bookmarkData
             if url != nil, snapshot.imageFileURL == nil,
-               collectionStore.resolvedExistingURL(for: current) == nil {
+               await FileIO.perform({ CollectionStore.existingURL(fromBookmark: currentBookmark) }) == nil {
                 return
             }
-            collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
+            guard !Task.isCancelled, runGeneration == generation, isLibraryFeatureEnabled,
+                  let latest = collectionStore.item(withID: itemID) else { return }
+            collectionStore.setCoverStatus(.failed, aspect: 0, for: latest)
             return
         }
         // **切らずに**そのまま保存する。枠の比(ライブラリごと)へ合わせるのは表示側の仕事

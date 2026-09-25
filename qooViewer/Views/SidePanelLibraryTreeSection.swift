@@ -250,7 +250,7 @@ struct SidePanelLibraryTreeSection: View {
     /// 本のファイルと分からないものはフォルダとして描く(拡張子の有無では決めない ――
     /// 「Vol.1」のようなフォルダ名は拡張子を持っているように見える)。
     private static func iconName(forBookID bookID: String) -> String {
-        let fileName = URL(fileURLWithPath: bookID).lastPathComponent
+        let fileName = URL(fileURLWithPath: bookID, isDirectory: false).lastPathComponent
         if isArchiveFile(fileName) || isPDFFile(fileName) || isEpubFile(fileName) {
             return sidePanelFileIconName(fileName: fileName)
         }

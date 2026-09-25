@@ -35,7 +35,7 @@ nonisolated struct BookExistenceProbe: Sendable {
                 // nil = コレクションの行を読まない(ライブラリ機能が OFF の間の、裏の仕事。MetadataGenerator)。
                 collectionStore?.anyBookmarkData(forBookID: bookID),
             ].compactMap { $0 },
-            isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
+            isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID, isDirectory: false))
         )
     }
 
@@ -65,7 +65,7 @@ nonisolated struct BookExistenceProbe: Sendable {
     /// ブックマークは繋ぎに行かずに失敗する(BookmarkResolution)し、以前は繋ぎに行って失敗していた(NAS の電源が落ちて
     /// いると、許可済みの共有の本が「実体の無い本」に数えられた)。マウントの一覧だけを見て、パスには触らない。
     private var isOnAnUnmountedVolume: Bool {
-        MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: bookID))
+        MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: bookID, isDirectory: false))
     }
 
     /// **記録したパス(`bookID`)に今**、本があるか。メタデータの編集ウインドウが使う(本をパスで並べ、パスで登録するため)。
@@ -99,6 +99,24 @@ nonisolated struct BookExistenceProbe: Sendable {
         if result != .missing { return (result, nil) }
         // 見えないのが「無い」からか「アクセス権が無い」からかは、許可済みのフォルダの中でしか区別できない(evaluate と同じ)。
         return (FileManager.default.fileExists(atPath: bookID) || (isPathCovered && !isOnAnUnmountedVolume) ? .missing : .unknown, nil)
+    }
+
+    /// `locateAtRecordedPath().movedTo` だけを求める(起動後のアプリの外での移動の追従。ExternalMoveSweeper)。
+    ///
+    /// 答えは同じだが、ブックマークが**記録どおりの場所**を指す本(動いていない本 ―― ほとんど全部)では、そこに本があるかの
+    /// 確かめ(`bookResult`。フォルダなら中を読み、子フォルダも読む)をしない(2026-09-25 の監査)。`movedTo` はその答えに
+    /// 関わらず nil なのに、以前は起動のたびに知っている本の全冊ぶん、フォルダの本の中を読んでいた。
+    func movedDestination() -> String? {
+        for data in bookmarkCandidates {
+            guard let url = BookmarkResolution.resolve(data) else { continue }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            // ゴミ箱の中へ移った本は付け替えない(locateAtRecordedPath と同じ)。
+            if BookLocationResolver.isInTrash(url) { return nil }
+            guard !Self.isSamePlace(recorded: bookID, resolved: url) else { return nil }
+            return Self.bookResult(at: url.path) == .exists ? url.path : nil
+        }
+        return nil
     }
 
     /// 記録したパスにあるのが**本ではないフォルダ**(棚・中間のフォルダ・空のフォルダ)だと確かめられたか。起動時の掃除

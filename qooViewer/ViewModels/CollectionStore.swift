@@ -72,6 +72,10 @@ final class CollectionStore: ObservableObject {
     /// 知っている本 × 登録件数の比較がメインアクター上で走り、削除のたびに繰り返されていた
     /// (監査で指摘 2026-09-13)。
     private var cachedItemsByBookID: [String: [CollectionItem]]?
+    /// 上の`cachedItems`をidで引けるようにした索引(2026-09-25 の監査。`item(withID:)`は抽出 1 冊ごとに数回呼ばれ、
+    /// そのたびに全件を線形に舐めていた)。**cachedItemsと必ず一緒に捨てる。** idは行の生涯変わらないので、bookIDの
+    /// 書き換え(付け替え)では捨てなくてよい。
+    private var cachedItemsByID: [UUID: CollectionItem]?
 
     private var activationObserver: NSObjectProtocol?
     private var volumeObservers: [NSObjectProtocol] = []
@@ -157,6 +161,7 @@ final class CollectionStore: ObservableObject {
         cachedCollections = nil
         cachedItems = nil
         cachedItemsByBookID = nil
+        cachedItemsByID = nil
     }
 
     private func allLibraries() -> [BookLibrary] {
@@ -372,7 +377,12 @@ final class CollectionStore: ObservableObject {
     }
 
     func item(withID id: UUID) -> CollectionItem? {
-        allItems().first { $0.id == id }
+        if let cachedItemsByID { return cachedItemsByID[id] }
+        // 同じ id の行が 2 つあることは無い(作るたびに新しい UUID)が、あっても落ちないよう先に見つけたほうを残す
+        // (以前の`first { $0.id == id }`と同じ答え)。
+        let index = Dictionary(allItems().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedItemsByID = index
+        return index[id]
     }
 
     /// このアプリのコレクションに登録されている本のbookID一覧(「このアプリが知っている本」を
@@ -950,7 +960,7 @@ final class CollectionStore: ObservableObject {
         }
         item.coverState = .ready
         item.coverAspect = aspect
-        saveAndNotify(bookID: item.bookID)
+        saveAndNotify(bookID: item.bookID, isCoverResult: true)
     }
 
     func setCoverStatus(
@@ -959,13 +969,14 @@ final class CollectionStore: ObservableObject {
         guard item.coverState != status || item.coverAspect != aspect else { return }
         item.coverState = status
         item.coverAspect = aspect
-        saveAndNotify(bookID: item.bookID)
+        // `.pending` へ戻すのは「抽出して」の頼みなので、抽出役に積み直させる(結果の印は付けない)。
+        saveAndNotify(bookID: item.bookID, isCoverResult: status != .pending)
     }
 
     /// 抽出をやり直させる(カバーの上書きが変わったとき)。`.pending`へ戻すだけで、
     /// 実際の抽出はCollectionCoverExtractorが行う。
     func markCoversPending(forBookID bookID: String) {
-        let targets = allItems().filter { $0.bookID == bookID && $0.coverState != .pending }
+        let targets = items(forBookID: bookID).filter { $0.coverState != .pending }
         guard !targets.isEmpty else { return }
         for item in targets { item.coverState = .pending }
         saveAndNotify(bookID: bookID)
@@ -1151,6 +1162,7 @@ final class CollectionStore: ObservableObject {
         try? modelContext.save()
         cachedItems = nil
         cachedItemsByBookID = nil
+        cachedItemsByID = nil
     }
 
     /// ファイルノード識別子が一致する登録のブックマーク(解決はしない)。取り込みが、解決と存在確認を
@@ -1531,16 +1543,22 @@ final class CollectionStore: ObservableObject {
 
     /// 保存して、変更を他のウインドウへ知らせる。`bookID`は**本に関わる変更**のときだけ渡す
     /// (Notification.Name.collectionsDidChangeのコメント参照)。
-    private func saveAndNotify(bookID: String? = nil) {
+    ///
+    /// - Parameter isCoverResult: 抽出の結果(`.ready` / `.failed`)を書いただけか。そうなら通知に
+    ///   `Notification.Name.collectionsDidChangeIsCoverResultKey` を付ける(抽出役の積み直しが読み飛ばす)。
+    private func saveAndNotify(bookID: String? = nil, isCoverResult: Bool = false) {
         try? modelContext.save()
         // コレクションの名前・中身の変更は`libraries`配列そのものを変えないため、@Publishedの
         // 再代入だけでは画面が追随しない(SwiftDataのモデルはクラス=参照型で、SwiftUIから見た
         // 値は同じまま)。「何かが変わった」ことだけを表す通し番号を進めて描き直させる
         // (MenuBarMenuRefresher.revisionと同じ手。値そのものは誰も読まない)。
         revision &+= 1
+        var userInfo: [String: Any] = [:]
+        if let bookID { userInfo["bookID"] = bookID }
+        if isCoverResult { userInfo[Notification.Name.collectionsDidChangeIsCoverResultKey] = true }
         NotificationCenter.default.post(
             name: .collectionsDidChange, object: nil,
-            userInfo: bookID.map { ["bookID": $0] }
+            userInfo: userInfo.isEmpty ? nil : userInfo
         )
     }
 }

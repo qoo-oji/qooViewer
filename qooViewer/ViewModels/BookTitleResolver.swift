@@ -79,7 +79,7 @@ final class BookTitleResolver {
     func searchableText(forBookID bookID: String) -> String {
         invalidateIfStale()
         if let cached = searchableCache[bookID] { return cached }
-        var fields = [URL(fileURLWithPath: bookID).lastPathComponent]
+        var fields = [URL(fileURLWithPath: bookID, isDirectory: false).lastPathComponent]
         if let metadata = metadataStore.metadata(forBookID: bookID) {
             let values = metadata.values
             fields += ([values.title] + values.authors

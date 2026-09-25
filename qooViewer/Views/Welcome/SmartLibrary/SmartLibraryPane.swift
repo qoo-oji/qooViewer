@@ -1980,6 +1980,32 @@ private struct SmartBookThumbnail: View {
     @Environment(\.displayScale) private var displayScale
     @State private var image: CGImage?
     @State private var didFail = false
+    /// いま持っている絵を、どの段(`pixelTier`)で引いたか。
+    @State private var loadedTier: CGFloat = 0
+    /// その絵の出どころの鍵(`contentKey`)。出どころが変わったら大きさに関わらず引き直す。
+    @State private var loadedContentKey = ""
+    /// 切った絵の控え(`CropCache`)。
+    @State private var cropCache = CropCache()
+
+    /// 切った絵を、元の絵と切り方が同じ間は同じオブジェクトで返す(2026-09-25 の監査)。`CGImage.cropping(to:)` は呼ぶたびに
+    /// 別のオブジェクトを返すので、body で毎回切ると、選択・矢印キー・一覧の publish のたびに SwiftUI が絵を差し替わったものと
+    /// みなして描き直していた(ライブラリの札の `CollectionTile.SliceCache` と同じ理由)。
+    private final class CropCache {
+        private var source: CGImage?
+        private var aspect: CGFloat = 0
+        private var anchor: CoverCropAnchor = .center
+        private var cropped: CGImage?
+
+        func cropped(_ image: CGImage, to aspect: CGFloat, anchor: CoverCropAnchor) -> CGImage {
+            if let cached = cropped, source === image, self.aspect == aspect, self.anchor == anchor { return cached }
+            let made = CoverImageResolver.cropped(image, to: aspect, anchor: anchor)
+            source = image
+            self.aspect = aspect
+            self.anchor = anchor
+            cropped = made
+            return made
+        }
+    }
 
     private var entry: FileBrowserEntry {
         FileBrowserEntry(
@@ -2006,7 +2032,7 @@ private struct SmartBookThumbnail: View {
                     ?? Self.fittedSize(of: image, in: box)
                 // 切るのは表示のたび(ライブラリのカバーと同じ。CoverImageResolver.cropped のコメント)。CGImage の切り出しは
                 // 画素を写さないので軽い。切った後の端数は下の .fill と枠で吸収する。
-                let drawn = cropAspect.map { CoverImageResolver.cropped(image, to: $0, anchor: cropAnchor) } ?? image
+                let drawn = cropAspect.map { cropCache.cropped(image, to: $0, anchor: cropAnchor) } ?? image
                 ZStack {
                     // 余白を付けるときは枠を余白の色で塗る(ライブラリの CollectionCoverThumbnail と同じ見た目)。
                     if let padding { padding.color }
@@ -2040,11 +2066,36 @@ private struct SmartBookThumbnail: View {
             }
         }
         .frame(width: width, height: height, alignment: alignment)
-        // 鍵(更新日時・サイズ・inode)も入れる: 探し直してファイルが差し替わっていたと分かったら、新しい表紙を引き直す。
-        // 切るかどうかも入れる(切るときは大きめに引く。`load`)。
-        .task(id: "\(book.id)|\(Int(width))|\(frameAspect != nil && fit != .pad)|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
-            await load()
+        // 引き直しの契機は「出どころ」(`contentKey`)と「段」(`pixelSize`)だけ(2026-09-25 の監査)。以前は表示の幅(pt)と
+        // 提供役の `revision` を入れていたので、スライダー・ピンチで幅が 1pt 変わるたび、表紙が 1 冊できるたびに、見えている
+        // 全セルが頼み直して使い捨ての CGImage を作り、帳簿(LazyCellImageBudget)に積んでグリッドの作り直しを呼び込んでいた。
+        // 段が同じなら持っている絵を縮めて描けば足りる(`.resizable()`)。小さくする方向でも引き直さない(`load`)。
+        .task(id: "\(contentKey)|\(Int(pixelSize))") {
+            await load(pixelSize: pixelSize, contentKey: contentKey)
         }
+    }
+
+    /// 絵の種類(作れない項目は nil)。
+    private var thumbnailKind: BookThumbnailer.Kind? {
+        BookThumbnailer.kind(
+            forName: URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder).lastPathComponent,
+            isNavigableFolder: book.kind == .folder, isPackage: false, isSymbolicLink: false
+        )
+    }
+
+    /// 引く段。切るときは、枠からはみ出して捨てるぶんも見込んで 1.5 倍で引く(2:3 の絵を 1:1 や 3:2 の枠いっぱいに合わせると、
+    /// 長いほうの辺は枠の長いほうの辺の 1.5 倍になる。3:2 の絵を 2:3 の枠に合わせても同じ)。
+    private var pixelSize: CGFloat {
+        let displaySize = max(width, height) * (frameAspect == nil || fit == .pad ? 1 : 1.5)
+        return FileBrowserThumbnailProvider.pixelTier(forDisplaySize: displaySize, scale: displayScale)
+    }
+
+    /// 大きさ以外で絵が変わる要素: 出どころ(コレクションの表紙ができた・差し替わった、表紙の指定、キャッシュを消した。
+    /// `FileBrowserThumbnailProvider.sourceKey`)と、探したときに記録した鍵(更新日時・サイズ・inode ―― 探し直してファイルが
+    /// 差し替わっていたと分かったら、新しい表紙を引き直す)。セルは提供役を観測しているので、`revision` が進めばここを読み直す。
+    private var contentKey: String {
+        let source = thumbnailKind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? ""
+        return "\(book.id)|\(source)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")"
     }
 
     /// 枠(`box`)に縦横比を保って収めた大きさ。
@@ -2106,19 +2157,15 @@ private struct SmartBookThumbnail: View {
         }
     }
 
-    private func load() async {
+    private func load(pixelSize: CGFloat, contentKey: String) async {
         let entry = entry
-        guard let kind = BookThumbnailer.kind(
-            forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
-            isPackage: false, isSymbolicLink: false
-        ) else {
+        guard let kind = thumbnailKind else {
             didFail = true
             return
         }
-        // 切るときは、枠からはみ出して捨てるぶんも見込んで 1.5 倍で引く(2:3 の絵を 1:1 や 3:2 の枠いっぱいに合わせると、
-        // 長いほうの辺は枠の長いほうの辺の 1.5 倍になる。3:2 の絵を 2:3 の枠に合わせても同じ)。
-        let displaySize = max(width, height) * (frameAspect == nil || fit == .pad ? 1 : 1.5)
-        let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: displaySize, scale: displayScale)
+        // 出どころが同じで、持っている絵が今の段以上なら引き直さない(縮めて描けば足りる。CollectionCoverThumbnail と同じ ――
+        // 引き直した絵は帳簿に積まれていくので、往復のたびにグリッドの作り直しを呼び込む)。
+        if image != nil, loadedContentKey == contentKey, pixelSize <= loadedTier { return }
         // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
         let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk,
                                                 knownKey: book.thumbnailKey)
@@ -2129,6 +2176,8 @@ private struct SmartBookThumbnail: View {
         }
         didFail = false
         image = made
+        loadedTier = pixelSize
+        loadedContentKey = contentKey
         onImageRetained(made)
     }
 }

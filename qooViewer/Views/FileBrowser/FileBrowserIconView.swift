@@ -302,11 +302,18 @@ struct FileBrowserIconView: NSViewRepresentable {
                 layout.itemSize = FileBrowserIconView.cellSize(iconSize: iconSize)
                 needsReconfigure = true
             }
-            if view.outlineWidth != outlineWidth || view.thumbnailRevision != thumbnailRevision || view.includesVideo != includesVideo {
+            if view.outlineWidth != outlineWidth || view.includesVideo != includesVideo {
                 outlineWidth = view.outlineWidth
-                thumbnailRevision = view.thumbnailRevision
                 includesVideo = view.includesVideo
                 needsReconfigure = true
+            }
+            // 提供役の `revision` だけが進んだ(表紙が 1 冊できた・キャッシュを消した)なら、セルの見た目は組み直さず、絵の依頼だけを
+            // 確かめ直す(2026-09-25 の監査)。出どころの鍵(`sourceKey`)が変わったセルだけが頼み直す ―― 以前は表紙 1 枚ごとに
+            // 見えている全セルの名前の組版と描き直し、絵の頼み直しが走っていた。
+            var needsThumbnailRefresh = false
+            if view.thumbnailRevision != thumbnailRevision {
+                thumbnailRevision = view.thumbnailRevision
+                needsThumbnailRefresh = true
             }
             // 読み取り専用モードを ON にした(ファイルブラウザ機能を OFF にした)。編集中なら打った名前を捨てて終える
             // (リストの update と同じ。2026-09-23、利用者の決定)。状態を変えるので SwiftUI の更新の外で。
@@ -344,10 +351,10 @@ struct FileBrowserIconView: NSViewRepresentable {
                 }
                 return
             }
-            syncWithState(view.state, reconfiguringVisibleItems: needsReconfigure)
+            syncWithState(view.state, reconfiguringVisibleItems: needsReconfigure, refreshingThumbnails: needsThumbnailRefresh)
         }
 
-        private func syncWithState(_ state: FileBrowserState, reconfiguringVisibleItems: Bool) {
+        private func syncWithState(_ state: FileBrowserState, reconfiguringVisibleItems: Bool, refreshingThumbnails: Bool = false) {
             guard let collection else { return }
             var needsReload = false
             if state.entriesRevision != revision || state.currentFolder != displayedFolder {
@@ -368,6 +375,8 @@ struct FileBrowserIconView: NSViewRepresentable {
                 isApplyingSelection = false
             } else if reconfiguringVisibleItems {
                 reconfigureVisibleItems()
+            } else if refreshingThumbnails {
+                refreshVisibleThumbnails()
             }
             applySelection(from: state)
             if let request = state.scrollRequest, request != appliedScroll {
@@ -407,6 +416,16 @@ struct FileBrowserIconView: NSViewRepresentable {
             }
         }
 
+        /// 見えているセルの絵の依頼だけを確かめ直す(見た目は組み直さない)。出どころが変わっていないセルは何もしない
+        /// (`FileBrowserIconItem.requestThumbnail`)。
+        private func refreshVisibleThumbnails() {
+            guard let collection else { return }
+            for indexPath in collection.indexPathsForVisibleItems() {
+                guard let item = collection.item(at: indexPath) as? FileBrowserIconItem else { continue }
+                requestThumbnail(for: item, at: indexPath.item)
+            }
+        }
+
         // MARK: データ
 
         func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -431,12 +450,27 @@ struct FileBrowserIconView: NSViewRepresentable {
                 entry: entry, kind: kind, iconSize: iconSize, outlineWidth: outlineWidth,
                 isCut: state.isCut(entry), isDropTarget: dropTargetID == entry.id
             )
-            if let thumbnails {
-                item.requestThumbnail(
-                    entry: entry, kind: kind, iconSize: iconSize, revision: thumbnailRevision,
-                    provider: thumbnails, savesToDisk: !state.isPrivate
-                )
-            }
+            requestThumbnail(for: item, entry: entry, kind: kind, isPrivate: state.isPrivate)
+        }
+
+        private func requestThumbnail(for item: FileBrowserIconItem, at index: Int) {
+            guard entries.indices.contains(index), let state else { return }
+            let entry = entries[index]
+            let kind = FileBrowserThumbnailProvider.kind(
+                for: entry, currentFolder: displayedFolder, mountTable: mountTable, includesVideo: includesVideo
+            )
+            requestThumbnail(for: item, entry: entry, kind: kind, isPrivate: state.isPrivate)
+        }
+
+        private func requestThumbnail(
+            for item: FileBrowserIconItem, entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, isPrivate: Bool
+        ) {
+            guard let thumbnails else { return }
+            item.requestThumbnail(
+                entry: entry, kind: kind, iconSize: iconSize,
+                sourceKey: kind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? "",
+                provider: thumbnails, savesToDisk: !isPrivate
+            )
         }
 
         func collectionView(
@@ -1095,7 +1129,7 @@ final class FileBrowserIconItem: NSCollectionViewItem {
 
     /// 絵を頼む。持っている絵は新しい絵が届くまで手放さない(別の項目になったときだけ捨てる)。小さくする方向では読み直さない。
     func requestThumbnail(
-        entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, revision: UInt64,
+        entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, sourceKey: String,
         provider: FileBrowserThumbnailProvider, savesToDisk: Bool
     ) {
         if loadedEntryID != entry.id {
@@ -1116,7 +1150,9 @@ final class FileBrowserIconItem: NSCollectionViewItem {
             return
         }
         let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
-        let contentKey = "\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(revision)|\(kind)"
+        // 出どころの鍵(`sourceKey`)で頼み直すかを決める。提供役の `revision` は表紙が 1 冊できるたびに進むので鍵にしない
+        // (`FileBrowserThumbnailProvider.sourceKey` のコメント)。
+        let contentKey = "\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(sourceKey)|\(kind)"
         let tier = FileBrowserThumbnailProvider.pixelTier(
             forDisplaySize: kind == .folder ? iconSize * FileBrowserIconCellView.folderImageScale : iconSize
         )

@@ -67,6 +67,9 @@ struct ContentView: View {
     @State private var bookContentsBrowser: BookContentsBrowserState?
     /// 本の中身ブラウザを裏で用意している最中の作業(BookContentsBrowserState.make(book:))。本が替わったら取り消す。
     @State private var bookContentsBrowserTask: Task<Void, Never>?
+    /// `bookContentsBrowser`(と作っている最中の`bookContentsBrowserTask`)がどの本のものか。下段が見えていない間は作らないので、
+    /// 見えたときに「この本のぶんをもう作ったか」を確かめるのに使う(PDF・EPUB は作っても nil なので、nil かどうかでは分からない)。
+    @State private var bookContentsBrowserBookID: String?
     /// サイドパネル側のホバー検知用ローカルモニタ。ViewerView.makeScrollMonitorとは
     /// 完全に独立した、X座標の帯だけを見る単純なもの。
     @State private var sidePanelHoverMonitor: Any?
@@ -349,6 +352,19 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.12), value: isFileDropTargeted)
     }
 
+    /// サイドパネルのブラウザモードが画面に出た・隠れた(パネルの表示・ホバー・モードの切り替え・機能の ON/OFF)ことを、
+    /// 2 つのブラウザへ伝える(isSidePanelBrowserModeOnScreen のコメント)。
+    ///
+    /// bodyから切り出しているのは、applyFileDropTargetと同じく型チェックが長くかかりすぎる不具合の対策
+    /// (applyPreferenceChangeHandlersのコメント参照)。
+    private func applySidePanelVisibilityHandler<Content: View>(to content: Content) -> some View {
+        content
+            .onChange(of: isSidePanelBrowserModeOnScreen, initial: true) { _, isOnScreen in
+                sidePanelBrowser.setVisible(isOnScreen)
+                if isOnScreen { syncBookContentsBrowserWithScreen() }
+            }
+    }
+
     /// 環境設定の変更に応じた後始末をまとめたグループ。
     ///
     /// bodyから切り出しているのは、applyFileDropTargetと同じく型チェックが長くかかりすぎる
@@ -541,7 +557,7 @@ struct ContentView: View {
     }
 
     private var windowBody: some View {
-        applyPreferenceChangeHandlers(to: applyFileDropTarget(to: windowContent))
+        applyPreferenceChangeHandlers(to: applySidePanelVisibilityHandler(to: applyFileDropTarget(to: windowContent)))
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
         // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い
@@ -636,7 +652,11 @@ struct ContentView: View {
             // いたかは保つ(WelcomeLibraryState.openedCollectionID参照)。
             if appState.currentBook != nil { welcomeLibrary.endEditing() }
             updateLastActiveBookRecordIfKeyWindow()
-            updateBookContentsBrowserForCurrentBook()
+            // 同じ切り替わりでパネルが現れた(ホームから本を開いた)ときは、見えた知らせ(applySidePanelVisibilityHandler)が
+            // 先にこの本のぶんを作り始めていることがある。そのときは作り直さない(書庫をもう 1 度開くだけになる)。
+            if appState.currentBook?.id != bookContentsBrowserBookID {
+                updateBookContentsBrowserForCurrentBook()
+            }
             // サイドパネル上段(フォルダブラウザ)を、新しく開いた本のフォルダへ再アンカーする。
             // 再アンカーの契機はこの「本の切り替わり」**だけ**にしてある。以前はパネルを
             // 隠す設定のとき、ホバーで表示されるたびにも再アンカーしていた
@@ -663,9 +683,14 @@ struct ContentView: View {
         .onChange(of: appState.currentBookPages) { _, _ in
             // 並び順の設定変更・ユーザーの並べ替え・除外でページ一覧が変わったら、
             // 下段の一覧もその順に並べ直す(BookContentsBrowserState.pageOrder参照)。
+            // 下段が見えていない間は何もしない(見えたときに syncBookContentsBrowserWithScreen が合わせる)。
+            guard isBookContentsPaneOnScreen else { return }
             bookContentsBrowser?.pageOrder = pageOrderMap()
         }
         .onChange(of: appState.currentVisiblePageSortKeys) { _, newValue in
+            // 見えていない間は追従しない(章の境界をまたぐと書庫を開き直す・入れ子の書庫を展開する。
+            // isSidePanelBrowserModeOnScreen のコメント)。見えたときに今のページへ合わせる。
+            guard isBookContentsPaneOnScreen else { return }
             bookContentsBrowser?.revealCurrentPage(sortKeys: newValue)
         }
         // サイドパネルの幅をユーザーがドラッグで調整するたびに、次回起動時にも再現できるよう
@@ -1184,6 +1209,10 @@ struct ContentView: View {
                 removeMenuTrackingObservers()
                 // ファイルブラウザのFSEventsの監視と購読も(FileBrowserState.releaseResources)。
                 fileBrowser.releaseResources()
+                // 本の中身ブラウザが握っている入れ子の書庫(ファイルハンドル・一時ファイル・メモリ)も(2026-09-25 の監査)。
+                // 普段は本が閉じたときの onChange が手放すが、ウインドウごと閉じたときにそれが走る保証は無い。
+                bookContentsBrowserTask?.cancel()
+                bookContentsBrowser?.releaseResources()
                 tokens.removeAll()
             }
         })
@@ -1266,6 +1295,25 @@ struct ContentView: View {
     /// 左右どちらに置くかによって組み込む位置が変わるため、条件式を1箇所にまとめてある。
     private var showsDockedSidePanel: Bool {
         preferences.sidePanelFeatureEnabled && !appState.hideSidePanel && !isSidePanelSuppressedForWelcome
+    }
+
+    /// サイドパネルのブラウザモード(上段 = フォルダブラウザ、下段 = 本の中身ブラウザ)が今画面に出ているか。常時表示か、隠す設定で
+    /// ホバーで浮いているか(body の 2 つの分岐と同じ条件)で、モードがブラウザのとき。
+    ///
+    /// 見えていない間は、2 つのブラウザの読み込み・追従を止める(2026-09-25 の監査)。どちらもファイルシステムを読む
+    /// (フォルダブラウザは直下のフォルダごとに中を覗く、本の中身ブラウザは章の境界をまたぐたびに書庫を開き直し、入れ子の書庫を
+    /// 展開する)ので、以前はパネルを隠していても・別のモードでも・サイドパネル機能が OFF でも、本を開くたび・アクティブ化の
+    /// たび・ページ送りのたびに走っていた。出たときに追いつく(`SidePanelBrowserState.setVisible` /
+    /// `syncBookContentsBrowserWithScreen`)。
+    private var isSidePanelBrowserModeOnScreen: Bool {
+        guard preferences.sidePanelFeatureEnabled, !isSidePanelSuppressedForWelcome,
+              preferences.sidePanelMode == .browser else { return false }
+        return !appState.hideSidePanel || appState.isSidePanelRevealed
+    }
+
+    /// 本の中身ブラウザ(ブラウザモードの下段)が今画面に出ているか(`isSidePanelBrowserModeOnScreen` のコメント)。
+    private var isBookContentsPaneOnScreen: Bool {
+        appState.currentBook != nil && isSidePanelBrowserModeOnScreen
     }
 
     /// 本を開いていない間は、サイドパネルを出さない(改善要望7、2026-09-13)。
@@ -1804,13 +1852,15 @@ struct ContentView: View {
         bookContentsBrowser?.releaseResources()
         bookContentsBrowserTask?.cancel()
         bookContentsBrowserTask = nil
-        guard let book = appState.currentBook else {
-            bookContentsBrowser = nil
-            return
-        }
+        bookContentsBrowser = nil
+        bookContentsBrowserBookID = nil
+        guard let book = appState.currentBook else { return }
+        // 下段が見えていなければ作らない(書庫の本なら書庫をもう 1 度開いて一覧を取り、本を読んでいる間ずっと開いたままにする)。
+        // 見えたときに syncBookContentsBrowserWithScreen が作る(isSidePanelBrowserModeOnScreen のコメント)。
+        guard isBookContentsPaneOnScreen else { return }
+        bookContentsBrowserBookID = book.id
         // 最上位の一覧(書庫の本)は裏で取る(BookContentsBrowserState.make(book:) のコメント。ネットワークボリューム上の本で
         // メインスレッドが数秒止まった)。用意ができるまで下段は出さない ―― 前の本の一覧を残すと、別の本の行を押せてしまう。
-        bookContentsBrowser = nil
         let bookID = book.id
         bookContentsBrowserTask = Task { @MainActor in
             let newBrowser = await BookContentsBrowserState.make(book: book)
@@ -1821,6 +1871,19 @@ struct ContentView: View {
             }
             installBookContentsBrowser(newBrowser)
         }
+    }
+
+    /// 本の中身ブラウザ(下段)が画面に出たときに、今の本・今のページへ追いつかせる(isSidePanelBrowserModeOnScreen のコメント)。
+    /// まだこの本のぶんを作っていなければ作る(作り終えたら installBookContentsBrowser が並び順と今のページを合わせる)。作ってあれば、
+    /// 見えていない間に変わった並び順と今のページを反映する(どちらも変わっていなければ何もしない)。
+    private func syncBookContentsBrowserWithScreen() {
+        guard isBookContentsPaneOnScreen, let book = appState.currentBook else { return }
+        guard bookContentsBrowserBookID == book.id else {
+            updateBookContentsBrowserForCurrentBook()
+            return
+        }
+        bookContentsBrowser?.pageOrder = pageOrderMap()
+        bookContentsBrowser?.revealCurrentPage(sortKeys: appState.currentVisiblePageSortKeys)
     }
 
     /// 用意できた本の中身ブラウザを据える(updateBookContentsBrowserForCurrentBook の続き)。

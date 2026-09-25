@@ -189,7 +189,7 @@ final class FolderAccessStore: ObservableObject {
         let newEntries = rawBookmarks()
             .compactMap { data -> Entry? in
                 let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
-                if let path, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path)) { return nil }
+                if let path, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: true)) { return nil }
                 if reusingOpenedFolders, let path, let opened = accessedURLsByPath[path] { return Entry(url: opened) }
                 return resolvedURL(from: data).map(Entry.init)
             }

@@ -13,6 +13,13 @@ import Combine
 /// ボリュームの着脱(外での変更。棚・履歴と同じ契機)に読み直す。FSEvents では見張らない(パネルは隠れていることが多い)。
 /// 表示中のフォルダが消えていたら、残っているいちばん近い祖先へ移る(ファイルブラウザと同じ。以前は読み込みの失敗を
 /// 全部「アクセス権が無い」として「アクセスを許可…」を出していた)。
+///
+/// ■ 見えていない間は読み直さない(2026-09-25 の監査)
+/// (1)(2)と本の切り替わりの読み直しは、この節が画面に出ていないとき(パネルを隠している・別のモード・機能が OFF・ホーム)は
+/// 「出たら読み直す」印を付けるだけにする(`isVisible`。ContentView が知らせる)。一覧の読み込みは直下のフォルダごとに中を
+/// 覗く(DirectoryBrowser.makeEntry)ので、本の並ぶ棚では 1 回が数百回の readdir になる。以前はそれを、見えていないのに
+/// アクティブ化のたび・本を開くたびに、開いているウインドウ・タブの数だけ繰り返していた(共有の上ならネットワーク越しに)。
+/// 移動・付け替え(`currentDirectory` などパスで覚えているもの)は今までどおりその場で行う。
 @MainActor
 final class SidePanelBrowserState: ObservableObject {
     /// 現在表示中のフォルダ。nilのときは最上位(ボリューム一覧)を表す。
@@ -60,6 +67,11 @@ final class SidePanelBrowserState: ObservableObject {
     private var appliedSort: FolderBrowserSort?
     private var changeObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
+    /// この節が画面に出ているか(型コメント「見えていない間は読み直さない」)。ContentView が `setVisible` で知らせる。
+    /// 既定は true(知らせる者のいないテストでは今までどおりその場で読み直す)。
+    private(set) var isVisible = true
+    /// 見えていない間に読み直しを見送った。見えたら読み直す。
+    private var needsReloadWhenVisible = false
 
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
@@ -77,14 +89,42 @@ final class SidePanelBrowserState: ObservableObject {
         let workspace = NSWorkspace.shared.notificationCenter
         systemObservations = [
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reload() } },
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reloadWhenVisible() } },
             Publishers.Merge(
                 workspace.publisher(for: NSWorkspace.didMountNotification),
                 workspace.publisher(for: NSWorkspace.didUnmountNotification)
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.reload() } },
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.reloadWhenVisible() } },
         ]
+    }
+
+    /// この節が画面に出た・隠れた(ContentView。型コメント「見えていない間は読み直さない」)。出たとき、見送った読み直しがあれば
+    /// 読み直す(それまでは前の一覧が出ている ―― ファイルブラウザの 2 回目以降の表示と同じ)。
+    func setVisible(_ visible: Bool) {
+        guard visible != isVisible else { return }
+        isVisible = visible
+        guard visible, needsReloadWhenVisible else { return }
+        needsReloadWhenVisible = false
+        reload()
+    }
+
+    /// 見えていれば読み直し、見えていなければ見えたときまで先送りする。
+    /// - Parameter directoryChanged: 表示するフォルダが変わった(移った)。見えていない間なら、前のフォルダの行(古いパス)は
+    ///   すぐに捨てる ―― 見えた瞬間に押せる行が、別のフォルダ・もう無いパスを指さないように。
+    private func reloadWhenVisible(directoryChanged: Bool = false) {
+        guard isVisible else {
+            needsReloadWhenVisible = true
+            // 読み込み中の一覧は前の状態のものなので捨てる(見えたときに読み直す)。
+            reloadTask?.cancel()
+            reloadTask = nil
+            if directoryChanged {
+                if !entries.isEmpty { entries = [] }
+                if currentDirectoryHasImages { currentDirectoryHasImages = false }
+            }
+            return
+        }
+        reload()
     }
 
     /// アプリ自身がファイルを動かした(型コメント)。パスで覚えているもの(表示中のフォルダ・履歴・強調する行)を付け替え、
@@ -100,9 +140,9 @@ final class SidePanelBrowserState: ObservableObject {
         guard let directory = currentDirectory else { return }
         if let moved = relocated(directory), moved != directory {
             currentDirectory = moved
-            reload()
+            reloadWhenVisible(directoryChanged: true)
         } else if change.requiresReload(ofFolderAt: directory.path) {
-            reload()
+            reloadWhenVisible()
         }
     }
 
@@ -125,13 +165,14 @@ final class SidePanelBrowserState: ObservableObject {
             return
         }
         let anchor = Self.browserAnchor(for: currentBook)
-        if anchor.directory != currentDirectory {
+        let directoryChanged = anchor.directory != currentDirectory
+        if directoryChanged {
             backStack.append(currentDirectory)
             forwardStack.removeAll()
             currentDirectory = anchor.directory
         }
         highlightedURL = anchor.highlighted
-        reload()
+        reloadWhenVisible(directoryChanged: directoryChanged)
     }
 
     /// 本を開いたときに、フォルダブラウザのどこを表示してどれをハイライトするか。

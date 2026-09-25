@@ -95,6 +95,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private var shelfSignatures: [String: ShelfSignature] = [:]
     private static let shelfSignaturesLimit = 5000
 
+    /// キャッシュを消した回数(`sourceKey` に入れて、消したらセルに頼み直させる)。
+    private var purgeGeneration: UInt64 = 0
+
     /// 作れなかった絵(型コメント)。上限を超えたら丸ごと忘れる(試し直すだけで害は無い)。
     private var failedKeys: Set<String> = []
     private static let failedKeysLimit = 5000
@@ -306,6 +309,17 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         } onCancel: {
             Task { @MainActor [weak self] in self?.cancelWaiter(waiterID, of: memoryKey) }
         }
+    }
+
+    /// この項目の絵の出どころを表す鍵(段は含まない)。**セルが「頼み直すか」を決めるのに使う。**
+    ///
+    /// `revision` はコレクションの変更のたびに(表紙を 1 冊抽出するたびにも)進むので、それだけを鍵にすると、見えている
+    /// すべてのセルが(全ウインドウで)頼み直し・使い捨ての CGImage の作り直し・描き直しを表紙 1 枚ごとに繰り返していた
+    /// (2026-09-25 の監査)。出どころ(表紙ができた・差し替わった、表紙の指定が変わった、ライブラリ機能の切り替え)が
+    /// 変わったときだけ鍵が変わる。キャッシュを消した(`purgeMemory`)ときも変わる(`purgeGeneration`)。
+    /// `revision` は今までどおり進む ―― セルはそれで描き直され、そのときこの鍵を読み直す。
+    func sourceKey(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> String {
+        "\(resolveSource(for: entry, kind: kind).0)|\(purgeGeneration)"
     }
 
     /// 出どころと、段を含まない鍵(型コメント「どこから」)。表紙は項目の更新日時と無関係に、表紙の差し替え回数で鍵を変える。
@@ -557,7 +571,15 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     func purgeMemory() {
         memory.removeAll()
         failedKeys.removeAll()
+        purgeGeneration &+= 1
         revision &+= 1
+    }
+
+    /// メモリの絵だけを手放す(ファイルブラウザ・スマートライブラリの両方を OFF にしたとき。AppStores)。どのセルも見えていない
+    /// ので頼み直させない。ON に戻れば、ディスクキャッシュから引き直すだけ(2026-09-25 の監査 ―― 以前は OFF の間も
+    /// 最大 96MB を抱えたままだった)。
+    func releaseMemory() {
+        memory.removeAll()
     }
 
     /// 仕事がすべて終わるまで待つ(**テストのための口**)。

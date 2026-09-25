@@ -250,15 +250,22 @@ final class SmartLibraryCatalog: ObservableObject {
             }.value
             guard !Task.isCancelled, generation == self.generation else { return }
             self.scanned = (roots, scan)
-            self.books = books
-            self.isTruncated = scan.isTruncated
+            // 集め直した一覧が今出しているものと同じなら、差し替えも `revision` も進めない(2026-09-25 の監査)。`revision` は
+            // ペインを出している全ウインドウの絞り込み・並べ替え・棚ごとの冊数の数え直し(SmartLibraryViewState.update)を呼ぶ。
+            // メタデータの行が変わるたび(対象フォルダの外の本でも)・メタデータ生成が読み終えるたび・ホームへ戻るたびに
+            // 集め直すので、ほとんどの回は同じ一覧になる。比べるのは冊数ぶんの一度きり。
+            let changed = !self.hasLoaded || books != self.books || scan.isTruncated != self.isTruncated
+            if changed {
+                self.books = books
+                self.isTruncated = scan.isTruncated
+            }
             self.isLoading = false
-            self.hasLoaded = true
-            self.revision += 1
+            if !self.hasLoaded { self.hasLoaded = true }
+            if changed { self.revision += 1 }
             // 対象フォルダのボリュームが繋がっていない回は保存しない(2026-09-22 の監査。以前は空の一覧で上書きし、次の起動の
             // 先出しも失った)。判定は MountTable だけで、パスには触らない。
             let mounts = MountTable.current()
-            if !roots.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }) {
+            if !roots.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0, isDirectory: true)) }) {
                 self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
             }
             self.building = nil
@@ -309,6 +316,9 @@ final class SmartLibraryCatalog: ObservableObject {
             self.books = cached.books
             self.isTruncated = cached.isTruncated
             self.revision += 1
+            // 読んだものは保存してあるものそのもの。最初の集め直しが同じ一覧なら書き直さない(2026-09-25 の監査。以前は起動のたびに
+            // 最初の集め直しで、全冊ぶんの JSON を同じ中身で書き直していた)。
+            self.lastSavedCache = cached
         }
     }
 

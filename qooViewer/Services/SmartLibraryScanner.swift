@@ -160,7 +160,7 @@ nonisolated enum SmartLibraryScanner {
         // 別の本として重ねて並べない(2026-09-22 の監査。以前は「フォルダの本は画像だけを読む」として 1 冊ずつ数えていたが、誤り)。
         for var file in files where !MountTable.path(file.path, isAtOrUnderAnyOf: bookFolderSet)
             && seen.insert(file.path).inserted {
-            file.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: file.path), mountTable: mountTable)
+            file.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: file.path, isDirectory: false), mountTable: mountTable)
             result.books.append(file)
         }
     }

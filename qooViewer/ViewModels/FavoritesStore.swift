@@ -226,6 +226,13 @@ final class FavoritesStore: ObservableObject {
         // 自前で購読するとゲートより先に走った場合・後に走った場合で挙動が変わってしまう
         // (詳細はMenuBarMenuGate.onMenuBarMenuDidClose(_:_:)のコメント参照)。
         // publishOnlyWhenChangedにより、中身が変わったときだけ発火する点は従来どおり。
+        //
+        // **お気に入り機能を隠している間(`FavoritesFeature.isEnabled == false`)は、この読み直しも下の存在確認も始めない**
+        // (2026-09-25 の監査)。どちらも結果を読むのはお気に入りのメニュー・一覧・整理ウインドウだけで、どれも出ない。それでも
+        // 以前は、メニューを閉じるたびの 2 回のフェッチ、アクティブ化・ボリュームの着脱・アプリ自身のファイル操作のたびの全件の
+        // ブックマーク解決と stat が走っていた。データは読み込んだまま(下の`reload()`は上で済んでいる)で、書き出し・読み込み・
+        // 付け替え・掃除は`allFavoriteBooks()`などから直接読むので影響しない。フラグを戻せば元どおり動く。
+        guard FavoritesFeature.isEnabled else { return }
         MenuBarMenuGate.shared.onMenuBarMenuDidClose(Self.menuGateKey) { [weak self] in
             self?.reload(publishOnlyWhenChanged: true)
         }
@@ -294,6 +301,8 @@ final class FavoritesStore: ObservableObject {
     /// 全お気に入りの実体確認を非同期に予約する。重い部分はメインアクターの外で走らせ、
     /// 結果の反映だけをメインアクターへ戻す。
     func scheduleExistenceRefresh() {
+        // お気に入りを隠している間は確かめない(結果を読む画面が無い。initのコメント)。
+        guard FavoritesFeature.isEnabled else { return }
         guard !isRefreshingExistence else {
             // 走行中に来た要求は捨てずに覚えておき、完了後にもう一度走らせる
             // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。

@@ -142,7 +142,7 @@ final class LibraryCleanupViewModel: ObservableObject {
             .map { bookID in
                 Row(
                     bookID: bookID,
-                    fileName: URL(fileURLWithPath: bookID).lastPathComponent,
+                    fileName: URL(fileURLWithPath: bookID, isDirectory: false).lastPathComponent,
                     // 実在判定はここでは行わない(下のscheduleExistenceScanが後から埋める)。
                     // 既に判定済みならその結果を引き継ぎ、再スキャン中に表示が
                     // 「確認中」へ巻き戻らないようにする。

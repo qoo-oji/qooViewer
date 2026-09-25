@@ -350,7 +350,7 @@ final class AutoRenameService: ObservableObject {
     func eligibility(ofFolder url: URL) -> AutoRenameTargetAvailability {
         let path = AutoRename.canonicalPath(of: url)
         guard isUnderFavorite(path) else { return .outsideFavorites }
-        if MountTable.current().isRemote(URL(fileURLWithPath: path)) { return .networkVolume }
+        if MountTable.current().isRemote(URL(fileURLWithPath: path, isDirectory: true)) { return .networkVolume }
         return .available
     }
 
@@ -548,7 +548,7 @@ final class AutoRenameService: ObservableObject {
             if let found {
                 if found.contains("/.Trash/") || found.contains("/.Trashes/") || found.hasSuffix("/.Trash") {
                     status = .inTrash
-                } else if mounts.isRemote(URL(fileURLWithPath: found)) {
+                } else if mounts.isRemote(URL(fileURLWithPath: found, isDirectory: false)) {
                     status = .networkVolume
                 } else if !isUnderFavorite(found) {
                     status = .outsideFavorites

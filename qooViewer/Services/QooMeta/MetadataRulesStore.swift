@@ -269,7 +269,9 @@ final class MetadataRulesStore {
     /// 元は `MetadataEditorViewModel.baseName(forBookID:)`(2026-09-21 に窓の作り直しでここへ移した)。表紙の名前の照合
     /// (`KnownBooks.matchKey` など)も使うので、**正規化はしない**(qooMeta へ渡す形は `parsingName`)。
     nonisolated static func baseName(forBookID bookID: String) -> String {
-        let url = URL(fileURLWithPath: bookID)
+        // 向きを渡す(渡さないと、ディレクトリかを確かめにパスへ stat する ―― 名前を読むだけなのに、冊数ぶん・ネットワークの本なら
+        // サーバーへの往復になる。2026-09-25 の監査)。名前の取り出しは向きに関わらず同じ。
+        let url = URL(fileURLWithPath: bookID, isDirectory: false)
         let fileName = url.lastPathComponent
         guard isArchiveFile(fileName) || isPDFFile(fileName) || isEpubFile(fileName) else { return fileName }
         return url.deletingPathExtension().lastPathComponent

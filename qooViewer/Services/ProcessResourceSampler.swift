@@ -193,9 +193,10 @@ final class ProcessResourceSampler: ObservableObject {
         // かつてこの毎秒の@Publishedの発火は、QooViewerAppのbody(全Scene+.commands)を
         // 毎回再評価させ、**開いている最中のメニューバーのメニューを毎秒作り直させていた**
         // (表示メニューの描画崩れの一因として実測で確認)。現在はQooViewerAppがストアを
-        // 直接観測しない構造(AppStores/MenuBarMenuRefresher参照)になったため、ここは
-        // 何も気にせず毎秒発火してよい ―― メニューへの反映はMenuBarMenuRefresherが
-        // メニューの閉じたあとへまとめて送り、ウインドウ内のグラフだけがそのまま毎秒動く。
+        // 直接観測しない構造(AppStores/MenuBarMenuRefresher参照)になったうえ、どのメニューも
+        // 計測値を読まないので、この型は MenuBarMenuRefresher の購読からも外してある
+        // (AppStores.allObjectWillChangePublishers。2026-09-25) ―― 毎秒の発火が届くのは
+        // ウインドウ内のグラフだけ。
         let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }

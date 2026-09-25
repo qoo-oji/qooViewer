@@ -42,6 +42,36 @@ struct FileSystemChangeTests {
         #expect(!change.requiresReload(ofFolderAt: "/elsewhere"))
     }
 
+    @Test("本に関わる変更か: 本そのもの・祖先・本の中が変わったときだけ(実体の確かめ直しを絞る。2026-09-25)")
+    func touchesAnyBookCoversTheBookItsAncestorsAndItsContents() {
+        let books: Set<String> = ["/v/shelf/book.zip", "/v/shelf/folder-book"]
+        // 本そのものが移った(付け替えの後の新しいパスでも当たる)。
+        #expect(FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/v/shelf/book.zip"), to: URL(fileURLWithPath: "/v/other/book.zip")),
+        ]).touchesAny(of: books))
+        #expect(FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/v/old.zip"), to: URL(fileURLWithPath: "/v/shelf/book.zip")),
+        ]).touchesAny(of: books))
+        // 本の入ったフォルダごとゴミ箱へ。
+        #expect(FileSystemChange(removed: [URL(fileURLWithPath: "/v/shelf")]).touchesAny(of: books))
+        // フォルダの本の中に項目ができた(フォルダの更新日時が変わる)。
+        #expect(FileSystemChange(created: [URL(fileURLWithPath: "/v/shelf/folder-book/001.png")]).touchesAny(of: books))
+        // 置き換え・ゴミ箱との出入りも数える。
+        #expect(FileSystemChange(replaced: [URL(fileURLWithPath: "/v/shelf/book.zip")]).touchesAny(of: books))
+        var returned = FileSystemChange()
+        returned.returnedFromTrash = [
+            .init(from: URL(fileURLWithPath: "/Trash/book.zip"), to: URL(fileURLWithPath: "/v/shelf/book.zip")),
+        ]
+        #expect(returned.touchesAny(of: books))
+        // 関わらない変更: 隣の項目・名前の途中まで一致するパス・別の場所。
+        #expect(!FileSystemChange(created: [URL(fileURLWithPath: "/v/shelf/notes.txt")]).touchesAny(of: books))
+        #expect(!FileSystemChange(removed: [URL(fileURLWithPath: "/v/shelf/book.zip.bak")]).touchesAny(of: books))
+        #expect(!FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/w/a"), to: URL(fileURLWithPath: "/w/b")),
+        ]).touchesAny(of: books))
+        #expect(!FileSystemChange(created: [URL(fileURLWithPath: "/v/shelf/x")]).touchesAny(of: []))
+    }
+
     @Test("箱は続けて届いた知らせを起きた順のまま 1 つにまとめて配る")
     func centerCoalescesInOrder() {
         let center = FileSystemChangeCenter()

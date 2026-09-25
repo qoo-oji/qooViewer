@@ -121,6 +121,35 @@ nonisolated struct FileSystemChange: Sendable, Equatable {
         MountTable.path(path, isAtOrUnderAnyOf: displaced)
     }
 
+    /// この知らせで変わった項目のパス全部(移った元と先・消えた・できた・置き換えた・ゴミ箱との出入り)。`touchesAny(of:)` の材料。
+    var touchedPathSet: Set<String> {
+        var paths = Set<String>()
+        for relocation in relocations + replacedIntoTrash + returnedFromTrash {
+            paths.insert(Self.path(of: relocation.from))
+            paths.insert(Self.path(of: relocation.to))
+        }
+        for url in removed + created + replaced {
+            paths.insert(Self.path(of: url))
+        }
+        return paths
+    }
+
+    /// `bookPaths`(`MountTable.normalized` 済みの本のパス)のどれかに関わる変更か(2026-09-25 の監査)。関わるのは:
+    /// - 本そのもの、またはその祖先が変わった(移った・消えた・置き換えた・できた)
+    /// - 本(フォルダの本)の中の項目が変わった(フォルダの更新日時が変わるので、日付順の並びに効く)
+    ///
+    /// 棚・履歴・お気に入りの「実体があるか」の確かめ直し(全冊のブックマーク解決と stat)を、関わる変更のときだけにするために
+    /// 使う。どちらもパスの深さぶんの辞書引きで答える(本の数 × 変わった項目の数の比較はしない)。
+    func touchesAny(of bookPaths: Set<String>) -> Bool {
+        guard !bookPaths.isEmpty else { return false }
+        let touched = touchedPathSet
+        guard !touched.isEmpty else { return false }
+        // 変わった項目の祖先(自分自身を含む)に本がある = 本そのものか、本の中が変わった。
+        if touched.contains(where: { MountTable.path($0, isAtOrUnderAnyOf: bookPaths) }) { return true }
+        // 本の祖先(自分自身を含む)が変わった = 本の入ったフォルダごと移った・消えた。
+        return bookPaths.contains { MountTable.path($0, isAtOrUnderAnyOf: touched) }
+    }
+
     /// `path`(またはその祖先)がその場所から無くなったか(移った・消えた)。
     func displaces(_ path: String) -> Bool {
         let path = MountTable.normalized(path)

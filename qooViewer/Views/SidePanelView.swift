@@ -1141,7 +1141,7 @@ private struct BookContentsSectionView: View {
     /// 出す」という判断がページ一覧・ページモードとひとりでに揃う。
     @ViewBuilder
     private func contextMenuItems(for entry: BookInternalBrowsing.Entry) -> some View {
-        if entry.isImage, let index = bookPages.firstIndex(where: { $0.sortKey == entry.matchKey }) {
+        if entry.isImage, let index = state.pageIndex(ofMatchKey: entry.matchKey, in: bookPages) {
             PageContextMenuItems(
                 page: bookPages[index],
                 bookSourceURL: bookSourceURL,
@@ -1477,7 +1477,7 @@ private struct SidePanelFavoriteRow: View {
             // フォルダ行の三角マークぶんの幅を空けて、同じ階層のフォルダと本の名前の
             // 開始位置を揃える。
             Color.clear.frame(width: 10, height: 1)
-            Image(systemName: sidePanelFileIconName(fileName: URL(fileURLWithPath: book.bookID).lastPathComponent))
+            Image(systemName: sidePanelFileIconName(fileName: URL(fileURLWithPath: book.bookID, isDirectory: false).lastPathComponent))
                 .frame(width: 16)
                 .foregroundStyle(.secondary)
             Text(book.title)

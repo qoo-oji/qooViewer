@@ -188,8 +188,8 @@ actor ThumbnailDiskCache {
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
         // 最終アクセス日時を更新しておく(trimIfNeededがこれを基準に捨てる)。書き込みに
-        // 失敗しても実害は無いので結果は見ない。
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        // 失敗しても実害は無いので結果は見ない。触るのは古くなったときだけ(DiskCacheAccessStamp)。
+        DiskCacheAccessStamp.touchIfStale(url.path)
         return image
     }
 
@@ -398,5 +398,24 @@ actor ThumbnailDiskCache {
     /// `withIntermediateDirectories: true`で作るので、親が無くてもそのまま再開できる。
     private nonisolated static func removeDirectory(_ directory: URL) {
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+/// ディスクキャッシュの「最終アクセス」(更新日時)の付け方。ThumbnailDiskCache と FileBrowserThumbnailDiskCache が共有する。
+///
+/// 刈り込み(trimIfNeeded)は更新日時の古いものから捨てるので、読んだファイルの更新日時を今にしておく。ただし
+/// **読むたびには書かない**(2026-09-25 の監査)。以前は当たるたびに `setAttributes` で書いていたので、一覧を流すだけで
+/// セルの数だけメタデータの書き込み(APFS のトランザクション)が起きていた。更新日時が `refreshInterval` より新しければ
+/// 触らない ―― 刈り込みの順番が 1 時間の粒度になるだけで、「最近使ったものほど残る」は変わらない。
+nonisolated enum DiskCacheAccessStamp {
+    static let refreshInterval: TimeInterval = 60 * 60
+
+    static func touchIfStale(_ path: String, now: Date = Date()) {
+        var info = stat()
+        if stat(path, &info) == 0 {
+            let modified = TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+            guard now.timeIntervalSince1970 - modified >= refreshInterval else { return }
+        }
+        try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: path)
     }
 }

@@ -220,7 +220,7 @@ final class AppStores: ObservableObject {
                 // 繋がっていないボリュームの本は確かめない(ブックマークの解決が秒単位で止まる)。付けたら確かめ直す
                 // (MetadataGenerator がボリュームを付けた知らせで「無かった本」を忘れる)。
                 let mounts = MountTable.current()
-                let probes = bookIDs.filter { !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }.map {
+                let probes = bookIDs.filter { !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0, isDirectory: false)) }.map {
                     BookExistenceProbe.make(bookID: $0, metadataStore: metadata, layoutStore: layouts, bookmarkStore: bookmarks,
                                             favoritesStore: favorites, collectionStore: collectionStore, folderAccess: access)
                 }
@@ -316,7 +316,13 @@ final class AppStores: ObservableObject {
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] isEnabled in
-                MainActor.assumeIsolated { self?.smartLibraryCatalog.setFeatureEnabled(isEnabled) }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.smartLibraryCatalog.setFeatureEnabled(isEnabled)
+                    // `$` の購読は値が書き換わる前に届くので、切り替わった側の値は引数で渡す(AppStores の他の購読と同じ)。
+                    self.releaseThumbnailMemoryIfUnused(fileBrowserEnabled: self.preferences.fileBrowserFeatureEnabled,
+                                                        smartLibraryEnabled: isEnabled)
+                }
             }
         libraryFeatureSubscription = preferences.$libraryFeatureEnabled
             .dropFirst()
@@ -360,6 +366,12 @@ final class AppStores: ObservableObject {
         collectionCoverExtractor.setLibraryFeatureEnabled(isEnabled)
         collectionAutoFolderScanner.setLibraryFeatureEnabled(isEnabled)
         fileBrowserThumbnails.setLibraryFeatureEnabled(isEnabled)
+        if !isEnabled {
+            // 棚の札の絵とコレクションの表紙の復号済みの絵は、ライブラリの画面でしか使わない。OFF の間は抱えない(2026-09-25 の
+            // 監査。以前はメモリ逼迫が来るまで最大 96MB + 64MB を持ち続けた)。ON に戻れば、ディスクから読み直すだけ。
+            collectionTileImageStore.memoryCache.removeAll()
+            collectionCoverStore.memoryCache.removeAll()
+        }
         if isEnabled {
             sweepLibraryOrphansIfNeeded()
             // OFF の間に変わっていたかもしれない(保存データの読み込みなど)。メタデータ生成は ON/OFF に関わらず動き続け、
@@ -386,8 +398,17 @@ final class AppStores: ObservableObject {
     /// - アプリ自身がファイルを動かした知らせ(`FileSystemChangeCenter`)とよく使う項目の付け替え ―― サイドパネルのフォルダブラウザも使う
     /// - サムネイルのディスクキャッシュ・よく使う項目・規則などの保存したものは消さない
     private func applyFileBrowserFeature(_ isEnabled: Bool) {
+        releaseThumbnailMemoryIfUnused(fileBrowserEnabled: isEnabled, smartLibraryEnabled: preferences.smartLibraryFeatureEnabled)
         guard !RuntimeEnvironment.isRunningTests else { return }
         if isEnabled { startAutoRename() } else { autoRenameService.stop() }
+    }
+
+    /// ファイルブラウザとスマートライブラリの両方が OFF になったら、アイコン・表紙の絵のメモリ(FileBrowserThumbnailProvider、
+    /// 最大 96MB)を手放す(2026-09-25 の監査)。どちらかが ON に戻れば、ディスクキャッシュから引き直すだけ。
+    /// 引数は切り替わった後の値(`$` の購読は値が書き換わる前に届く)。
+    private func releaseThumbnailMemoryIfUnused(fileBrowserEnabled: Bool, smartLibraryEnabled: Bool) {
+        guard !fileBrowserEnabled, !smartLibraryEnabled else { return }
+        fileBrowserThumbnails.releaseMemory()
     }
 
     private func startAutoRename() {
@@ -552,9 +573,18 @@ final class AppStores: ObservableObject {
         Task { @MainActor [weak self] in
             await relocation.value
             guard let self else { return }
-            // ライブラリ機能がOFFの間は、ストアの側で何もしない(CollectionStore.isLibraryFeatureEnabled)。
-            self.collectionStore.scheduleExistenceRefresh()
-            self.recentFiles.scheduleRefresh()
+            // 確かめ直すのは、その一覧の本に関わる変更のときだけ(2026-09-25 の監査)。確かめ直しは全冊のブックマーク解決と stat
+            // なので、以前はテキストファイル 1 つの名前を変えても・空のフォルダを 1 つ作っても、自動リネームが 1 件動いても、
+            // 登録した全冊ぶん(共有の上の本ならネットワーク越しに)走っていた。本のパスは付け替えが済んだ後の値で比べる
+            // (移した本は新しいパスで当たる)。関わらない変更で実体の有無が変わることは無い。
+            // ライブラリ機能がOFFの間は`CollectionItem`を読まない(ストアの側でも何もしない。CollectionStore.isLibraryFeatureEnabled)。
+            if self.preferences.libraryFeatureEnabled,
+               change.touchesAny(of: Set(self.collectionStore.allRegisteredBookIDs().map(MountTable.normalized))) {
+                self.collectionStore.scheduleExistenceRefresh()
+            }
+            if change.touchesAny(of: Set(self.recentFiles.entries.map { MountTable.normalized($0.path) })) {
+                self.recentFiles.scheduleRefresh()
+            }
             self.favoritesStore.scheduleExistenceRefresh()
         }
     }
@@ -567,7 +597,9 @@ final class AppStores: ObservableObject {
             keyBindingStore.objectWillChange,
             recentFiles.objectWillChange,
             folderAccess.objectWillChange,
-            resourceSampler.objectWillChange,
+            // resourceSampler は並べない(2026-09-25 の監査)。どのメニューも計測値を読まないのに、記録中・リソースの節の表示中は
+            // 毎秒(ウインドウごとに)発火し、そのたびに App の body(全 Scene + .commands)を作り直させていた。グラフは各ウインドウの
+            // ビューが .environmentObject で直接観測する。
             launchCoordinator.objectWillChange,
             favoritesStore.objectWillChange,
             bookmarkStore.objectWillChange,

@@ -86,7 +86,7 @@ final class AutoRenameStore: ObservableObject {
             for targetIndex in targets.indices {
                 let old = targets[targetIndex]
                 guard let moved = change.relocatedPath(for: old.path).map(AutoRename.canonicalPath), moved != old.path,
-                      mounts.areOnSameVolume(URL(fileURLWithPath: old.path), URL(fileURLWithPath: moved)),
+                      mounts.areOnSameVolume(URL(fileURLWithPath: old.path, isDirectory: false), URL(fileURLWithPath: moved, isDirectory: false)),
                       !targets.contains(where: { $0.id != old.id && $0.path == moved }) else { continue }
                 let wasConfirmed = old.confirmedSignature == old.signature(for: rule)
                 targets[targetIndex].path = moved

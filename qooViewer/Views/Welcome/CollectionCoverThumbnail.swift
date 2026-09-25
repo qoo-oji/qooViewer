@@ -162,8 +162,10 @@ struct CollectionCoverThumbnail: View {
         let tier = decodeTier
         let key = contentKey
         if image != nil, loadedContentKey == key, tier <= loadedTier { return }
-        let loaded = await coverStore.image(
-            for: item.id, maxPixelSize: Self.decodePixelSize(forTier: tier)
+        // アプリで 1 つのメモリキャッシュを通す(CollectionCoverStore.memoryCache のコメント)。戻ってきた・作り直した一覧は
+        // ディスクを読まずに埋まる。
+        let loaded = await coverStore.cachedImage(
+            for: item.id, revision: coverRevision, maxPixelSize: Self.decodePixelSize(forTier: tier)
         )
         guard !Task.isCancelled else { return }
         guard let loaded else {

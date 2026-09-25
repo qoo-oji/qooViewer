@@ -34,6 +34,26 @@ actor CollectionCoverStore {
     /// I/O)をこのactorの**外**で実行するため(ThumbnailDiskCache.directoryと同じ理由)。
     nonisolated let directory: URL
 
+    /// 復号済みのカバーのメモリキャッシュ(2026-09-25 の監査)。鍵は「item + 絵の差し替え回数 + 復号サイズ」
+    /// (`memoryKey`)。
+    ///
+    /// ■ なぜ要るのか
+    /// コレクションの中の一覧(CollectionCoverThumbnail)は、開くたび・本から戻るたび・画面外セルを手放すための作り直し
+    /// (LazyCellImageBudget の予算超過)のたびに、見えている全セルが JPEG をディスクから読んで復号し直していた。棚の札は
+    /// 焼いた絵のメモリキャッシュ(CollectionTileImageCache)で同じ問題を解いてあり(「スクロール時にカバー画像の読み込みが
+    /// ランダムに発生する」)、同じ部品をこちらにも使う。ウインドウをまたいで 1 つなので、2 枚のウインドウで同じ
+    /// コレクションを見ても復号は 1 回。
+    ///
+    /// 上限は棚の札のキャッシュより小さめ(セル 1 枚は長辺 256〜768px の段で、1 枚あたり 0.2〜2MB)。メモリ逼迫では
+    /// 自分から空ける。
+    nonisolated let memoryCache = CollectionTileImageCache(countLimit: 800, totalCostLimit: 64 * 1024 * 1024)
+
+    /// メモリキャッシュの鍵。`revision` は絵の差し替え回数(CollectionStore.coverRevision)。書き直し(`write`)でも
+    /// 同じ item の鍵をまとめて捨てるので、差し替え回数を知らない呼び出し側でも古い絵は出ない。
+    nonisolated static func memoryKey(for itemID: UUID, revision: Int, maxPixelSize: CGFloat) -> String {
+        "\(itemID.uuidString)|\(revision)|\(Int(maxPixelSize.rounded()))"
+    }
+
     /// - Parameter directory: nilなら実際のアプリの保存先。**テストは必ず一時フォルダを渡すこと**
     ///   (既定のままだと利用者のカバー画像を消してしまう)。
     init(directory: URL? = nil) {
@@ -96,6 +116,16 @@ actor CollectionCoverStore {
         ] as CFDictionary)
     }
 
+    /// `image(for:maxPixelSize:)` の、メモリキャッシュ(`memoryCache`)を通す版。コレクションの中の一覧のセルが使う。
+    /// - Parameter revision: 絵の差し替え回数(CollectionStore.coverRevision(for:))。
+    @concurrent nonisolated func cachedImage(for itemID: UUID, revision: Int, maxPixelSize: CGFloat) async -> CGImage? {
+        let key = Self.memoryKey(for: itemID, revision: revision, maxPixelSize: maxPixelSize)
+        if let cached = memoryCache.image(forKey: key) { return cached }
+        guard let image = await image(for: itemID, maxPixelSize: maxPixelSize) else { return nil }
+        memoryCache.store(image, forKey: key)
+        return image
+    }
+
     /// カバーを保存する。呼び出し側(CollectionCoverExtractor)は失敗を
     /// `CollectionCoverStatus.failed`として記録する。
     ///
@@ -116,6 +146,7 @@ actor CollectionCoverStore {
         )
         guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
         try (output as Data).write(to: url(for: itemID), options: .atomic)
+        memoryCache.removeAll(withPrefix: itemID.uuidString)
     }
 
     // MARK: - 削除
@@ -125,12 +156,14 @@ actor CollectionCoverStore {
     func remove(_ itemIDs: [UUID]) {
         for itemID in itemIDs {
             try? FileManager.default.removeItem(at: url(for: itemID))
+            memoryCache.removeAll(withPrefix: itemID.uuidString)
         }
     }
 
     /// フォルダごと消す(「すべてのデータを削除」/ JSONの上書き取り込み)。
     func removeAll() {
         try? FileManager.default.removeItem(at: directory)
+        memoryCache.removeAll()
     }
 
     /// 行が残っていないカバーファイルを掃除する。起動時に1回だけ呼ぶ(CollectionStoreの

@@ -71,4 +71,8 @@ final class BookCollection {
 /// userInfoを付けない。
 extension Notification.Name {
     static let collectionsDidChange = Notification.Name("qooViewer.collectionsDidChange")
+    /// userInfo のこの鍵が true なら、カバーの抽出の結果(`.ready` / `.failed`)を書いただけの変更(2026-09-25)。
+    /// 抽出役(CollectionCoverExtractor)は、この知らせでは待ち行列を組み直さない ―― 結果が新しい「抽出待ち」を生むことは無いのに、
+    /// 以前は 1 冊終わるたびに全登録の走査(全冊の控え取り・抽出待ちの絞り込み)をやり直していた(冊数の 2 乗)。
+    static let collectionsDidChangeIsCoverResultKey = "isCoverResult"
 }

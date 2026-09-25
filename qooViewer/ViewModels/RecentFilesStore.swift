@@ -214,7 +214,7 @@ final class RecentFilesStore: ObservableObject {
     /// 繋がっていないボリュームの本は取り除かない(開けないだけで、繋げばまた開ける。2026-09-22 の監査)。ゴミ箱の中まで追った
     /// ものは「無い」として取り除く(BookLocationResolver.isInTrash と同じ決まり)。
     func resolveForOpening(_ entry: Entry) -> URL? {
-        if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path)) { return nil }
+        if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path, isDirectory: false)) { return nil }
         guard let url = Self.resolvedURL(from: entry.bookmark), !BookLocationResolver.isInTrash(url), Self.fileExists(at: url) else {
             remove(entry)
             return nil
@@ -431,7 +431,7 @@ final class RecentFilesStore: ObservableObject {
         var result: [StoredEntry] = []
         let mounts = MountTable.current()
         for item in stored {
-            if !item.path.isEmpty, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: item.path)) {
+            if !item.path.isEmpty, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: item.path, isDirectory: false)) {
                 result.append(item)
                 continue
             }

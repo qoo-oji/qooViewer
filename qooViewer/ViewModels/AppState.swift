@@ -1299,7 +1299,7 @@ final class AppState: ObservableObject {
             for position in candidates {
                 guard !Task.isCancelled, let self, self.bookSequence == sequence else { return }
                 let entry = sequence.entries[position]
-                if case .file(let path) = entry, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path)) { continue }
+                if case .file(let path) = entry, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: false)) { continue }
                 let probe = self.sequenceProbe(for: entry)
                 let url: URL?
                 do {

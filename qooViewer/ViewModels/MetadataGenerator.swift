@@ -44,7 +44,11 @@ final class MetadataGenerator {
     /// 最後に読んだ規則。
     private(set) var rules: CompiledRules
     /// 並べている本(パスの順)。
-    private(set) var listedBookIDs: [String] = []
+    private(set) var listedBookIDs: [String] = [] {
+        didSet { listedBookIDSet = Set(listedBookIDs) }
+    }
+    /// `listedBookIDs` を引くための写し(本を開くたびに並びの中を線形に探さない)。
+    private var listedBookIDSet: Set<String> = []
     private(set) var proposals: [String: BookProposal] = [:]
     /// 索引に渡した入力(名前・ルールセット・確定した内容)。
     private(set) var inputs: [String: BookInput] = [:]
@@ -134,9 +138,18 @@ final class MetadataGenerator {
     func noteBookOpened(_ bookID: String, sourceURL: URL? = nil) {
         verified.insert(bookID)
         absent.remove(bookID)
-        // 消した本も、開き直せばまた登録する(利用者の指示 2026-09-22: 削除しても覚えてはおかない)。
-        reregistering.insert(bookID)
         if let sourceURL { sourceURLs[bookID] = sourceURL }
+        // もう並べていて行もある本(2 度目以降に開いた本のほとんど)なら、回を頼まない(2026-09-25 の監査)。この本が加わっても
+        // 母体・並び・入力・書くものは変わらない(並べている本は「確かめた」かどうかに関わらず並ぶ。行の中身が変われば
+        // `bookMetadataDidChange` が回を頼む)のに、1 回ぶん(DB の全行の読み出し 2〜3 回・知っている本の収集・書く前の全冊の
+        // 見比べ ―― 数千冊で約 0.1 秒)がメインで、最初の見開きを読んでいる最中に走っていた。
+        // 消した本は別(開き直せばまた登録する。利用者の指示 2026-09-22: 削除しても覚えてはおかない)。ここで登録し直しの印を
+        // 付けないのは、消していない本に印が残ると、後で利用者が消したときに次の回が作り直してしまうため。
+        if hasCompletedRun, listedBookIDSet.contains(bookID), metadataStore.isRegistered(bookID: bookID),
+           !metadataStore.deletedThisSession.contains(bookID) {
+            return
+        }
+        reregistering.insert(bookID)
         schedule(delay: .milliseconds(100))
     }
 
@@ -292,7 +305,7 @@ final class MetadataGenerator {
         } catch {
             return
         }
-        let previousListed = Set(listedBookIDs)
+        let previousListed = listedBookIDSet
         changed.formUnion(Set(listed).symmetricDifference(previousListed))
         inputs = next.byID
         overridden = Set(next.byID.keys.filter { records[$0]?.ruleSet != nil })

@@ -38,8 +38,9 @@ enum ExternalMoveSweeper {
         return await Task.detached(priority: .utility) {
             let mounts = MountTable.current()
             return probes.compactMap { probe -> FileSystemChange.Relocation? in
+                // 動いていない本の中は読まない(`movedDestination` のコメント。答えは `locateAtRecordedPath().movedTo` と同じ)。
                 guard isLocallyReachable(probe.bookID, mounts: mounts),
-                      let movedTo = probe.locateAtRecordedPath().movedTo else { return nil }
+                      let movedTo = probe.movedDestination() else { return nil }
                 return .init(from: URL(fileURLWithPath: probe.bookID), to: URL(fileURLWithPath: movedTo))
             }
         }.value
@@ -65,7 +66,8 @@ enum ExternalMoveSweeper {
     /// いま繋がっていて、ネットワーク越しでないボリュームの上の本か。マウントの表(`MountTable`)だけで決め、パスには触らない
     /// (`URL.standardizedFileURL` もパスの実在を見るので使わない)。
     nonisolated static func isLocallyReachable(_ path: String, mounts: MountTable) -> Bool {
-        let url = URL(fileURLWithPath: path)
+        // 向きを渡す(`URL(fileURLWithPath:)` は向きを知らないと、ディレクトリかを確かめにパスへ stat する)。答えはパスだけで決まる。
+        let url = URL(fileURLWithPath: path, isDirectory: false)
         return !mounts.isOnAnUnmountedVolume(url) && !mounts.isRemote(url)
     }
 }

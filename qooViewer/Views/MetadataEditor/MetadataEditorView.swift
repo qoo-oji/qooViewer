@@ -846,7 +846,7 @@ struct MetadataBookTableView: View {
         // どこにある本かを辿れるように(2026-09-22、利用者の要望)。見つからない本は、残っているいちばん近いフォルダを開く。
         items.append(Item(title: "Show in Finder".ui) { showInFinder(books) })
         items.append(Item(title: "Copy File Name".ui) {
-            let names = ids.sorted().map { URL(fileURLWithPath: $0).lastPathComponent }
+            let names = ids.sorted().map { URL(fileURLWithPath: $0, isDirectory: false).lastPathComponent }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(names.joined(separator: "\n"), forType: .string)
         })
