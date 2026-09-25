@@ -43,7 +43,8 @@ struct SmartLibraryPane: View {
         }
         .coordinateSpace(.named(Self.coordinateSpace))
         // シークレットウインドウに出している間は、並べた本を DB へ登録しない(SmartLibraryCatalog.persistingCount)。
-        .onAppear {
+        // 外側でも catalog と state を明示的に捕まえる(中の `[weak …]` と揃える。Swift 6.4 の #ImplicitStrongCapture)。
+        .onAppear { [catalog, state] in
             catalog.activate(client: state, persistsMetadata: !appState.isPrivateWindow)
             // ウインドウごと閉じたときに onDisappear が来ないことがあるので、ContentView の willClose からも外せるようにする
             // (SmartLibraryViewState.releaseCatalogActivation)。
