@@ -225,5 +225,20 @@ struct EpubStructureTests {
         #expect(EpubStructureResolver.resolveTableOfContents(
             reader: resolved.reader, structure: resolved.structure
         ).isEmpty)
+        // 「無い」は空の配列で、読めなかった(nil)とは分ける(2026-09-26。ViewerViewModel は空だけを覚える)。
+        #expect(EpubStructureResolver.resolveTableOfContentsIfReadable(
+            reader: resolved.reader, structure: resolved.structure
+        )?.isEmpty == true)
+    }
+
+    @Test("書庫を読めなかったら、目次も書誌情報も「無い」ではなく nil(2026-09-26)")
+    func unreadableArchiveGivesNil() throws {
+        let resolved = try resolve(.pages(2))
+        let unreadable = UnreadableArchive(listing: nil)
+        #expect(EpubStructureResolver.resolveTableOfContentsIfReadable(reader: unreadable, structure: resolved.structure) == nil)
+        #expect(EpubStructureResolver.resolveMetadataIfReadable(reader: unreadable) == nil)
+        #expect(EpubStructureResolver.resolveMetadataIfReadable(reader: resolved.reader) != nil)
+        // 今までの入口は変わらず空を返す。
+        #expect(EpubStructureResolver.resolveTableOfContents(reader: unreadable, structure: resolved.structure).isEmpty)
     }
 }

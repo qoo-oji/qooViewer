@@ -96,5 +96,19 @@ struct PDFStructureTests {
     @Test("アウトラインが無ければ空(エラーにはしない)")
     func outlineOfPlainPDF() {
         #expect(PDFStructureResolver.resolveOutline(url: Fixtures.url("pdf/pdf-plain.pdf")).isEmpty)
+        #expect(PDFStructureResolver.resolveOutlineIfReadable(url: Fixtures.url("pdf/pdf-plain.pdf"))?.isEmpty == true)
+        #expect(PDFStructureResolver.resolveMetadataIfReadable(url: Fixtures.url("pdf/pdf-plain.pdf"))?.isEmpty == true)
+    }
+
+    @Test("開けない PDF は、アウトラインも書誌情報も「無い」ではなく nil(2026-09-26)")
+    func unreadablePDFGivesNil() throws {
+        let workspace = try TemporaryDirectory("pdf-unreadable")
+        let missing = workspace.file("ghost.pdf")
+        #expect(PDFStructureResolver.resolveOutlineIfReadable(url: missing) == nil)
+        #expect(PDFStructureResolver.resolveMetadataIfReadable(url: missing) == nil)
+        let broken = workspace.file("broken.pdf")
+        try Data("%PDF-1.4 途中で終わ".utf8).write(to: broken)
+        #expect(PDFStructureResolver.resolveOutlineIfReadable(url: broken) == nil)
+        #expect(PDFStructureResolver.resolveMetadataIfReadable(url: broken) == nil)
     }
 }

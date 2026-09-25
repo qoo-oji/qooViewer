@@ -1733,12 +1733,15 @@ final class ViewerViewModel: ObservableObject {
         // 前に開いたとき目次が空だった(同じ本体のまま)なら、読み直さない(sourceProbe のコメント)。
         if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         let sourceURL = book.sourceURL
-        let entries: [EpubTOCEntry] = await Task.detached(priority: .utility) { () -> [EpubTOCEntry] in
+        // nil = 読めなかった(「目次が無い」とは覚えない。2026-09-26 ―― 瞬断した NAS の本が、ファイルが変わるまで目次を取り込まれ
+        // なくなった。EpubStructureResolver.resolveTableOfContentsIfReadable)。
+        let entries: [EpubTOCEntry]? = await Task.detached(priority: .utility) { () -> [EpubTOCEntry]? in
             guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL),
                   let structure = try? EpubStructureResolver.resolve(reader: reader)
-            else { return [] }
-            return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
+            else { return nil }
+            return EpubStructureResolver.resolveTableOfContentsIfReadable(reader: reader, structure: structure)
         }.value
+        guard let entries else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
     }
@@ -1779,14 +1782,16 @@ final class ViewerViewModel: ObservableObject {
         // 付けて済ませないのは、印の無い行だけが「ファイル名の読みだけの行」として掃除の対象になるため(BookMetadata.isParsedOnly)。
         if await sourceProbe()?.sourceMetadataIsEmpty == true { return }
         let sourceURL = book.sourceURL
-        let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
+        // nil = 読めなかった(「書誌情報が無い」とは覚えない。2026-09-26。resolveMetadataIfReadable)。
+        let metadataOrNil = await Task.detached(priority: .utility) { () -> SourceBookMetadata? in
             if isEpub {
-                guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL) else { return SourceBookMetadata() }
-                return EpubStructureResolver.resolveMetadata(reader: reader)
+                guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL) else { return nil }
+                return EpubStructureResolver.resolveMetadataIfReadable(reader: reader)
             }
-            return PDFStructureResolver.resolveMetadata(url: sourceURL)
+            return PDFStructureResolver.resolveMetadataIfReadable(url: sourceURL)
         }.value
 
+        guard let metadata = metadataOrNil else { return }
         guard !metadata.isEmpty else {
             noteSourceProbe(.init(sourceMetadataIsEmpty: true))
             return
@@ -1852,16 +1857,24 @@ final class ViewerViewModel: ObservableObject {
         let sourceURL = book.sourceURL
         // 本そのものが書庫なら、PageLoader が開いている書庫の reader で読む(同じ書庫の一覧を取り直さない。
         // PageLoader.bookArchiveComicInfo のコメント)。フォルダの本は従来どおり actor の外で探す。
-        let comicInfoOrNil: ComicInfo?
+        let lookup: ComicInfoResolver.Lookup
         if isArchiveFile(sourceURL.lastPathComponent) {
-            comicInfoOrNil = await pageLoader.bookArchiveComicInfo()
+            lookup = await pageLoader.bookArchiveComicInfo()
         } else {
-            comicInfoOrNil = await Task.detached(priority: .utility, operation: { () -> ComicInfo? in
-                ComicInfoResolver.resolve(bookAt: sourceURL)
+            lookup = await Task.detached(priority: .utility, operation: { () -> ComicInfoResolver.Lookup in
+                ComicInfoResolver.lookup(bookAt: sourceURL)
             }).value
         }
-        guard let comicInfo = comicInfoOrNil else {
+        // 「無い」と「読めなかった」を分ける(2026-09-26)。読めなかった(NAS の瞬断・本を開いてすぐ閉じて PageLoader が解放
+        // された)ものまで「無い」と覚えると、ファイルが変わるまで ComicInfo.xml の取り込みが二度と試されなくなる。
+        let comicInfo: ComicInfo
+        switch lookup {
+        case .found(let info):
+            comicInfo = info
+        case .absent:
             noteSourceProbe(.init(comicInfoIsAbsent: true))
+            return
+        case .unreadable:
             return
         }
         noteSourceProbe(.init(
@@ -1943,9 +1956,11 @@ final class ViewerViewModel: ObservableObject {
         guard bookmarks.isEmpty else { return }
         let sourceURL = book.sourceURL
         if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
-        let entries = await Task.detached(priority: .utility) { () -> [PDFOutlineEntry] in
-            PDFStructureResolver.resolveOutline(url: sourceURL)
+        // nil = PDF を開けなかった(「アウトラインが無い」とは覚えない。2026-09-26。resolveOutlineIfReadable)。
+        let entriesOrNil = await Task.detached(priority: .utility) { () -> [PDFOutlineEntry]? in
+            PDFStructureResolver.resolveOutlineIfReadable(url: sourceURL)
         }.value
+        guard let entries = entriesOrNil else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
     }

@@ -30,49 +30,72 @@ nonisolated enum ComicInfoResolver {
     /// のと同じ扱いになる(正常なファイルがこの大きさに達することはない)。
     private static let maxByteCount = 4 * 1024 * 1024
 
+    /// 探した結果。**「無い」と「読めなかった」を分ける**(2026-09-26)。ViewerViewModel は「無い」だけを構造キャッシュに
+    /// 覚えて、同じ本体の間は探し直さない(BookPageListCache.Entry.sourceProbe)。読めなかった(NAS の瞬断・本を閉じた後の
+    /// PageLoader)ものまで「無い」と覚えると、ファイルが変わるまで取り込みが二度と試されなくなる。
+    /// 壊れた・上限で切れた XML は「無い」に数える(同じファイルなら何度読んでも同じ)。
+    nonisolated enum Lookup: Equatable, Sendable {
+        case found(ComicInfo)
+        case absent
+        case unreadable
+
+        var comicInfo: ComicInfo? {
+            if case .found(let info) = self { return info }
+            return nil
+        }
+    }
+
     /// フォルダでもアーカイブでも、この1つで扱えるようにした入口。
     /// PDF・EPUBはComicInfo.xmlを持たない形式のため常にnilを返す。
     static func resolve(bookAt url: URL) -> ComicInfo? {
+        lookup(bookAt: url).comicInfo
+    }
+
+    /// `resolve(bookAt:)` の、無いのか読めなかったのかも答える版(`Lookup`)。
+    static func lookup(bookAt url: URL) -> Lookup {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .unreadable }
         if isDirectory.boolValue {
-            return resolveInFolder(url)
+            return lookupInFolder(url)
         }
-        guard isArchiveFile(url.lastPathComponent) else { return nil }
-        guard let reader = try? makeArchiveReader(for: url) else { return nil }
-        return resolve(reader: reader)
+        guard isArchiveFile(url.lastPathComponent) else { return .absent }
+        guard let reader = try? makeArchiveReader(for: url) else { return .unreadable }
+        return lookup(reader: reader)
     }
 
     /// 既に開いてあるアーカイブから読む版(BookLoaderのように、ページ列挙のために
     /// 同じReaderを既に持っている呼び出し元向け)。
     static func resolve(reader: ArchiveReading) -> ComicInfo? {
-        guard let paths = try? reader.listFilePaths(),
-              let path = comicInfoPath(in: paths),
-              let data = try? reader.dataPrefix(at: path, maxByteCount: maxByteCount)
-        else { return nil }
-        return ComicInfoXML.parse(data)
+        lookup(reader: reader).comicInfo
     }
 
-    private static func resolveInFolder(_ url: URL) -> ComicInfo? {
+    /// `resolve(reader:)` の、無いのか読めなかったのかも答える版(`Lookup`)。
+    static func lookup(reader: ArchiveReading) -> Lookup {
+        guard let paths = try? reader.listFilePaths() else { return .unreadable }
+        guard let path = comicInfoPath(in: paths) else { return .absent }
+        guard let data = try? reader.dataPrefix(at: path, maxByteCount: maxByteCount) else { return .unreadable }
+        return ComicInfoXML.parse(data).map(Lookup.found) ?? .absent
+    }
+
+    private static func lookupInFolder(_ url: URL) -> Lookup {
         let fileURL = url.appendingPathComponent(ComicInfoXML.fileName)
         // 大文字小文字を区別しないファイルシステム(macOSの既定)ではこれで"comicinfo.xml"も
         // 拾えるが、区別する設定のボリュームもあるため、見つからなければ直下を走査する。
-        if let info = parseFile(at: fileURL) { return info }
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path),
-              let match = names.first(where: { $0.caseInsensitiveCompare(ComicInfoXML.fileName) == .orderedSame })
-        else { return nil }
+        if FileManager.default.fileExists(atPath: fileURL.path) { return parseFile(at: fileURL) }
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return .unreadable }
+        guard let match = names.first(where: { $0.caseInsensitiveCompare(ComicInfoXML.fileName) == .orderedSame })
+        else { return .absent }
         return parseFile(at: url.appendingPathComponent(match))
     }
 
     /// 上限を超える大きさのファイルは読まずに諦める(maxByteCountのコメント参照)。
     /// フォルダの場合はアーカイブと違って伸長による増幅は起きないが、巨大なファイルを
     /// メモリへ載せない点は同じにしておく。先に大きさだけを問い合わせてから読む。
-    private static func parseFile(at url: URL) -> ComicInfo? {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
-              size <= maxByteCount,
-              let data = try? Data(contentsOf: url)
-        else { return nil }
-        return ComicInfoXML.parse(data)
+    private static func parseFile(at url: URL) -> Lookup {
+        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return .unreadable }
+        guard size <= maxByteCount else { return .absent }
+        guard let data = try? Data(contentsOf: url) else { return .unreadable }
+        return ComicInfoXML.parse(data).map(Lookup.found) ?? .absent
     }
 
     /// アーカイブ内のエントリ一覧からComicInfo.xmlを選ぶ。

@@ -223,7 +223,11 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
   EPUB/PDF の書誌情報は、取り込めたときだけ DB に印が付くので、何も持たない本は開くたびに探し直していた(PDF は 2〜3 回
   開き直して解析)。指紋が同じ間だけ「無かった」を信じ、ファイルが変われば項目ごと捨てる。`BookMetadata.didImportSourceMetadata`
   を立てて代わりにしないのは、印の無い行だけが掃除の対象(`isParsedOnly`)だから。シークレットウインドウと
-  `cachesPageList: false` の読み込みでは読み書きしない。
+  `cachesPageList: false` の読み込みでは読み書きしない。**覚えるのは「読めたうえで無かった」ときだけ**で、読めなかった
+  (NAS の瞬断・本を開いてすぐ閉じて PageLoader が解放された)ときは覚えない(2026-09-26 のレビューで直した。以前は読めなかった
+  ことも「無い」と覚え、ファイルが変わるまで取り込みが試されなくなった)。そのために読み手が「無い」と「読めなかった」を分けて
+  答える: `ComicInfoResolver.Lookup`、`EpubStructureResolver.resolveMetadataIfReadable` / `resolveTableOfContentsIfReadable`、
+  `PDFStructureResolver.resolveMetadataIfReadable` / `resolveOutlineIfReadable`(nil = 読めなかった)。
 
 開くたびの `store` は、前と同じ中身なら書き直さない(鍵を並べて書く `.sortedKeys` なのでバイト列が揃う。更新日時は
 刈り込みに使うので、古いときだけ触る ―― `DiskCacheAccessStamp`)。

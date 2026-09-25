@@ -135,12 +135,18 @@ nonisolated enum PDFStructureResolver {
     ///    その頃に書き出したPDFを今でも正しく読めるようにするためだけに残してある
     ///    (parseSeriesKeywords参照)。
     static func resolveMetadata(url: URL) -> SourceBookMetadata {
+        resolveMetadataIfReadable(url: url) ?? SourceBookMetadata()
+    }
+
+    /// `resolveMetadata(url:)` の、PDF を開けず何も読めなかったら nil を返す版(2026-09-26)。空の値は「書誌情報が無い」、
+    /// nil は「確かめられなかった」 ―― ViewerViewModel は前者だけを覚えて次から読まない(BookPageListCache.Entry.sourceProbe)。
+    static func resolveMetadataIfReadable(url: URL) -> SourceBookMetadata? {
         var metadata = SourceBookMetadata()
         if let document = CGPDFDocument(url as CFURL), let packet = PDFXMPMetadata.readPacket(from: document) {
             metadata = PDFXMPMetadata.parse(packet)
         }
 
-        guard let document = PDFDocument(url: url) else { return metadata }
+        guard let document = PDFDocument(url: url) else { return metadata.isEmpty ? nil : metadata }
         let attributes = document.documentAttributes ?? [:]
 
         if metadata.title.isEmpty {
@@ -214,7 +220,14 @@ nonisolated enum PDFStructureResolver {
     /// 木構造は深さ優先で辿り、出現順にフラット化する。ラベルまたは宛先ページのどちらかが
     /// 取れない項目(URIアクションなど、ページ以外へのリンクを持つ項目)は読み飛ばす。
     static func resolveOutline(url: URL) -> [PDFOutlineEntry] {
-        guard let document = PDFDocument(url: url), let root = document.outlineRoot else { return [] }
+        resolveOutlineIfReadable(url: url) ?? []
+    }
+
+    /// `resolveOutline(url:)` の、PDF を開けなかったら nil を返す版(2026-09-26。空の配列は「アウトラインが無い」。
+    /// `resolveMetadataIfReadable` と同じ)。
+    static func resolveOutlineIfReadable(url: URL) -> [PDFOutlineEntry]? {
+        guard let document = PDFDocument(url: url) else { return nil }
+        guard let root = document.outlineRoot else { return [] }
         var entries: [PDFOutlineEntry] = []
         collect(outline: root, document: document, into: &entries)
         return entries

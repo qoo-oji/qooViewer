@@ -1464,12 +1464,16 @@ actor PageLoader {
     ///
     /// 探すのは**本そのものの書庫の直下**(`resolve(bookAt:)` と同じ)。`sourceComicInfo(bookSourceURL:)` は先頭ページの
     /// 書庫を見るので、先頭ページが入れ子の書庫の中にある本では答えが違う ―― こちらを取り込みに使う。
-    /// 本が書庫でなければ(フォルダ)nil を返し、呼び出し側がフォルダを直接探す(actor の外で)。
-    func bookArchiveComicInfo() -> ComicInfo? {
-        guard !isReleased else { return nil }
+    /// 本が書庫でなければ(フォルダ)呼び出し側がフォルダを直接探す(actor の外で)。
+    ///
+    /// 無いのか読めなかったのかも答える(`ComicInfoResolver.Lookup`、2026-09-26)。**解放した後・書庫を開けなかったときは
+    /// `.unreadable`** ―― 「無い」と答えると、本を開いてすぐ閉じただけで「ComicInfo.xml が無い本」と構造キャッシュに覚えられ、
+    /// ファイルが変わるまで取り込みが試されなくなる(ViewerViewModel.importComicInfoIfNeeded)。
+    func bookArchiveComicInfo() -> ComicInfoResolver.Lookup {
+        guard !isReleased else { return .unreadable }
         let url = book.sourceURL
-        guard isArchiveFile(url.lastPathComponent), let reader = reader(for: ArchiveLocator(rootURL: url)) else { return nil }
-        return ComicInfoResolver.resolve(reader: reader)
+        guard isArchiveFile(url.lastPathComponent), let reader = reader(for: ArchiveLocator(rootURL: url)) else { return .unreadable }
+        return ComicInfoResolver.lookup(reader: reader)
     }
 
     private func rawData(for source: PageSource) -> Data? {

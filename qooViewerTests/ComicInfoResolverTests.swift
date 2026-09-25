@@ -105,6 +105,48 @@ struct ComicInfoResolverTests {
         #expect(ComicInfoResolver.resolve(bookAt: url)?.title == "同じ本")
     }
 
+    // MARK: - 無いのか、読めなかったのか(2026-09-26)
+
+    @Test("無い・読めなかった・見つかったを分けて答える(フォルダ)")
+    func lookupSeparatesAbsentFromUnreadableInAFolder() throws {
+        let workspace = try TemporaryDirectory("comicinfo-lookup-folder")
+        let none = try FixtureFolder.make(at: workspace.file("none"), pages: [.init("001.jpg", number: 1)])
+        #expect(ComicInfoResolver.lookup(bookAt: none) == .absent)
+        let broken = try FixtureFolder.make(
+            at: workspace.file("broken"), pages: [.init("001.jpg", number: 1)],
+            extraFiles: [ComicInfoXML.fileName: "<ComicInfo><Title>途中で終わ"]
+        )
+        #expect(ComicInfoResolver.lookup(bookAt: broken) == .absent)
+        let found = try FixtureFolder.make(
+            at: workspace.file("found"), pages: [.init("001.jpg", number: 1)],
+            extraFiles: [ComicInfoXML.fileName: document(title: "ある本")]
+        )
+        #expect(ComicInfoResolver.lookup(bookAt: found).comicInfo?.title == "ある本")
+        // 繋がっていない・消えた場所は「無い」ではない(覚えると、繋ぎ直しても取り込まれなくなる)。
+        #expect(ComicInfoResolver.lookup(bookAt: workspace.file("ghost")) == .unreadable)
+    }
+
+    @Test("書庫の一覧や中身を読めなかったら「読めなかった」")
+    func lookupReportsAnUnreadableArchive() {
+        #expect(ComicInfoResolver.lookup(reader: UnreadableArchive(listing: nil)) == .unreadable)
+        #expect(ComicInfoResolver.lookup(reader: UnreadableArchive(listing: [ComicInfoXML.fileName, "001.jpg"])) == .unreadable)
+        #expect(ComicInfoResolver.lookup(reader: UnreadableArchive(listing: ["001.jpg"])) == .absent)
+    }
+
+    @Test("解放した PageLoader は「読めなかった」と答える(本を開いてすぐ閉じても「無い」と覚えない)")
+    func aReleasedPageLoaderReportsUnreadable() async throws {
+        let workspace = try TemporaryDirectory("comicinfo-released")
+        var builder = ZipFixtureBuilder()
+        builder.add("001.jpg", PageImageFactory.data(number: 1, fileExtension: "jpg"))
+        let url = workspace.file("book.cbz")
+        try builder.write(to: url)
+        let loader = PageLoader(book: try await FixtureBook.load(url), usesThumbnailDiskCache: false)
+
+        #expect(await loader.bookArchiveComicInfo() == .absent)
+        await loader.releaseAllResources()
+        #expect(await loader.bookArchiveComicInfo() == .unreadable)
+    }
+
     // MARK: - 対象外
 
     @Test("PDF・EPUB・存在しないパスは常に nil")
@@ -115,4 +157,18 @@ struct ComicInfoResolverTests {
         #expect(ComicInfoResolver.resolve(bookAt: pdf) == nil)
         #expect(ComicInfoResolver.resolve(bookAt: workspace.file("ghost.cbz")) == nil)
     }
+}
+
+/// 一覧か中身を読めない書庫(瞬断した共有・閉じた後の reader を真似る)。`listing` が nil なら一覧も読めない。
+nonisolated struct UnreadableArchive: ArchiveReading {
+    var listing: [String]?
+
+    func listFilePaths() throws -> [String] {
+        guard let listing else { throw CocoaError(.fileReadUnknown) }
+        return listing
+    }
+    func data(at path: String) throws -> Data { throw CocoaError(.fileReadUnknown) }
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) { (nil, nil) }
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] { throw CocoaError(.fileReadUnknown) }
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws { throw CocoaError(.fileReadUnknown) }
 }

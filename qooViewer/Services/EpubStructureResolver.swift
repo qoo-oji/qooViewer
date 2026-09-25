@@ -288,10 +288,16 @@ nonisolated enum EpubStructureResolver {
     /// belongs-to-collectionを次善の候補として採用する(`set`など明示的に別の種類だと
     /// 書かれているものだけを除外する)。
     static func resolveMetadata(reader: ArchiveReading) -> SourceBookMetadata {
+        resolveMetadataIfReadable(reader: reader) ?? SourceBookMetadata()
+    }
+
+    /// `resolveMetadata(reader:)` の、パッケージ文書(OPF)を読めなかったら nil を返す版(2026-09-26)。空の値は「書誌情報が
+    /// 無い」、nil は「確かめられなかった」 ―― ViewerViewModel は前者だけを覚えて次から読まない(BookPageListCache.Entry.sourceProbe)。
+    static func resolveMetadataIfReadable(reader: ArchiveReading) -> SourceBookMetadata? {
         guard let opfPath = try? resolveOPFPath(reader: reader),
               let opfData = try? markupData(reader: reader, at: opfPath),
               let packageDocument = try? parsePackageDocument(data: opfData)
-        else { return SourceBookMetadata() }
+        else { return nil }
 
         var metadata = SourceBookMetadata()
         metadata.title = packageDocument.dcTitle ?? ""
@@ -378,20 +384,27 @@ nonisolated enum EpubStructureResolver {
     ///
     /// EPUB2のtoc.ncxへのフォールバックは行わない(未対応。13節)。
     static func resolveTableOfContents(reader: ArchiveReading, structure: EpubStructure) -> [EpubTOCEntry] {
+        resolveTableOfContentsIfReadable(reader: reader, structure: structure) ?? []
+    }
+
+    /// `resolveTableOfContents(reader:structure:)` の、書庫を読めなかったら nil を返す版(2026-09-26)。nav 文書が無い・目次の
+    /// 項目が無い・壊れている(同じファイルなら何度読んでも同じ)は空の配列、パッケージ文書・一覧・nav 文書を**読めなかった**
+    /// ときは nil(「目次が無い本」と覚えない。`resolveMetadataIfReadable` と同じ)。
+    static func resolveTableOfContentsIfReadable(reader: ArchiveReading, structure: EpubStructure) -> [EpubTOCEntry]? {
         guard let opfPath = try? resolveOPFPath(reader: reader),
               let opfData = try? markupData(reader: reader, at: opfPath),
               let packageDocument = try? parsePackageDocument(data: opfData)
-        else { return [] }
+        else { return nil }
 
         guard let navItem = packageDocument.manifestItems.values.first(where: { $0.properties.contains("nav") })
         else { return [] }
 
         let opfDirectory = directory(of: opfPath)
-        let allPaths = Set((try? reader.listFilePaths()) ?? [])
+        guard let listedPaths = try? reader.listFilePaths() else { return nil }
+        let allPaths = Set(listedPaths)
         let candidateNavPath = resolvedPath(base: opfDirectory, relative: navItem.href)
-        guard let navPath = matchExistingPath(candidateNavPath, in: allPaths),
-              let navData = try? markupData(reader: reader, at: navPath)
-        else { return [] }
+        guard let navPath = matchExistingPath(candidateNavPath, in: allPaths) else { return [] }
+        guard let navData = try? markupData(reader: reader, at: navPath) else { return nil }
 
         let delegate = NavTOCParserDelegate()
         let parser = XMLParser(data: navData)
