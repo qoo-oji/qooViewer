@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import QooMetaKit
 import QooMetaRules
@@ -751,6 +752,73 @@ struct SmartLibraryTests {
         catalog.deactivate()
     }
 
+    /// 3 冊の対象フォルダを 1 度集めて `catalog.json` を書かせる(次の 2 つのテスト)。
+    private func writeSavedCatalog(root: URL, store: SmartLibraryStore, library: InMemoryLibrary, cacheURL: URL) async throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in ["架空の本 甲.zip", "架空の本 乙.zip", "架空の本 丙.pdf"] {
+            try Data().write(to: root.appendingPathComponent(name))
+        }
+        let first = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                        modelContext: library.context, cacheURL: cacheURL)
+        first.activate()
+        #expect(await wait { first.hasLoaded && first.books.count == 3 })
+        #expect(await wait { FileManager.default.fileExists(atPath: cacheURL.path) })
+        first.deactivate()
+    }
+
+    @Test("保存した前回の一覧を、集め直しが終わる前に出す(2026-09-26。集め直しの世代と比べていて、毎回捨てていた)")
+    func theSavedListIsShownBeforeTheRebuild() async throws {
+        let library = try InMemoryLibrary(label: "smart-restore")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let temporary = try TemporaryDirectory("smart-restore")
+        let cacheURL = temporary.file("catalog.json")
+        let root = temporary.url.appendingPathComponent("対象", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(root)
+        try await writeSavedCatalog(root: root, store: store, library: library, cacheURL: cacheURL)
+
+        // 集め直しが読み込みより確実に遅くなるよう、本を増やしてから開き直す。
+        for index in 0..<1500 { try Data().write(to: root.appendingPathComponent("架空の本 \(index).zip")) }
+        let second = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                         modelContext: library.context, cacheURL: cacheURL)
+        let publishedCounts = Box<[Int]>([])
+        let subscription = second.$books.sink { if !$0.isEmpty { publishedCounts.value.append($0.count) } }
+        defer { subscription.cancel() }
+        second.activate()
+        #expect(await wait { second.hasLoaded && second.books.count == 1503 })
+        #expect(publishedCounts.value.first == 3)
+        second.deactivate()
+    }
+
+    @Test("中身が変わっていなければ、開き直しても catalog.json を書き直さない(2026-09-26)")
+    func anUnchangedListIsNotRewritten() async throws {
+        let library = try InMemoryLibrary(label: "smart-no-rewrite")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let temporary = try TemporaryDirectory("smart-no-rewrite")
+        let cacheURL = temporary.file("catalog.json")
+        let root = temporary.url.appendingPathComponent("対象", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(root)
+        try await writeSavedCatalog(root: root, store: store, library: library, cacheURL: cacheURL)
+        try await Task.sleep(for: .milliseconds(200))
+        let written = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
+
+        let second = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                         modelContext: library.context, cacheURL: cacheURL)
+        second.activate()
+        #expect(await wait { second.hasLoaded && second.books.count == 3 })
+        try await Task.sleep(for: .milliseconds(300))
+        let after = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
+        #expect(written != nil && after == written)
+        second.deactivate()
+    }
+
     @Test("集め直しの最中に OFF にすると、その集め直しは一覧を出さない")
     func switchingOffMidRebuildPublishesNothing() async throws {
         let library = try InMemoryLibrary(label: "smart-switch-mid")
@@ -773,4 +841,11 @@ struct SmartLibraryTests {
         #expect(catalog.books.isEmpty)
         #expect(!catalog.hasLoaded)
     }
+}
+
+/// 閉包から書き換える値の箱(`$books` の購読で出た冊数を控える)。
+@MainActor
+private final class Box<Value> {
+    var value: Value
+    init(_ value: Value) { self.value = value }
 }

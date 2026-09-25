@@ -75,6 +75,14 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 最後にフォルダを探した結果(探す場所ごと)。探す場所が同じなら使い回す。
     private var scanned: (roots: [String], result: SmartLibraryScanner.Result)?
     private var generation = 0
+    /// 保存した前回の一覧の読み込みが古くなったかの番号(`restoreCacheIfNeeded`)。機能を OFF にしたときだけ進める。
+    ///
+    /// **集め直しの `generation` と分ける**(2026-09-26、実機の確認で判明): 読み込みは `activate` で集め直しの予約と同時に始まり、
+    /// 集め直しは最初に `generation += 1` する。読み込みは画面の外でファイルを読むので、読み終える前に必ず番号が進み、`generation`
+    /// と比べていた間(2026-09-22 に作ってから)は読んだ一覧を毎回捨てていた ―― 前回の一覧を先に出すことが一度も効かず、
+    /// 最初の集め直しで同じ `catalog.json` を書き直してもいた。対象フォルダが変わったかは、読み終えたときに今の対象フォルダと
+    /// 比べ直す。集め直しが先に終わっていれば `hasLoaded` で捨てる(集め直した一覧のほうが新しい)。
+    private var restoreEpoch = 0
 
     init(metadataStore: BookMetadataStore, store: SmartLibraryStore, rulesStore: MetadataRulesStore,
          modelContext: ModelContext, cacheURL: URL? = nil, corpusStore: MetadataCorpusStore? = nil,
@@ -128,6 +136,7 @@ final class SmartLibraryCatalog: ObservableObject {
         isFeatureEnabled = isEnabled
         guard !isEnabled else { return }
         generation += 1
+        restoreEpoch += 1
         subscriptions.removeAll()
         pending?.cancel()
         pending = nil
@@ -319,7 +328,7 @@ final class SmartLibraryCatalog: ObservableObject {
         guard let cacheURL, isFeatureEnabled, !hasLoaded, books.isEmpty, !isRestoringCache else { return }
         isRestoringCache = true
         let roots = scanRoots()
-        let generation = generation
+        let epoch = restoreEpoch
         Task { [weak self] in
             let cached = await Task.detached(priority: .userInitiated) { () -> CachedCatalog? in
                 guard let data = try? Data(contentsOf: cacheURL),
@@ -330,7 +339,8 @@ final class SmartLibraryCatalog: ObservableObject {
             }.value
             guard let self else { return }
             self.isRestoringCache = false
-            guard let cached, self.isFeatureEnabled, generation == self.generation, !self.hasLoaded, self.books.isEmpty
+            guard let cached, self.isFeatureEnabled, epoch == self.restoreEpoch, cached.roots == self.scanRoots(),
+                  !self.hasLoaded, self.books.isEmpty
             else { return }
             self.books = cached.books
             self.isTruncated = cached.isTruncated
@@ -353,10 +363,19 @@ final class SmartLibraryCatalog: ObservableObject {
         let cached = CachedCatalog(roots: roots, books: books, isTruncated: isTruncated)
         if let lastSavedCache, lastSavedCache.roots == roots, lastSavedCache.isTruncated == isTruncated,
            lastSavedCache.books == books { return }
+        // まだ何も保存していない(読み込みより集め直しが先に終わった・読めなかった)回は、ファイルの中身と比べてから書く
+        // (2026-09-26。読むのは起動後の最初の 1 回だけで、同じなら数 MB の書き込みを省ける)。
+        let comparesWithFile = lastSavedCache == nil
         lastSavedCache = cached
         Task.detached(priority: .utility) {
             if roots.isEmpty {
                 try? FileManager.default.removeItem(at: cacheURL)
+                return
+            }
+            if comparesWithFile, let data = try? Data(contentsOf: cacheURL),
+               let saved = try? JSONDecoder().decode(CachedCatalog.self, from: data),
+               saved.version == cached.version, saved.roots == cached.roots, saved.isTruncated == cached.isTruncated,
+               saved.books == cached.books {
                 return
             }
             guard let data = try? JSONEncoder().encode(cached) else { return }

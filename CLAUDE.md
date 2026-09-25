@@ -333,9 +333,9 @@ never library or Favorite Locations books, since those features can be switched 
 (one app-wide) gathers only while a pane is on screen (`activate`/`deactivate`): scan on `FileIO` (`SmartLibraryScanner`) →
 record the found books in `MetadataCorpusStore` → assemble from DB values (it never writes metadata; rowless books borrow
 `MetadataGenerator`'s proposal until the row exists); rebuilds run one at a time (the next cancels and awaits the previous). The last list is saved to Application
-Support/SmartLibrary/catalog.json and meant to be shown first (**broken since 2026-09-22, unfixed**: `restoreCacheIfNeeded`
-compares `generation`, which the rebuild scheduled at the same time bumps first, so the restored list is always dropped —
-docs/plans/efficiency-audit-2026-09-25.md), **with each book's thumbnail cache key** so covers come from the disk
+Support/SmartLibrary/catalog.json and shown first (the restore checks `restoreEpoch` + the current roots, **never the rebuild's
+`generation`** — the rebuild scheduled at the same time bumps it first, which silently dropped every restore from 2026-09-22 until
+2026-09-26), **with each book's thumbnail cache key** so covers come from the disk
 cache without touching the (possibly network) file (`FileBrowserThumbnailProvider.thumbnail(…knownKey:)`). Switching the
 feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/scan and makes every entry
 point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window — held by `ContentView` like `FileBrowserState`, so returning Home after opening a book lands
