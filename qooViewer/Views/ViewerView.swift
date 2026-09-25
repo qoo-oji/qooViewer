@@ -3714,7 +3714,8 @@ struct ViewerView: View {
         let resignKey = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: window, queue: .main
         ) { _ in
-            cursorAutoHide.cancel()
+            // queue: .main で届く(このクロージャ自体は非隔離なので、MainActor の箱を触るのに要る)。
+            MainActor.assumeIsolated { cursorAutoHide.cancel() }
             if isCursorHidden {
                 NSCursor.unhide()
                 isCursorHidden = false
@@ -3727,7 +3728,7 @@ struct ViewerView: View {
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { _ in
             isMenuTracking = true
-            cursorAutoHide.cancel()
+            MainActor.assumeIsolated { cursorAutoHide.cancel() }
             if isCursorHidden {
                 NSCursor.unhide()
                 isCursorHidden = false
