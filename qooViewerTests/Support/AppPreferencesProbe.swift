@@ -99,6 +99,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.finderOpenBehavior = otherCase(p.finderOpenBehavior)
     p.favoriteOpenBehavior = otherCase(p.favoriteOpenBehavior)
     p.spreadBookmarkTargetBehavior = otherCase(p.spreadBookmarkTargetBehavior)
+    p.defaultReadingDirectionSetting = otherCase(p.defaultReadingDirectionSetting)
 
     // MARK: 画像の見え方
     p.defaultScalingMode = otherCase(p.defaultScalingMode)
@@ -153,7 +154,6 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.sidePanelMode = otherCase(p.sidePanelMode)
     p.folderBrowserSortKey = otherCase(p.folderBrowserSortKey)
     p.folderBrowserSortDirection = otherCase(p.folderBrowserSortDirection)
-    p.defaultReadingDirection = otherCase(p.defaultReadingDirection)
 }
 
 /// 外観の揃い(AppearanceSettings)のすべての設定を、出荷時の既定値とは違う値へ動かす。

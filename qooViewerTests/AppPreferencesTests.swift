@@ -111,7 +111,7 @@ struct AppPreferencesTests {
         // 実物のアプリ(TEST_HOST)の設定を覗いて、前後で変わっていないことを見る。
         let watched = [
             "qooViewer.pref.maxUpscalePercent", "qooViewer.pref.appAppearance",
-            "qooViewer.pref.thumbnailDiskCacheEnabled", "qooViewer.pref.defaultReadingDirection",
+            "qooViewer.pref.thumbnailDiskCacheEnabled", "qooViewer.pref.defaultReadingDirectionSetting",
             AppLanguage.defaultsKey, "AppleLanguages",
         ]
         let before = watched.map { String(describing: UserDefaults.standard.object(forKey: $0)) }
@@ -181,31 +181,46 @@ struct AppPreferencesTests {
         #expect(p.lastPageBehavior == .closeBook)
     }
 
-    // MARK: - 初回起動の既定の読み方向
+    // MARK: - 読み方向の既定
 
-    @Test("保存済みの読み方向があれば、システムの言語を見ずにそれを使う")
-    func aStoredReadingDirectionWins() {
-        for direction in ReadingDirection.allCases {
-            let suite = PreferencesSuite()
-            suite.defaults.set(direction.rawValue, forKey: "qooViewer.pref.defaultReadingDirection")
-            #expect(suite.makePreferences().defaultReadingDirection == direction)
-        }
+    @Test("読み方向の既定は、何も保存されていなければ表示言語に合わせる")
+    func theDefaultReadingDirectionFollowsTheDisplayLanguage() {
+        let suite = PreferencesSuite()
+        let p = suite.makePreferences()
+        #expect(p.defaultReadingDirectionSetting == .followLanguage)
+
+        // 表示言語を切り替えれば、その場で既定の向きも変わる(2026-09-25、利用者の期待)。
+        p.displayLanguage = .japanese
+        #expect(p.defaultReadingDirection == .rightToLeft)
+        p.displayLanguage = .english
+        #expect(p.defaultReadingDirection == .leftToRight)
     }
 
-    @Test("初回起動で決めた読み方向は保存され、次回は再判定しない")
-    func theFirstLaunchReadingDirectionIsPersisted() {
+    @Test("右開き・左開きを選べば、表示言語に関わらずそれを使い、保存される")
+    func anExplicitDefaultReadingDirectionIgnoresTheDisplayLanguage() {
         let suite = PreferencesSuite()
-        let first = suite.makePreferences()
-        // システムの言語(日本語なら右→左)から一度だけ決める。何に決まったかは環境次第なので、
-        // ここで固定するのは「決めた値が保存されること」。
-        let determined = first.defaultReadingDirection
-        #expect(suite.storedDomain["qooViewer.pref.defaultReadingDirection"] as? String
-            == determined.rawValue)
+        let p = suite.makePreferences()
+        p.displayLanguage = .english
+        p.defaultReadingDirectionSetting = .rightToLeft
+        #expect(p.defaultReadingDirection == .rightToLeft)
+        #expect(suite.storedDomain["qooViewer.pref.defaultReadingDirectionSetting"] as? String == "rightToLeft")
 
-        // 保存済みの値を人が変えた場合に、次の起動で判定し直して上書きしないこと。
-        let flipped = otherCase(determined)
-        suite.defaults.set(flipped.rawValue, forKey: "qooViewer.pref.defaultReadingDirection")
-        #expect(suite.makePreferences().defaultReadingDirection == flipped)
+        p.displayLanguage = .japanese
+        p.defaultReadingDirectionSetting = .leftToRight
+        #expect(p.defaultReadingDirection == .leftToRight)
+        #expect(suite.makePreferences().defaultReadingDirectionSetting == .leftToRight)
+    }
+
+    @Test("初回起動で決めていた以前の値は引き継がず、書き出しにも入れない")
+    func theRetiredFirstLaunchReadingDirectionIsIgnored() {
+        let suite = PreferencesSuite()
+        suite.defaults.set(ReadingDirection.rightToLeft.rawValue, forKey: "qooViewer.pref.defaultReadingDirection")
+        let p = suite.makePreferences()
+        #expect(p.defaultReadingDirectionSetting == .followLanguage)
+        p.displayLanguage = .english
+        #expect(p.defaultReadingDirection == .leftToRight)
+        #expect(!SettingsBackup.isBackupKey("qooViewer.pref.defaultReadingDirection"))
+        #expect(SettingsBackup.isBackupKey("qooViewer.pref.defaultReadingDirectionSetting"))
     }
 
     // MARK: - 総なめ
@@ -261,7 +276,7 @@ struct AppPreferencesTests {
         .appearance: [],
         .opening: [
             "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior",
-            "spreadBookmarkTargetBehavior",
+            "spreadBookmarkTargetBehavior", "defaultReadingDirectionSetting",
         ],
         .rendering: [
             "defaultScalingMode", "maxUpscalePercent", "maxPinchZoomPercent", "interpolationQuality",
@@ -302,8 +317,6 @@ struct AppPreferencesTests {
         // 環境設定の画面には並んでいない(「表示」メニューやパネル自身・ブラウザの列で変える値)。
         "hideToolbar", "hideProgressBar", "hideSidePanel", "sidePanelWidth", "sidePanelMode",
         "folderBrowserSortKey", "folderBrowserSortDirection",
-        // 初回起動でシステムの言語から一度だけ決める値(環境設定の画面には無い)。
-        "defaultReadingDirection",
         // 外観タブの「シークレットウインドウに固有の外観を適用」。タブの「初期設定に戻す」は編集中の揃いを戻すもので、
         // このスイッチは揃いではないので戻さない(AppPreferences.privateWindowsUseOwnAppearance)。
         "privateWindowsUseOwnAppearance",

@@ -80,7 +80,11 @@ final class AppPreferences: ObservableObject {
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
         static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
-        static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
+        static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirectionSetting"
+        /// 廃止した「初回起動時にシステムの言語から一度だけ決めた読み方向」の保存先(2026-09-25 まで)。
+        /// 読まないが消さない(前の版へ戻したときにそのまま使えるように。`PageOrder.retiredSettingKey` と同じ扱い)。
+        /// 保存データの JSON には入れない(`SettingsBackup.excludedKeys`)。
+        static let retiredDefaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
@@ -1162,18 +1166,31 @@ final class AppPreferences: ObservableObject {
     @Published var preloadThumbnailGridPreviews: Bool {
         didSet { defaults.set(preloadThumbnailGridPreviews, forKey: Keys.preloadThumbnailGridPreviews) }
     }
-    /// 新しい本を初めて開いたときの、読み方向の既定値(設計コンセプト11.1節)。
+    /// 新しい本を初めて開いたときの、読み方向の既定値(設計コンセプト11.1節)。環境設定「本を開く」の「読み方向の既定」。
     ///
     /// 以前は`BookReadingState.init`のデフォルト引数として無条件に右開き(RTL)固定になっていたが、
     /// アプリを初めて起動した時点(一度だけ)でシステムの言語設定を確認し、日本語であれば右開き、
-    /// それ以外の言語であれば一律左開き(LTR)を既定値として決定・保存する(言語ごとの個別判定は
-    /// 行わない)。以降は、システム言語が後から変わっても、この一度決定した値を使い続ける
-    /// (init()参照。本ごとに毎回ロケール判定をやり直すわけではない)。
-    @Published var defaultReadingDirection: ReadingDirection {
+    /// それ以外の言語であれば一律左開き(LTR)を既定値として決定・保存するようにした。ただしその値は
+    /// 環境設定の画面に出しておらず、表示言語を切り替えても変わらなかった。利用者は「言語設定で既定が
+    /// 切り替わる」ものと思っていて、項目も見当たらないと指摘された(2026-09-25)。そこで
+    /// 「表示言語に合わせる」(既定)・右開き・左開きの3択を画面に出し、実際の向きは読むたびに
+    /// 表示言語から決める(`defaultReadingDirection`)。
+    ///
+    /// 初回起動時に決めていた値(`Keys.retiredDefaultReadingDirection`)は利用者が選んだものではないので
+    /// 引き継がず、全員「表示言語に合わせる」から始める(表示言語が起動時のシステムの言語のままなら結果は同じ)。
+    @Published var defaultReadingDirectionSetting: DefaultReadingDirection {
         didSet {
-            defaults.set(defaultReadingDirection.rawValue, forKey: Keys.defaultReadingDirection)
+            defaults.set(defaultReadingDirectionSetting.rawValue, forKey: Keys.defaultReadingDirection)
         }
     }
+
+    /// いま実際に使う既定の読み方向(`defaultReadingDirectionSetting` を表示言語で解いたもの)。
+    /// 既に開いたことのある本は自分の読み方向(`BookReadingState.readingDirection`)を持つので、
+    /// ここが変わっても変わらない。
+    var defaultReadingDirection: ReadingDirection {
+        defaultReadingDirectionSetting.resolved(for: effectiveLocale)
+    }
+
     // ブックマークの並べ替え基準は、以前はここ(AppPreferences.bookmarkSortOption)に
     // 持たせていたが、「ブックマークの編集」ウインドウがすべての本を横断する2ペイン構成に
     // なったことに伴い、お気に入りのFavoritesStoreと同じく専用のストア(BookmarkStore)が
@@ -1373,17 +1390,9 @@ final class AppPreferences: ObservableObject {
             default: Self.defaultNestedArchiveMemoryLimitMB, range: Self.nestedArchiveMemoryLimitRangeMB
         )
 
-        if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
-           let stored = ReadingDirection(rawValue: storedRaw) {
-            self.defaultReadingDirection = stored
-        } else {
-            // まだ一度も決定されていない(初回起動)。システムの言語設定を確認して一度だけ決定し、
-            // 以降のために保存しておく(次回起動時は上のstored分岐に入り、再判定はしない)。
-            let systemIsJapanese = Locale.preferredLanguages.first?.hasPrefix("ja") ?? false
-            let determined: ReadingDirection = systemIsJapanese ? .rightToLeft : .leftToRight
-            self.defaultReadingDirection = determined
-            defaults.set(determined.rawValue, forKey: Keys.defaultReadingDirection)
-        }
+        self.defaultReadingDirectionSetting =
+            DefaultReadingDirection(rawValue: defaults.string(forKey: Keys.defaultReadingDirection) ?? "")
+            ?? .followLanguage
 
         self.missingLayoutAutoLayout =
             MissingLayoutAutoLayout(rawValue: defaults.string(forKey: Keys.missingLayoutAutoLayout) ?? "")
@@ -1502,6 +1511,7 @@ extension AppPreferences {
                 Keys.finderOpenBehavior,
                 Keys.favoriteOpenBehavior,
                 Keys.spreadBookmarkTargetBehavior,
+                Keys.defaultReadingDirection,
             ]
         case .rendering:
             return [
@@ -1621,7 +1631,6 @@ extension AppPreferences {
         sidePanelMode = fresh.sidePanelMode
         folderBrowserSortKey = fresh.folderBrowserSortKey
         folderBrowserSortDirection = fresh.folderBrowserSortDirection
-        defaultReadingDirection = fresh.defaultReadingDirection
     }
 
     /// 既定値だけを持つインスタンス(`source`)から、その画面ぶんのプロパティを取り込む。
@@ -1654,6 +1663,7 @@ extension AppPreferences {
             finderOpenBehavior = source.finderOpenBehavior
             favoriteOpenBehavior = source.favoriteOpenBehavior
             spreadBookmarkTargetBehavior = source.spreadBookmarkTargetBehavior
+            defaultReadingDirectionSetting = source.defaultReadingDirectionSetting
         case .rendering:
             defaultScalingMode = source.defaultScalingMode
             maxUpscalePercent = source.maxUpscalePercent

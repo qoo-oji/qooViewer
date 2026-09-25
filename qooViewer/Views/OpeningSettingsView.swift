@@ -24,6 +24,18 @@ struct OpeningSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 初めて開く本の読み方向(2026-09-25)。以前は初回起動時にシステムの言語から一度だけ決めた値を
+            // 画面に出さずに使っていた(AppPreferences.defaultReadingDirectionSetting参照)。
+            Section {
+                SettingsPicker(
+                    "Reading Direction",
+                    selection: $preferences.defaultReadingDirectionSetting,
+                    help: "Used for books you open for the first time. Match Display Language uses right-to-left for Japanese and left-to-right for other languages. Books you have opened before keep their own reading direction, and EPUB and PDF books that specify one use it."
+                )
+            } header: {
+                Text("Opening a New Book")
+            }
+
             // 以前開いた本を再度開いたときに、どのページから表示するか。
             Section {
                 SettingsPicker("Start Page", selection: $preferences.reopenBehavior)

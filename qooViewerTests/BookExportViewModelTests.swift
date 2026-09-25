@@ -104,7 +104,7 @@ struct BookExportViewModelTests {
     func theReadingDirectionFollowsItsPriority() throws {
         let env = try Environment()
         defer { env.close() }
-        env.preferences.defaultReadingDirection = .leftToRight
+        env.preferences.defaultReadingDirectionSetting = .leftToRight
         let viewModel = env.makeViewModel()
         let book = env.book("book")
         let row = env.row(for: book)

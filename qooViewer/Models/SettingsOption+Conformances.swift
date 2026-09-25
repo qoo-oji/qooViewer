@@ -39,6 +39,16 @@ extension SpreadBookmarkTargetBehavior: SettingsOption {
     }
 }
 
+extension DefaultReadingDirection: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .followLanguage: return "Match Display Language"
+        case .rightToLeft: return "Right-to-Left"
+        case .leftToRight: return "Left-to-Right"
+        }
+    }
+}
+
 // MARK: - 一般
 
 extension AppLanguage: SettingsOption {

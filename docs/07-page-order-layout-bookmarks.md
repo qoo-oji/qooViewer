@@ -53,6 +53,21 @@
 `isBookLevelSettingEmpty` は読み方向・見開き強制・ページ順補正の3つだけを見ます(カバーと
 補正は「レイアウト情報がある本」の絞り込みに含めない)。
 
+### 環境設定の既定の読み方向
+
+環境設定「本を開く」の「初めて開く本 › 読み方向」(`AppPreferences.defaultReadingDirectionSetting`、
+`DefaultReadingDirection`)。「表示言語に合わせる」(既定)・右開き・左開きの3択で、「表示言語に合わせる」は
+表示言語(「システムに従う」ならシステムの言語)が日本語なら右開き、それ以外なら左開き。実際の向き
+(`defaultReadingDirection`)は読むたびに表示言語から解くので、表示言語を切り替えればその場で変わる。
+効くのは初めて開く本の `BookReadingState` を作るときと、本ごとの上書きを持たない本の書き出し・編集ウインドウだけで、
+一度開いた本は自分の `BookReadingState.readingDirection` を持つ。
+
+**2026-09-25 までは画面に項目が無かった。** 初回起動時にシステムの言語から一度だけ決めて
+`qooViewer.pref.defaultReadingDirection` に保存し、表示言語を切り替えても変わらなかった(利用者は「言語設定で
+既定が切り替わる」と思っていた)。この値は利用者が選んだものではないので引き継がず、読まずに残している
+(前の版へ戻したとき用。保存データの JSON には入れない ―― `SettingsBackup.excludedKeys`)。新しいキーは
+`qooViewer.pref.defaultReadingDirectionSetting`。
+
 ### PageLayoutOverride(ページ単位)
 
 `(bookID, pageKey)` → `PageLayoutState`。「レイアウトなし」は行が**存在しない**ことで表します

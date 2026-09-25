@@ -17914,6 +17914,22 @@
         }
       }
     },
+    "Match Display Language" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Display Language"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示言語に合わせる"
+          }
+        }
+      }
+    },
     "Match Finder's Sort Order" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -21184,6 +21200,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このアプリケーションで開く"
+          }
+        }
+      }
+    },
+    "Opening a New Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening a New Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初めて開く本"
           }
         }
       }
@@ -32725,6 +32757,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存したデータが壊れて読み込めなくなったとき(アプリの更新後など)にだけ使ってください。\nフォルダのアクセス権を除く、qooViewerが保存したすべてのデータを削除します。"
+          }
+        }
+      }
+    },
+    "Used for books you open for the first time. Match Display Language uses right-to-left for Japanese and left-to-right for other languages. Books you have opened before keep their own reading direction, and EPUB and PDF books that specify one use it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used for books you open for the first time. Match Display Language uses right-to-left for Japanese and left-to-right for other languages. Books you have opened before keep their own reading direction, and EPUB and PDF books that specify one use it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初めて開く本に使います。「表示言語に合わせる」は、日本語なら右開き、それ以外の言語なら左開きです。一度開いた本は本ごとの読み方向を保ち、読み方向を指定しているEPUB・PDFはその指定に従います。"
           }
         }
       }

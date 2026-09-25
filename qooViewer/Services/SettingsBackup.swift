@@ -41,7 +41,9 @@ enum SettingsBackup {
         // 「表示言語を AppleLanguages へ書き戻した」という印(AppLanguage.applyAppleLanguagesOverride)。
         "qooViewer.pref.appleLanguagesOverrideApplied",
         // 廃止した設定(PageOrder.retiredSettingKey)。読み替えは済んでいる。
-        "qooViewer.pref.usesFinderSortOrder"
+        "qooViewer.pref.usesFinderSortOrder",
+        // 廃止した「初回起動時に決めた読み方向」(AppPreferences.Keys.retiredDefaultReadingDirection)。
+        "qooViewer.pref.defaultReadingDirection"
     ]
 
     /// 接頭辞には合うが、セキュリティスコープ付きブックマーク(とそのパス・パネルの位置の控え)なので入れないキーの印

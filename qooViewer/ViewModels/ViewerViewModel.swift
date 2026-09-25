@@ -554,8 +554,8 @@ final class ViewerViewModel: ObservableObject {
                 modelContext.delete(fetchedState)
             }
             // readingDirectionは、BookReadingState.initのデフォルト引数(右開き固定)に頼らず、
-            // 環境設定の既定読み方向(初回起動時にシステム言語から一度だけ決定したもの。
-            // 設計コンセプト11.1節、AppPreferences.defaultReadingDirection参照)を明示的に渡す。
+            // 環境設定の既定読み方向(「本を開く」の「読み方向の既定」。既定は表示言語に合わせる。
+            // 設計コンセプト11.1節、AppPreferences.defaultReadingDirectionSetting参照)を明示的に渡す。
             state = BookReadingState(
                 bookID: bookID,
                 displayMode: carriedOver?.displayMode ?? .spread,
