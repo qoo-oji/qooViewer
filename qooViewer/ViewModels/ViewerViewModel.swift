@@ -434,7 +434,11 @@ final class ViewerViewModel: ObservableObject {
         } else {
             legacyOrderedKeys = currentOrderedKeys
         }
+        // この全件は、下の「中身が差し替わった本」の後始末と最初の reloadBookmarks でも使う(2026-09-25 の監査。以前は本を開くたびに
+        // Bookmark の全件を 2〜3 回フェッチしていた。全件なのは #Predicate の不具合のため ―― reloadBookmarks のコメント)。
         let allBookmarks = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        /// 開く途中でブックマークを消したか(消したなら、最初の reloadBookmarks はフェッチし直す)。
+        var didDeleteBookmarksOnOpen = false
         let (_, bookmarksDidChange) = BookmarkStore.resolveKeys(
             for: allBookmarks.filter { $0.bookID == preparedBook.id },
             legacyOrderedKeys: legacyOrderedKeys, currentOrderedKeys: currentOrderedKeys,
@@ -545,13 +549,25 @@ final class ViewerViewModel: ObservableObject {
                 // 利用者の選択で、ブックマークはページの鍵(ファイル名)で引くので、鍵が今もある分は同じページを指す。
                 carriedOver = (fetchedState.displayMode, fetchedState.readingDirection, fetchedState.scalingMode)
                 let currentKeys = Set(incomingBook.pages.map(\.sortKey))
-                // #Predicate での絞り込みは 0 件を返すことがある(上の BookReadingState のフェッチのコメント)ので、全件から選ぶ。
-                let allBookmarks = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+                // #Predicate での絞り込みは 0 件を返すことがある(上の BookReadingState のフェッチのコメント)ので、全件から選ぶ
+                // (上で取った全件を使う)。
+                var deletedBookmarkBookID: String?
                 for bookmark in allBookmarks where bookmark.bookID == fetchedState.bookID {
                     if let key = bookmark.pageKey, currentKeys.contains(key) { continue }
                     modelContext.delete(bookmark)
+                    deletedBookmarkBookID = bookmark.bookID
+                    didDeleteBookmarksOnOpen = true
                 }
                 modelContext.delete(fetchedState)
+                // 消したことを知らせる(2026-09-25 の監査で見つけた漏れ)。ブックマークの編集ウインドウの一覧(BookmarkStore)は
+                // 知らせで読み直すので、知らせないと消した行を持ち続けた(SwiftData の消した行を読むと落ちうる)。初期化の途中なので
+                // 自分(object)は渡さず、次のコマで出す(このビューアの購読はまだ無く、出す頃には行の削除も確定している)。
+                if let deletedBookmarkBookID {
+                    Task { @MainActor in
+                        NotificationCenter.default.post(name: .bookmarksDidChange, object: nil,
+                                                        userInfo: ["bookID": deletedBookmarkBookID])
+                    }
+                }
             }
             // readingDirectionは、BookReadingState.initのデフォルト引数(右開き固定)に頼らず、
             // 環境設定の既定読み方向(「本を開く」の「読み方向の既定」。既定は表示言語に合わせる。
@@ -712,7 +728,7 @@ final class ViewerViewModel: ObservableObject {
         startupTasks.append(Task { [weak self] in
             await self?.autoLayoutForBookWithoutLayoutData()
         })
-        reloadBookmarks()
+        reloadBookmarks(prefetched: didDeleteBookmarksOnOpen ? nil : allBookmarks)
 
         // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)が
         // あり、この本にまだブックマークが1件も無い場合は自動的にブックマークとして取り込む。
@@ -792,8 +808,7 @@ final class ViewerViewModel: ObservableObject {
                 // 他の送信元(BookmarkStore、同じ本を開いている別のウインドウ/タブの
                 // ViewerViewModel)からの通知は、従来どおり実フェッチで取り込む必要がある。
                 guard (notification.object as AnyObject?) !== self else { return }
-                let changedBookID = notification.userInfo?["bookID"] as? String
-                guard changedBookID == nil || changedBookID == ownBookID else { return }
+                guard Self.notificationConcerns(ownBookID, notification) else { return }
                 self.reloadBookmarks()
             }
         }
@@ -827,8 +842,7 @@ final class ViewerViewModel: ObservableObject {
         ) { [weak self] notification in
             // 上のbookmarksChangeObserverと同じ理由でMainActor.assumeIsolatedを使う。
             MainActor.assumeIsolated {
-                let changedBookID = notification.userInfo?["bookID"] as? String
-                guard changedBookID == nil || changedBookID == ownBookID else { return }
+                guard Self.notificationConcerns(ownBookID, notification) else { return }
                 let focusPageKey = notification.userInfo?["focusPageKey"] as? String
                 // 通知経由の読み直しは、直接呼び出し(setPageLayout等が自分で呼ぶぶん)と違って
                 // 1回の操作につき複数回まとめて届くため、まとめてから1回だけ実行する
@@ -1083,6 +1097,13 @@ final class ViewerViewModel: ObservableObject {
     /// 「[著者] 」だけを表示しても本の識別には役立たず、ユーザー要望も「タイトルが登録されて
     /// いる場合」を前提に2パターンだけを挙げているため。
     private func refreshDisplayTitle() {
+        // 変わったときだけ代入する(2026-09-25 の監査)。`@Published` は同じ値でも代入のたびに発火するので、本を問わない
+        // メタデータの知らせ(メタデータ生成が 500 冊ずつ書くたび)で、開いている全冊のビューアが描き直されていた。
+        let title = resolvedDisplayTitle()
+        if title != displayTitle { displayTitle = title }
+    }
+
+    private func resolvedDisplayTitle() -> String {
         // DBの登録が最優先。無ければ、シークレットウインドウでファイルから読んだメモリ上の
         // メタデータ(ephemeralMetadata)を使う。
         let rawTitle: String
@@ -1094,16 +1115,14 @@ final class ViewerViewModel: ObservableObject {
             rawTitle = metadata.title
             rawAuthor = metadata.author
         } else {
-            displayTitle = book.displayName(locale: preferences.effectiveLocale)
-            return
+            return book.displayName(locale: preferences.effectiveLocale)
         }
         let title = rawTitle.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else {
-            displayTitle = book.displayName(locale: preferences.effectiveLocale)
-            return
+            return book.displayName(locale: preferences.effectiveLocale)
         }
         let author = rawAuthor.trimmingCharacters(in: .whitespaces)
-        displayTitle = author.isEmpty ? title : "[\(author)] \(title)"
+        return author.isEmpty ? title : "[\(author)] \(title)"
     }
 
     /// 「前回表示したページから再開しますか?」の確認ダイアログへの回答を反映する。
@@ -1621,14 +1640,26 @@ final class ViewerViewModel: ObservableObject {
         return await pageLoader.fullResolutionImage(at: index)
     }
 
+    /// 保存データの変更の知らせ(`.bookmarksDidChange` / `.layoutDataDidChange`)がこの本に関わるか。`"bookID"` があればその本だけ、
+    /// 付け替えの知らせ(`BookRelocationPlan.relocatedBookIDsUserInfoKey`)ならそこに入っている本だけ、どちらも無い知らせ
+    /// (全件のリセット・読み込み)はすべての本に関わる。
+    nonisolated static func notificationConcerns(_ bookID: String, _ notification: Notification) -> Bool {
+        if let changedBookID = notification.userInfo?["bookID"] as? String { return changedBookID == bookID }
+        if let relocated = notification.userInfo?[BookRelocationPlan.relocatedBookIDsUserInfoKey] as? Set<String> {
+            return relocated.contains(bookID)
+        }
+        return true
+    }
+
     // MARK: - ブックマーク
 
-    private func reloadBookmarks() {
+    /// - Parameter prefetched: 呼び出し側が取ったばかりの Bookmark の全件(本を開いた直後。init のコメント)。nil ならここで取る。
+    private func reloadBookmarks(prefetched: [Bookmark]? = nil) {
         let bookID = book.id
         // #Predicateでの絞り込み(旧実装)が、レイアウト変更直後などに0件を誤って返すことがある
         // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
         // 絞り込み無しで全件取得してからSwift側でfilter・sortする。
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let all = prefetched ?? (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         let mine = all.filter { $0.bookID == bookID }
         // ページ番号は鍵から**毎回**導出し直す(Bookmark.pageKey参照)。init時に一度だけでは
         // 足りない ―― ページの並べ替え・除外は

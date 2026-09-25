@@ -343,9 +343,11 @@ final class BookmarkStore: ObservableObject {
     /// 本を開くたびに呼ばれる想定。
     /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
     @discardableResult
-    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+    /// - Parameter knownIdentifier: 呼び出し側が求めた本の識別子(本を開いたとき、5 つのストアへ同じ値を渡す ―― 求めるのは
+    ///   ボリュームへの問い合わせなので 1 回で済ませる。2026-09-25 の監査)。省けばここで求める。
+    func reconcileBookIDIfMoved(book: MangaBook, knownIdentifier: FileNodeIdentifier?? = nil) -> String? {
         guard (bookmarksByBookID()[book.id] ?? []).isEmpty else { return nil }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
+        guard let identifier = knownIdentifier ?? FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         let candidates = allBookmarks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
         guard !candidates.isEmpty else { return nil }
         // 同じiノードを指すブックマークが、過去の複数のパスに分かれて残っていることもありうる。
@@ -423,7 +425,10 @@ final class BookmarkStore: ObservableObject {
         // 鍵(bookID)を書き換えたので、仕分け済みのキャッシュは捨てて読み直す。
         cachedBookmarksByBookID = nil
         rebuildGroups()
-        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: nil)
+        NotificationCenter.default.post(
+            name: .bookmarksDidChange, object: self,
+            userInfo: [BookRelocationPlan.relocatedBookIDsUserInfoKey: BookRelocationPlan.relocatedBookIDs(moves)]
+        )
         return relocated
     }
 

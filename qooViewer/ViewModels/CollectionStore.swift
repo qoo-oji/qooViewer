@@ -40,7 +40,11 @@ final class CollectionStore: ObservableObject {
     /// 「作成日」「変更日」の鍵(ユーザー要望 2026-09-13。BookFileDatesの型コメント)。
     /// 実体確認と同じ契機・同じ`Task.detached`で読み、表示側は辞書を読むだけ。
     /// まだ読めていない本(実体が見つからない本を含む)は辞書に無い。
-    @Published private(set) var fileDatesByItemID: [UUID: BookFileDates] = [:]
+    @Published private(set) var fileDatesByItemID: [UUID: BookFileDates] = [:] {
+        didSet { fileDatesRevision &+= 1 }
+    }
+    /// `fileDatesByItemID` を差し替えた回数(並べた一覧の控え `itemsMemo` の鍵。日付順の並びが変わる)。
+    private var fileDatesRevision: UInt64 = 0
 
     /// 「ライブラリ/コレクション/本のどれかが変わった」ことだけを表す通し番号
     /// (saveAndNotifyのコメント参照)。値そのものは誰も読まない。
@@ -318,8 +322,52 @@ final class CollectionStore: ObservableObject {
     func items(
         in collection: BookCollection, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
     ) -> [CollectionItem] {
-        guard let query else { return items(in: collection, sort: sort) }
-        return sorted(collection.items.filter { itemMatches($0, query: query) }, sort: sort)
+        // 同じ描き直しの中で何度も求められる(コレクションの中の一覧は body の中で見出し・件数・格子・マーキーの範囲・右クリックの
+        // 対象のために 5〜6 回、選んだセルごとの右クリックメニューでも)ので、控えから返す(`itemsMemo` のコメント)。
+        let key = ItemsMemoKey(
+            collectionID: collection.id, sort: sort, terms: query?.terms, revision: revision,
+            fileDatesRevision: fileDatesRevision, titleToken: titleResolver.stateToken
+        )
+        if let memoized = itemsMemo[key] { return memoized }
+        let result: [CollectionItem]
+        if let query {
+            result = sorted(collection.items.filter { itemMatches($0, query: query) }, sort: sort)
+        } else {
+            result = items(in: collection, sort: sort)
+        }
+        rememberItems(result, for: key)
+        return result
+    }
+
+    /// 並べた一覧の控え(2026-09-25 の監査)。
+    ///
+    /// コレクションの中の一覧は、`items(in:sort:matching:)` を 1 回の描き直しで 5〜6 回呼び、並べ替えは 1 回ごとに全冊の比較
+    /// (名前順なら `localizedStandardCompare` と SwiftData の読み出し)をする。描き直しは表紙を 1 冊抽出するたび・選ぶたび・
+    /// 検索の 1 文字ごとに起きるので、数千冊のコレクションではメインを 1 回あたり数百ミリ秒使っていた。
+    ///
+    /// 答えを変えうるものはすべて鍵に入れる: 中身・名前(`revision`。行の追加・削除・名前・付け替えは必ず saveAndNotify を
+    /// 通る)、日付(`fileDatesRevision`)、タイトルと検索の文字列(`BookTitleResolver.stateToken`)、並び順と検索語。
+    /// 控えは**次のランループで捨てる**(同じ描き直しの中の繰り返しだけを省く ―― 抱え続けない・鍵に入れ忘れたものがあっても
+    /// 古い並びが残り続けない)。
+    private struct ItemsMemoKey: Hashable {
+        let collectionID: UUID
+        let sort: FavoritesSortOption
+        let terms: [String]?
+        let revision: UInt64
+        let fileDatesRevision: UInt64
+        let titleToken: String
+    }
+    private var itemsMemo: [ItemsMemoKey: [CollectionItem]] = [:]
+    private var isItemsMemoClearScheduled = false
+
+    private func rememberItems(_ items: [CollectionItem], for key: ItemsMemoKey) {
+        itemsMemo[key] = items
+        guard !isItemsMemoClearScheduled else { return }
+        isItemsMemoClearScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.itemsMemo.removeAll()
+            self?.isItemsMemoClearScheduled = false
+        }
     }
 
     /// 検索に一致するコレクションだけを、指定した並び順で(常に先頭/末尾の指定も効かせる)。
@@ -1095,9 +1143,11 @@ final class CollectionStore: ObservableObject {
     /// 1冊開いただけで棚全体の順番が入れ替わるのは操作と結果が噛み合わない。
     /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
     @discardableResult
-    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+    /// - Parameter knownIdentifier: 呼び出し側が求めた本の識別子(本を開いたとき、5 つのストアへ同じ値を渡す ―― 求めるのは
+    ///   ボリュームへの問い合わせなので 1 回で済ませる。2026-09-25 の監査)。省けばここで求める。
+    func reconcileBookIDIfMoved(book: MangaBook, knownIdentifier: FileNodeIdentifier?? = nil) -> String? {
         guard items(forBookID: book.id).isEmpty else { return nil }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
+        guard let identifier = knownIdentifier ?? FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         let candidates = allItems().filter {
             $0.bookID != book.id && $0.fileNodeIdentifier == identifier
         }

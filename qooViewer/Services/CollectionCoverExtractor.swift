@@ -45,6 +45,11 @@ import CoreGraphics
 final class CollectionCoverExtractor: ObservableObject {
     /// いま抽出中のitem(表示側がスピナーを出すために見る)。同時1件なので高々1つ。
     @Published private(set) var inFlightItemIDs: Set<UUID> = []
+    /// 待ち行列から取り出して、ブックマークを解決している最中の item(`extract(itemID:)`。2026-09-25)。解決は FileIO の上で待つ
+    /// ので、その間は待ち行列にも`inFlightItemIDs`にも居ない。ここに無いと、その間に届いた組み直し(存在確認の結果・コレクションの
+    /// 変更の知らせ)が同じ本をもう一度積み、終わった直後にもう 1 回抽出していた。publish しない(一覧の「抽出中」の印は
+    /// 解決が済んでから立てる ―― 見つからない本で印が点滅しないように)。`cancelAll()` で空にする。
+    private var resolvingItemIDs: Set<UUID> = []
 
     /// 本を解決しにいった回数(**テストのための口**)。実体が見つからない本を積まなくなった
     /// こと・切り出し位置の変更で抽出し直さないことを、状態ではなく回数で確かめるために持つ。
@@ -375,7 +380,8 @@ final class CollectionCoverExtractor: ObservableObject {
         // ライブラリ機能がOFFの間は積まない(本は`.pending`のまま残り、ONへ戻ったときのrefill()が拾う)。
         guard isLibraryFeatureEnabled else { return }
         var didAppend = false
-        for item in items where !queuedIDs.contains(item.id) && !inFlightItemIDs.contains(item.id) {
+        for item in items where !queuedIDs.contains(item.id) && !inFlightItemIDs.contains(item.id)
+            && !resolvingItemIDs.contains(item.id) {
             queue.append(item.id)
             queuedIDs.insert(item.id)
             didAppend = true
@@ -443,6 +449,7 @@ final class CollectionCoverExtractor: ObservableObject {
         isRunning = false
         runGeneration &+= 1
         if !inFlightItemIDs.isEmpty { inFlightItemIDs = [] }
+        resolvingItemIDs.removeAll()
         // 作り直しの途中なら、残りは UserDefaults の控えに残っている(外すのは抽出が終わってから)。次に ON になったとき・次の起動で拾う。
         redoBookIDByItemID = [:]
         redoRemainingByBookID = [:]
@@ -496,7 +503,10 @@ final class CollectionCoverExtractor: ObservableObject {
         // 共有の上の本 1 冊ごとに、`fileExists` がメインを秒単位で止めうる)。`existingURL` は FileIO の上から呼ぶための口。
         let bookmarkData = item.bookmarkData
         let generationBeforeResolving = runGeneration
+        // 解決を待つ間も「抽出の最中」として積み直させない(`resolvingItemIDs` のコメント)。
+        resolvingItemIDs.insert(itemID)
         let url = await FileIO.perform { CollectionStore.existingURL(fromBookmark: bookmarkData) }
+        if runGeneration == generationBeforeResolving { resolvingItemIDs.remove(itemID) }
         // 解決を待つ間に取り消された(ライブラリ機能を OFF にした・`cancelAll()`)なら、何もせずに戻る(下の読み込み後の確認と同じ)。
         guard !Task.isCancelled, runGeneration == generationBeforeResolving, isLibraryFeatureEnabled else { return }
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
@@ -619,6 +629,11 @@ final class CollectionCoverExtractor: ObservableObject {
         // 利用者が表紙を選び直した = いま試すべき契機。見送りは解く。
         for item in items { deferredItemIDs.remove(item.id) }
         collectionStore.markCoversPending(forBookID: bookID)
+        // 抽出の最中(ブックマークの解決を含む)の本は、古い指定で読み始めているので、終わったらもう一度積む
+        // (redoAfterExtraction。refreshCovers と同じ)。積み直さないと、終わった抽出が古い絵で`.ready`にしてしまう。
+        for item in items where inFlightItemIDs.contains(item.id) || resolvingItemIDs.contains(item.id) {
+            redoAfterExtraction.insert(item.id)
+        }
         enqueue(items)
     }
 
@@ -706,7 +721,7 @@ final class CollectionCoverExtractor: ObservableObject {
         var items: [CollectionItem] = []
         for bookID in bookIDs {
             for item in collectionStore.items(forBookID: bookID) where item.coverState == .ready {
-                if inFlightItemIDs.contains(item.id) {
+                if inFlightItemIDs.contains(item.id) || resolvingItemIDs.contains(item.id) {
                     redoAfterExtraction.insert(item.id)
                 } else {
                     items.append(item)

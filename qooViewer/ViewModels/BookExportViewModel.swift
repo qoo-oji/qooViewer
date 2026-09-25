@@ -165,6 +165,12 @@ class BookExportViewModel: ObservableObject {
     private var isReloading = false
     /// 実行中に来たreload()の要求を1回ぶんだけ覚えておくフラグ。
     private var needsAnotherReload = false
+    /// 書き出しウインドウが出ているか(`setPresented`)。ウインドウを閉じてもこのインスタンスはアプリを終えるまで残る
+    /// (Window シーンの中身)ので、閉じている間の変更の知らせでは読み直さず、次に出たときにまとめて読み直す
+    /// (2026-09-25 の監査。以前は一度開いたら、閉じた後もメタデータ生成の書き込み・レイアウトの操作のたびに、対象の全冊の
+    /// ブックマークの解決と実在の確認を裏で繰り返していた)。
+    private var isPresented = true
+    private var needsReloadWhenPresented = false
 
     // MARK: - タイトル・著者名(ユーザー要望: ファイル名/フォルダ名から推測した値を初期値にし、
     // この画面で変更できるようにしたい)
@@ -299,7 +305,7 @@ class BookExportViewModel: ObservableObject {
             let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
                 [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.reload()
+                    self?.reloadWhenPresented()
                 }
             }
             changeObservers.append(observer)
@@ -312,6 +318,24 @@ class BookExportViewModel: ObservableObject {
         }
         // カバー画像のために開いたセキュリティスコープ付きアクセスは、coverControllerが
         // 自分のdeinitで閉じる(CoverOverrideController.securityScopedURLsのコメント参照)。
+    }
+
+    /// 書き出しウインドウが出た・閉じた(ExportWindowContent の onAppear / onDisappear)。出たとき、閉じている間に変更が
+    /// あれば読み直す(`isPresented` のコメント)。
+    final func setPresented(_ presented: Bool) {
+        guard presented != isPresented else { return }
+        isPresented = presented
+        guard presented, needsReloadWhenPresented else { return }
+        needsReloadWhenPresented = false
+        reload()
+    }
+
+    private func reloadWhenPresented() {
+        guard isPresented else {
+            needsReloadWhenPresented = true
+            return
+        }
+        reload()
     }
 
     // MARK: - サブクラスの拡張点

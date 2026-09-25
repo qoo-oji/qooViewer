@@ -512,10 +512,12 @@ final class BookMetadataStore: ObservableObject {
     /// 新しいパスに**ファイル名の読みだけの行**(`isParsedOnly`)があれば、古い行(ロック・直した欄のあるもの)で置き換える
     /// (2026-09-22、利用者の報告。解析した本はすべて登録するので、スマートライブラリやメタデータの編集ウインドウが先に新しい
     /// 名前の行を作っていると、以前は「新しいパスに行がある」で付け替えをやめ、直した値とロックが古い名前に取り残された)。
-    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+    /// - Parameter knownIdentifier: 呼び出し側が求めた本の識別子(本を開いたとき、5 つのストアへ同じ値を渡す ―― 求めるのは
+    ///   ボリュームへの問い合わせなので 1 回で済ませる。2026-09-25 の監査)。省けばここで求める。
+    func reconcileBookIDIfMoved(book: MangaBook, knownIdentifier: FileNodeIdentifier?? = nil) -> String? {
         let current = metadata(forBookID: book.id)
         if let current, !current.isParsedOnly { return nil }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
+        guard let identifier = knownIdentifier ?? FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         // 同じiノードを指す行が過去のパスぶん複数残っている場合に備えて、最後に更新された
         // 行を選ぶ(LayoutStoreと同じ基準)。新しいパスに読みだけの行があるときは、読みだけではない行だけを候補にする。
         guard let matched = allMetadata()
@@ -606,11 +608,12 @@ final class BookMetadataStore: ObservableObject {
     /// ファイルノード識別子・セキュリティスコープ付きブックマークを持たない行について、
     /// 本を開けた(=アクセス権を持っている)タイミングで補完する。
     /// LayoutStore.backfillFileNodeIdentifierと同じ考え方。
-    func backfillIdentifiers(forBookID bookID: String, sourceURL: URL) {
+    /// - Parameter knownIdentifier: 呼び出し側が求めた本の識別子(`reconcileBookIDIfMoved` と同じ)。省けばここで求める。
+    func backfillIdentifiers(forBookID bookID: String, sourceURL: URL, knownIdentifier: FileNodeIdentifier?? = nil) {
         guard let metadata = metadata(forBookID: bookID) else { return }
         var didChange = false
         if FileNodeIdentifier.needsBackfill(metadata.fileNodeIdentifier),
-           let identifier = FileNodeIdentifier.current(for: sourceURL) {
+           let identifier = knownIdentifier ?? FileNodeIdentifier.current(for: sourceURL) {
             metadata.inodeNumber = identifier.inodeNumber
             metadata.volumeDeviceNumber = identifier.volumeDeviceNumber
             metadata.volumeUUID = identifier.volumeUUID

@@ -1109,18 +1109,22 @@ final class AppState: ObservableObject {
                     // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
                     // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
                     // 書き込みなので行わない(isPrivateWindowのコメント参照)。
+                    // 本の識別子(iノード・ボリューム)は 1 回だけ求めて、下の追従・補完のすべてへ渡す(2026-09-25 の監査。以前は
+                    // 行の無いストアごとと補完とで最大 7 回、ボリュームへ問い合わせていた ―― 未接続・遅いボリュームでは秒単位で
+                    // 止まりうる)。記録の残らない本では使わないので求めない。
+                    let identifier = skipsPersistence ? nil : FileNodeIdentifier.current(for: book.sourceURL)
                     if !skipsPersistence {
                         var movedFrom: [String?] = []
-                        movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book))
-                        movedFrom.append(self.layoutStore?.reconcileBookIDIfMoved(book: book))
-                        movedFrom.append(self.bookmarkStore?.reconcileBookIDIfMoved(book: book))
-                        movedFrom.append(self.metadataStore?.reconcileBookIDIfMoved(book: book))
+                        movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
+                        movedFrom.append(self.layoutStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
+                        movedFrom.append(self.bookmarkStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
+                        movedFrom.append(self.metadataStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         // **ライブラリ機能がOFFの間もコレクションの行を追従させる**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D2。
                         // 「止めないもの」の側 ―― AppStores.applyLibraryFeature)。いったんは「登録した本の全件フェッチを伴うので触らない。
                         // ONへ戻したときの存在確認がブックマークで追う」としたが、存在確認が埋めるのは場所の辞書だけで`bookID`は直さない。
                         // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
                         // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
-                        movedFrom.append(self.collectionStore?.reconcileBookIDIfMoved(book: book))
+                        movedFrom.append(self.collectionStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         // 上の 5 つのどれかが元のパスを見つけたら、その元のパスで**5 つと読書位置をまとめて**付け替える(2026-09-22)。
                         // 識別子で探せるのは識別子を持つ行だけで、読書位置は識別子を持たず、メタデータの編集ウインドウ・スマートライブラリ
                         // が作った行も持たないことがある ―― 1 つずつだと、そういう行が古いパスに取り残された(読書位置が無いと 1 ページ目
@@ -1155,8 +1159,8 @@ final class AppState: ObservableObject {
                         // (FileNodeIdentifier.needsBackfill参照)。ここで5つ揃えておかないと、
                         // マウント順でデバイス番号が変わる外付けの本で、追従するストアと
                         // しないストアが混ざる。識別子の取得は1回で済ませて使い回す
-                        // (未接続のボリュームでは秒単位ブロックしうる問い合わせのため)。
-                        if let identifier = FileNodeIdentifier.current(for: book.sourceURL) {
+                        // (未接続のボリュームでは秒単位ブロックしうる問い合わせのため。上で求めた値)。
+                        if let identifier {
                             self.favoritesStore?.backfillFileNodeIdentifier(
                                 forBookID: book.id, identifier: identifier
                             )
@@ -1177,7 +1181,8 @@ final class AppState: ObservableObject {
                     // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
                     // 本の実ファイルへ到達するために必要)。
                     if !skipsPersistence {
-                        self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
+                        self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL,
+                                                                knownIdentifier: identifier)
                     }
                     self.currentBook = book
                     self.errorMessage = nil

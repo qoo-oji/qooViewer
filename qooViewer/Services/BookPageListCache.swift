@@ -223,16 +223,23 @@ actor BookPageListCache {
     @concurrent nonisolated func store(_ entry: Entry, forBookID bookID: String) async {
         guard let url = fileURL(forBookID: bookID) else { return }
         var entry = entry
+        let previousData = try? Data(contentsOf: url)
         // 本を開くたびに書き直すが、ページ寸法は読み込みでは分からない(Entry.pageSizesの
         // コメント参照)。同じ本体なら前回のぶんを引き継ぐ。
-        if entry.pageSizes == nil, entry.fingerprint != nil,
-           let previousData = try? Data(contentsOf: url),
+        if entry.pageSizes == nil, entry.fingerprint != nil, let previousData,
            let previous = try? JSONDecoder().decode(Entry.self, from: previousData),
            previous.fingerprint == entry.fingerprint {
             entry.pageSizes = previous.pageSizes
         }
-        guard let data = try? JSONEncoder().encode(entry) else { return }
-        try? data.write(to: url, options: .atomic)
+        guard let data = try? Self.encode(entry) else { return }
+        // 中身が前と同じなら書き直さない(2026-09-25 の監査。本を開くたび・隣の本へ移るたびに、同じ中身の数十 KB を
+        // 書き直していた)。刈り込み(trimIfNeeded)は更新日時で古いものから捨てるので、触った印だけ付ける(古いときだけ ――
+        // DiskCacheAccessStamp)。
+        if data == previousData {
+            DiskCacheAccessStamp.touchIfStale(url.path)
+        } else {
+            try? data.write(to: url, options: .atomic)
+        }
 
         // 起動後の最初の書き込みのタイミングで一度だけ容量を点検する(ThumbnailDiskCacheと
         // 同じ考え方)。1冊あたり数十KB程度と小さいが、二度と開かない本のぶんが際限なく
@@ -268,8 +275,16 @@ actor BookPageListCache {
         for (key, value) in sizes { merged[key] = value }
         guard merged != entry.pageSizes else { return }
         entry.pageSizes = merged
-        guard let encoded = try? JSONEncoder().encode(entry) else { return }
+        guard let encoded = try? Self.encode(entry) else { return }
         try? encoded.write(to: url, options: .atomic)
+    }
+
+    /// 書き出す形。**鍵を並べて**書く(`pageSizes` は辞書なので、並べないと書くたびに順が変わり、中身が同じでもバイト列が
+    /// 違って「同じなら書かない」(store)が効かない)。
+    private nonisolated static func encode(_ entry: Entry) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(entry)
     }
 
     /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。

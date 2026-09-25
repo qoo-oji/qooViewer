@@ -45,6 +45,12 @@ final class BookTitleResolver {
         self.cachedRulesHash = rulesStore.rules.contentHash
     }
 
+    /// タイトル・検索の文字列が何に基づいているか(メタデータの通し番号と規則の中身)。これが同じ間は、同じ本に対する
+    /// `title` / `searchableText` の答えは変わらない(CollectionStore の並べた一覧の控えの鍵に使う)。
+    var stateToken: String {
+        "\(metadataStore.revision)|\(rulesStore.rules.contentHash)"
+    }
+
     /// この本のタイトル(型コメントの規則で決まる文字列)。
     func title(forBookID bookID: String) -> String {
         invalidateIfStale()

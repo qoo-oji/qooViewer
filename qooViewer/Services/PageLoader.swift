@@ -410,7 +410,9 @@ actor PageLoader {
             return derived.makeImage()
         }
 
-        guard usesThumbnailDiskCache else {
+        // ディスクキャッシュが OFF(環境設定の既定)なら、読みにも書きにも行かない(2026-09-25 の監査。以前は OFF でも 1 枚ごとに
+        // 読みの問い合わせと、書き込み用の Task・CGImage を作ってから向こうで捨てられていた)。
+        guard usesThumbnailDiskCache, await ThumbnailDiskCache.shared.isEnabled else {
             return await pixels(
                 at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
             )?.makeImage()
@@ -459,7 +461,6 @@ actor PageLoader {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
-        let usesDisk = usesThumbnailDiskCache && usesDiskCache
 
         if let cached = gridThumbnailCache.object(forKey: key) {
             return cached.makeImage()
@@ -468,6 +469,9 @@ actor PageLoader {
             gridThumbnailCache.store(derived, forKey: key)
             return derived.makeImage()
         }
+        // ディスクキャッシュが OFF(環境設定の既定)なら読みにも書きにも行かない(thumbnail(at:)と同じ)。
+        var usesDisk = usesThumbnailDiskCache && usesDiskCache
+        if usesDisk { usesDisk = await ThumbnailDiskCache.shared.isEnabled }
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesDisk {

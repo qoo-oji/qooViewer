@@ -99,7 +99,8 @@ struct ViewerView: View {
     @State private var trackpadGestureDeltaX: CGFloat = 0
     @State private var trackpadGestureDeltaY: CGFloat = 0
     @State private var isCursorHidden = false
-    @State private var cursorHideTask: Task<Void, Never>?
+    /// カーソルの自動非表示のタイマー(`CursorAutoHideTimer`)。
+    @State private var cursorAutoHide = CursorAutoHideTimer()
     /// メニューバーのメニュー(このアプリのもの)が現在開いているかどうか。開いている間は
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
@@ -864,8 +865,7 @@ struct ViewerView: View {
         // clearAppStateBridgesIfStillOwnerと違いトークンで持ち主を判定しないのは、
         // このviewModelがこのViewerView専用だからで、上のonPageBoundaryRequest等と同じ理由。
         viewModel.releaseResources()
-        cursorHideTask?.cancel()
-        cursorHideTask = nil
+        cursorAutoHide.cancel()
         toastDismissTask?.cancel()
         toastDismissTask = nil
         zoomIndicatorHideTask?.cancel()
@@ -3578,12 +3578,25 @@ struct ViewerView: View {
             NSCursor.unhide()
             isCursorHidden = false
         }
-        cursorHideTask?.cancel()
-        guard preferences.autoHideCursor else { return }
+        let timer = cursorAutoHide
+        timer.lastActivity = ProcessInfo.processInfo.systemUptime
+        guard preferences.autoHideCursor else {
+            timer.cancel()
+            return
+        }
+        // 待っているタイマーがあれば、それが最後に動いた時刻から数え直す(CursorAutoHideTimer のコメント)。
+        guard timer.task == nil else { return }
         let delaySeconds = max(preferences.cursorAutoHideDelay, 0.1)
-        cursorHideTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+        timer.task = Task {
+            // 最後に動いてから delaySeconds 経つまで待つ(待っている間に動いたら、その時刻から数え直す)。
+            while true {
+                let remaining = timer.lastActivity + delaySeconds - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else { break }
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+            }
             guard !Task.isCancelled else { return }
+            timer.task = nil
             await MainActor.run {
                 // 念のための保険: このウインドウが今アクティブでなければ隠さない。
                 // 通常はウインドウが非アクティブになった時点でdidResignKeyNotification
@@ -3701,8 +3714,7 @@ struct ViewerView: View {
         let resignKey = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: window, queue: .main
         ) { _ in
-            cursorHideTask?.cancel()
-            cursorHideTask = nil
+            cursorAutoHide.cancel()
             if isCursorHidden {
                 NSCursor.unhide()
                 isCursorHidden = false
@@ -3715,8 +3727,7 @@ struct ViewerView: View {
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { _ in
             isMenuTracking = true
-            cursorHideTask?.cancel()
-            cursorHideTask = nil
+            cursorAutoHide.cancel()
             if isCursorHidden {
                 NSCursor.unhide()
                 isCursorHidden = false
@@ -5036,5 +5047,23 @@ private final class PanelScreenFrameReportingView: NSView {
         let frameInWindow = convert(bounds, to: nil)
         let frameOnScreen = window.convertToScreen(frameInWindow)
         onFrameChange?(frameOnScreen)
+    }
+}
+
+/// カーソルの自動非表示のタイマー(ViewerView.registerMouseActivity)。
+///
+/// **マウスが動くたびに Task を作り直さない**(2026-09-25 の監査)。以前は `mouseMoved` のたび(毎秒 60〜120 回)に
+/// 前の Task を取り消して新しい Task を作り、`@State` に書いていた(Task は Equatable でないので、書くたびにビューの
+/// 再評価も呼びうる)。今は最後に動いた時刻(`lastActivity`)だけを書き、待っている Task が 1 つあれば、それが
+/// 目を覚ましたときに時刻を見て待ち直す。参照型の箱なので、`@State` の値そのものは変わらない。
+@MainActor
+private final class CursorAutoHideTimer {
+    var task: Task<Void, Never>?
+    /// 最後にマウスが動いた時刻(`ProcessInfo.systemUptime`)。
+    var lastActivity: TimeInterval = 0
+
+    func cancel() {
+        task?.cancel()
+        task = nil
     }
 }

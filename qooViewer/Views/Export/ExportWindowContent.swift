@@ -193,8 +193,11 @@ struct ExportWindowContent<Options: View>: View {
             // FB21393010)、その場合initは二度と走らず、環境設定で既定値を変えて開き直しても
             // 初回の値のまま残る(監査で指摘)。開く直後に必ず揃え直す。
             viewModel.resetOptionsToDefaults()
+            // 閉じている間に変わった分を読み直す(BookExportViewModel.isPresented のコメント)。
+            viewModel.setPresented(true)
             autoSizeColumnsIfNeeded()
         }
+        .onDisappear { viewModel.setPresented(false) }
         .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
         .alert(
             "Not Enough Free Space",

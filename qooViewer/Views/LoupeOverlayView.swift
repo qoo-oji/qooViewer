@@ -58,6 +58,16 @@ struct LoupeOverlayView: NSViewRepresentable {
         }
         nsView.needsDisplay = true
     }
+
+    /// 閉包と大きな画像への参照を切る(CLAUDE.md: `NSViewRepresentable` のコールバックは `dismantleNSView` で切る)。
+    /// AppKit はビューを閉じた後も抱えていることがあり、切らないと`onDismiss`が掴んだ ViewerView の写しと、スロットの
+    /// 高解像度の画像(1 枚最大 256MB)が残る(2026-09-25 の監査)。
+    static func dismantleNSView(_ nsView: LoupeNSView, coordinator: ()) {
+        nsView.onDismiss = nil
+        nsView.slots = []
+        nsView.slotWidths = []
+        nsView.removeMouseTracking()
+    }
 }
 
 /// LoupeOverlayViewが実際に使うNSView本体。
@@ -96,9 +106,32 @@ final class LoupeNSView: NSView {
         trackingArea = area
     }
 
+    /// 追跡を外す(dismantleNSView)。
+    func removeMouseTracking() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+            self.trackingArea = nil
+        }
+    }
+
+    /// レンズと、その縁の影が描かれる範囲(描き直す範囲)。
+    private func lensDirtyRect(at location: CGPoint) -> CGRect {
+        CGRect(x: location.x - diameter / 2, y: location.y - diameter / 2, width: diameter, height: diameter)
+            .insetBy(dx: -Self.lensShadowMargin, dy: -Self.lensShadowMargin)
+    }
+
+    /// 縁の線(2pt)と影(ぼかし 6pt・下へ 2pt)がはみ出すぶん。
+    private static let lensShadowMargin: CGFloat = 12
+
     override func mouseMoved(with event: NSEvent) {
-        lastMouseLocation = convert(event.locationInWindow, from: nil)
-        needsDisplay = true
+        let previous = lastMouseLocation
+        let location = convert(event.locationInWindow, from: nil)
+        lastMouseLocation = location
+        // 描き直すのは前と今のレンズの範囲だけ(2026-09-25 の監査)。このビューは見開き全体を覆うので、以前はマウスが動くたびに
+        // 見開きぶんの面(Retina で数十 MB)を消して描き直していた。レンズの外は何も描かない。
+        var dirty = lensDirtyRect(at: location)
+        if let previous { dirty = dirty.union(lensDirtyRect(at: previous)) }
+        setNeedsDisplay(dirty)
     }
 
     /// ウインドウへ実際に組み込まれたタイミング(AppKit視点で自身のconvert(_:to:)等が
@@ -148,6 +181,8 @@ final class LoupeNSView: NSView {
             width: diameter,
             height: diameter
         )
+        // 前のレンズを消すためだけに頼まれた範囲(今のレンズと重ならない)なら、描くものは無い。
+        guard lensDirtyRect(at: lastMouseLocation).intersects(dirtyRect) else { return }
 
         context.saveGState()
         context.addEllipse(in: lensRect)

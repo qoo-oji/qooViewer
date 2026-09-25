@@ -33,6 +33,17 @@ nonisolated struct BookRelocationPlan: Sendable {
 
     var isEmpty: Bool { bookIDs.isEmpty }
 
+    /// 付け替えの知らせ(`.layoutDataDidChange` / `.bookmarksDidChange`)の userInfo の鍵。値は付け替えた本の古い・新しい
+    /// `bookID`(`Set<String>`)。`"bookID"` の無い知らせは「全部が変わった」として受け手が全部を読み直すので、開いている本の
+    /// ビューアはこれを見て、自分の本が入っていなければ読み直さない(2026-09-25 の監査。以前はアプリの中でファイルを 1 つ
+    /// 動かすたびに、開いている全冊のビューアが Bookmark の全件のフェッチとレイアウトの組み直しをしていた)。
+    static let relocatedBookIDsUserInfoKey = "relocatedBookIDs"
+
+    /// `moves` で付け替えた本の古い・新しい `bookID`(知らせに付ける)。
+    static func relocatedBookIDs(_ moves: [String: String]) -> Set<String> {
+        Set(moves.keys).union(moves.values)
+    }
+
     /// あるストアで実際に動かす組(古い → 新しい)。`present` はそのストアに行のある bookID。
     ///
     /// 「移った先に行があるなら付け替えない」の決まりを、**付け替えの後の姿で**当てる(2026-09-22 の監査): 移った先の行自身も
