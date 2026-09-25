@@ -407,7 +407,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.71;
+				MARKETING_VERSION = 1.72;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Alternate;
@@ -459,7 +459,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.71;
+				MARKETING_VERSION = 1.72;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Default;
