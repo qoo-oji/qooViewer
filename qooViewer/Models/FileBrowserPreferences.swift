@@ -18,11 +18,14 @@ nonisolated enum WelcomeMode: String, CaseIterable, Codable, Hashable, Sendable 
 }
 
 /// ファイルブラウザの右ペインの見せ方。
+///
+/// **並びはアイコン → リスト**(Finder と同じ。2026-09-27 ―― それまではリスト → アイコンで、スマートライブラリの操作列と
+/// 逆だった)。`allCases` の順が表示メニュー・空きスペースの右クリック「表示」の並びになる。
 nonisolated enum FileBrowserViewMode: String, CaseIterable, Codable, Hashable, Sendable {
+    /// アイコンを並べたグリッド(AppKit の NSCollectionView)。
+    case icons
     /// 列のある一覧(NSTableView)。
     case list
-    /// アイコンを並べたグリッド(SwiftUIのLazyVGrid)。
-    case icons
 
     /// 空きスペースの右クリック「表示」のサブメニューの項目名。
     var menuTitle: String.LocalizationValue {

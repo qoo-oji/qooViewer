@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、右端にライブラリを増やす「＋」。
+/// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、そのすぐ右にライブラリを増やす「＋」
+/// (2026-09-27 までは帯の右端に置いていた。`newLibraryButton`)。
 ///
 /// ■ 左端の「ファイルブラウザ」(改善要望7 段階3、2026-09-13)
 /// 押すとファイルブラウザを出す(WelcomeLibraryState.selectMode。出ている間にもう一度押してもそのまま ―― 以前は本棚へ
@@ -20,7 +21,7 @@ import SwiftUI
 /// 「本を開く…」に ⌘O は付けない(ファイルメニューの「開く…」が持っている)。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
-/// - 「＋」 → `.panelIconButtonLabel()`が内側で輪郭を掛けている
+/// - 「＋」 → 選ばれていないチップと同じ(`.panelOutlinedContent()`)
 /// - 「ファイルブラウザ」 → 押していないときは`.panelOutlinedContent()`、押している間はアクセント地
 ///   なので`.panelOutlinedAccent(in:)`(ライブラリのチップと同じ描き方)
 /// - ライブラリ名 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので
@@ -107,19 +108,6 @@ struct WelcomeTopBar: View {
             }
 
             Spacer(minLength: 0)
-
-            if state.isLibraryFeatureEnabled {
-                Button {
-                    librarySheet = .create
-                } label: {
-                    Image(systemName: "plus")
-                        .panelIconButtonLabel()
-                }
-                .buttonStyle(.borderless)
-                .disabled(!canEditLibraries)
-                .help("New Library")
-                .accessibilityLabel(Text("New Library"))
-            }
         }
         .padding(.horizontal, 12)
         .frame(height: Self.height)
@@ -308,12 +296,37 @@ struct WelcomeTopBar: View {
                 ForEach(collectionStore.libraries, id: \.id) { library in
                     chip(for: library)
                 }
+                newLibraryButton
             }
             .padding(.vertical, 4)
         }
         .scrollIndicators(.never)
         // 横スクロールでも帯の高さを超えないようにする。
         .frame(maxHeight: Self.height)
+    }
+
+    /// ライブラリを増やす「＋」。**いちばん右のチップのすぐ右**に、選ばれていないチップと同じ地で置く(2026-09-27、利用者の指示。
+    /// それまでは帯の右端に地の無いアイコンのボタンで、チップの並びから離れていた)。幅は「＋」に合わせる(チップの固定幅にしない)。
+    /// チップと同じ並びの中にあるので、チップが増えて横スクロールになれば一緒に流れる。
+    /// 高さをチップと揃えるため、記号は `Text` に埋め込む(文字の行の高さになる。`Image` のままだと記号の高さで低くなる)。
+    private var newLibraryButton: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        return Button {
+            librarySheet = .create
+        } label: {
+            Text(Image(systemName: "plus"))
+                // 選ばれていないチップと同じく、地がほぼ無いので輪郭を掛ける(すりガラス面の決まりごと)。
+                .panelOutlinedContent()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(shape.fill(Color.primary.opacity(0.07)))
+                .foregroundStyle(Color.primary)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canEditLibraries)
+        .help("New Library")
+        .accessibilityLabel(Text("New Library"))
     }
 
     @ViewBuilder

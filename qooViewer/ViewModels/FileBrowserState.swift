@@ -81,6 +81,23 @@ final class FileBrowserState: ObservableObject {
         let serial: Int
     }
 
+    /// 一覧(リスト・アイコン)のスクロール位置の控え(表示形式ごと。publish しない)。一覧は、本を開いてホームへ戻る・表示形式を
+    /// 切り替えて戻すたびに**作り直される**。選択はこの状態が持っているので戻るが、スクロールは一覧の `NSScrollView` にしか
+    /// 無く、先頭から見せ直していた(2026-09-27、利用者の報告)。一覧が捨てられるときに控え、同じフォルダのまま作り直されたら
+    /// そこから見せる(`HomeWheelScrollView.restoreScrollOrigin`)。控えは一度使ったら捨てる。
+    private var savedScrollOrigins: [FileBrowserViewMode: (folder: URL?, origin: CGPoint)] = [:]
+
+    /// 捨てる一覧のスクロール位置を控える(`dismantleNSView` から)。
+    func saveScrollOrigin(_ origin: CGPoint, for mode: FileBrowserViewMode, folder: URL?) {
+        savedScrollOrigins[mode] = (folder, origin)
+    }
+
+    /// 作り直した一覧が戻る位置。控えたときと同じフォルダを表示しているときだけ返す(控えはどちらにしても捨てる)。
+    func takeSavedScrollOrigin(for mode: FileBrowserViewMode) -> CGPoint? {
+        guard let saved = savedScrollOrigins.removeValue(forKey: mode), saved.folder == currentFolder else { return nil }
+        return saved.origin
+    }
+
     @Published var viewMode: FileBrowserViewMode {
         didSet {
             guard viewMode != oldValue else { return }

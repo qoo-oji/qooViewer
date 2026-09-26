@@ -1005,12 +1005,14 @@ struct SmartLibraryContent: View {
                         .panelControlWell()
                         .help("Cover Size")
                 }
+                // 並びはファイルブラウザと同じ: 表示切替(アイコン → リスト)のすぐ右に並べ替え、そのあとに束ねる
+                // (2026-09-27、利用者の指摘。それまでは束ねるが表示切替と並べ替えの間に挟まっていた)。
                 PanelViewModeButton(systemImage: "square.grid.2x2", helpKey: "as Icons",
                                     isSelected: state.viewMode == .grid) { state.viewMode = .grid }
                 PanelViewModeButton(systemImage: "list.bullet", helpKey: "as List",
                                     isSelected: state.viewMode == .list) { state.viewMode = .list }
-                groupingMenu
                 sortMenu
+                groupingMenu
             }
         }
     }

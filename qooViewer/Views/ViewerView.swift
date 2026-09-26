@@ -162,13 +162,18 @@ struct ViewerView: View {
     /// 自動隠し中のツールバーを、マウスが画面端に近いために一時的に表示しているかどうか。
     /// フルスクリーン中、またはウインドウ表示でもhideToolbarがONのときに使われる
     /// (自動隠しが有効でないときは常にtrue相当として扱う。bodyの表示条件参照)。
-    @State private var isToolbarAutoRevealed = true
+    ///
+    /// **最初は隠しておく**(2026-09-27、利用者の報告)。以前は true から始め、本を開いた時点(setUpWindowObservers)でも
+    /// true にしていたので、隠す設定なのに**カーソルを一度動かすまでツールバーとプログレスバーが出たまま**だった
+    /// (隠す判定はマウスの移動でしか走らない)。いまは隠した状態から始め、ウインドウが決まった時点のカーソルの位置で
+    /// 出すかどうかを決める(settleAutoRevealedChromeToCursor)。
+    @State private var isToolbarAutoRevealed = false
     /// プログレスバー側の同じもの。以前はツールバーと1つの@Stateを共有していたが、
     /// 「端に近づけてから表示されるまでの時間」を部分ごとに設定できるようにした
     /// (ユーザー要望)ため、別々に持つ必要が出た。**表示のきっかけは今も共通**
     /// (上端・下端どちらの帯に入っても両方が対象。updateAutoHiddenChromeVisibility参照)で、
     /// 違うのは「何秒待ってから表示するか」だけ。
-    @State private var isProgressBarAutoRevealed = true
+    @State private var isProgressBarAutoRevealed = false
     /// 上の2つを「表示までの時間」(環境設定)ぶん待ってから表示するための、待機中のタスク。
     /// 待っている間にカーソルが帯から出たらキャンセルする(scheduleToolbarReveal参照)。
     /// 遅延が0(既定)のときは使わず、その場で表示する。
@@ -3669,8 +3674,8 @@ struct ViewerView: View {
 
         isFullScreen = window.styleMask.contains(.fullScreen)
         tabGroupObserver.attach(to: window)
-        isToolbarAutoRevealed = true
-        isProgressBarAutoRevealed = true
+        // 隠す設定なら、カーソルが上端・下端の帯に無い限り隠したまま始める(isToolbarAutoRevealedのコメント)。
+        settleAutoRevealedChromeToCursor()
 
         // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」が
         // 「今読んでいる本」を特定できるように、このウインドウが(本を表示しているウインドウとして)
@@ -3724,15 +3729,14 @@ struct ViewerView: View {
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
         ) { _ in
             isFullScreen = true
-            isToolbarAutoRevealed = true
-            isProgressBarAutoRevealed = true
+            // 本を開いたときと同じ(カーソルが帯に無ければ隠したまま。isToolbarAutoRevealedのコメント)。
+            MainActor.assumeIsolated { settleAutoRevealedChromeToCursor() }
         }
         let exit = NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { _ in
             isFullScreen = false
-            isToolbarAutoRevealed = true
-            isProgressBarAutoRevealed = true
+            MainActor.assumeIsolated { settleAutoRevealedChromeToCursor() }
         }
         // NSCursor.hide()/unhide()はウインドウ単位ではなくアプリ全体に効く。そのため、
         // このウインドウがアクティブでなくなった(環境設定ウインドウや他のqooViewer
@@ -3912,6 +3916,26 @@ struct ViewerView: View {
         if progressBarAutoHides {
             scheduleProgressBarReveal()
         }
+    }
+
+    /// 自動隠しのツールバー/プログレスバーを、**いまのカーソルの位置**に合わせる(本を開いたとき・フルスクリーンに
+    /// 出入りしたとき。isToolbarAutoRevealedのコメント)。帯の中なら出し、外なら隠す。マウスの移動を待たない。
+    ///
+    /// ツールバーの下端(toolbarBottomYInWindow)をまだ測れていない(0)ときは、上端の帯の判定が「どこでも帯の中」になって
+    /// しまうので、下端の帯だけで決める(上端にカーソルがあれば、次にマウスを動かしたときに出る)。
+    private func settleAutoRevealedChromeToCursor() {
+        hideAutoRevealedChromeNow()
+        guard toolbarAutoHides || progressBarAutoHides, !appState.isLoupeActive, !appState.isSidePanelRevealed,
+              let window = hostWindow, window.isKeyWindow
+        else { return }
+        let screenLocation = NSEvent.mouseLocation
+        guard window.frame.contains(screenLocation) else { return }
+        let location = window.convertPoint(fromScreen: screenLocation)
+        let isInTopBand = toolbarBottomYInWindow > 0 && location.y >= toolbarBottomYInWindow
+        guard isInTopBand || location.y < progressBarHeight else { return }
+        // 帯に入ったとき(updateAutoHiddenChromeVisibility)と同じく、どちらの帯でも両方が対象。今ここにカーソルがあるので待たない。
+        if toolbarAutoHides { revealToolbarNow() }
+        if progressBarAutoHides { revealProgressBarNow() }
     }
 
     /// 自動表示中のツールバー/プログレスバーを、表示待ちのタスクごと今すぐ取り下げる。

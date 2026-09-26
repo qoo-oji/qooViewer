@@ -116,7 +116,13 @@ struct FileBrowserListView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         coordinator.table = table
+        // 前の一覧のスクロール位置へ戻す(本を開いてホームへ戻った・表示形式を切り替えて戻した。FileBrowserState.savedScrollOrigins)。
+        // 戻すときは、残っている「この項目まで見せて」の依頼を済んだことにする(作り直した一覧が古い依頼を拾うと、戻した位置から
+        // 動いてしまう)。
+        let savedOrigin = state.takeSavedScrollOrigin(for: .list)
+        if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
         coordinator.update(from: self)
+        if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
     }
 
@@ -130,6 +136,7 @@ struct FileBrowserListView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
+        coordinator.saveScrollOrigin(of: scroll)
         if let table = coordinator.table {
             table.dataSource = nil
             table.delegate = nil
@@ -239,6 +246,16 @@ struct FileBrowserListView: NSViewRepresentable {
             formatter.countStyle = .file
             return formatter
         }()
+
+        /// 作り直した一覧が前の位置へ戻るとき、残っているスクロールの依頼を済んだことにする(makeNSView のコメント)。
+        func markScrollRequestApplied(_ request: FileBrowserState.ScrollRequest?) {
+            appliedScroll = request
+        }
+
+        /// 捨てる一覧のスクロール位置を状態へ控える(FileBrowserState.savedScrollOrigins)。表に出しているフォルダのものとして控える。
+        func saveScrollOrigin(of scroll: NSScrollView) {
+            state?.saveScrollOrigin(scroll.contentView.bounds.origin, for: .list, folder: displayedFolder)
+        }
 
         func update(from view: FileBrowserListView) {
             guard let table else { return }
@@ -647,8 +664,18 @@ struct FileBrowserListView: NSViewRepresentable {
             state.sortDirection = descriptor.ascending ? .ascending : .descending
         }
 
+        /// ダブルクリックした行を開く(選択に含まれる行なら選択の全部。Finder と同じ)。
+        ///
+        /// **ダブルクリックした行が選択の外なら、その行を選んでから開く**(2026-09-27、利用者の報告)。後ろにあるウインドウの一覧を
+        /// ダブルクリックすると、1 回目のクリックはウインドウを前に出すのに使われて表へ届かず、2 回目(clickCount == 2)だけが届く。
+        /// 表はそのクリックで選択を変えずに doubleAction を送るので、選択のまま開くと**前に選んでいた別の行が開いた**。
         @objc func handleDoubleClick(_ sender: Any?) {
             guard let table, table.clickedRow >= 0 else { return }
+            let row = table.clickedRow
+            if !table.selectedRowIndexes.contains(row) {
+                // 選択の通知(tableViewSelectionDidChange)で状態の選択も揃う。
+                table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            }
             openSelection()
         }
 

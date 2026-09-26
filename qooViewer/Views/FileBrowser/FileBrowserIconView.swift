@@ -101,7 +101,11 @@ struct FileBrowserIconView: NSViewRepresentable {
 
         coordinator.collection = collection
         coordinator.layout = layout
+        // 前の一覧のスクロール位置へ戻す(リスト表示の makeNSView と同じ。FileBrowserState.savedScrollOrigins)。
+        let savedOrigin = state.takeSavedScrollOrigin(for: .icons)
+        if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
         coordinator.update(from: self)
+        if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
     }
 
@@ -115,6 +119,7 @@ struct FileBrowserIconView: NSViewRepresentable {
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
         // 捨てる直前に一覧を取り込み直さない(取り込むと、捨てるビューが絵を頼み直す)。
         coordinator.finishEditing(commit: true, syncsAfterward: false)
+        coordinator.saveScrollOrigin(of: scroll)
         coordinator.nameClickRename.cancel()
         if let collection = coordinator.collection {
             // **見えているセルの絵の依頼を取り消す**(2026-09-15 の 3 回目の監査)。表示の切り替え・ウインドウを閉じるときのアイテムは
@@ -286,6 +291,16 @@ struct FileBrowserIconView: NSViewRepresentable {
                 guard isWholeViewDropTarget != oldValue else { return }
                 onWholeViewDropTargetChange?(isWholeViewDropTarget)
             }
+        }
+
+        /// 作り直した一覧が前の位置へ戻るとき、残っているスクロールの依頼を済んだことにする(リスト表示と同じ)。
+        func markScrollRequestApplied(_ request: FileBrowserState.ScrollRequest?) {
+            appliedScroll = request
+        }
+
+        /// 捨てる一覧のスクロール位置を状態へ控える(リスト表示と同じ)。
+        func saveScrollOrigin(of scroll: NSScrollView) {
+            state?.saveScrollOrigin(scroll.contentView.bounds.origin, for: .icons, folder: displayedFolder)
         }
 
         func update(from view: FileBrowserIconView) {

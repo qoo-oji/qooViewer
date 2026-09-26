@@ -225,7 +225,7 @@ struct FileBrowserPane: View {
             // 行の中央は**いまのフォルダの名前**。検索は右端のボタンから広がる(ユーザー要望 2026-09-13)。
             folderTitle
             HStack(spacing: 6) {
-                // アイコンの大きさ。**アイコン表示のときだけ出し、列の左端(リスト表示ボタンの左)に置く**
+                // アイコンの大きさ。**アイコン表示のときだけ出し、列の左端(表示切替のボタンの左)に置く**
                 // (ユーザー指示 2026-09-13)。列は右端に揃えてあるので、左へ伸びる形にしておけば出し入れしても
                 // 表示切替・並べ替えのボタンが動かない(LibraryPaneControlsで編集モードの2ボタンを「＋」の左に
                 // 足すのと同じ理由)。リスト表示で淡色のスライダーが残っていると、何を変えるものなのか読めない。
@@ -238,8 +238,10 @@ struct FileBrowserPane: View {
                         .panelControlWell()
                         .help("Icon Size")
                 }
-                FileBrowserViewModeButton(mode: .list, selection: $state.viewMode)
-                FileBrowserViewModeButton(mode: .icons, selection: $state.viewMode)
+                // 表示切替はアイコン → リスト(Finder・スマートライブラリと同じ。FileBrowserViewModeのコメント)。
+                ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
+                    FileBrowserViewModeButton(mode: mode, selection: $state.viewMode)
+                }
                 FileBrowserSortMenu(key: $state.sortKey, direction: $state.sortDirection)
                 search
             }

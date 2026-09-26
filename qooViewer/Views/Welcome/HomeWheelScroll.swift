@@ -156,3 +156,29 @@ private final class WheelMonitor {
         if let token { NSEvent.removeMonitor(token) }
     }
 }
+
+extension HomeWheelScrollView {
+    /// 作り直した一覧を、前の一覧のスクロール位置(クリップビューの bounds の原点)へ戻す(`FileBrowserState.savedScrollOrigins`)。
+    ///
+    /// 作った直後は大きさが決まっていない(SwiftUI が枠を与え、表・格子が中身を並べるのはその後)ので、中身がその位置まで
+    /// 届くようになるまでランループを跨いで待つ(長くて `remainingAttempts` 回。届かなければ ―― 項目が減った ―― 届く所まで)。
+    /// 位置はクリップビューの制約(`constrainBoundsRect`。見出しの上の余白を含む)に通してから動かす。
+    func restoreScrollOrigin(_ origin: CGPoint, remainingAttempts: Int = 20) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.documentView != nil else { return }
+            // 今の大きさで中身を並べ終えてから測る(アイコン表示は幅で段数が変わる。古い幅の高さで測ると、並べ直したあとに
+            // 位置がずれる)。
+            self.layoutSubtreeIfNeeded()
+            let clip = self.contentView
+            let target = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+            let reaches = clip.bounds.height > 0 && abs(target.y - origin.y) < 0.5 && abs(target.x - origin.x) < 0.5
+            if !reaches, remainingAttempts > 0 {
+                self.restoreScrollOrigin(origin, remainingAttempts: remainingAttempts - 1)
+                return
+            }
+            guard clip.bounds.height > 0 else { return }
+            clip.scroll(to: target)
+            self.reflectScrolledClipView(clip)
+        }
+    }
+}
