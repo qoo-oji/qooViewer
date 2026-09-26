@@ -31,8 +31,8 @@ struct MouseBindingSettingsView: View {
         .shiftOnePageLeft, .shiftOnePageRight,
         .firstPage, .lastPage,
         .spatialEndRight, .spatialEndLeft,
-        // 本の移動。ウェルカム画面へ戻る(本を閉じてウインドウは残す)もここに続ける。
-        .previousBook, .nextBook, .returnToWelcome,
+        // 本の移動。
+        .previousBook, .nextBook,
         // 表示。cooViewerがホイールクリックにルーペを割り当てているため、拡大鏡を先頭に置く。
         .toggleLoupe, .showThumbnailGrid,
         .showActualSizeLeft, .showActualSizeRight,
@@ -41,7 +41,10 @@ struct MouseBindingSettingsView: View {
         // 取り消せない操作なので、ジェスチャーの誤爆で読んでいた本ごと消えることが
         // 無いよう、使いたい人が自分で割り当てる形にしてある。
         // キー設定には出さない(⌘W・⌘Qと重なるため。ViewerAction.isMouseOnly参照)。
-        .closeTab, .closeWindow, .quitApplication,
+        // 「ホームへ戻る」(本だけ閉じてウインドウは残す)はこの群の先頭に置く(2026-09-26、ユーザーの指示)。
+        // 右クリックメニューの末尾・「最後のページで」と同じ「ホームへ戻る → タブ → ウインドウ」の並び。
+        // キーボードの画面では、閉じる群が無いので「本の移動」に置いたまま。
+        .returnToWelcome, .closeTab, .closeWindow, .quitApplication,
     ]
 
     /// この画面が扱うのは、表示モードに依存しない基本の割り当てだけ。
