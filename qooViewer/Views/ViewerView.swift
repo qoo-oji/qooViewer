@@ -156,6 +156,9 @@ struct ViewerView: View {
     private var hostWindow: NSWindow? { hostWindowBox.window }
     /// 現在フルスクリーン表示中かどうか。
     @State private var isFullScreen = false
+    /// このウインドウに複数のタブがあるか。右クリックの「タブを閉じる」を、タブが1枚だけのときに
+    /// 淡色にするため(WindowTabGroupObserver参照)。
+    @StateObject private var tabGroupObserver = WindowTabGroupObserver()
     /// 自動隠し中のツールバーを、マウスが画面端に近いために一時的に表示しているかどうか。
     /// フルスクリーン中、またはウインドウ表示でもhideToolbarがONのときに使われる
     /// (自動隠しが有効でないときは常にtrue相当として扱う。bodyの表示条件参照)。
@@ -323,7 +326,7 @@ struct ViewerView: View {
         // メニューバーのメニューが開いている間に境界動作が届いた場合(スライドショーは
         // メニューを開いたままでも進み続けるため、末尾に達すればここが呼ばれる)は、閉じる
         // まで保留する。「次の本へ」はcurrentBookの変更(=ウインドウタイトルの変更→開いて
-        // いる最中のウインドウメニューの作り直し)、「本を閉じる」「ウェルカム画面へ戻る」は
+        // いる最中のウインドウメニューの作り直し)、「タブを閉じる」「ウインドウを閉じる」「ホームへ戻る」は
         // ウインドウ/タブそのものやFocusedValueの変化を伴い、いずれも開いている最中の
         // メニューの再構築を引き起こすため(MenuBarMenuGateの型コメント参照)。
         // キーはウインドウ(viewModel)ごとに分ける ―― 複数ウインドウのスライドショーが
@@ -339,14 +342,18 @@ struct ViewerView: View {
                     } else {
                         appState.openSibling(before: viewModel.book.sourceURL, landsOnLastPage: landsOnEdge)
                     }
-                case .closeBook:
-                    // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
+                case .closeTab:
+                    // 「タブを閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
                     // 実体はperform(_:)にあり、ホストウインドウ(@State)を実行時に読む必要があるため、
                     // ここで直接呼ばずappStateに登録済みの橋渡しを経由する ―― このクロージャが
                     // ViewerView自身を強くキャプチャしてしまうのを避けるため(上のコメント参照)。
                     appState.performViewerAction?(.closeTab)
+                case .closeWindow:
+                    // 「ウインドウを閉じる」はViewerAction.closeWindowと同じ経路(タブもすべて。複数タブの確認は
+                    // 環境設定に従う)。橋渡し経由にする理由は上の「タブを閉じる」と同じ。
+                    appState.performViewerAction?(.closeWindow)
                 case .returnToWelcome:
-                    // 「ウェルカム画面へ戻る」も、上の「本を閉じる」と同じく橋渡し経由で
+                    // 「ホームへ戻る」も、上の2つと同じく橋渡し経由で
                     // perform(_:)へ渡す ―― 実体(returnToWelcome())をここで直接呼ぶと、
                     // このクロージャがViewerView自身のコピーをキャプチャして循環参照が戻って
                     // しまうため(上のコメント参照)。
@@ -879,6 +886,7 @@ struct ViewerView: View {
             NotificationCenter.default.removeObserver(observer)
         }
         windowObservers = []
+        tabGroupObserver.detach()
     }
 
     /// handleOnAppearでappStateへ登録した橋渡し(メニューバー・サイドパネル・編集ウインドウ
@@ -1131,7 +1139,7 @@ struct ViewerView: View {
 
     /// 「書き出したあとの動作」の実行。
     ///
-    /// 移動系の3つ(次の本・本を閉じる・ウェルカム画面へ戻る)は、環境設定「閲覧中の動作」の
+    /// 移動系(次の本・タブを閉じる・ウインドウを閉じる・ホームへ戻る)は、環境設定「閲覧中の動作」の
     /// 「最後のページで」がまったく同じことをしている。**同じ動作を2通りに実装しない**ため、
     /// ViewerViewModelがそちら向けに用意している依頼の口(onPageBoundaryRequest経由で
     /// ViewerViewが受け取る処理)をそのまま使う(PageBoundaryRequest参照)。
@@ -1157,11 +1165,12 @@ struct ViewerView: View {
             appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true)
         case .nextBook:
             appState.openSibling(after: viewModel.book.sourceURL)
-        case .closeBook:
-            // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
-            perform(.closeTab)
         case .returnToWelcome:
             returnToWelcome()
+        case .closeTab:
+            perform(.closeTab)
+        case .closeWindow:
+            perform(.closeWindow)
         }
     }
 
@@ -2453,16 +2462,29 @@ struct ViewerView: View {
         Divider()
 
         // ユーザー要望: 画像の右クリックからも本を閉じられるようにする(メニューのいちばん下)。
-        // 行き先はウェルカム画面 ―― ウインドウ/タブは残したまま本だけを閉じる
-        // ViewerAction.returnToWelcomeをそのまま呼ぶ(サイドパネル左端の本棚ボタン・
-        // 最終ページの動作・書き出し後の動作と同じ着地点。実体はreturnToWelcome())。
+        // 「ホームへ戻る」はウインドウ/タブを残したまま本だけを閉じる ViewerAction.returnToWelcome を
+        // そのまま呼ぶ(ツールバー左端・サイドパネルのボタン、最終ページの動作・書き出し後の動作と同じ着地点。
+        // 実体はreturnToWelcome())。
         //
-        // 文言は環境設定の「本を閉じる」(PageBoundaryBehavior/BookExportCompletionBehaviorの
-        // .closeBook = タブごと閉じる)と同じ「Close Book」になるが、ここは**この項目の
-        // 文言と動作を明示したユーザーの指示**に従っている。
-        Button("Close Book") {
+        // 2026-09-26(ユーザーの指示): 以前はこの1項目だけで、表示は「本を閉じる」だった。何が起きるか
+        // 分かりづらいので「ホームへ戻る」へ改め、閉じる操作をキー割り当て(ViewerAction)と同じ名前・同じ
+        // 動作の「タブを閉じる」「ウインドウを閉じる」として並べた。環境設定「最後のページで」「書き出したあとの
+        // 動作」も同じ3つ。「タブを閉じる」はタブが1枚だけなら「ウインドウを閉じる」と同じことになるので淡色
+        // (消さない ―― 使えない項目は淡色で見せるのがこのアプリの決まり)。
+        Button("Return to Home") {
             relay.send { view in
                 view.perform(.returnToWelcome)
+            }
+        }
+        Button("Close Tab") {
+            relay.send { view in
+                view.perform(.closeTab)
+            }
+        }
+        .disabled(!tabGroupObserver.hasMultipleTabs)
+        Button("Close Window") {
+            relay.send { view in
+                view.perform(.closeWindow)
             }
         }
     }
@@ -3642,6 +3664,7 @@ struct ViewerView: View {
         window.acceptsMouseMovedEvents = true
 
         isFullScreen = window.styleMask.contains(.fullScreen)
+        tabGroupObserver.attach(to: window)
         isToolbarAutoRevealed = true
         isProgressBarAutoRevealed = true
 
@@ -3686,9 +3709,11 @@ struct ViewerView: View {
         // (「本だけ閉じる」動作が優先されてしまう)、常にウインドウ自体を閉じてほしいという
         // 要望と食い違う。そのため、このボタンのtarget/actionだけを直接差し替えて、
         // windowShouldCloseを経由しない専用のforceCloseWindow(_:)を呼ぶようにする。
+        // Cmd+W(File>閉じる=performClose)もこの差し替え先へ来るので、差し替え先の
+        // closeButtonClicked(_:)が「本物のクリックか」を見分け、Cmd+Wはタブ1枚だけにする。
         if let closeButton = window.standardWindowButton(.closeButton) {
             closeButton.target = bookClosingDelegate
-            closeButton.action = #selector(BookClosingWindowDelegate.forceCloseWindow(_:))
+            closeButton.action = #selector(BookClosingWindowDelegate.closeButtonClicked(_:))
         }
 
         let enter = NotificationCenter.default.addObserver(
@@ -4171,13 +4196,13 @@ struct ViewerView: View {
             }
         // タブを閉じる: このタブ(=このNSWindow)1枚だけを、確認なしで閉じる。
         //
-        // **NSWindow.performClose(_:)は使えない。** このアプリはウインドウの赤い閉じるボタンの
-        // target/actionをforceCloseWindow(_:)へ差し替えており(setUpWindowObservers参照)、
-        // performCloseは「その閉じるボタンを押したのと同じ」振る舞いになる ―― 実機で、
-        // タブを2枚開いた状態でこの操作を行うと**複数タブの確認ダイアログが出て、タブグループ
-        // ごと閉じられる**ことを確認した(performCloseがwindowShouldCloseだけを通る、という
-        // 前提は今のmacOSでは成り立っていない)。それでは上のcloseWindowと同じものになって
-        // しまうので、closeを直接呼ぶ。
+        // **NSWindow.performClose(_:)は使わない。** このアプリはウインドウの赤い閉じるボタンの
+        // target/actionを差し替えており(setUpWindowObservers参照)、performCloseは「その閉じるボタンを
+        // 押したのと同じ」振る舞いになる ―― 実機で、タブを2枚開いた状態でこの操作を行うと**複数タブの
+        // 確認ダイアログが出て、タブグループごと閉じられる**ことを確認した。2026-09-26 からは差し替え先
+        // (BookClosingWindowDelegate.closeButtonClicked)が本物のクリックかを見分けてタブ1枚にするが、
+        // マウスの割り当てから来たときの「いま処理中のイベント」はマウスのクリックなので、その見分けに
+        // 頼らず、closeを直接呼ぶ。
         //
         // 閉じる前にcloseBook()を呼ぶのは、開いていた本のセキュリティスコープ付きアクセスを
         // その場で手放すため(windowShouldCloseがやっているのと同じ後始末)。

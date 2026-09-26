@@ -61,12 +61,23 @@ enum LastPageBehavior: String, CaseIterable, Identifiable, Codable, Hashable, Pa
     case nextBookFirstPage
     /// 次の本を開く(その本の続きから。どこから始まるかは環境設定「開始ページ」に従う)
     case nextBook
-    /// 本を閉じる。ViewerAction.closeTabと同じ経路で、このタブ1枚だけを確認なしで閉じる
-    /// (タブが1枚だけならウインドウごと閉じる)。ウインドウを残したい場合は
-    /// `returnToWelcome`のほう。
-    case closeBook
-    /// 本だけ閉じて、同じウインドウにウェルカム画面を出す(AppState.closeBook())
+    /// 「ホームへ戻る」。本だけ閉じて、同じウインドウにホームを出す(AppState.closeBook())。
+    /// ツールバー左端のボタン・画像の右クリックの「ホームへ戻る」と同じ動作(ViewerAction.returnToWelcome)。
+    ///
+    /// 経緯(2026-09-26、ユーザーの指示): それまで下の`closeTab`を「本を閉じる」と呼んでいたが、画像の
+    /// 右クリックの「本を閉じる」(=ホームへ戻る)と同じ語で動作が違っていた。「本を閉じる」は何が起きるか
+    /// 分かりづらいのでどこでも使わず「ホームへ戻る」に統一し、閉じる操作はキー割り当て(ViewerAction)と
+    /// 同じ「タブを閉じる」「ウインドウを閉じる」の2つに分けて、名前と動作を一致させた。
     case returnToWelcome
+    /// 「タブを閉じる」。ViewerAction.closeTabと同じ経路で、このタブ1枚だけを確認なしで閉じる
+    /// (タブが1枚だけならウインドウごと閉じる)。
+    ///
+    /// rawValueが"closeBook"なのは、この動作が「本を閉じる」と呼ばれていた頃の保存値(UserDefaults・
+    /// 保存データのJSON)を、**動作を変えずに**そのまま読むため(名前が変わっただけで、選んだ動作は同じ)。
+    case closeTab = "closeBook"
+    /// 「ウインドウを閉じる」。ViewerAction.closeWindowと同じ経路で、同じウインドウのタブもすべて閉じる
+    /// (赤い閉じるボタンと同じ。複数タブなら環境設定に従って確認ダイアログが出る)。
+    case closeWindow
     /// 何もしない(最後のページで止まる)
     case none
     /// そのつどシートで尋ねる
@@ -82,8 +93,9 @@ enum LastPageBehavior: String, CaseIterable, Identifiable, Codable, Hashable, Pa
         case .loop: return "Loop"
         case .nextBookFirstPage: return "Go to Next Book's First Page"
         case .nextBook: return "Next Book"
-        case .closeBook: return "Close Book"
         case .returnToWelcome: return "Return to Home"
+        case .closeTab: return "Close Tab"
+        case .closeWindow: return "Close Window"
         case .none: return "Do Nothing"
         case .ask: return "Ask Each Time"
         }
@@ -99,10 +111,12 @@ enum PageBoundaryRequest: Equatable {
     /// - Parameter landsOnEdge: trueなら、読書位置の記憶や環境設定「開始ページ」より優先して
     ///   「次の本の最初のページ」「前の本の最後のページ」へ着地させる(AppState.PendingInitialEdge参照)。
     case openSiblingBook(forward: Bool, landsOnEdge: Bool)
-    /// 本を閉じる(LastPageBehavior.closeBook参照)
-    case closeBook
-    /// 本だけ閉じてウェルカム画面へ戻る(LastPageBehavior.returnToWelcome参照)
+    /// 本だけ閉じてホームへ戻る(LastPageBehavior.returnToWelcome参照)
     case returnToWelcome
+    /// このタブを閉じる(LastPageBehavior.closeTab参照)
+    case closeTab
+    /// このウインドウをタブごと閉じる(LastPageBehavior.closeWindow参照)
+    case closeWindow
 }
 
 /// 本を開いた直後に、保存された読書位置や環境設定「開始ページ」より優先して着地させる端。

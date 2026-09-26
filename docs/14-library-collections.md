@@ -1047,10 +1047,14 @@ StackNest では画面の上にある絞り込み(フィルタのポップオー
 注意点は [09](09-ui-and-windows.md#キーkeybindingstore--remappablekey--vieweraction)。
 
 画像の右クリックメニュー(`ViewerView.contextMenuContent`)のいちばん下の項目も、同じ
-`ViewerAction.returnToWelcome` を呼ぶ。**表示は「本を閉じる」**(ユーザーの指示)で、環境設定の
-最後のページ/書き出し後の動作にある同名の選択肢(`PageBoundaryBehavior.closeBook` /
-`BookExportCompletionBehavior.closeBook` = `.closeTab` = タブごと閉じる)とは**動作が違う**点に注意。
-文言を触るときは両方を見比べること。
+`ViewerAction.returnToWelcome` を呼ぶ。表示は「ホームへ戻る」で、その下に「タブを閉じる」(`.closeTab`。タブが1枚だけの
+ときは淡色 ―― `WindowTabGroupObserver` が `NSWindowTabGroup.windows` の KVO で見張る)と「ウインドウを閉じる」
+(`.closeWindow`)が並ぶ。以前はユーザーの指示で「本を閉じる」だったが、
+環境設定の最後のページ/書き出し後の動作にある「本を閉じる」(= タブごと閉じる)と同じ語で動作が違い、語自体も
+何が起きるか分かりづらかったため、2026-09-26 に「本を閉じる」という語をやめて「ホームへ戻る」に統一した
+(ユーザーの指示)。同時に、その2つの設定の閉じる選択肢はキー割り当てと同じ「タブを閉じる」(`.closeTab`、
+保存値は旧名の `"closeBook"` のまま ―― 以前「本を閉じる」を選んでいた人の動作は変わらない)と
+「ウインドウを閉じる」(`.closeWindow`、新設)に分けた。名前と動作は `ViewerAction` の同名の操作と一致させる。
 
 ## テスト
 

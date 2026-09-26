@@ -747,23 +747,6 @@
         }
       }
     },
-    "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「本を閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ホームへ戻る」はウインドウを残します。"
-          }
-        }
-      }
-    },
     "“Her Hypnosis Revenge” joins the run of “Her Hypnosis 2, 3, 4”. It acts only where the script changes and what follows is not hiragana — hiragana carries on the same word — and only to join a run that volumes already built, never to start one" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -777,6 +760,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「彼女催眠2・3・4」の並びに「彼女催眠リベンジ」を入れます。効くのは文字の種類が変わり、続きがひらがなでないとき(ひらがなが続くのは語の途中)で、しかも巻でまとまった組へ入れるときだけです。新しい組を作るのには使いません。"
+          }
+        }
+      }
+    },
+    "“Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ホームへ戻る」は本だけを閉じて、同じウインドウにホームを表示します。「タブを閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ウインドウを閉じる」はウインドウをタブごと閉じます。"
           }
         }
       }

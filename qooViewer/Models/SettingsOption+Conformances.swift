@@ -135,8 +135,9 @@ extension LastPageBehavior: SettingsOption {
         case .loop: return "Loop"
         case .nextBookFirstPage: return "Next Book (First Page)"
         case .nextBook: return "Next Book"
-        case .closeBook: return "Close Book"
         case .returnToWelcome: return "Return to Home"
+        case .closeTab: return "Close Tab"
+        case .closeWindow: return "Close Window"
         case .none: return "Do Nothing"
         case .ask: return "Ask Each Time"
         }
@@ -209,8 +210,9 @@ extension BookExportCompletionBehavior: SettingsOption {
         case .none: return "Do Nothing"
         case .nextBookFirstPage: return "Next Book (First Page)"
         case .nextBook: return "Next Book"
-        case .closeBook: return "Close Book"
         case .returnToWelcome: return "Return to Home"
+        case .closeTab: return "Close Tab"
+        case .closeWindow: return "Close Window"
         case .ask: return "Ask Each Time"
         }
     }

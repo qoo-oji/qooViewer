@@ -179,7 +179,22 @@ struct AppPreferencesTests {
         let p = suite.makePreferences()
         // 新しいキーが無かった側だけ読み替えが効く。
         #expect(p.firstPageBehavior == .loop)
-        #expect(p.lastPageBehavior == .closeBook)
+        // "closeBook" は、2026-09-26 に「タブを閉じる」へ改名した動作の保存値(LastPageBehavior.closeTab参照)。
+        #expect(p.lastPageBehavior == .closeTab)
+    }
+
+    @Test("「本を閉じる」と呼んでいた頃の保存値は、名前が変わっても同じ動作(タブを閉じる)で読む")
+    func theOldCloseBookValueStillMeansCloseTab() {
+        let suite = PreferencesSuite()
+        suite.defaults.set("closeBook", forKey: "qooViewer.pref.lastPageBehavior")
+        suite.defaults.set("closeBook", forKey: "qooViewer.pref.bookExportCompletionBehavior")
+
+        let p = suite.makePreferences()
+        #expect(p.lastPageBehavior == .closeTab)
+        #expect(p.bookExportCompletionBehavior == .closeTab)
+        // 新設の「ウインドウを閉じる」は別の値で保存される(古い値と取り違えない)。
+        #expect(LastPageBehavior.closeWindow.rawValue == "closeWindow")
+        #expect(BookExportCompletionBehavior.closeWindow.rawValue == "closeWindow")
     }
 
     // MARK: - 読み方向の既定

@@ -1248,21 +1248,29 @@ struct QooViewerApp: App {
             }
 
             // 標準の「ウインドウ」(Window)メニューに「ウインドウを閉じる」を追加する。
-            // Cmd+W(File>閉じる)やタブバー自身の×ボタンは、AppKit上まったく同じ経路
-            // (NSWindow.performClose(_:) → windowShouldClose)で処理されるためプログラム的に
-            // 区別できない。そのため複数タブの確認ダイアログはそちらには出さず、赤い閉じるボタン
-            // (forceCloseWindow(_:)。BookClosingWindowDelegate参照)とこの「ウインドウを閉じる」
-            // メニュー項目だけに絞っている。この2つは自分たちで直接呼び出しているコードのため、
-            // 実行前に確実に確認を挟める。
+            // タブをすべて閉じ、複数タブの確認ダイアログを出すのは、赤い閉じるボタンとこの
+            // 「ウインドウを閉じる」メニュー項目だけ(forceCloseWindow(_:)。BookClosingWindowDelegate参照)。
+            // Cmd+W(File>閉じる)とタブバー自身の×ボタンは、macOSの標準どおりそのタブ1枚だけを確認なしで
+            // 閉じる(closeButtonClicked(_:)参照)。ショートカットはSafariと同じ⇧⌘W(2026-09-26、ユーザーの指示)。
             CommandGroup(before: .windowArrangement) {
-                Button("Close Window") {
+                Button("Close Window") { [preferences] in
                     guard let window = NSApp.keyWindow else { return }
                     if let delegate = window.delegate as? BookClosingWindowDelegate {
                         delegate.forceCloseWindow(nil)
                     } else {
-                        window.performClose(nil)
+                        // 本を一度も開いていないウインドウ(ホームだけのタブなど)には BookClosingWindowDelegate が
+                        // 付いていない。以前はここがperformClose(=タブ1枚)で、名前と動作が食い違っていた。
+                        // ここでも同じ確認のあとタブをすべて閉じる。各タブはperformCloseで、それぞれの
+                        // windowShouldCloseを通す(デリゲートの付いたタブはcloseButtonClicked → closeTab())。
+                        guard BookClosingWindowDelegate.confirmCloseIfMultipleTabs(
+                            for: window, preferences: preferences
+                        ) else { return }
+                        for tab in window.tabGroup?.windows ?? [window] {
+                            tab.performClose(nil)
+                        }
                     }
                 }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
                 Divider()
             }
 
@@ -2865,10 +2873,8 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Cmd+W(File>閉じる)・タブバー自身の×ボタンのどちらでも、この経路(performClose経由)
-    /// を通る。AppKitからはどちらがきっかけかを区別できないため、ここでは複数タブの確認は
-    /// 行わない(confirmCloseIfMultipleTabsのドキュメントコメント参照。確認したい場合は
-    /// 赤い閉じるボタンか「ウインドウを閉じる」メニューを使う)。
+    /// Cmd+W(File>閉じる。closeButtonClicked(_:)→closeTab()経由)・タブバー自身の×ボタンで
+    /// タブ1枚を閉じるときに通る。複数タブの確認は行わない(タブ1枚しか閉じないため)。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // 本が開いている場合は、ウインドウを閉じる前に読書状態(最後に表示していたページなど)
         // を保存しておく(closeBook()の副作用)。ウインドウ自体は常に閉じる(true)。
@@ -2878,9 +2884,57 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         return originalDelegate?.windowShouldClose?(sender) ?? true
     }
 
-    /// 赤い閉じるボタン、および「ウインドウを閉じる」メニュー項目(QooViewerApp.swiftの
-    /// CommandGroup(before: .windowArrangement)参照)専用のアクション。windowShouldCloseを
-    /// 経由せず、常にウインドウ自体を直接閉じる(複数タブの確認はここで行う)。
+    /// 赤い閉じるボタンの差し替え先のアクション(ViewerView.setUpWindowObservers参照)。
+    ///
+    /// **Cmd+W(File>閉じる)もここへ来る。** File>閉じるは`performClose:`で、NSWindow.performClose(_:)は
+    /// 「閉じるボタンを押したのと同じ」振る舞い(閉じるボタンのperformClick)なので、差し替えた
+    /// actionがそのまま呼ばれる(2026-09-26、AppKit単体の実測。senderはどちらも閉じるボタン)。
+    /// それまではCmd+Wでもタブがすべて閉じ、複数タブの確認が出ていた(コメント上は「Cmd+Wは
+    /// windowShouldCloseを通ってタブ1枚だけ」のつもりだった)。macOSの標準どおり Cmd+W は
+    /// タブ1枚だけにする(ユーザーの指示)ため、ここで見分ける:
+    /// - いま処理中のイベントが、このウインドウの閉じるボタンの上での左クリック → 赤いボタン →
+    ///   `forceCloseWindow`(タブすべて、確認あり)
+    /// - それ以外(Cmd+Wのキー入力、メニューのクリック=イベントはメニューのウインドウのもの、
+    ///   イベント無しのperformClose)→ `closeTab()`(このタブだけ、確認なし)
+    ///
+    /// アクセシビリティ操作(AXPress)で閉じるボタンを押した場合も、クリックのイベントが無いので
+    /// タブ1枚だけになる。
+    @objc func closeButtonClicked(_ sender: Any?) {
+        guard let window else { return }
+        if Self.isMouseClick(onCloseButtonOf: window, event: NSApp.currentEvent) {
+            forceCloseWindow(sender)
+        } else {
+            closeTab()
+        }
+    }
+
+    /// `event`が`window`の閉じるボタンの上での左クリックか。
+    static func isMouseClick(onCloseButtonOf window: NSWindow, event: NSEvent?) -> Bool {
+        guard let event, event.type == .leftMouseDown || event.type == .leftMouseUp,
+              event.window === window,
+              let closeButton = window.standardWindowButton(.closeButton)
+        else { return false }
+        return closeButton.bounds.contains(closeButton.convert(event.locationInWindow, from: nil))
+    }
+
+    /// このタブ(=このNSWindow)1枚だけを確認なしで閉じる。performClose(_:)と同じく
+    /// windowShouldCloseを通してから(本を閉じる後始末もそこ)。performClose自体は閉じるボタンの
+    /// 差し替え先(=ここ)へ戻ってくるので使えない。
+    func closeTab() {
+        guard let window else { return }
+        guard window.attachedSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        if windowShouldClose(window) {
+            window.close()
+        }
+    }
+
+    /// 赤い閉じるボタン(closeButtonClicked(_:)経由)、および「ウインドウを閉じる」メニュー項目
+    /// (QooViewerApp.swiftのCommandGroup(before: .windowArrangement)参照)・ViewerAction.closeWindow
+    /// 専用のアクション。windowShouldCloseを経由せず、常にウインドウ自体を直接閉じる
+    /// (複数タブの確認はここで行う)。
     ///
     /// 確認ダイアログの文言(「複数のタブが開いていますが、本当に閉じてもよろしいですか？」)は
     /// ウインドウ全体を閉じることを前提にしているため、window自身だけでなく、同じタブグループに
@@ -2890,7 +2944,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     /// おそれがあるのを避けるため。
     @objc func forceCloseWindow(_ sender: Any?) {
         guard let window else { return }
-        guard confirmCloseIfMultipleTabs(for: window) else { return }
+        guard Self.confirmCloseIfMultipleTabs(for: window, preferences: preferences) else { return }
         let windowsToClose = window.tabGroup?.windows ?? [window]
         for windowToClose in windowsToClose {
             // 本を閉じてから(windowShouldCloseと同じ)。close()はwindowShouldCloseを通らないので、
@@ -2911,12 +2965,9 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     /// 確認する」がONの場合に限り、本当に閉じてよいか確認するダイアログを表示する。設定がOFF、
     /// またはタブが1つ以下のときは確認なしでtrue(閉じてよい)を返す。
     ///
-    /// Cmd+Wとタブバー自身の×ボタンは、AppKit上まったく同じ経路(NSWindow.performClose(_:)→
-    /// windowShouldClose)で処理されるため、プログラム的に区別する確実な方法がない。そのため
-    /// 確認ダイアログは、自分たちで直接呼び出しているforceCloseWindow(_:)の経路(赤い閉じる
-    /// ボタン・「ウインドウを閉じる」メニュー)だけに絞っている。Cmd+Wやタブの×で複数タブの
-    /// ウインドウを閉じても、この確認は出ない(意図的な仕様)。
-    private func confirmCloseIfMultipleTabs(for window: NSWindow) -> Bool {
+    /// Cmd+Wとタブバー自身の×ボタンはタブ1枚しか閉じないので、この確認は出ない
+    /// (closeButtonClicked(_:)参照)。
+    static func confirmCloseIfMultipleTabs(for window: NSWindow, preferences: AppPreferences?) -> Bool {
         guard preferences?.confirmBeforeClosingMultipleTabsWindow ?? true else { return true }
         let tabCount = window.tabGroup?.windows.count ?? 1
         guard tabCount > 1 else { return true }

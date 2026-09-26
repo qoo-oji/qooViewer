@@ -69,9 +69,16 @@ ViewerView(本1冊)
   **新しくボタン・メニュー項目・Toggle を足すときもこの形にすること**(直接書いても動くので、
   漏れは実測でしか分からない ―― 測り方は [12](12-verification-and-debugging.md#閉じたウインドウが解放されるかの測り方))。
 - **ウインドウを閉じる2つの経路は、どちらも `AppState.closeBook()` を先に通す**(2026-09-13)。
-  Cmd+W とタブの×は `windowShouldClose`、赤い閉じるボタンと「ウインドウを閉じる」は
-  `BookClosingWindowDelegate.forceCloseWindow`(`close()` を直に呼ぶので `windowShouldClose` を
-  通らない)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
+  Cmd+W とタブの×は `windowShouldClose`(タブ1枚)、赤い閉じるボタンと「ウインドウを閉じる」は
+  `BookClosingWindowDelegate.forceCloseWindow`(タブすべて。`close()` を直に呼ぶので `windowShouldClose` を
+  通らない)。**Cmd+W(File ▸ 閉じる = `performClose:`)は、閉じるボタンの差し替え先へ来る**: `performClose` は
+  「閉じるボタンを押したのと同じ」なので、差し替えた action が sender = 閉じるボタンで呼ばれる(AppKit 単体で
+  実測、2026-09-26)。それまで Cmd+W でもタブがすべて閉じ、確認が出ていた。今は差し替え先の
+  `closeButtonClicked` が `NSApp.currentEvent` を見て、このウインドウの閉じるボタン上の左クリックなら
+  `forceCloseWindow`、それ以外(キー入力・メニューのクリック・イベント無し)なら `closeTab()`(macOS 標準どおり
+  タブ1枚、確認なし)に分ける。「ウインドウを閉じる」メニューには ⇧⌘W(Safari と同じ)。本を一度も開いていないウインドウには
+  `BookClosingWindowDelegate` が付かないので、そのメニューは同じ確認(`confirmCloseIfMultipleTabs`、static)の後で
+  タブグループの全ウインドウへ `performClose` を送る(以前は `performClose` 1回 = タブ1枚だった)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
   `AppState.deinit` 任せで、その deinit は SwiftUI の `focusedValues` に掴まれて来ない
   (→ [13](13-history-and-known-limitations.md#既知の制限))ため、赤いボタンで閉じるたびに
   アクセスが開いたままになっていた。

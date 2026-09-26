@@ -68,11 +68,15 @@ enum BookExportCompletionBehavior: String, CaseIterable, Identifiable, Codable, 
     case nextBookFirstPage
     /// 次の本を開く(その本の続きから。どこから始まるかは環境設定「開始ページ」に従う)。
     case nextBook
-    /// 本を閉じる。`ViewerAction.closeTab`と同じ経路で、このタブ1枚だけを確認なしで閉じる
-    /// (タブが1枚だけならウインドウごと)。ウインドウを残したい場合は`returnToWelcome`のほう。
-    case closeBook
-    /// 本だけ閉じて、同じウインドウにウェルカム画面を出す(`AppState.closeBook()`)。
+    /// 「ホームへ戻る」。本だけ閉じて、同じウインドウにホームを出す(`AppState.closeBook()`)。
+    /// ツールバー・画像の右クリックの「ホームへ戻る」と同じ動作。名前の経緯は`LastPageBehavior.returnToWelcome`参照。
     case returnToWelcome
+    /// 「タブを閉じる」。`ViewerAction.closeTab`と同じ経路で、このタブ1枚だけを確認なしで閉じる
+    /// (タブが1枚だけならウインドウごと)。rawValueが"closeBook"なのは、「本を閉じる」と呼んでいた頃の
+    /// 保存値を動作を変えずに読むため(`LastPageBehavior.closeTab`と同じ)。
+    case closeTab = "closeBook"
+    /// 「ウインドウを閉じる」。`ViewerAction.closeWindow`と同じ経路で、同じウインドウのタブもすべて閉じる。
+    case closeWindow
     /// そのつどシートで尋ねる。
     case ask
 
@@ -88,8 +92,9 @@ enum BookExportCompletionBehavior: String, CaseIterable, Identifiable, Codable, 
         case .none: "Do Nothing"
         case .nextBookFirstPage: "Go to Next Book's First Page"
         case .nextBook: "Next Book"
-        case .closeBook: "Close Book"
         case .returnToWelcome: "Return to Home"
+        case .closeTab: "Close Tab"
+        case .closeWindow: "Close Window"
         case .ask: "Ask Each Time"
         }
     }

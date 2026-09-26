@@ -2308,10 +2308,12 @@ final class ViewerViewModel: ObservableObject {
             onPageBoundaryRequest?(.openSiblingBook(forward: true, landsOnEdge: true))
         case .nextBook:
             onPageBoundaryRequest?(.openSiblingBook(forward: true, landsOnEdge: false))
-        case .closeBook:
-            onPageBoundaryRequest?(.closeBook)
         case .returnToWelcome:
             onPageBoundaryRequest?(.returnToWelcome)
+        case .closeTab:
+            onPageBoundaryRequest?(.closeTab)
+        case .closeWindow:
+            onPageBoundaryRequest?(.closeWindow)
         // .askはシートの選択肢には出さない(LastPageBehavior.promptChoices参照)ので、
         // ここへ来るのは環境設定が.askのまま渡された場合だけ。無限にシートを出し直しても
         // 仕方がないので何もしない。
