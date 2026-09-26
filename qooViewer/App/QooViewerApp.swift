@@ -208,10 +208,14 @@ struct QooViewerApp: App {
                 If you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help).
                 """, language: AppLanguage.currentLocale
             )
-            alert.addButton(withTitle: String(localized: "Delete and Continue", language: AppLanguage.currentLocale))
+            // 既定のボタン(Return)は**削除せずに終了**(2026-09-26)。以前は「削除して続ける」が1番目=既定で、
+            // Return 1回で保存データがすべて消えた。取り返しのつかない操作を既定にしない(HIG。下の
+            // confirmOpeningNewerStoreIfNeededも既定は終了)。削除のボタンは赤く示す。
             alert.addButton(withTitle: String(localized: "Quit Without Deleting", language: AppLanguage.currentLocale))
+            let deleteButton = alert.addButton(withTitle: String(localized: "Delete and Continue", language: AppLanguage.currentLocale))
+            deleteButton.hasDestructiveAction = true
             let response = alert.runModal()
-            guard response == .alertFirstButtonReturn else {
+            guard response == .alertSecondButtonReturn else {
                 // この時点ではSwiftUIのRunLoop/NSApplicationのイベントループがまだ本格的に
                 // 始まっていないため、NSApplication.terminate(_:)に頼らずexit(0)で確実に
                 // その場でプロセスを終了させる。
@@ -763,11 +767,17 @@ struct QooViewerApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 // グループ1: 通常の「開く」(単一ウインドウ内で、選んだファイル/フォルダに置き換える)
+                // 本のウインドウが手前に無いとき(ウインドウが1枚も無い・環境設定などが手前)も押せる
+                // (2026-09-26。Preview・TextEditと同じ)。以前は淡色で、ウインドウをすべて閉じた後に⌘Oが
+                // 効かなかった。そのときは「新規ウインドウで開く…」と同じく新しいウインドウで開く。
                 Button("Open…") {
-                    focusedAppState?.openWithPanel()
+                    if let focusedAppState {
+                        focusedAppState.openWithPanel()
+                    } else {
+                        openPickedURLInNewWindow(asTab: false)
+                    }
                 }
                 .keyboardShortcut("o", modifiers: .command)
-                .disabled(focusedAppState == nil)
 
                 Divider()
 
@@ -2607,13 +2617,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 閉じたら終了」がOFFの状態でウインドウをすべて閉じても、NSApp.windowsには
         // macOSのテキスト入力UIが内部で作る不可視のウインドウ(`TUINSWindow`、タイトル無し)が
         // 1つ残っていることが実機で確認された。そのためisEmptyは決してtrueにならず、
-        // Dockアイコンをクリックしても何も開かなかった(既定では同設定がONなのでウインドウを
-        // すべて閉じた時点でアプリ自体が終了し、気づきにくかった)。
+        // Dockアイコンをクリックしても何も開かなかった(当時は同設定の既定がONで、ウインドウを
+        // すべて閉じた時点でアプリ自体が終了し、気づきにくかった。今の既定はOFF)。
         // AppKitから渡されるhasVisibleWindowsも使わず(再アクティブ化のタイミングによって、
         // こちらのウインドウが存在していてもfalseになることがあった。上のコメント参照)、
-        // 「可視または最小化されたウインドウが1つも無い」ことを自前で確認する。最小化された
-        // ウインドウを数に入れるのは、その上に新しいウインドウを重ねて開いてしまわないため。
-        !NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
+        // 見えているウインドウ・最小化されたウインドウの有無を自前で確認する。
+        if NSApp.windows.contains(where: { $0.isVisible }) { return false }
+        // 見えているウインドウが無く、最小化したものだけがある → macOSの標準どおり1枚をDockから戻す
+        // (2026-09-26)。以前はここもfalseを返すだけで、最小化したウインドウは戻らず何も起きなかった
+        // (新しいウインドウを重ねないための判定が、AppKitの既定の復帰まで止めていた)。trueを返して
+        // AppKit/SwiftUIに任せると新しいウインドウを開く恐れがあるので、戻すのは自分で行う。
+        if let minimized = NSApp.windows.first(where: { $0.isMiniaturized && $0.canBecomeMain }) {
+            minimized.deminiaturize(nil)
+            return false
+        }
+        return true
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -2763,6 +2781,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// OFFのとき(既定)は、macOSの標準的な挙動どおりウインドウを閉じてもDockに常駐したままになる。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         preferences?.quitWhenLastWindowClosed ?? false
+    }
+
+    /// 走っている作業(ファイルブラウザの操作・書き出し・保存データの読み込み。`RunningWorkRegistry`)があれば、終了する前に
+    /// 尋ねる(2026-09-26。macOSの標準)。以前は⌘Qで確認なしに終わり、コピー・圧縮・書き出しが途中で切れた。
+    ///
+    /// 既定のボタン(Return)とEscは**終了しない**(取り返しのつかない側を既定にしない。起動時の保存データの警告と同じ)。
+    /// ウインドウが1枚も無いこともある(最後のウインドウを閉じて終了する設定)ので、シートではなくアプリモーダルで出す。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard RunningWorkRegistry.shared.hasRunningWork else { return .terminateNow }
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Quit While Work Is in Progress?", language: locale)
+        alert.informativeText = String(
+            localized: "qooViewer is still copying, moving, compressing, exporting, or importing. If you quit now, it stops partway.",
+            language: locale
+        )
+        alert.addButton(withTitle: String(localized: "Cancel", language: locale))
+        let quitButton = alert.addButton(withTitle: String(localized: "Quit", language: locale))
+        quitButton.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 
     /// 正常終了時に、この起動が作った一時ファイル(入れ子の書庫の展開物)を消す。

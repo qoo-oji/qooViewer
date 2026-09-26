@@ -50,6 +50,8 @@ final class FileBrowserOperations: ObservableObject {
     var activityRevealDelay: Duration = .milliseconds(400)
     /// ビューアで開いている本のパス(`MangaBook.pathsInUse`。全ウインドウ・全タブのぶん)。ペインが繋ぐ。
     var openBookPaths: @MainActor () -> [String] = { [] }
+    /// 走っている・並んでいる操作を数える先(⌘Q の確認。`RunningWorkRegistry`)。テストでは既定が nil。
+    var runningWork: RunningWorkRegistry? = .forCurrentProcess
 
     private var queueTail: Task<Void, Never>?
     private var activityCancellation: Cancellation?
@@ -691,12 +693,15 @@ final class FileBrowserOperations: ObservableObject {
         // 前の操作を待つか。待たないなら受け付けた時点で始まっている(Task へ移るのは実装の都合)。
         let waitsForPrevious = pendingWorkCount > 0
         pendingWorkCount += 1
+        // 並んでいる間も数える(⌘Q で、並んでいた操作も黙って捨てられないように)。
+        let workToken = runningWork?.begin()
         let task = Task { @MainActor [self] in
             await previous?.value
             // 並んでいる間に読み取り専用を ON にした(ファイルブラウザ機能を OFF にした)なら始めない(型コメント「読み取り専用モード」)。
             // ここに並ぶのはどれもファイルを変える操作。
             if !waitsForPrevious || !isReadOnly { await work() }
             pendingWorkCount -= 1
+            if let workToken { runningWork?.end(workToken) }
             _ = (self, state)
         }
         queueTail = task

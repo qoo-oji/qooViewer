@@ -749,6 +749,9 @@ class BookExportViewModel: ObservableObject {
     /// 書き出しの本体(進捗・キャンセル・同名確認・失敗の集約)。一覧から選んだ複数冊も、
     /// いま開いている1冊も、ここを通る。
     private func runExport(targets: [Row], destinationFolder: URL) async {
+        // ⌘Q の確認のために数える(RunningWorkRegistry)。
+        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
+        defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
         isExporting = true
         isCancelled = false
         failures = []

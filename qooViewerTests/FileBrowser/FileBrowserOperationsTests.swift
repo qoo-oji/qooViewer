@@ -839,6 +839,22 @@ struct FileBrowserOperationsTests {
         #expect(fixture.exists(fixture.root.appendingPathComponent("\(untitled) 2")))
     }
 
+    @Test("走っている・並んでいる操作は終了の確認のために数えられ、終われば数から外れる")
+    func operationsAreCountedForTheQuitConfirmation() async throws {
+        let fixture = try Fixture("fbops-running-work")
+        await fixture.showRoot()
+        // 共有の RunningWorkRegistry には触れない(テストでは既定が nil)。自分の数え先を渡す。
+        #expect(fixture.state.operations.runningWork == nil)
+        let registry = RunningWorkRegistry()
+        fixture.state.operations.runningWork = registry
+
+        fixture.state.operations.newFolder(in: fixture.root)
+        fixture.state.operations.newFolder(in: fixture.root)
+        #expect(registry.hasRunningWork)
+        await fixture.finish()
+        #expect(!registry.hasRunningWork)
+    }
+
     @Test("名前を変えると選んだまま、取り消すと元の名前。使えない名前は報告して何もしない")
     func renameAndUndo() async throws {
         let fixture = try Fixture("fbops-rename")

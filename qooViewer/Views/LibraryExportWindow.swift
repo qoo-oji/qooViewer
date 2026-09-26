@@ -228,7 +228,10 @@ struct LibraryExportWindow: View {
         isExporting = true
         resultMessage = nil
         skippedFilePaths = []
+        // ⌘Q の確認のために数える(RunningWorkRegistry)。
+        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
         Task {
+            defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
             let selection = LibraryImportExportService.ExportSelection(
                 includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
                 includeLayouts: includeLayouts, includeMetadata: includeMetadata,

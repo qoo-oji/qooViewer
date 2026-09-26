@@ -1732,7 +1732,11 @@ struct ViewerView: View {
                 set: { _ in }
             )
         ) {
-            Button("Keep Existing Settings") {
+            // 「そのまま使う」を取り消しの役(Esc)にする(2026-09-26)。以前は取り消しの役のボタンが無く、
+            // SwiftUIが自動で「キャンセル」を足していた(AppKit単体で実測)。それを押すとisPresentedへfalseが
+            // 来るが、上のBindingは捨てるので何も決まらず、Escでは閉じられなかった。そのまま使うは何も
+            // 失わない側なので、Escで選ばれてよい。破棄のほうはReturnの既定にしない(破壊的な操作のため)。
+            Button("Keep Existing Settings", role: .cancel) {
                 viewModel.resolveLayoutReplacement(applyExisting: true)
                 syncMenuCheckmarkState()
             }

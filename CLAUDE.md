@@ -478,6 +478,12 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
 - **CHANGELOG.md entries**: Keep a Changelog format, written in Japanese, and limited strictly to
   user-visible impact (what changed for someone using the app) — not implementation detail. Match the
   tone/granularity already in the file (short bullet per change, nested bullets for multi-part changes).
+- **User-started work that quitting would cut short is counted in `RunningWorkRegistry`** (2026-09-26): `applicationShouldTerminate`
+  asks before quitting while anything is counted (file-browser operations incl. queued ones, book / cover / saved-data export, saved-data
+  import); the default button and Esc keep the app running. New long user-started work calls `begin()`/`end(_:)`; tests never touch the
+  shared registry (`forCurrentProcess` is nil under tests). Destructive choices are never the default button, and a SwiftUI `.alert`
+  without a `role: .cancel` button gets an automatic no-op "Cancel" — give the safe choice that role (docs/09「その他の小さな約束」).
+  Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
 - **Private windows record nothing; their write items are dimmed, never removed** (user decision 2026-09-23 — an item
   disappears only when the feature it uses is switched off). What a private window must not write is listed on
   `AppState.isPrivateWindow` (canonical; docs/06「シークレットウインドウとその場限りの本」); the guard is `skipsPersistence`

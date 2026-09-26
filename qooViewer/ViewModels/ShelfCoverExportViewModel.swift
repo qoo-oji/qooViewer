@@ -101,7 +101,12 @@ final class ShelfCoverExportViewModel: ObservableObject {
         isExporting = true
         resultMessage = nil
         skippedBookIDs = []
-        defer { isExporting = false }
+        // ⌘Q の確認のために数える(RunningWorkRegistry)。
+        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
+        defer {
+            isExporting = false
+            if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) }
+        }
 
         let locale = preferences.effectiveLocale
         let outcome = await Task.detached {

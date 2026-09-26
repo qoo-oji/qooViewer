@@ -408,7 +408,10 @@ struct LibraryImportWindow: View {
     private func importButtonTapped() {
         guard let loadedFile else { return }
         isImporting = true
+        // ⌘Q の確認のために数える(RunningWorkRegistry。途中で切れると保存データが半分だけ書き換わる)。
+        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
         Task {
+            defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
             let policies = LibraryImportExportService.ImportPolicies(
                 favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
                 metadata: metadataPolicy, metadataRules: metadataRulesPolicy,

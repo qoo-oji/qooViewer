@@ -22001,6 +22001,16 @@
         }
       }
     },
+    "qooViewer is still copying, moving, compressing, exporting, or importing. If you quit now, it stops partway." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー・移動・圧縮・書き出し・読み込みがまだ終わっていません。いま終了すると途中で止まります。"
+          }
+        }
+      }
+    },
     "qooViewer isn't storing data for any book yet." : {
       "localizations" : {
         "en" : {
@@ -22136,6 +22146,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最後のウインドウを閉じたら終了"
+          }
+        }
+      }
+    },
+    "Quit While Work Is in Progress?" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業の途中で終了しますか?"
           }
         }
       }
