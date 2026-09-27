@@ -1465,7 +1465,7 @@ private struct SidePanelFavoriteRow: View {
         // (下のbookRowのコメント参照)。
         .sidePanelContextHighlight(rowID: "favoriteFolder:\(folder.id.uuidString)")
         .contextMenu {
-            Button("Rename") { onRename(.folder(folder)) }
+            Button("Rename…") { onRename(.folder(folder)) }
                 .disabled(!allowsEditing)
             Button("Delete", role: .destructive) { onDelete(.folder(folder)) }
                 .disabled(!allowsEditing)
@@ -1529,7 +1529,7 @@ private struct SidePanelFavoriteRow: View {
             Divider()
             // 編集系は最後にまとめ、取り消しの効かない削除をいちばん下に置く(macOSの作法)。
             // シークレットウインドウとその場限りの本では、DBへ書けないので無効になる。
-            Button("Rename") { onRename(.book(book)) }
+            Button("Rename…") { onRename(.book(book)) }
                 .disabled(!allowsEditing)
             Button("Remove from Favorites", role: .destructive) { onDelete(.book(book)) }
                 .disabled(!allowsEditing)
@@ -1645,7 +1645,7 @@ private struct SidePanelBookmarksSectionView: View {
             Button("Edit Bookmarks…") { onEdit() }
                 .disabled(!allowsEditing)
             Divider()
-            Button("Rename") { onRename(bookmark) }
+            Button("Rename…") { onRename(bookmark) }
                 .disabled(!allowsEditing)
             Button("Delete Bookmark", role: .destructive) { onDelete(bookmark) }
                 .disabled(!allowsEditing)
@@ -1741,7 +1741,8 @@ private struct SidePanelHistorySectionView: View {
         }
         .alert("Clear History?", isPresented: $isShowingClearConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            // 確定ボタンは題の動作と同じ語(2026-09-27、監査 37。英語では "Clear History?" に "Delete" だった。日本語は「履歴をすべて削除」)。
+            Button("Clear History", role: .destructive) {
                 recentFiles.removeAll()
             }
         } message: {

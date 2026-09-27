@@ -518,9 +518,35 @@ struct MetadataBookTable: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ notification: Notification) {
             let movement = notification.userInfo?["NSTextMovement"] as? Int
+            let edited = editing.map { (bookID: $0.bookID, column: $0.column) }
             finishEditing(keeping: true)
             // Return で入れたときは、表へ戻る(矢印で次の行へ行ける)。ほかを押して抜けたときは、押した先を邪魔しない。
             if movement == NSTextMovement.return.rawValue, let table { table.window?.makeFirstResponder(table) }
+            // Tab / ⇧Tab は、同じ本の次 / 前の書き換えられる欄へ(2026-09-27、監査 38。表計算・Finder の一覧と同じ。以前は Tab でも
+            // 書き換えを終えるだけだった)。並びは見えている列の並び(利用者が並べ替えた順)。入れた値の計算し直しで行が並び直す
+            // ことがあるので、本の id で行を引き直し、書き換えを終えた後の次の回で入る。
+            if let edited, movement == NSTextMovement.tab.rawValue || movement == NSTextMovement.backtab.rawValue {
+                let forward = movement == NSTextMovement.tab.rawValue
+                DispatchQueue.main.async { [weak self] in
+                    self?.moveEditing(from: edited.column, of: edited.bookID, forward: forward)
+                }
+            }
+        }
+
+        /// Tab / ⇧Tab の行き先へ書き換えを移す。書き換えられる欄が端まで無ければ表へ戻る。
+        private func moveEditing(from column: Column, of bookID: String, forward: Bool) {
+            guard let table, editing == nil, let row = index(of: bookID) else { return }
+            let visible = table.tableColumns.indices.filter { !table.tableColumns[$0].isHidden }
+            guard let current = visible.firstIndex(where: { Column(table.tableColumns[$0].identifier) == column }) else { return }
+            var position = current
+            while true {
+                position += forward ? 1 : -1
+                guard visible.indices.contains(position) else { break }
+                // 行き先の欄が横にはみ出していれば見える所まで送る(送らないと、見えない欄で書き換えが始まる。実機で確認)。
+                table.scrollColumnToVisible(visible[position])
+                if beginEditing(row: row, column: visible[position]) { return }
+            }
+            table.window?.makeFirstResponder(table)
         }
 
         /// Esc は、元の値へ戻して抜ける。

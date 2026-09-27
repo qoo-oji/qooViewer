@@ -560,6 +560,11 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   隠している列は `FileBrowserState.hiddenListColumns`(`Column.rawValue` の集合)。**保存が無いときは作成日だけを隠す**
   (`defaultHiddenListColumns`、ユーザーの判断)。空の配列も保存するので「全部出した」を「保存なし」と取り違えない。
   `autosaveName` も Hidden を保存するが、表示は状態の側に合わせる(`applyHiddenColumns`)。
+- **名前の列は見えている幅に合わせ直す**(2026-09-27、利用者の報告。`TableFlexibleColumnFitter`)。`autosaveName` は幅も戻すが、戻した
+  合計が今の一覧より広いと AppKit は合わせ直さない(`.firstColumnOnlyAutoresizingStyle` が伸び縮みさせるのは幅が変わったときの差だけ)。
+  広いウインドウで保存された名前の列(実測 1935pt)がそのまま戻り、名前の列に余りがあるのに「種類」が見切れて横のスクロールバーが出ていた。
+  見えている幅が変わったとき・ほかの列の幅を変えたとき・列を出し入れしたとき・作った直後に、名前の列を「見えている幅 − ほかの列」にする
+  (最小幅より狭くはしない。名前の列そのものを広げたときは合わせ直さない)。スマートライブラリのリストの題の列も同じ。
 - **見出しのドラッグで列を入れ替える**のは `allowsColumnReordering` の標準のまま(段階 3 から効いていた。実機で確認)。
   **名前の列は先頭から動かさず、ほかの列も名前の前へは入れない**(`tableView(_:shouldReorderColumn:toColumn:)`。Finder と同じ)。
   以前の保存で名前の列が先頭でなければ、作るときに先頭へ戻す。

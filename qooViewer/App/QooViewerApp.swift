@@ -957,9 +957,10 @@ struct QooViewerApp: App {
                 Menu("Open Recent") {
                     // シークレットウインドウがフォーカス中は、(通常ウインドウで作られた)履歴も
                     // 見せない(ユーザー要望。AppState.isPrivateWindowのコメント参照)。
-                    if recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true {
-                        Text("(None)")
-                    } else {
+                    // 空のときは何も並べない(macOS の標準どおり、淡色の「メニューを消去」だけ。2026-09-27、監査 23 ―― それまでは淡色の
+                    // 「(なし)」を出していた)。
+                    let showsEntries = !recentFiles.entries.isEmpty && menuCheckmarkState?.isPrivateWindow != true
+                    if showsEntries {
                         ForEach(recentFiles.entries) { entry in
                             // entry.displayNameは拡張子を除いた名前(RecentFilesStore.Entry参照)。
                             // 同名のcbz/epubなど拡張子違いの同じ本を開いた履歴が並ぶと見分けが
@@ -989,7 +990,11 @@ struct QooViewerApp: App {
                     // シークレットウインドウがフォーカス中も無効にする。そのウインドウでは
                     // 履歴を一切見せない約束なので、見えていないものを消す操作だけができるのは
                     // 筋が通らない(上の一覧の出し分けと同じ理由)。
-                    Divider()
+                    // 区切り線は一覧があるときだけ(一覧の項目数と一緒に変わるので、上の「項目数を変えない」約束の外にはならない。
+                    // 一覧の出し分けと同じ条件で、メニューを開いている最中には変わらない)。
+                    if showsEntries {
+                        Divider()
+                    }
                     Button("Clear Menu") {
                         recentFiles.removeAll()
                     }

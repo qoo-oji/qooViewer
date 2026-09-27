@@ -34,6 +34,8 @@ struct ThumbnailGridView: View {
     /// このビュー全体の.backgroundとして取っていたが、パネルが余白を含む領域いっぱいに
     /// 広がる構成(bodyのGeometryReader参照)になったため、パネル本体に直接付ける必要がある。
     var onPanelScreenFrameChange: (CGRect) -> Void = { _ in }
+    /// 列の数が決まった・変わったときに知らせる(ViewerView が矢印キーの上下の行き先に使う。2026-09-27)。
+    var onColumnCountChange: (Int) -> Void = { _ in }
     /// このパネルの上でのホイール・ピンチを自前で扱うNSEventローカルモニタの預かり先
     /// (makeGridEventMonitor参照)。
     ///
@@ -300,6 +302,10 @@ struct ThumbnailGridView: View {
                 }
             }
             .frame(width: panelWidth, height: panelHeight)
+            .onChange(of: count, initial: true) { _, newValue in onColumnCountChange(newValue) }
+            // 矢印キーで表示中のページが動いたら、そのページの行を見える位置へ送る(2026-09-27、監査 32。ViewerView の
+            // キーのモニタが動かす)。見えていれば動かさない。
+            .onChange(of: viewModel.currentIndex) { _, index in reveal(index: index, columns: count) }
             // パネルの背景の濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
             // 既定値では従来の .background(.regularMaterial, in:) と同じ描画になる。
             .panelSurfaceBackground(
@@ -329,6 +335,21 @@ struct ThumbnailGridView: View {
                 if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
                 eventMonitor = nil
             }
+        }
+    }
+
+    /// ページの行を見える位置へ(行の高さは見積もり ―― gridRowHeight のコメント)。上下に 1 行ぶんの余裕を見る。
+    private func reveal(index: Int, columns: Int) {
+        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
+        let rowHeight = Self.gridRowHeight(from: appearance)
+        let top = Self.contentPadding + CGFloat(index / max(1, columns)) * rowHeight
+        let bottom = top + rowHeight
+        let visibleTop = bounds.position.y
+        let visibleBottom = visibleTop + bounds.visibleSize.height
+        if top < visibleTop {
+            bounds.scroll(to: CGPoint(x: bounds.position.x, y: max(0, top - Self.contentPadding)))
+        } else if bottom > visibleBottom {
+            bounds.scroll(to: CGPoint(x: bounds.position.x, y: bottom + Self.contentPadding - bounds.visibleSize.height))
         }
     }
 

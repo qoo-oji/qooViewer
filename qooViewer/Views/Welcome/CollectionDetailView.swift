@@ -326,7 +326,8 @@ struct CollectionDetailView: View {
             )
         ) {
             Button("Cancel", role: .cancel) { removingItemIDs = [] }
-            Button("Delete", role: .destructive) { confirmRemoval() }
+            // 確定ボタンは題の動作と同じ語(2026-09-27、監査 37。英語では題が "Remove…" なのにボタンが "Delete" だった。日本語はどちらも「削除」)。
+            Button("Remove", role: .destructive) { confirmRemoval() }
         } message: {
             Text("The books themselves are not deleted. Only their entries in this collection and their cover images are removed.")
         }

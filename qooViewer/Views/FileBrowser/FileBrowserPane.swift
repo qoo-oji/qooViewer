@@ -366,9 +366,9 @@ struct FileBrowserPane: View {
         Color.clear
             .frame(width: 8)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-            }
+            // 左右矢印のカーソルは hoverCursor で(2026-09-27、監査 38。以前は onHover で直に push / pop していて、掴んだまま
+            // ペインが消えると pop されずにカーソルが残りえた ―― HoverCursor.swift の決まり)。
+            .hoverCursor(.resizeLeftRight)
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.coordinateSpace))
                     .onChanged { value in

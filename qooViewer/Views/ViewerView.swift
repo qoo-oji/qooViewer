@@ -105,6 +105,11 @@ struct ViewerView: View {
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
     @State private var showThumbnailGrid = false
+    /// ページ一覧の列の数(矢印キーの上下の行き先。ThumbnailGridView.onColumnCountChange)。
+    @State private var thumbnailGridColumns = 1
+    /// ページ一覧で矢印キーが動かしている位置。開くたびに表示中のページから始める(見開きでは表示中のページが 2 つあり、
+    /// 表示中のページだけを起点にすると、相方のページへ動いたときに同じ見開きへ戻って止まるため)。
+    @State private var thumbnailGridCursor: Int?
     /// ページ一覧(サムネイルグリッド)パネル自身の、スクリーン座標系での現在のフレーム
     /// (PanelScreenFrameAccessor参照)。クリックがパネルの内側か外側かの判定に使う
     /// (installThumbnailGridDismissMonitorIfNeeded参照)。
@@ -542,6 +547,23 @@ struct ViewerView: View {
             {
                 perform(.showThumbnailGrid)
                 return nil
+            }
+            // ページ一覧のキー(2026-09-27、監査 32): Esc・Return・Enter で閉じる、矢印キーで表示中のページを動かす
+            // (パネルの外のクリックで閉じるのは従来どおり)。修飾キーの付いたキーはメニューへ渡す。
+            if showThumbnailGrid, !appState.isSidePanelFloatingOverlay,
+               event.type == .keyDown, !(hostWindow.firstResponder is NSTextView),
+               event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+            {
+                switch event.keyCode {
+                case 53, 36, 76:
+                    showThumbnailGrid = false
+                    return nil
+                case 123, 124, 125, 126:
+                    moveThumbnailGridCursor(event.keyCode)
+                    return nil
+                default:
+                    break
+                }
             }
             guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
             // 常時表示のサイドパネルの上での操作は、パネル自身のスクロールに任せて
@@ -1398,6 +1420,7 @@ struct ViewerView: View {
                         // ビューアの右クリックと同じ、クリックした1ページだけを対象にするトグル。
                         onToggleBookmark: { toggleBookmark(atIndex: $0) },
                         onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 },
+                        onColumnCountChange: { thumbnailGridColumns = $0 },
                         eventMonitor: $thumbnailGridEventMonitor
                     )
                 }
@@ -1508,6 +1531,7 @@ struct ViewerView: View {
         // 表示・非表示の切り替わりに合わせて、パネルを閉じるクリックを拾う専用のNSEventモニタ
         // (thumbnailGridDismissMonitor)を付け外しする。
         .onChange(of: showThumbnailGrid) { _, newValue in
+            thumbnailGridCursor = nil
             if newValue {
                 installThumbnailGridDismissMonitorIfNeeded()
             } else {
@@ -4387,6 +4411,23 @@ struct ViewerView: View {
         } else {
             showFavoriteFolderPicker = true
         }
+    }
+
+    /// ページ一覧の矢印キー。グリッドの並び(左上から右へ)どおりに動かし、そのページを表示する(`GridKeyboardNavigation`)。
+    private func moveThumbnailGridCursor(_ keyCode: UInt16) {
+        let direction: GridKeyboardNavigation.Direction
+        switch keyCode {
+        case 123: direction = .left
+        case 124: direction = .right
+        case 125: direction = .down
+        default: direction = .up
+        }
+        guard let target = GridKeyboardNavigation.target(
+            from: thumbnailGridCursor ?? viewModel.currentIndex, count: viewModel.pageCount,
+            columns: thumbnailGridColumns, direction: direction
+        ) else { return }
+        thumbnailGridCursor = target
+        viewModel.jump(toPageIndex: target)
     }
 
     /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときの結果を、画面中央下部に

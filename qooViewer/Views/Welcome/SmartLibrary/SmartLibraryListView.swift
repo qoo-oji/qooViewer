@@ -147,6 +147,9 @@ struct SmartLibraryListView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         coordinator.outline = outline
+        // 題の列を見えている幅に合わせる(保存された幅が今の幅より広いと、題の列に余りがあるのに右の列が見切れる。
+        // TableFlexibleColumnFitter の型コメント。ファイルブラウザのリストと同じ)。
+        coordinator.columnFitter.attach(to: outline, flexibleColumn: Column.title.identifier)
         // 離れたときの位置へ戻す(HomeScrollMemory)。戻すときは、選んでいる行へ寄せない。
         let savedOrigin = scrollMemory.take(for: scrollKey)
         coordinator.apply(self, initial: true, restoringScroll: savedOrigin != nil)
@@ -181,6 +184,7 @@ struct SmartLibraryListView: NSViewRepresentable {
             outline.headerView?.menu?.delegate = nil
             outline.headerView?.menu = nil
         }
+        coordinator.columnFitter.detach()
         coordinator.headerMenu = nil
         coordinator.outline = nil
         coordinator.parent = nil
@@ -277,6 +281,8 @@ struct SmartLibraryListView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var parent: SmartLibraryListView?
         weak var outline: SmartLibraryOutlineView?
+        /// 題の列を見えている幅に合わせる(TableFlexibleColumnFitter)。
+        let columnFitter = TableFlexibleColumnFitter()
         weak var headerMenu: NSMenu?
 
         private var items: [SmartGridItem] = []
@@ -663,6 +669,8 @@ struct SmartLibraryListView: NSViewRepresentable {
         @objc func toggleColumn(_ sender: NSMenuItem) {
             guard let tableColumn = sender.representedObject as? NSTableColumn else { return }
             tableColumn.isHidden.toggle()
+            // 列を出し入れしたら題の列で幅を吸収する(ファイルブラウザのリストと同じ)。
+            columnFitter.fit()
         }
     }
 }

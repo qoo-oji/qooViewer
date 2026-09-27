@@ -116,6 +116,9 @@ struct FileBrowserListView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         coordinator.table = table
+        // 名前の列を見えている幅に合わせる(保存された幅が今の幅より広いと、名前の列に余りがあるのに右の列が見切れていた。
+        // TableFlexibleColumnFitter の型コメント)。
+        coordinator.columnFitter.attach(to: table, flexibleColumn: Column.name.identifier)
         // 前の一覧のスクロール位置へ戻す(本を開いてホームへ戻った・表示形式を切り替えて戻した。FileBrowserState.savedScrollOrigins)。
         // 戻すときは、残っている「この項目まで見せて」の依頼を済んだことにする(作り直した一覧が古い依頼を拾うと、戻した位置から
         // 動いてしまう)。
@@ -156,6 +159,7 @@ struct FileBrowserListView: NSViewRepresentable {
             table.headerView?.menu = nil
         }
         coordinator.nameClickRename.cancel()
+        coordinator.columnFitter.detach()
         coordinator.headerMenu = nil
         coordinator.table = nil
         coordinator.state = nil
@@ -211,6 +215,8 @@ struct FileBrowserListView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, NSTextFieldDelegate {
         weak var table: FileBrowserTableView?
+        /// 名前の列を見えている幅に合わせる(TableFlexibleColumnFitter)。
+        let columnFitter = TableFlexibleColumnFitter()
         /// 見出しの右クリックのメニュー(`menuNeedsUpdate`で行のメニューと見分ける)。
         weak var headerMenu: NSMenu?
         var state: FileBrowserState?
@@ -496,6 +502,8 @@ struct FileBrowserListView: NSViewRepresentable {
                 let hidden = state.hiddenListColumns.contains(column.rawValue)
                 if tableColumn.isHidden != hidden { tableColumn.isHidden = hidden }
             }
+            // 列を出し入れしたら名前の列で幅を吸収する(Finder と同じ)。
+            columnFitter.fit()
         }
 
         // MARK: データ

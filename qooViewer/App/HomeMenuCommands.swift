@@ -336,6 +336,14 @@ struct FileBrowserFileMenuItems: View {
         }
         .disabled(selection?.canOpenWith != true)
 
+        // Finder と同じ「情報を見る」⌘I(2026-09-27。監査 18 ―― それまでは右クリックにしか無かった)。Finder の情報ウインドウを開く
+        // (選んだ項目ごとに 1 枚。FileBrowserActions.showInfo)。淡色の条件は右クリックと同じ(何か選んでいれば押せる)。
+        Button("Get Info") { [weak appState] in
+            Self.perform(appState) { actions, entries in actions.showInfo(entries) }
+        }
+        .homeMenuShortcut("i", modifiers: .command, isActive: isShown)
+        .disabled(selection?.canShowInFinder != true)
+
         Button(renameTitle) { [weak appState] in
             Self.perform(appState) { actions, entries in actions.beginRename(entries) }
         }

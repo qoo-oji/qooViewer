@@ -1098,8 +1098,15 @@ private struct BookmarkRenameSheet: View {
     @Binding var text: String
     let onSave: () -> Void
     let onCancel: () -> Void
+    @Environment(\.locale) private var locale
 
     var body: some View {
+        // 2 つのボタンは同じ幅(ラベルに幅を与える。CollectionNameSheet と同じ作り)。
+        let labelWidth = MetadataButtonWidthEstimator.equalWidth(
+            for: [String(localized: "Cancel", language: locale), String(localized: "Save", language: locale)],
+            minWidth: 60,
+            chrome: 0
+        )
         VStack(alignment: .leading, spacing: 12) {
             Text("Rename Bookmark")
                 .font(.headline)
@@ -1107,9 +1114,15 @@ private struct BookmarkRenameSheet: View {
                 .frame(height: 22)
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel, action: onCancel)
-                Button("Save", action: onSave)
-                    .keyboardShortcut(.defaultAction)
+                // Esc で閉じる(2026-09-27、監査 38)。シートの中の `role: .cancel` だけでは Esc に割り当たらない(アラートと違う)。
+                Button(role: .cancel, action: onCancel) {
+                    Text("Cancel").frame(width: labelWidth)
+                }
+                .keyboardShortcut(.cancelAction)
+                Button(action: onSave) {
+                    Text("Save").frame(width: labelWidth)
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

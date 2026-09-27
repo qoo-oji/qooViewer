@@ -280,7 +280,7 @@ struct FavoritesOrganizerView: View {
                             selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
                         )
                         .contextMenu {
-                            Button("Rename") {
+                            Button("Rename…") {
                                 // onRename(上のOrganizerFolderRowの.init呼び出し箇所)と同じ対策。
                                 renameText = ""
                                 renamingFolder = folder
@@ -391,7 +391,7 @@ struct FavoritesOrganizerView: View {
                                 }
                             )
                             Divider()
-                            Button("Rename") {
+                            Button("Rename…") {
                                 // 上のフォルダの「Rename」と同じ対策(詳細はそちらのコメント参照)。
                                 renameText = ""
                                 renamingBook = favorite
@@ -914,7 +914,7 @@ private struct OrganizerFolderRow: View {
             // ラベル部分だけに絞ることで、子フォルダの行は子フォルダ自身のOrganizerFolderRowが
             // 持つcontextMenu(このコードと同じ構造)が優先されるようになる。
             .contextMenu {
-                Button("Rename") { onRename(folder) }
+                Button("Rename…") { onRename(folder) }
                 Button("Delete", role: .destructive) { onDelete(folder) }
             }
         }
