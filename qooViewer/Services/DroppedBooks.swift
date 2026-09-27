@@ -95,3 +95,32 @@ extension BookOpenRequest {
         return BookOpenRequest(first, sequence: sequence)
     }
 }
+
+/// Dock・Finder から渡されたものの下調べ(AppDelegate.application(_:open:)。2026-09-27)。ウインドウへのドロップと同じ規則
+/// (DroppedBooks)で、開く要求と、本でないので開かなかった数を返す。全部が画像なら従来どおり 1 冊にまとめる。
+nonisolated enum ExternalOpenPreparation {
+    struct Prepared: Sendable {
+        /// 開く要求。本が 1 つも無ければ nil。
+        var request: BookOpenRequest?
+        var skipped: Int
+    }
+
+    static func prepare(_ urls: [URL], order: SiblingBookOrder) -> Prepared {
+        var seen = Set<String>()
+        let unique = urls.filter { seen.insert($0.path).inserted }
+        guard let first = unique.first else { return Prepared(request: nil, skipped: 0) }
+        if unique.allSatisfy({ isImageFile($0.lastPathComponent) }) {
+            return Prepared(request: BookOpenRequest(openingCandidates: unique), skipped: 0)
+        }
+        if unique.count == 1 {
+            return DroppedBooks.single(first, order: order) == .open
+                ? Prepared(request: BookOpenRequest(first), skipped: 0)
+                : Prepared(request: nil, skipped: 1)
+        }
+        let found = DroppedBooks.multiple(unique, order: order)
+        guard let book = found.books.first else { return Prepared(request: nil, skipped: found.skipped) }
+        let sequence = found.books.count > 1
+            ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
+        return Prepared(request: BookOpenRequest(book, sequence: sequence), skipped: found.skipped)
+    }
+}

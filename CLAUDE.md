@@ -409,7 +409,9 @@ final frame *before* they appear: the opener calls `BookWindowOpener.expectNewWi
 book WindowGroups' `.defaultWindowPlacement` hands it to SwiftUI (content rect, top-left origin) — **new code that opens a
 book window must do the same**, or it shows at 900×640 for ~70 ms first. The File menu's close items are AppKit's own (with
 tabs it shows "Close Tab" ⌘W and "Close Window" ⇧⌘W itself; SwiftUI's `.saveItem` placement never reached them), and
-`TabbedWindowCloseMenuRouter` only re-targets AppKit's "Close Window" so the multi-tab confirmation applies. AX reports stale
+`TabbedWindowCloseMenuRouter` only re-targets AppKit's "Close Window" so the multi-tab confirmation applies. Dock/Finder opens
+arrive split by document type in several `application(_:open:)` calls, so `AppDelegate` merges calls within 1 s before opening,
+and never opens a book into the main window SwiftUI created for a launch-by-open (its title stops updating; measured 2026-09-27). AX reports stale
 names for these rebuilt items — read `NSApp.mainMenu` in-process instead.
 
 **Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in

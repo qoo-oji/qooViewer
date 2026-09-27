@@ -144,4 +144,37 @@ struct HomeInteractionTests {
         #expect(found.books.map(\.lastPathComponent) == ["2.cbz", "a.cbz", "b.cbz", "10.cbz"])
         #expect(found.skipped == 3)
     }
+
+    @Test("Dock・Finder から渡されたもの: 本は並びにして先頭を開き、本でないものは数える。全部が画像なら 1 冊、本が無ければ開かない")
+    func externalOpenPreparation() throws {
+        let temporary = try TemporaryDirectory("external-open")
+        let book1 = temporary.file("1.cbz")
+        let book2 = temporary.file("2.cbz")
+        try makeArchive(book1, number: 1)
+        try makeArchive(book2, number: 2)
+        let note = temporary.file("readme.txt")
+        try Data("memo".utf8).write(to: note)
+        let image1 = temporary.file("a.png")
+        let image2 = temporary.file("b.png")
+        try PageImageFactory.png(number: 3).write(to: image1)
+        try PageImageFactory.png(number: 4).write(to: image2)
+
+        // LaunchServices が種類ごとに分けて届けた回をまとめたもの(テキストが先に来る)。
+        let mixed = ExternalOpenPreparation.prepare([note, book2, book1], order: .byName)
+        #expect(mixed.request?.urls == [book1])
+        #expect(mixed.request?.sequence?.entries.map(\.path) == [book1.path, book2.path])
+        #expect(mixed.skipped == 1)
+
+        let noteOnly = ExternalOpenPreparation.prepare([note], order: .byName)
+        #expect(noteOnly.request == nil)
+        #expect(noteOnly.skipped == 1)
+
+        let images = ExternalOpenPreparation.prepare([image2, image1], order: .byName)
+        #expect(images.request?.urls == [image1, image2])
+        #expect(images.skipped == 0)
+
+        let single = ExternalOpenPreparation.prepare([book2], order: .byName)
+        #expect(single.request?.urls == [book2])
+        #expect(single.request?.sequence == nil)
+    }
 }

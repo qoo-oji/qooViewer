@@ -2516,6 +2516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ことで抑制できる(NSInitialToolTipDelayと同じ理由で、ここ=起動の最も早いタイミングで
     /// 登録する)。
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // 本を渡されての起動かは applicationDidFinishLaunching で分かる。それより先に「開く」が届いてもよいように、先に立てておく。
+        isLaunchingToOpenDocuments = true
         // 前回までの起動が残した一時ファイル(入れ子の書庫の展開物)を片付ける。
         // ディレクトリの走査を伴うので、起動の邪魔をしないようメインスレッドの外で行う
         // (TemporaryFileStoreの型コメント参照)。
@@ -2638,6 +2640,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // ふつうの起動なら、主ウインドウは本を渡されて作られたものではない(isLaunchingToOpenDocuments のコメント)。
+        if (notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool) ?? true {
+            isLaunchingToOpenDocuments = false
+        }
         cleanUpEditMenu()
         collapseFileMenuSeparators()
         Task { @MainActor [weak self] in
@@ -2736,27 +2742,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        // ユーザー要望: Finderで複数選択した画像ファイルをまとめて1冊として開けるようにする。
-        // 以前はここが`urls.first`で、先頭以外を黙って捨てていた。
-        // 何をどう1冊にまとめるか(全部画像なら1冊 / それ以外は先頭のみ)の判定は、
-        // ドロップ・パネル経由と食い違わないようBookOpenRequestの1箇所に集約してある。
-        guard let fallback = BookOpenRequest(openingCandidates: urls) else { return }
-        // 複数の本なら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。ウインドウへのドロップと同じ。DroppedBooks)。
-        // 並びを作るにはフォルダを読むので、メインの外で調べてから開く。**1 件・全部が画像なら今までどおりその場で開く**
-        // (起動時に渡された本の扱いの順序を変えないため。待つのは複数の本が渡されたときだけ)。
-        guard fallback.urls.count == 1, Set(urls.map(\.path)).count > 1 else {
-            runExternalOpen(fallback)
-            return
-        }
+        // ■ 1 回の「開く」が何回かに分かれて届く(2026-09-27、実測)
+        // Finder で複数を選んで開く・`open -a` で複数を渡すと、LaunchServices は**書類の種類ごとに別々の呼び出し**で届ける
+        // (例: 書庫 3 冊とテキスト 1 つ → `[テキスト]` と `[書庫 3 冊]` の 2 回。間隔はコールド起動で約 50ms、起動済みで約 320ms)。
+        // 以前はそれぞれを別の「開く」として処理していたので、起動時に本のウインドウとホームのウインドウが 2 枚残ったり
+        // (テキストの回がホームのウインドウを残した)、先に開いた本が後の回に置き換えられたりした。
+        // そこで、**最初の回から `externalOpenMergeWindow` のあいだに届いた回は 1 つにまとめ直す**。すでに先の回を開いていれば、
+        // まとめ直したものを同じウインドウで開き直す(環境設定「Finder から開いたとき」で新しいタブ・ウインドウにしない ――
+        // 利用者にとっては 1 回の操作なので)。
+        let now = Date()
+        let merging = externalOpenGroup.map { now.timeIntervalSince($0.startedAt) < Self.externalOpenMergeWindow } ?? false
+        let group = ExternalOpenGroup(
+            urls: (merging ? externalOpenGroup?.urls ?? [] : []) + urls,
+            startedAt: merging ? externalOpenGroup?.startedAt ?? now : now,
+            openedIn: merging ? externalOpenGroup?.openedIn : nil
+        )
+        externalOpenGroup = group
+        externalOpenTask?.cancel()
         let order = preferences?.siblingBookOrder ?? .byName
-        Task { @MainActor [weak self] in
-            let request = await BookOpenRequest.sequenced(from: urls, order: order) ?? fallback
-            self?.runExternalOpen(request)
+        let candidates = group.urls
+        let waitsForMoreBatches = isLaunchingToOpenDocuments
+        externalOpenTask = Task { @MainActor [weak self] in
+            // 本を渡されて起動したときは、残りの回(約 50ms 後)が届くのを待ってから始める。1 回目だけで新しい本のウインドウを
+            // 作ってしまうと、2 回目がもう 1 枚のウインドウを作る(起動済みなら、2 回目は 1 回目のウインドウで開き直すので待たない)。
+            if waitsForMoreBatches {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+            }
+            // 開く前に下調べする(DroppedBooks。ウインドウへのドロップと同じ): 開けないものは開かない(読み込みでエラーになり、
+            // ホームのウインドウが残っていた)、複数の本は先頭を開いて残りを「次の本・前の本」でたどる。
+            let prepared = await Task.detached(priority: .userInitiated) {
+                ExternalOpenPreparation.prepare(candidates, order: order)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            let locale = self.preferences?.effectiveLocale ?? AppLanguage.currentLocale
+            guard let request = prepared.request else {
+                // 本が 1 つも無い。開かずに、手前のウインドウに知らせる(起動した主ウインドウはそのままホームとして使う)。
+                self.isLaunchingToOpenDocuments = false
+                let message = candidates.count == 1
+                    ? String(format: String(localized: "“%@” can’t be opened as a book.", language: locale),
+                             candidates[0].lastPathComponent)
+                    : String(localized: "None of the items can be opened as a book.", language: locale)
+                self.noticeTarget?.postViewerNotice(message)
+                return
+            }
+            // 先の回をもう開いたウインドウがあれば、そこで開き直す(上のコメント)。
+            if let target = self.externalOpenGroup?.openedIn, target.hostWindow != nil {
+                target.open(request: request)
+                if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
+                return
+            }
+            self.runExternalOpen(request, skipped: prepared.skipped, locale: locale)
         }
     }
 
-    /// `application(_:open:)` の続き(並びを作り終えてから)。
-    private func runExternalOpen(_ request: BookOpenRequest) {
+    /// `application(_:open:)` で 1 つにまとめる間隔(秒)。最初の回からこの間に届いた回をまとめる(上のコメントの実測: 起動済みで約 320ms)。
+    private static let externalOpenMergeWindow: TimeInterval = 1.0
+
+    /// まとめている最中の外部からの「開く」。
+    private struct ExternalOpenGroup {
+        var urls: [URL]
+        var startedAt: Date
+        /// 先の回を開いたウインドウ(まとめ直したものはここで開き直す)。
+        weak var openedIn: AppState?
+    }
+    private var externalOpenGroup: ExternalOpenGroup?
+    private var externalOpenTask: Task<Void, Never>?
+
+    /// 知らせを出す先(主ウインドウ、無ければ手前のウインドウ)。
+    private var noticeTarget: AppState? {
+        if let primary = launchCoordinator?.primaryAppState, primary.hostWindow != nil { return primary }
+        return launchCoordinator?.frontmostContentAppState(matchingPrivacy: AppPreferences.isPrivateModeDefault)
+    }
+
+    /// 本を渡されて起動した直後で、まだその本を開いていないか(`applicationWillFinishLaunching` で立て、ふつうの起動なら
+    /// `applicationDidFinishLaunching` で下ろす。本を渡されての起動では、最初の外部からの「開く」を済ませたときに下ろす)。
+    ///
+    /// ■ 本を渡されて起動したときの主ウインドウには本を開かない(2026-09-27、実測)
+    /// その主ウインドウは SwiftUI が起動の「開く」を受けて作ったもの("main" の `.handlesExternalEvents` のコメント)で、起動から
+    /// 0.3 秒ほど経ってからそこへ本を開くと、**以後そのウインドウのタイトルが一切変わらなくなる**ことがある(`.navigationTitle` の
+    /// 値は変わっても NSWindow の title へ届かない。6 回中 5 回。ふつうに起動した主ウインドウでは起きない)。performExternalOpen の
+    /// コメントにある「SwiftUI が勝手に作ったウインドウを使い回すと .navigationTitle の更新が反映されなくなる」と同じもの。
+    /// 以前は、起動直後はたいてい NSWindow がまだ付いておらず新しい本のウインドウで開いていた(空の主ウインドウは後始末で閉じる)ので
+    /// 目立たなかった。付いていた回だけ起きていた。そこで、このあいだは主ウインドウを使い回さず、必ず新しい本のウインドウで開く。
+    private var isLaunchingToOpenDocuments = false
+
+    /// `application(_:open:)` の続き(下調べを終えてから)。
+    private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale) {
         // メニューバーのメニューが開いている間に外部(AppleScript・openコマンド等)から本を
         // 渡された場合は、メニューが閉じるまで保留する。ウインドウの再利用でも新規作成でも、
         // ウインドウタイトルの変更・ウインドウの生成・FocusedValueの変化を伴い、開いている
@@ -2767,13 +2839,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // キーを毎回変えるのは、保留中に複数の「開く」が届いても届いた順にすべて実行するため
         // (同じキーに重ねると最後の1件しか実行されない)。
         MenuBarMenuGate.shared.run("AppDelegate.open-\(UUID().uuidString)") { [weak self] in
-            self?.performExternalOpen(request: request)
+            guard let self else { return }
+            let target = self.performExternalOpen(request: request)
+            // まとめ直しの回が同じウインドウで開き直せるように控える。
+            self.externalOpenGroup?.openedIn = target
+            if skipped > 0 { target?.postViewerNotice(AppState.skippedNotice(skipped, locale: locale)) }
         }
     }
 
     /// application(_:open:)の本体(メニューバーのメニューが開いている間の保留を挟むため、
     /// 受け取りと実行を分けてある)。
-    private func performExternalOpen(request: BookOpenRequest) {
+    /// - Returns: 本を開いたウインドウ(新しいウインドウ・タブを作ったときは nil)。
+    @discardableResult
+    private func performExternalOpen(request: BookOpenRequest) -> AppState? {
         // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
         // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
         // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには
@@ -2794,11 +2872,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //     → 記録されるつもりの本が、何も残らないウインドウで開いてしまう
         // 一致しなければここでは見送り、下の分岐(同じ基準で探し直す)へ委ねる。
         let opensPrivately = AppPreferences.isPrivateModeDefault
-        if let primaryAppState = launchCoordinator?.primaryAppState,
+        // 本を渡されて起動した直後は、主ウインドウも手前のウインドウも使い回さない(isLaunchingToOpenDocuments のコメント)。
+        let reusesWindows = !isLaunchingToOpenDocuments
+        isLaunchingToOpenDocuments = false
+        if reusesWindows, let primaryAppState = launchCoordinator?.primaryAppState,
            primaryAppState.hostWindow != nil,
            primaryAppState.isPrivateWindow == opensPrivately {
-            openInPrimaryWindow(request, primaryAppState: primaryAppState)
-            return
+            return openInPrimaryWindow(request, primaryAppState: primaryAppState)
         }
         // バグ修正(ユーザー報告): primaryAppStateが上の条件を満たさない場合でも、実際に
         // 本を表示している別のコンテンツウインドウがどこかに開いていれば、それを再利用する。
@@ -2809,9 +2889,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 開いてしまう不具合があった。)
         // 性質が一致するウインドウだけを候補にする(すぐ上の主ウインドウの判定と同じ基準。
         // LaunchCoordinator.frontmostContentAppState(matchingPrivacy:)参照)。
-        if let target = launchCoordinator?.frontmostContentAppState(matchingPrivacy: opensPrivately) {
-            openInPrimaryWindow(request, primaryAppState: target)
-            return
+        if reusesWindows, let target = launchCoordinator?.frontmostContentAppState(matchingPrivacy: opensPrivately) {
+            return openInPrimaryWindow(request, primaryAppState: target)
         }
 
         // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
@@ -2858,10 +2937,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
             suspectWindow.close()
         }
+        return nil
     }
 
     /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。
-    private func openInPrimaryWindow(_ request: BookOpenRequest, primaryAppState: AppState) {
+    /// - Returns: 本を開いたウインドウ(新しいタブ・ウインドウを作ったときは nil)。
+    private func openInPrimaryWindow(_ request: BookOpenRequest, primaryAppState: AppState) -> AppState? {
         // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
         // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
         // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
@@ -2878,11 +2959,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // そのまま開く。既に本を表示している場合だけ、環境設定「本を開く」の「Finderから」に従う。
         guard primaryAppState.currentBook != nil else {
             primaryAppState.open(request: request)
-            return
+            return primaryAppState
         }
         switch preferences?.finderOpenBehavior ?? .replaceCurrentBook {
         case .replaceCurrentBook:
             primaryAppState.open(request: request)
+            return primaryAppState
         case .newTab:
             // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ
             // 本来のウインドウがキーウインドウになっていないことがあり、不確実)ではなく、
@@ -2891,6 +2973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .newWindow:
             openInNewWindowOrTab?(request, false, primaryAppState.hostWindow, false)
         }
+        return nil
     }
 
     /// 環境設定の「すべてのウインドウを閉じたときにqooViewerを終了する」がONのときだけ、
