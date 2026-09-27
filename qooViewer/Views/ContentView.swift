@@ -762,6 +762,11 @@ struct ContentView: View {
             if let window {
                 BookWindowOpener.applyPendingPlacement(to: window)
             }
+            // 赤い閉じるボタン・Cmd+W の閉じ方を、本を開く前から揃える(BookClosingWindowDelegate.install のコメント。
+            // 以前は本を一度も開いていないタブだけ、赤いボタンが確認なしにタブ 1 枚を閉じていた)。
+            if let window {
+                BookClosingWindowDelegate.install(on: window, appState: appState, preferences: preferences)
+            }
             // 環境設定「外観」の「タイトルバーの色」(WindowTitleBarColor参照)。ウインドウが決まった時点で一度塗り、
             // 以後の変更は windowChrome(window:) が塗り直す(ライト/ダークはそちらが SwiftUI に渡す)。
             if let window {

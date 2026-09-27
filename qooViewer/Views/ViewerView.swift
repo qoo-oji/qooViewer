@@ -3689,46 +3689,9 @@ struct ViewerView: View {
         // 通知を待たずにここでも一度呼んでおく。
         launchCoordinator.setActiveBookAppState(appState)
 
-        // Fileメニューの標準「閉じる」(Cmd+W)を「本を閉じる」動作に変更する。既に何らかの
-        // デリゲートが設定されている場合(SwiftUI/AppKitがタブ管理や状態復元のために設定して
-        // いることがある)は、windowShouldClose以外のメソッドをすべてそちらへ転送するので、
-        // 既存の機能を壊さない(BookClosingWindowDelegate参照)。
-        //
-        // バグ修正: 以前は`if bookClosingDelegate == nil`だけで判定していた。しかしこの
-        // ViewerViewはContentView側の`.id(book.id)`により本を切り替えるたびに作り直され、
-        // @Stateであるこのプロパティも毎回nilから始まるため、同じウインドウで本を切り替える
-        // たびに新しいデリゲートを被せてしまい、originalDelegate(強参照)のチェーンが
-        // 1段ずつ際限なく伸びていた。AppKitはresponds(to:)/forwardingTarget(for:)を高頻度で
-        // 呼ぶため、伸びた段数がそのまま無駄なコストになる。既に自前のデリゲートが付いている
-        // ウインドウでは、それを再利用して参照先だけ今の本のものへ差し替える。
-        if let existing = window.delegate as? BookClosingWindowDelegate {
-            existing.appState = appState
-            existing.window = window
-            existing.preferences = preferences
-            bookClosingDelegate = existing
-        } else if bookClosingDelegate == nil {
-            let delegate = BookClosingWindowDelegate()
-            delegate.appState = appState
-            delegate.originalDelegate = window.delegate
-            delegate.window = window
-            delegate.preferences = preferences
-            window.delegate = delegate
-            bookClosingDelegate = delegate
-        }
-        // 所有権はウインドウ自身へ(BookClosingWindowDelegate.retain(by:)のコメント参照。
-        // この@Stateだけが持っていると、本を閉じたあとデリゲートごと解放されて、赤い閉じる
-        // ボタンがシートのあとグレーのままになる)。
-        bookClosingDelegate?.retain(by: window)
-        // ウインドウ左上の赤い閉じるボタンは、標準では上のwindowShouldCloseを経由してしまい
-        // (「本だけ閉じる」動作が優先されてしまう)、常にウインドウ自体を閉じてほしいという
-        // 要望と食い違う。そのため、このボタンのtarget/actionだけを直接差し替えて、
-        // windowShouldCloseを経由しない専用のforceCloseWindow(_:)を呼ぶようにする。
-        // Cmd+W(File>閉じる=performClose)もこの差し替え先へ来るので、差し替え先の
-        // closeButtonClicked(_:)が「本物のクリックか」を見分け、Cmd+Wはタブ1枚だけにする。
-        if let closeButton = window.standardWindowButton(.closeButton) {
-            closeButton.target = bookClosingDelegate
-            closeButton.action = #selector(BookClosingWindowDelegate.closeButtonClicked(_:))
-        }
+        // 閉じる経路の差し替え(赤い閉じるボタン・Cmd+W)。ウインドウができた時点で ContentView が付けてある
+        // (2026-09-27)ので、ここでは参照先だけ今の本のものへ差し替える(BookClosingWindowDelegate.install)。
+        bookClosingDelegate = BookClosingWindowDelegate.install(on: window, appState: appState, preferences: preferences)
 
         let enter = NotificationCenter.default.addObserver(
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main

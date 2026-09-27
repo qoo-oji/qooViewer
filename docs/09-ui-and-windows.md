@@ -77,7 +77,11 @@ ViewerView(本1冊)
   `closeButtonClicked` が `NSApp.currentEvent` を見て、このウインドウの閉じるボタン上の左クリックなら
   `forceCloseWindow`、それ以外(キー入力・メニューのクリック・イベント無し)なら `closeTab()`(macOS 標準どおり
   タブ1枚、確認なし)に分ける。「ウインドウを閉じる」⇧⌘W は AppKit の標準の項目を使う(下の「ファイルメニューの閉じる項目」)。
-  本を一度も開いていないウインドウには `BookClosingWindowDelegate` が付かないので、その項目は同じ確認(`confirmCloseIfMultipleTabs`、
+  **閉じる経路の差し替え(`BookClosingWindowDelegate.install`)は、ウインドウができた時点で付ける**(2026-09-27、監査の 12)。
+  以前は本を開いたとき(`ViewerView.setUpWindowObservers`)だけで、本を一度も開いていないタブ(ホームだけのタブ・⌘T のタブ)が
+  前面だと、赤いボタンが AppKit の既定のまま確認なしにタブ 1 枚だけを閉じていた ―― 同じウインドウでも前面のタブ次第で結果が
+  変わった。今は `ContentView` の WindowAccessor が付け、ViewerView は本を開くたびに参照先を差し替える。
+  差し替えの付いていないウインドウ(予備)では、その項目は同じ確認(`confirmCloseIfMultipleTabs`、
   static。確認はそのウインドウのシート ―― 下の「その他の小さな約束」)の後でタブグループの全ウインドウへ `performClose` を送る(`BookClosingWindowDelegate.closeWindowWithAllTabs`。以前は
   `performClose` 1回 = タブ1枚だった)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
   `AppState.deinit` 任せで、その deinit は SwiftUI の `focusedValues` に掴まれて来ない

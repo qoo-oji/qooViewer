@@ -648,6 +648,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 「フォルダを上に」「並べ替え」をツールバーに載せているため、タイトルとツールバーを
@@ -676,6 +677,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .defaultSize(width: 1100, height: 820)
         .windowToolbarStyle(.unified)
@@ -1693,6 +1695,8 @@ struct QooViewerApp: App {
         // 4. 削除 ―― 保存データの削除 → 履歴の削除
         // 5. メニューに出さないもの(`.commandsRemoved()`)
         // 新しい補助ウインドウを足すときは、宣言する位置で「ウインドウ」メニューのどこに並ぶかが決まることに気を付ける。
+        // ■ どの Window にも `.restorationBehavior(.disabled)` を付ける(2026-09-27): 本のウインドウは復元しないので、付けないと
+        //   「ウインドウを残して終了」の次の起動で道具のウインドウだけが戻る(applicationSupportsSecureRestorableState のコメント)。
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
         // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを
         // 扱っていたが、「お気に入りの編集」ウインドウと見た目・操作感を完全に揃えるため、
@@ -1713,6 +1717,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 絞り込み・並べ替え(左ペイン)と、上下・一括操作・読み方向・ページの絞り込み
@@ -1750,6 +1755,7 @@ struct QooViewerApp: App {
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         .defaultSize(width: 1280, height: 780)
@@ -1764,6 +1770,7 @@ struct QooViewerApp: App {
                 .environment(metadataRulesStore)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         // 3 ペインが最初から収まる幅(ルールセットの一覧 + 組の一覧 + 型 1 行が切れない幅)。
         .defaultSize(width: 1240, height: 820)
@@ -1773,6 +1780,7 @@ struct QooViewerApp: App {
                 .environment(metadataRulesStore)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .defaultSize(width: 1080, height: 760)
 
@@ -1787,6 +1795,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
@@ -1804,6 +1813,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
@@ -1821,6 +1831,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
@@ -1849,6 +1860,7 @@ struct QooViewerApp: App {
                 // 実体の無いメモリ内のコンテキストで、取得は黙って 0 件になり、書き出しから読書位置が消えていた。
                 .modelContext(QooViewerApp.modelContainer.mainContext)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
@@ -1871,6 +1883,7 @@ struct QooViewerApp: App {
                 // 読書位置(BookReadingState)を書く(高 2。書き出しのウインドウと同じ)。無いと、取り込んだと報告して何も残さなかった。
                 .modelContext(QooViewerApp.modelContainer.mainContext)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
@@ -1885,6 +1898,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         // 一覧ウインドウなので、対になる読み込みと同じくツールバーは統合スタイル。
         .windowToolbarStyle(.unified)
@@ -1905,6 +1919,7 @@ struct QooViewerApp: App {
                 .environment(\.locale, locale)
                 .modelContext(QooViewerApp.modelContainer.mainContext)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowToolbarStyle(.unified)
 
@@ -1922,6 +1937,7 @@ struct QooViewerApp: App {
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         // 絞り込み・すべて選択・削除・検索欄をツールバーに載せているため、タイトルと
@@ -1939,6 +1955,7 @@ struct QooViewerApp: App {
                 .environmentObject(recentFiles)
                 .environment(\.locale, locale)
         }
+        .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
         .windowToolbarStyle(.unified)
@@ -2641,14 +2658,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// macOSの「ウインドウのサイズ・位置などの状態を保存して次回起動時に復元する」機能
-    /// (secure state restoration)に対応していることを表明する。trueを返すことで、通常どおり
-    /// 前回終了時のウインドウサイズ・位置が次回起動時に復元されるようにする。
-    /// (Finderから別の本を開いたときに余分な空ウインドウが増える不具合の調査中、一時的に
-    /// これをfalseにして「状態復元の仕組みそのものが原因では」と検証したことがあったが、
-    /// 実際の原因は別(ContentView.onAppear/WindowAccessorの実行順序の問題)だったと判明した。
-    /// falseのままにしていると状態復元の仕組みごと無効になり、ウインドウのサイズ・位置の
-    /// 記憶も一緒に失われてしまう副作用があったため、trueに戻した)
+    /// macOSの状態の復元(secure state restoration)に対応していることを表明する(true でないと AppKit が警告を出す)。
+    ///
+    /// **実際にはどのウインドウも復元しない**(2026-09-27 に書き直し。以前は「true で前回終了時のウインドウの大きさ・位置が戻る」と
+    /// 書いてあったが、今は当たらない)。本のウインドウの 4 つの WindowGroup と、道具のウインドウ(`Window`)すべてに
+    /// `.restorationBehavior(.disabled)` を付けてある:
+    /// - 本のウインドウ: 0 枚から再オープンしたときに AppKit が古い NSWindow を再利用し、一瞬出て消える・真っ白になる不具合の回避
+    ///   (docs/13「ウインドウの状態復元」)。開いていたウインドウ・タブが戻らないのは macOS の標準と違うが、回避策を外して不具合が
+    ///   戻るほうが怖く、漫画ビューアで作業の状態へ戻る意義は薄い(2026-09-27、利用者の判断。監査
+    ///   docs/plans/macos-conventions-audit-2026-09-26.md の 13)。前回読んでいた本は、環境設定「前回読んでいた本を開き直す」が ON ならアプリ自身が開き直す
+    ///   (ContentView の observeWindowBecameKey)。
+    /// - 道具のウインドウ: 揃える(同じ日、利用者の指示)。以前は「ウインドウを残して終了」(⌥⌘Q、またはシステム設定で
+    ///   「アプリケーションを終了するときにウインドウを閉じる」を OFF)の次の起動で、**道具のウインドウだけが戻り、本のウインドウが
+    ///   1 枚も無い**状態になっていた(実機で確認)。
+    ///
+    /// (Finderから別の本を開いたときに余分な空ウインドウが増える不具合の調査中、一時的にこれを false にして検証したことがあるが、
+    /// 原因は別(ContentView.onAppear/WindowAccessor の実行順序)だった。false に戻す理由は今も無い。)
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
     }
@@ -2920,6 +2945,57 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     /// 複数タブ確認ダイアログのON/OFF設定・表示言語を参照するため。
     weak var preferences: AppPreferences?
 
+    /// 本のウインドウに、閉じる経路の差し替え(このデリゲートと赤い閉じるボタンの target/action)を付ける。付いていれば参照先だけ
+    /// 今のものへ差し替える。
+    ///
+    /// **付けるのはウインドウができた時点**(ContentView の WindowAccessor。2026-09-27、監査
+    /// docs/plans/macos-conventions-audit-2026-09-26.md の 12)。以前は本を開いたとき(ViewerView.setUpWindowObservers)だけ付けていたので、
+    /// 本を一度も開いていないタブ(ホームだけのタブ・⌘T で足したタブ)が前面だと、赤い閉じるボタンが AppKit の既定の閉じ方になり、
+    /// 確認なしにそのタブ 1 枚だけを閉じていた ―― 同じウインドウでも、前面のタブが本を開いたことがあるかで結果が変わった。
+    /// ViewerView も本を開くたびに呼ぶ(参照先の差し替え。付いていなければここで付く)。
+    ///
+    /// 既に何らかのデリゲートが設定されている場合(SwiftUI/AppKitがタブ管理や状態復元のために設定して
+    /// いることがある)は、windowShouldClose以外のメソッドをすべてそちらへ転送するので、
+    /// 既存の機能を壊さない。
+    ///
+    /// バグ修正: 以前は(ViewerView の`@State`が nil かどうかだけで)判定していた。しかしViewerViewは
+    /// ContentView側の`.id(book.id)`により本を切り替えるたびに作り直され、@Stateも毎回nilから始まるため、
+    /// 同じウインドウで本を切り替えるたびに新しいデリゲートを被せてしまい、originalDelegate(強参照)のチェーンが
+    /// 1段ずつ際限なく伸びていた。AppKitはresponds(to:)/forwardingTarget(for:)を高頻度で
+    /// 呼ぶため、伸びた段数がそのまま無駄なコストになる。既に自前のデリゲートが付いている
+    /// ウインドウでは、それを再利用して参照先だけ差し替える。
+    ///
+    /// ウインドウ左上の赤い閉じるボタンは、標準では windowShouldClose を経由してしまい
+    /// (「本だけ閉じる」動作が優先されてしまう)、常にウインドウ自体を閉じてほしいという
+    /// 要望と食い違う。そのため、このボタンのtarget/actionだけを直接差し替えて、
+    /// windowShouldCloseを経由しない専用のforceCloseWindow(_:)を呼ぶようにする。
+    /// Cmd+W(File>閉じる=performClose)もこの差し替え先へ来るので、差し替え先の
+    /// closeButtonClicked(_:)が「本物のクリックか」を見分け、Cmd+Wはタブ1枚だけにする。
+    @discardableResult
+    static func install(
+        on window: NSWindow, appState: AppState, preferences: AppPreferences?
+    ) -> BookClosingWindowDelegate {
+        let delegate: BookClosingWindowDelegate
+        if let existing = window.delegate as? BookClosingWindowDelegate {
+            delegate = existing
+        } else {
+            delegate = BookClosingWindowDelegate()
+            delegate.originalDelegate = window.delegate
+            window.delegate = delegate
+        }
+        delegate.appState = appState
+        delegate.window = window
+        delegate.preferences = preferences
+        // 所有権はウインドウ自身へ(retain(by:)のコメント参照。ViewerView の@Stateだけが持っていると、本を閉じたあと
+        // デリゲートごと解放されて、赤い閉じるボタンがシートのあとグレーのままになる)。
+        delegate.retain(by: window)
+        if let closeButton = window.standardWindowButton(.closeButton) {
+            closeButton.target = delegate
+            closeButton.action = #selector(closeButtonClicked(_:))
+        }
+        return delegate
+    }
+
     /// このデリゲートを`window`自身に持たせる(関連オブジェクト)。NSWindow.delegateも赤い閉じる
     /// ボタンのtargetも弱参照なので、誰かが強参照していないと解放される。
     ///
@@ -3075,8 +3151,9 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
 
     /// ファイルメニューの「ウインドウを閉じる」⇧⌘W(TabbedWindowCloseMenuRouter)の中身。`window`のタブをすべて閉じる。
     ///
-    /// 本を一度でも開いたタブには BookClosingWindowDelegate が付いているので、赤い閉じるボタンと同じ forceCloseWindow(_:) を通す。
-    /// 本を一度も開いていないウインドウ(ホームだけのタブなど)には付いていない。そのときも同じ確認のあとタブをすべて閉じる。
+    /// 本のウインドウには BookClosingWindowDelegate が付いているので、赤い閉じるボタンと同じ forceCloseWindow(_:) を通す
+    /// (2026-09-27 からはウインドウができた時点で付く。それまでは本を一度も開いていないタブには付いていなかった)。付いていない
+    /// ウインドウ(念のための予備)でも、同じ確認のあとタブをすべて閉じる。
     /// 各タブはperformCloseで、それぞれのwindowShouldCloseを通す(デリゲートの付いたタブはcloseButtonClicked → closeTab())。
     /// (2026-09-26 までは「ウインドウ」メニューの自前の項目の中身だった。)
     static func closeWindowWithAllTabs(_ window: NSWindow, preferences: AppPreferences?) {
