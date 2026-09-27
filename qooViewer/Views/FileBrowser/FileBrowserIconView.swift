@@ -574,9 +574,12 @@ struct FileBrowserIconView: NSViewRepresentable {
 
         func dragOperation(for info: NSDraggingInfo, at point: NSPoint) -> NSDragOperation {
             guard let actions else { return [] }
-            let folderIndex = folderIndex(at: point)
+            var folderIndex = folderIndex(at: point)
             let destination = folderIndex.map { entries[$0].url } ?? displayedFolder
             let (decision, _) = actions.dropDecision(for: info, into: destination)
+            // 「ビューアで開く」の設定では、フォルダのセルの上でもそのフォルダへは入れない(開く)ので、セルを強調しない
+            // (2026-09-27。リスト表示と同じ)。
+            if case .openInViewer = decision { folderIndex = nil }
             let operation = decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
             setDropTarget(id: operation.isEmpty ? nil : folderIndex.map { entries[$0].id })
             isWholeViewDropTarget = folderIndex == nil && !operation.isEmpty
@@ -641,8 +644,8 @@ struct FileBrowserIconView: NSViewRepresentable {
             state?.typeSelect(characters)
         }
 
-        func moveSelection(_ direction: GridKeyboardNavigation.Direction) {
-            state?.moveSelection(direction, columns: layout?.columnCount ?? 1)
+        func moveSelection(_ direction: GridKeyboardNavigation.Direction, extending: Bool) {
+            state?.moveSelection(direction, columns: layout?.columnCount ?? 1, extending: extending)
         }
 
         func magnify(by magnification: CGFloat) {
@@ -790,7 +793,7 @@ protocol FileBrowserCollectionViewHandling: AnyObject {
     func openItem(at index: Int)
     func openSelection()
     func typeSelect(_ characters: String)
-    func moveSelection(_ direction: GridKeyboardNavigation.Direction)
+    func moveSelection(_ direction: GridKeyboardNavigation.Direction, extending: Bool)
     func magnify(by magnification: CGFloat)
     func isNameHit(at point: NSPoint, index: Int) -> Bool
     func nameClicked(at index: Int)
@@ -915,7 +918,8 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
             default: nil
             }
             if let direction {
-                handler?.moveSelection(direction)
+                // ⇧ で範囲を伸ばす(2026-09-27。FileBrowserState.moveSelection)。
+                handler?.moveSelection(direction, extending: flags.contains(.shift))
                 return
             }
         }

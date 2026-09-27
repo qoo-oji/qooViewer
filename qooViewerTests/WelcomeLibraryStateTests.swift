@@ -7,9 +7,9 @@ import Testing
 /// **間違えると保存データが消える**選択の後始末だけを押さえる。
 ///
 /// 編集モードのゴミ箱は「いま選ばれているもの」をまとめて削除する。選択が画面をまたいで
-/// 残っていると、**目に見えていないものを消す**ことになるので、編集モードを抜けたとき・
+/// 残っていると、**目に見えていないものを消す**ことになるので、ライブラリ・モードを移ったとき・
 /// コレクションの中へ入った/出たときに必ず捨てなければならない(選択の捨て方は didSet に
-/// 集約してあり、画面側は自前で消さない)。
+/// 集約してあり、画面側は自前で消さない)。編集モードの出入りでは捨てない(2026-09-27 から、選択はモードの外でもできる)。
 ///
 /// 保存先は `UserDefaults.standard` ではなくその場限りの suite
 /// (テストは実物のアプリの中で走るため。PreferencesSuite のコメント参照)。
@@ -42,23 +42,53 @@ struct WelcomeLibraryStateTests {
         #expect(state.selectedItemIDs.isEmpty)
     }
 
-    @Test("編集モードを抜けると選択は捨てる(入り直しても残っていない)")
-    func leavingEditModeClearsTheSelection() {
+    @Test("編集モードの出入りでは選択を捨てない(本を開いたときの後始末でも) ―― 2026-09-27 から選択はモードの外でもできる")
+    func editModeKeepsTheSelection() {
         let (state, suite) = makeState("welcome-end-editing")
         defer { withExtendedLifetime(suite) {} }
-        state.isEditing = true
-        state.toggleCollectionSelection(UUID())
-        state.toggleItemSelection(UUID())
+        let collection = UUID()
+        let item = UUID()
+        state.toggleCollectionSelection(collection)
+        state.toggleItemSelection(item)
 
+        state.isEditing = true
+        #expect(state.selectedCollectionIDs == [collection])
         state.isEditing = false
-        #expect(state.selectedCollectionIDs.isEmpty)
-        #expect(state.selectedItemIDs.isEmpty)
+        #expect(state.selectedCollectionIDs == [collection])
+        #expect(state.selectedItemIDs == [item])
 
-        // 本を開いたときの後始末(endEditing)でも同じこと。
+        // 本を開いたときの後始末(endEditing)は編集モードから出るが、選択は残す(戻ってきたら同じ画面)。
         state.isEditing = true
-        state.toggleCollectionSelection(UUID())
         state.endEditing()
         #expect(state.isEditing == false)
+        #expect(state.selectedCollectionIDs == [collection])
+    }
+
+    @Test("コレクションから一覧へ戻ると、出てきたコレクションが選ばれている")
+    func leavingACollectionSelectsIt() {
+        let (state, suite) = makeState("welcome-leave-collection")
+        defer { withExtendedLifetime(suite) {} }
+        let opened = UUID()
+        state.openCollection(opened, keepingSearch: false)
+        state.toggleItemSelection(UUID())
+
+        state.leaveCollection()
+        #expect(state.openedCollectionID == nil)
+        #expect(state.selectedCollectionIDs == [opened])
+        #expect(state.selectedItemIDs.isEmpty)
+        #expect(state.collectionSelection.cursor == opened)
+    }
+
+    @Test("モードを移ると選択を捨てる(見えていないものをゴミ箱が消さない)")
+    func switchingModesClearsTheSelection() {
+        let (state, suite) = makeState("welcome-mode-switch")
+        defer { withExtendedLifetime(suite) {} }
+        state.isLibraryFeatureEnabled = true
+        state.isFileBrowserFeatureEnabled = true
+        state.mode = .shelf
+        state.toggleCollectionSelection(UUID())
+
+        state.mode = .browser
         #expect(state.selectedCollectionIDs.isEmpty)
     }
 

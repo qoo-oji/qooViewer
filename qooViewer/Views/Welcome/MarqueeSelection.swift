@@ -98,6 +98,9 @@ final class MarqueeSelection: ObservableObject {
         frames.removeAll()
     }
 
+    /// 控えているセルの矩形のどれか 1 つ(セルの高さを知るため。本棚の 2 画面はどのセルも同じ高さ ―― HomeGridReveal)。
+    var anyFrame: CGRect? { frames.values.first }
+
     // MARK: - 帯
 
     func begin(

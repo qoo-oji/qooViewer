@@ -62,6 +62,7 @@ final class WelcomeLibraryState: ObservableObject {
             // 保存するのでは、どれか 1 つを OFF にしている人の選択がずっと残らなくなった)。
             if !isForcingMode { defaults.set(mode.rawValue, forKey: Keys.mode) }
             isEditing = false
+            clearSelection()
         }
     }
 
@@ -143,8 +144,9 @@ final class WelcomeLibraryState: ObservableObject {
         didSet {
             guard selectedLibraryID != oldValue else { return }
             defaults.set(selectedLibraryID?.uuidString, forKey: Keys.selectedLibraryID)
-            // 画面が移ったら編集モードから出る(isEditingのコメント参照)。
+            // 画面が移ったら編集モードから出て、選択も捨てる(isEditing・selectedCollectionIDsのコメント参照)。
             isEditing = false
+            clearSelection()
             // 別の棚を見始めたら検索も捨てる(searchTextのコメント参照)。
             searchText = ""
         }
@@ -159,9 +161,9 @@ final class WelcomeLibraryState: ObservableObject {
             guard openedCollectionID != oldValue else { return }
             // 出たコレクションの位置の控えは捨てる(入り直したら先頭から。一覧へ戻ったときは一覧の控えから ―― HomeScrollMemory)。
             if let oldValue { scrollMemory.forget(Self.scrollKey(collection: oldValue)) }
-            // 画面が移ったら編集モードから出る(isEditingのコメント参照)。didSetの中で
-            // clearSelection()も走るので、選択を捨てるのはここに書かなくてよい。
+            // 画面が移ったら編集モードから出て、選択も捨てる(isEditing・selectedCollectionIDsのコメント参照)。
             isEditing = false
+            clearSelection()
             // 検索はここでは触らない。一覧へ戻るときは残し、中へ入るときに残すかどうかは
             // 入り口のopenCollection(_:keepingSearch:)が先に決めてある(searchTextのコメント参照)。
         }
@@ -199,34 +201,46 @@ final class WelcomeLibraryState: ObservableObject {
         openedCollectionID = id
     }
 
-    /// 編集モード。いま効くのは**ゴミ箱を出すかどうか**と、クリック/ドロップの意味
-    /// (開く ↔ 選ぶ・登録する)だけ ―― 「足す」操作はモードと無関係になった
+    /// 編集モード。**コレクションに入れる・外す操作を前に出すモード**(2026-09-27 から。ホームの操作の統一、
+    /// docs/plans/home-interaction-design.md)。効くのは、ドロップの意味(開く → 登録する)・全選択とゴミ箱・右クリックの
+    /// 「削除…」「コレクションから削除」・見出しの名前のクリックでの名前の変更・選択の丸い印。**クリックの意味は変えない**
+    /// (モードの外でも中でも「選ぶ」。以前は外で「開く」、中で選択のトグルだった)。「足す」操作はモードと無関係
     /// (LibraryPaneControls.isEditingのコメント参照)。
+    ///
+    /// **入っても出ても選択は捨てない**(選択はモードの外でもできるようになったので、出入りで消すと、選んでから鉛筆を押した
+    /// ものが消える)。見えていないものをゴミ箱が消さない決まりは、画面が移ったときに捨てることで守る(selectedCollectionIDs)。
     ///
     /// **画面が移ったら必ず解除する。** 本を開いたとき(ContentViewの`currentBook`のonChange)に
     /// 加えて、ライブラリを移ったとき・コレクションの中へ入った/出たときも解除する
     /// (ユーザー指摘 2026-09-09)。編集モードはいま見えているものに手を入れるための状態なので、
     /// 別のものを見始めた時点で持ち越す理由が無い ―― 持ち越すと、入った先でクリックの意味が
     /// 変わったままなのに、なぜそうなっているのかが画面から読めない。
-    @Published var isEditing = false {
-        didSet {
-            guard isEditing != oldValue else { return }
-            clearSelection()
-        }
-    }
+    @Published var isEditing = false
 
-    /// 編集モード中に選んだコレクション/本(ゴミ箱でまとめて削除するための選択)。
+    /// 選んだコレクション/本。規則はスマートライブラリのグリッドと同じ `GridSelection`(クリックで選ぶ、⌘ で足す/外す、
+    /// ⇧ で範囲、矢印キー。2026-09-27 から。それまでは編集モードの中でだけ、クリックで選ぶ/外すができた)。
     ///
     /// **画面が変わったら必ず捨てる。** 選択は「いま目に見えている印」がすべてなので、
-    /// 編集モードを抜けたとき・コレクションの中へ入った/出たときに残っていると、
-    /// **見えていないものをゴミ箱が消す**ことになる。捨てる契機はこの2つのdidSetに集約してある
-    /// (どの画面も自前では消さない)。
+    /// ライブラリ・モードを移ったとき・コレクションの中へ入った/出たときに残っていると、
+    /// **見えていないものをゴミ箱が消す**ことになる。捨てる契機はそれぞれのdidSetに集約してある
+    /// (どの画面も自前では消さない)。本を開いて戻ってきたとき(同じ画面)は残す(スマートライブラリと同じ)。
     ///
     /// idで持つ理由はCollectionGridView.renamingCollectionIDと同じ ―― `@Model`のクラスを
     /// そのまま集合に入れない(BookLibrary.swift末尾のコメント参照)。実体が別のウインドウから
     /// 消された場合は、削除の直前にidを引き直す側(画面)が黙って取りこぼす。
-    @Published var selectedCollectionIDs: Set<UUID> = []
-    @Published var selectedItemIDs: Set<UUID> = []
+    @Published var collectionSelection = GridSelection<UUID>()
+    @Published var itemSelection = GridSelection<UUID>()
+
+    /// 選んだコレクションの集合(帯・全選択・メニューが書く。起点と位置は残っていれば保つ)。
+    var selectedCollectionIDs: Set<UUID> {
+        get { collectionSelection.ids }
+        set { collectionSelection.set(newValue, cursor: collectionSelection.cursor) }
+    }
+
+    var selectedItemIDs: Set<UUID> {
+        get { itemSelection.ids }
+        set { itemSelection.set(newValue, cursor: itemSelection.cursor) }
+    }
 
     @Published var collectionSort: FavoritesSortOption {
         didSet {
@@ -418,9 +432,8 @@ final class WelcomeLibraryState: ObservableObject {
     }
 
     /// 本を開いたとき・ウェルカム画面から離れるときの後始末。編集モードと出しかけのシートを
-    /// 畳む(コレクションの中に居ることだけは保つ ―― openedCollectionIDのコメント参照)。
+    /// 畳む(コレクションの中に居ることと選択は保つ ―― openedCollectionID・selectedCollectionIDsのコメント参照)。
     func endEditing() {
-        // isEditingのdidSetが選択も捨てる。
         isEditing = false
         pendingCreations = []
         addingBooks = nil
@@ -429,25 +442,25 @@ final class WelcomeLibraryState: ObservableObject {
 
     /// 選択を捨てる。@Publishedは同じ値の代入でも発火するので、変化したときだけ書く。
     func clearSelection() {
-        if !selectedCollectionIDs.isEmpty { selectedCollectionIDs = [] }
-        if !selectedItemIDs.isEmpty { selectedItemIDs = [] }
+        if collectionSelection != GridSelection() { collectionSelection = GridSelection() }
+        if itemSelection != GridSelection() { itemSelection = GridSelection() }
     }
 
-    /// 編集モード中のクリック。選ばれていなければ選び、選ばれていれば外す。
+    /// ⌘ クリック。選ばれていなければ足し、選ばれていれば外す。
     func toggleCollectionSelection(_ id: UUID) {
-        if selectedCollectionIDs.contains(id) {
-            selectedCollectionIDs.remove(id)
-        } else {
-            selectedCollectionIDs.insert(id)
-        }
+        collectionSelection.click(id, .toggle, order: [])
     }
 
     func toggleItemSelection(_ id: UUID) {
-        if selectedItemIDs.contains(id) {
-            selectedItemIDs.remove(id)
-        } else {
-            selectedItemIDs.insert(id)
-        }
+        itemSelection.click(id, .toggle, order: [])
+    }
+
+    /// コレクションの中から一覧へ戻る(見出しの ‹・⌘↑・Esc)。出てきたコレクションを選んだ状態にする
+    /// (スマートライブラリで束から出たときと同じ。矢印キーでそのまま隣へ進める)。
+    func leaveCollection() {
+        guard let opened = openedCollectionID else { return }
+        openedCollectionID = nil
+        collectionSelection.select(opened)
     }
 }
 

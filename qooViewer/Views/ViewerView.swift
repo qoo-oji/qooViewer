@@ -1446,6 +1446,10 @@ struct ViewerView: View {
         .onChange(of: appState.viewerNotice) { _, notice in
             if let notice { showToast(notice.message) }
         }
+        // 本を開く前に出した知らせ(複数を落として開いたときの「開かなかったもの」。AppState.open(urls:))を、開いてから出す。
+        .onAppear {
+            if let notice = appState.viewerNotice, notice.isFresh { showToast(notice.message) }
+        }
         // 拡大率そのものが変わるたびにアニメーションさせると、ピンチ操作中ずっと数字が
         // ふわふわして読みにくいため、出す/消すの切り替わりだけをアニメーションさせる。
         .animation(.easeInOut(duration: 0.15), value: zoomIndicatorPercent == nil)

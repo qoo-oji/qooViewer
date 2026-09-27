@@ -41,12 +41,12 @@ struct WelcomeDropHandlingTests {
         }
 
         /// 振り分けが終わるまで待って、引き受けたかどうかを返す。
-        func drop(_ urls: [URL]) async -> Bool {
+        func drop(_ urls: [URL], notify: @escaping @MainActor (String) -> Void = { _ in }) async -> Bool {
             await withCheckedContinuation { continuation in
                 let accepted = WelcomeDropHandling.handle(
                     urls, allowsEditing: true, state: state,
                     collectionStore: library.collections, coverExtractor: extractor,
-                    preferences: preferences, onFinished: { continuation.resume(returning: true) }
+                    preferences: preferences, notify: notify, onFinished: { continuation.resume(returning: true) }
                 )
                 if !accepted { continuation.resume(returning: false) }
             }
@@ -79,6 +79,31 @@ struct WelcomeDropHandlingTests {
                 preferences: harness.preferences
             ) == false
         )
+    }
+
+    @Test("本が 1 つも無いドロップは知らせる。本でないものが混ざっていれば数を知らせる(2026-09-27。以前は黙っていた)")
+    func dropsReportWhatWasNotAdded() async throws {
+        let harness = try Harness("welcome-drop-notice")
+        defer { harness.close() }
+        let temporary = try TemporaryDirectory("welcome-drop-notice")
+        let note = temporary.file("readme.txt")
+        try Data("memo".utf8).write(to: note)
+        let empty = try temporary.directory("empty")
+        let book = temporary.file("01.cbz")
+        try makeArchive(book, number: 1)
+        harness.state.isEditing = true
+        let locale = harness.preferences.effectiveLocale
+
+        // 閉包が書き換えるのは箱の中身(捕まえた変数そのものを書き換えると、CI の Swift だけが落ちる)。
+        let received = MessageBox()
+        #expect(await harness.drop([note, empty]) { received.messages.append($0) })
+        #expect(harness.state.pendingCreations.isEmpty)
+        #expect(received.messages == [WelcomeDropHandling.noBooksMessage(locale: locale)])
+
+        received.messages = []
+        #expect(await harness.drop([book, note, empty]) { received.messages.append($0) })
+        #expect(harness.state.pendingCreations.count == 1)
+        #expect(received.messages == [WelcomeDropHandling.skippedMessage(2, locale: locale)])
     }
 
     @Test("一覧へ落としたばらの本は 1 つの作成待ちにまとまり、同じフォルダなら自動登録フォルダの初期値になる")
@@ -181,4 +206,10 @@ struct WelcomeDropHandlingTests {
         #expect(Set(collection.items.map(\.bookID)) == [seed.path, shelfBook.path])
         #expect(harness.state.pendingCreations.isEmpty)
     }
+}
+
+/// 知らせを受け取る箱(dropsReportWhatWasNotAdded)。
+@MainActor
+private final class MessageBox {
+    var messages: [String] = []
 }

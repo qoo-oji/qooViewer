@@ -3,11 +3,11 @@ import Combine
 import CoreGraphics
 import SwiftUI
 
-/// コレクションの中(改善要望5)。登録した本のカバーを並べ、クリックで開く。
+/// コレクションの中(改善要望5)。登録した本のカバーを並べる。
 ///
-/// 編集モード中はクリックが**開く**から**選ぶ/選び直す**に変わり、カバーの左上に選択の印
-/// (SelectionCheckmarkBadge)が出る。選んだ本は右上のゴミ箱でまとめてコレクションから
-/// 削除できる(本の実体は消えない)。編集モード中に開きたいときは右クリックの「開く」から。
+/// クリックで選び、ダブルクリック・Return・⌘↓ で開く(2026-09-27、ホームの操作の統一。環境設定「クリック 1 回で開く」なら
+/// 1 回で開く。規則は HomeGridInteraction)。⌘↑・Esc・見出しの ‹ で一覧へ戻る。編集モード中はカバーの左上に選択の印
+/// (SelectionCheckmarkBadge)が出て、選んだ本を右上のゴミ箱でまとめてコレクションから削除できる(本の実体は消えない)。
 ///
 /// カバーの下に何を書くかは**アプリ全体の設定**(環境設定「外観」→「ウェルカム画面」。
 /// `AppPreferences.collectionCoverCaptionStyle`)。既定は**何も書かない** ―― カバーがそのまま
@@ -97,6 +97,10 @@ struct CollectionDetailView: View {
     @State private var isShowingSettings = false
     /// 出している「本の書き出し」のシート(2026-09-23)。
     @State private var exportRequest: HomeBookExportRequest?
+    /// 右クリックの相手の枠(HomeContextMenuTargetBorder)。
+    @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
+    /// 頭文字で選ぶ(type-select)の入力の控え。
+    @State private var typeSelect = HomeTypeSelect()
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
@@ -407,7 +411,8 @@ struct CollectionDetailView: View {
     /// ホバーの淡い地は出さない ―― 他のアイコンボタンと同じく、押せることは形とツールチップで伝える。
     private var backButton: some View {
         Button {
-            state.openedCollectionID = nil
+            // 出てきたコレクションを一覧で選んだ状態にする(⌘↑・Esc と同じ。WelcomeLibraryState.leaveCollection)。
+            state.leaveCollection()
         } label: {
             Image(systemName: "chevron.backward")
                 .panelIconButtonLabel()
@@ -487,14 +492,19 @@ struct CollectionDetailView: View {
                 .frame(width: columns.contentWidth)
                 .frame(maxWidth: .infinity)
                 .padding(Self.gridPadding)
-                // 編集モード中は、余白(カバーの隙間・外周・最後の行より下)から帯を引いて
-                // まとめて選べる。カバーの上で押し始めたドラッグは従来どおりカバーのもの。
+                // 余白(カバーの隙間・外周・最後の行より下)から帯を引いてまとめて選べる。カバーの上で押し始めたドラッグは
+                // カバーのもの(本の運び出し)。いつでも・選び直し・余白のクリックで外す(CollectionGridView の同じ箇所のコメント)。
                 .marqueeSelectable(
                     marquee,
-                    isEnabled: allowsEditing && state.isEditing,
+                    isEnabled: true,
                     minimumHeight: gridSize.height,
                     selection: $state.selectedItemIDs,
-                    shownIDs: Set(items.map(\.id))
+                    shownIDs: Set(items.map(\.id)),
+                    mode: .replacing,
+                    onBackgroundClick: {
+                        state.selectedItemIDs = []
+                        isGridFocused = true
+                    }
                 )
                 // コレクションが変わったときも作り直して、前のコレクションのカバーを手放す
                 // (CollectionGridViewの同じ`.id`のコメント参照)。
@@ -519,18 +529,29 @@ struct CollectionDetailView: View {
         } action: { size in
             gridSize = size
         }
-        // 「編集」▸「コピー」(⌘C。2026-09-23、利用者の指示)。選んでいる本(編集モードの選択)をコピーする。
-        // 焦点の枠は描かない(選択の枠がある。スマートライブラリのグリッドと同じ)。
+        // 「編集」▸「コピー」(⌘C。2026-09-23、利用者の指示)。選んでいる本をコピーする(2026-09-27 からは編集モードに関係なく)。
+        // 焦点の枠は描かない(選択の枠がある。スマートライブラリのグリッドと同じ)。キーは動かない外枠で受ける
+        // (CollectionGridView の同じ箇所のコメント)。
         .focusable()
         .focusEffectDisabled()
         .focused($isGridFocused)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleKey(press)
+        }
         .onCommand(#selector(NSText.copy(_:))) {
             copySelectedItems()
+        }
+        // 「編集」▸「すべてを選択」(⌘A)。いま出ているぶんだけ。
+        .onCommand(#selector(NSResponder.selectAll(_:))) {
+            state.itemSelection.selectAll(order: items.map(\.id))
         }
         // 選び直したら(帯でまとめて選ぶ・「すべてを選択」のボタンも)、そのまま ⌘C が効くようにグリッドへ焦点を移す。
         .onChange(of: state.selectedItemIDs) { _, selection in
             if !selection.isEmpty { isGridFocused = true }
         }
+        // 画面に出たらキーの行き先にする(コレクションへ入った・一覧へ戻った直後から矢印キー・Return・⌘↑ が効くように。
+        // Finder がウインドウの一覧に焦点を置くのと同じ)。
+        .onAppear { isGridFocused = true }
         // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(コレクションの
         // 切り替え・グリッドの作り直し)。`.id`より外に付ける理由はCollectionGridView参照。
         .onChange(of: gridID) { marquee.forgetFrames() }
@@ -571,10 +592,14 @@ struct CollectionDetailView: View {
             // SelectionCheckmarkBadgeの型コメント参照)。**カバーにだけ掛ける** ――
             // 下の文字まで枠で囲むと、選んだ範囲がカバー1枚に見えなくなる。
             .overlay {
-                SelectionEmphasisBorder(shape: shape)
+                SelectionEmphasisBorder(shape: shape, isFocused: isGridFocused)
                     .opacity(isSelected ? 1 : 0)
             }
             .panelOutlinedAccent(in: shape, isEnabled: isSelected)
+            // 右クリックの相手の枠(常に置いたまま色だけ変える ―― HomeContextMenuTargetBorder)。
+            .overlay {
+                HomeContextMenuTargetBorder(shape: shape, isTarget: isContextTarget(item))
+            }
             .overlay(alignment: .topLeading) {
                 if isEditing {
                     SelectionCheckmarkBadge(isSelected: isSelected, size: state.coverSize)
@@ -593,15 +618,9 @@ struct CollectionDetailView: View {
         }
         .contentShape(Rectangle())
         .help(item.title)
-        // 編集モード中は「開く」ではなく「選ぶ/選び直す」。
-        .onTapGesture {
-            if isEditing {
-                isGridFocused = true
-                state.toggleItemSelection(item.id)
-            } else {
-                open(item)
-            }
-        }
+        // クリックで選び、ダブルクリックで開く(HomeGridInteraction。編集モードでも同じ)。
+        .onTapGesture { clicked(item) }
+        .contextMenuHover(id: item.id.uuidString, in: contextHighlight)
         // Finder などへ運ぶと本がコピーされる(2026-09-23、利用者の指示。HomeBookTransfer.swift の冒頭)。
         .homeBookDragSource { beginDrag(from: item) }
         .contextMenu {
@@ -880,6 +899,77 @@ struct CollectionDetailView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - クリックとキー(2026-09-27、ホームの操作の統一。HomeGridInteraction)
+
+    private var columnCount: Int {
+        WelcomeGridColumns(
+            availableWidth: gridSize.width, itemWidth: state.coverSize, spacing: Self.spacing, padding: Self.gridPadding
+        ).count
+    }
+
+    /// カバーのクリック。ふつうは選び、ダブルクリックで開く(環境設定「クリック 1 回で開く」なら 1 回で開く)。
+    private func clicked(_ item: CollectionItem) {
+        isGridFocused = true
+        switch HomeGridInteraction.currentClickAction(opensWithSingleClick: preferences.homeOpensWithSingleClick) {
+        case .open:
+            open(item)
+        case .select(let click):
+            state.itemSelection.click(item.id, click, order: items.map(\.id))
+        case .ignore:
+            break
+        }
+    }
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        guard let command = HomeGridInteraction.keyCommand(
+            key: press.key, characters: press.characters, modifiers: press.modifiers
+        ) else { return .ignored }
+        let shown = items
+        let order = shown.map(\.id)
+        var target: UUID?
+        switch command {
+        case .open:
+            let selected = shown.filter { state.selectedItemIDs.contains($0.id) }
+            guard let only = selected.first else { return .handled }
+            // 複数を選んでいるときに 1 冊だけ開くと、どれが開いたのか読めない(スマートライブラリと同じ)。
+            guard selected.count == 1 else {
+                NSSound.beep()
+                return .handled
+            }
+            open(only)
+            return .handled
+        case .leave:
+            state.leaveCollection()
+            return .handled
+        case .move(let direction, let extending):
+            target = state.itemSelection.move(direction, extending: extending, order: order, columns: columnCount)
+        case .jump(let kind, let extending):
+            let step = HomeGridReveal.rowsPerPage(marquee: marquee, spacing: Self.spacing) * columnCount
+            target = state.itemSelection.jump(kind.gridJump(step: step), extending: extending, order: order)
+        case .typeSelect(let characters):
+            // 頭文字はカバーの下に出している文字(出していなければファイル名)で見る。
+            let current = state.itemSelection.cursor.flatMap { order.firstIndex(of: $0) }
+            let names = shown.map { caption(for: $0) ?? $0.title }
+            if let index = typeSelect.match(characters, names: names, current: current) {
+                state.itemSelection.select(order[index])
+                target = order[index]
+            }
+        }
+        if let target, let index = order.firstIndex(of: target) {
+            HomeGridReveal.reveal(row: index / columnCount, marquee: marquee, padding: Self.gridPadding, spacing: Self.spacing)
+        }
+        return .handled
+    }
+
+    /// この本が右クリックの相手か(枠を描く)。右クリックした本が選択の中なら選んだ本の全部(contextTargets と同じ規則)。
+    private func isContextTarget(_ item: CollectionItem) -> Bool {
+        guard let highlighted = contextHighlight.highlightedRowID else { return false }
+        if highlighted == item.id.uuidString { return true }
+        let selection = state.selectedItemIDs
+        return selection.count > 1 && selection.contains(item.id)
+            && selection.contains(where: { $0.uuidString == highlighted })
     }
 
     private func open(_ item: CollectionItem) {

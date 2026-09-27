@@ -145,7 +145,9 @@ struct CollectionNameSheet: View {
 
                 // 高さを予約しておく(メッセージの有無でシートの高さが跳ねないようにするため)。
                 Group {
-                    if didEdit, let validationMessage {
+                    // 名前の重複は開いた時点から出す(2026-09-27)。棚のフォルダ名が既にあるコレクションと同じだと、以前は
+                    // 何も書かれないまま「作成」だけが押せなかった。空欄のほうは、まだ何も打っていないだけなので出さない。
+                    if didEdit || !trimmedName.isEmpty, let validationMessage {
                         Text(validationMessage)
                             .foregroundStyle(.red)
                     } else {

@@ -944,6 +944,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
             }
             let (decision, _) = actions.dropDecision(for: info, into: url)
+            // 「ビューアで開く」の設定では、その行のフォルダへは入れない(開く)ので行を強調しない(2026-09-27。一覧と同じ)。
+            if case .openInViewer = decision {
+                outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            }
             return decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
         }
 

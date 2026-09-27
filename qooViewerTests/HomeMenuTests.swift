@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import Testing
@@ -213,5 +214,31 @@ struct HomeMenuTests {
         // 本を開いたときの後始末で捨てる(戻ってきたときに古い依頼で確認が出ない)。
         state.endEditing()
         #expect(state.menuRequest == nil)
+    }
+
+    // MARK: - メニューバーの代わりの項目
+
+    /// 監査 16(docs/plans/macos-conventions-audit-2026-09-26.md): ファイルメニューの「すぐに削除…」は、Finder と同じく ⌥ を押している間だけ
+    /// 「ゴミ箱に入れる」と入れ替わる代わりの項目。常に見える別の項目に戻ると、⌥ を押さなくても完全削除が 1 行下に並ぶ。
+    /// テストホストで実際に組まれたメニューバーを読む(名前は表示言語で変わるので両方で探す)。
+    @Test("ファイルメニューの「すぐに削除…」は「ゴミ箱に入れる」の ⌥ の代わりの項目")
+    func deleteImmediatelyIsTheOptionAlternateOfMoveToTrash() throws {
+        let trashTitles: Set<String> = ["Move to Trash", "ゴミ箱に入れる"]
+        let deleteTitles: Set<String> = ["Delete Immediately…", "すぐに削除…"]
+        let menus = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu)
+        let fileMenu = try #require(menus.first { menu in menu.items.contains { trashTitles.contains($0.title) } })
+        let items = fileMenu.items
+        let trashIndex = try #require(items.firstIndex { trashTitles.contains($0.title) })
+        let alternate = try #require(items.indices.contains(trashIndex + 1) ? items[trashIndex + 1] : nil)
+        #expect(deleteTitles.contains(alternate.title))
+        #expect(alternate.isAlternate)
+        #expect(!items[trashIndex].isAlternate)
+        #expect(alternate.keyEquivalentModifierMask.contains(.option))
+        // AppKit が 2 つを 1 行に畳むのは、キーが同じで修飾キーだけが違うとき。ホームの外ではどちらもキーが無く、SwiftUI は代わりの項目の
+        // キーを "\0"(元の項目は "")にするが、AppKit はこれも畳む(2026-09-27、AppKit 単体でメニューを開いて窓の高さで実測。キーが違う
+        // 項目は畳まれず 1 行増えた)。
+        let key = { (item: NSMenuItem) in item.keyEquivalent.replacingOccurrences(of: "\u{0}", with: "") }
+        #expect(key(alternate) == key(items[trashIndex]))
+        #expect(items.filter { deleteTitles.contains($0.title) }.count == 1, "常に見える「すぐに削除…」が別に残っていない")
     }
 }

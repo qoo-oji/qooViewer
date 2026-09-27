@@ -38,6 +38,8 @@ struct AddBooksPanel: View {
     @State private var isDropTargeted = false
     /// 追加の判定(フォルダの列挙を伴う)が走っている間。二重に走らせない。
     @State private var isAdding = false
+    /// 最後の追加で入れなかったもの(本でない・既に入っていた)の知らせ。無ければ nil(2026-09-27。以前は黙っていた)。
+    @State private var notice: String?
 
     private var collection: BookCollection? {
         target.collectionID.flatMap { collectionStore.collection(withID: $0) }
@@ -91,7 +93,13 @@ struct AddBooksPanel: View {
 
             bookList
 
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
+                if let notice {
+                    Text(verbatim: notice)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer()
                 // 幅はボタンではなくラベルへ(BookMetadataSheetの同じコメント参照)。
                 // 1つきりのボタンなので揃える相手はいないが、「完了」の2文字だけの
@@ -197,11 +205,16 @@ struct AddBooksPanel: View {
         guard !urls.isEmpty, !isAdding else { return }
         isAdding = true
         let order = preferences.siblingBookOrder
+        let locale = locale
         Task {
             defer { isAdding = false }
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             let books = CollectionDropClassifier.booksToAdd(from: classified)
-            guard !books.isEmpty else { return }
+            let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
+            guard !books.isEmpty else {
+                notice = WelcomeDropHandling.noBooksMessage(locale: locale)
+                return
+            }
             // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
             let pending = await CollectionStore.makePendingItems(for: books)
             guard !pending.isEmpty else { return }
@@ -226,6 +239,18 @@ struct AddBooksPanel: View {
             // 入った順に積む。既に入っていた本はadd(_:to:)が弾いて返さないので、ここには来ない。
             addedItemIDs.append(contentsOf: added.map(\.id))
             coverExtractor.enqueue(added)
+            // 入れなかったものを知らせる(本でない・既に入っていた)。全部入ったら消す。
+            var parts: [String] = []
+            if skipped > 0 { parts.append(WelcomeDropHandling.skippedMessage(skipped, locale: locale)) }
+            let duplicates = pending.count - added.count
+            if duplicates == 1 {
+                parts.append(String(localized: "1 book was already in the collection.", language: locale))
+            } else if duplicates > 1 {
+                parts.append(String(
+                    format: String(localized: "%lld books were already in the collection.", language: locale), duplicates
+                ))
+            }
+            notice = parts.isEmpty ? nil : parts.joined(separator: " ")
         }
     }
 }

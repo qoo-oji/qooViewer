@@ -897,11 +897,60 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から複数のURLが渡された場合の入口。
-    /// 分類(全部画像なら1冊にまとめる / それ以外は先頭だけ)はBookOpenRequestが1箇所で行う。
+    /// ウインドウへのドロップ・「開く…」のパネル・ファイルブラウザ(複数を選んで開く/外から落とす)から URL が渡された場合の入口。
+    /// 全部が画像なら 1 冊にまとめる(BookOpenRequest)。
+    ///
+    /// それ以外は**読み込みの前に下調べする**(2026-09-27、ホームの操作の統一。DroppedBooks):
+    /// - 1 件で、開けないもの(空のフォルダ・本を含まないフォルダ・対応しないファイル)なら開かずに知らせる。以前はそのまま
+    ///   読み込みへ回してエラーになり、**表示中の本まで閉じていた**
+    /// - 複数なら、本だけを自然順に並べ(棚は中の本に展開)、先頭を開いて残りを「次の本・前の本」でたどれるようにする。
+    ///   以前は先頭の 1 件だけを開き、残りを黙って捨てていた。本でないものがあれば数を知らせる
+    ///
+    /// 知らせはビューア・ホームの下に出す(`postViewerNotice`)。
     func open(urls: [URL]) {
         guard let request = BookOpenRequest(openingCandidates: urls) else { return }
-        open(request: request)
+        guard request.urls.count == 1 else {
+            // 画像をまとめた 1 冊。
+            open(request: request)
+            return
+        }
+        let order = siblingBookOrder
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        var seen = Set<String>()
+        let candidates = urls.filter { seen.insert($0.path).inserted }
+        Task { @MainActor [weak self] in
+            if candidates.count == 1, let url = candidates.first {
+                let verdict = await Task.detached(priority: .userInitiated) { DroppedBooks.single(url, order: order) }.value
+                guard let self else { return }
+                guard verdict == .open else {
+                    self.postViewerNotice(String(
+                        format: String(localized: "“%@” can’t be opened as a book.", language: locale), url.lastPathComponent
+                    ))
+                    return
+                }
+                self.open(request: request)
+                return
+            }
+            let found = await Task.detached(priority: .userInitiated) { DroppedBooks.multiple(candidates, order: order) }.value
+            guard let self else { return }
+            guard let first = found.books.first else {
+                self.postViewerNotice(String(localized: "None of the items can be opened as a book.", language: locale))
+                return
+            }
+            let sequence = found.books.count > 1
+                ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
+            self.open(request: BookOpenRequest(first, sequence: sequence))
+            if found.skipped > 0 {
+                self.postViewerNotice(Self.skippedNotice(found.skipped, locale: locale))
+            }
+        }
+    }
+
+    /// 複数を開いたときに、本でないので並びに入れなかった数の知らせ。
+    static func skippedNotice(_ count: Int, locale: Locale) -> String {
+        count == 1
+            ? String(localized: "1 item wasn’t opened because it isn’t a book.", language: locale)
+            : String(format: String(localized: "%lld items weren’t opened because they aren’t books.", language: locale), count)
     }
 
     /// ドラッグ&ドロップやFinderからの「開く」、次の本/前の本への移動、Fileメニューからの選択など、

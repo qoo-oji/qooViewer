@@ -177,9 +177,14 @@ the two retention limits. Details in `docs/06-persistence.md` and
 `CollectionCoverStore` (covers on disk under Application Support — not a cache, never evicted),
 `CollectionCoverExtractor` (one app-wide queue) and `CollectionAutoFolderScanner` + `FolderChangeWatcher`
 (FSEvents). Covers are stored uncropped; aspect ratio / crop anchor are per-library and applied at draw
-time. The auto-add folder holds a *path only* — folder permission stays with `FolderAccessStore`. Edit
-mode only decides what a click/drop means and whether the trash shows; creating/adding/renaming are not
-gated on it. The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
+time. The auto-add folder holds a *path only* — folder permission stays with `FolderAccessStore`. **Clicks,
+selection and keys are the same on every Home grid** (2026-09-27, `docs/plans/home-interaction-design.md`): click selects,
+double-click/Return/⌘↓ opens, ⌘↑/Esc leaves a collection or group, ⌘/⇧ click, marquee, arrows, type-select
+(`GridSelection`, `HomeGridInteraction`; the setting `homeOpensWithSingleClick` makes a plain click open on the shelf and the
+smart library, never in the file browser). Edit mode no longer changes clicks: it only decides what a drop means (open vs.
+create/add — and a drop on a tile adds to that collection), shows the select-all/trash buttons and the delete items, and the
+header rename; creating/adding/renaming are not gated on it (the user kept edit mode on purpose: without it, people who drop
+to open would lose drop-to-create). The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
 `FileBrowserState` one-per-window — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list, tree and icons are AppKit (`NSTableView`/`NSOutlineView`/`NSCollectionView` — the icon view was moved off SwiftUI on 2026-09-15 so all three share the same drop, menu, key and rename paths), listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
@@ -192,7 +197,7 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also
 excludes books open in a viewer — / `canWriteInto`), shared by the context menu, the menu bar (`FileBrowserMenuSelection`)
 and the lists' keys (`canPerform`); never enable something that then silently does nothing (docs/15「淡色の条件」, 2026-09-19). Holding Option while the
-context menu is open swaps Copy → Copy as Pathname, Open With → Always Open With and Move to Trash → Delete Immediately… (always confirmed; 2026-09-23 — also an always-visible ⌥⌘⌫ item in the File menu, since SwiftUI `Commands` cannot build alternates; it refuses mount points and folders containing one — `removeItem` descends into a mount and empties the volume — and open books are rechecked after every confirmation, `asking(openBookCheck:)`), as in Finder (2026-09-21;
+context menu is open swaps Copy → Copy as Pathname, Open With → Always Open With and Move to Trash → Delete Immediately… (always confirmed; 2026-09-23 — also ⌥⌘⌫ in the File menu, an `.modifierKeyAlternate(.option)` of Move to Trash since 2026-09-27; it refuses mount points and folders containing one — `removeItem` descends into a mount and empties the volume — and open books are rechecked after every confirmation, `asking(openBookCheck:)`), as in Finder (2026-09-21;
 `FileBrowserMenuCommand.optionAlternate`, built as AppKit alternate items right after their primary, never listed in
 `groups(for:)`; Always Open With writes a per-file xattr, so it is refused in read-only mode). "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch

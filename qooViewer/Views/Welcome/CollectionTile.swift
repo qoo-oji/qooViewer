@@ -20,10 +20,10 @@ import SwiftUI
 ///
 /// 割り付けはどちらも同じ`grid(cell:)`を通るので、経路が切り替わっても1ptも動かない。
 ///
-/// ■ 編集モードでは「選ぶ」
-/// 編集モード中はクリックが**中へ入る**から**選ぶ/選び直す**に変わり、左上に選択の印
-/// (SelectionCheckmarkBadge)が出る。選んだコレクションは右上のゴミ箱でまとめて削除できる。
-/// 編集モード中に中へ入りたいときは右クリックの「開く」から(CollectionGridView)。
+/// ■ クリックは「選ぶ」(2026-09-27 から。ホームの操作の統一)
+/// クリックの意味は一覧の側(CollectionGridView。`HomeGridInteraction`)が決める ―― ふつうは選び、ダブルクリックで中へ入る。
+/// 札の絵も下の名前も同じ 1 つの枠(以前は絵だけが `Button` で、名前を押しても何も起きなかった)。編集モード中は左上に
+/// 選択の印(SelectionCheckmarkBadge)が出る(選んだコレクションは右上のゴミ箱でまとめて削除できる)。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - カバー画像・自前の地を持つ冊数バッジ・選択の印 → 何も付けない
@@ -61,12 +61,15 @@ struct CollectionTile: View {
     /// 保持した画像を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。第2引数は
     /// **その1枚が何セル分に相当するか** ―― 焼いた札の絵は1枚で中身のカバー全部を兼ねる。
     var onImageRetained: ((CGImage, Int) -> Void)?
-    /// 編集モードか。クリックの意味(開く/選ぶ)がこれで変わる。
+    /// 編集モードか(選択の印を出す)。
     var isEditing: Bool = false
     var isSelected: Bool = false
-    let onOpen: () -> Void
-    /// 編集モード中のクリック。
-    var onToggleSelection: () -> Void = {}
+    /// 一覧がキーの行き先か(選択の枠の色。検索欄へ移ると灰色 ―― SelectionEmphasisBorder)。
+    var isFocused: Bool = true
+    /// 右クリックのメニューの相手か(枠を描く。HomeContextMenuTarget)。
+    var isContextTarget: Bool = false
+    /// 札のクリック(意味は一覧が決める)。
+    let onClick: () -> Void
 
     /// いま持っている焼いた絵。`key`は`CollectionTileImageStore.cacheKey`で、これが
     /// 一致しないもの(比を変えた・本が増えた・大きさを変えた)は使わない。
@@ -127,16 +130,7 @@ struct CollectionTile: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Button {
-                if isEditing {
-                    onToggleSelection()
-                } else {
-                    onOpen()
-                }
-            } label: {
-                artwork
-            }
-            .buttonStyle(.plain)
+            artwork
 
             Text(collection.name)
                 .font(.system(size: nameFontSize))
@@ -144,6 +138,9 @@ struct CollectionTile: View {
                 .truncationMode(.middle)
                 .panelOutlinedContent()
         }
+        // 絵と名前の間の隙間も札のうち(押し損じで余白のクリック = 選択の解除にならないように)。
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onClick)
         .help(collection.name)
     }
 
@@ -185,8 +182,16 @@ struct CollectionTile: View {
             }
             // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
             .overlay {
-                SelectionEmphasisBorder(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .opacity(isSelected ? 1 : 0)
+                SelectionEmphasisBorder(
+                    shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), isFocused: isFocused
+                )
+                .opacity(isSelected ? 1 : 0)
+            }
+            // 右クリックの相手の枠(常に置いたまま色だけ変える ―― HomeContextMenuTarget)。
+            .overlay {
+                HomeContextMenuTargetBorder(
+                    shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), isTarget: isContextTarget
+                )
             }
             .panelOutlinedAccent(
                 in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),

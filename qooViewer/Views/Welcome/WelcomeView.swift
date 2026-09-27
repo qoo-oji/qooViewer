@@ -9,9 +9,9 @@ import SwiftUI
 /// ドラッグ&ドロップやボタンから直接開くこともでき、履歴は帯の「履歴から開く」へ畳んだ。
 ///
 /// ■ 編集モード
-/// コレクションの作成・リネーム・削除、本の追加・削除は、右上の鉛筆ボタンで**編集モード**に
-/// 入っている間だけできる。閲覧中に誤って棚を壊さないためと、ドロップの意味(開く / 登録する)を
-/// 1つのモードで切り替えるため。本を開いた時点で編集モードは解除される(ContentView)。
+/// 右上の鉛筆ボタンの**編集モード**は、コレクションに入れる・外す操作を前に出すモード(2026-09-27 から。
+/// WelcomeLibraryState.isEditing)。ドロップの意味(開く / 登録する)を切り替え、削除(ゴミ箱・右クリックの削除)を出す。
+/// クリックの意味は変えない(いつでも選ぶ)。本を開いた時点で編集モードは解除される(ContentView)。
 ///
 /// ■ シークレットウインドウ
 /// 編集モードに入れない(`allowsEditing == false`)。コレクションの登録はDBへの書き込みで、
@@ -39,6 +39,9 @@ struct WelcomeView: View {
 
     /// 編集操作を許すか。シークレットウインドウでは常にfalse(型コメント参照)。
     private var allowsEditing: Bool { !appState.isPrivateWindow }
+    /// ホームの下に短く出す知らせ(AppState.viewerNotice。ドロップで開かなかった・登録しなかったもの。2026-09-27)。
+    @State private var noticeMessage: String?
+    @State private var noticeDismissTask: Task<Void, Never>?
 
     /// いま見ているライブラリ。保存されていたidの実体が無ければ先頭へ読み替える
     /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
@@ -108,6 +111,25 @@ struct WelcomeView: View {
                 .ignoresSafeArea()
             }
         }
+        // 知らせ(AppState.viewerNotice)。ビューアと同じく下に浮かべ、クリックは下へ通す。本を開く前に出した知らせも拾う(isFresh)。
+        .overlay(alignment: .bottom) {
+            ZStack {
+                if let noticeMessage {
+                    OverlayToast(message: noticeMessage)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 48)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.2), value: noticeMessage)
+        }
+        .onChange(of: appState.viewerNotice) { _, notice in
+            if let notice { showNotice(notice.message) }
+        }
+        .onAppear {
+            if let notice = appState.viewerNotice, notice.isFresh { showNotice(notice.message) }
+        }
         // 名前を訊くシート。棚をまとめてドロップすると複数たまるので、1枚を開いたまま中身だけ
         // 差し替えて順に処理し、行列が空になった時点で閉じる(CollectionNameSheet.
         // dismissesOnFinishのコメント参照)。
@@ -125,7 +147,7 @@ struct WelcomeView: View {
         // 外側のonAppearでも、中で弱く捕まえる4つを**明示的に**捕まえる。Swift 6.4(Xcode 27)は
         // 「中で`weak`なのに外側が暗黙に強く捕まえている」形を警告する(#ImplicitStrongCapture)。
         // 捕まえ方は今までと同じで、AppStateに預ける閉包が弱いまま、という下のコメントの肝は変わらない。
-        .onAppear { [state, collectionStore, coverExtractor, preferences] in
+        .onAppear { [state, collectionStore, coverExtractor, preferences, appState] in
             // ライブラリ機能がOFFの間は、下の2つは呼んでも何もしない(それぞれの isLibraryFeatureEnabled)。ドロップの受け口は
             // 編集モードのときだけ引き受けるので、編集モードに入れないOFFの間は常に「本を開く」へ回る。
             coverExtractor.refill()
@@ -138,19 +160,30 @@ struct WelcomeView: View {
             // weakで捕まえ、振り分けの本体は状態を持たないWelcomeDropHandlingに置いてある。
             let allowsEditing = allowsEditing
             appState.welcomeDropHandler = {
-                [weak state, weak collectionStore, weak coverExtractor, weak preferences] urls in
+                [weak state, weak collectionStore, weak coverExtractor, weak preferences, weak appState] urls in
                 guard let state, let collectionStore, let coverExtractor, let preferences else {
                     return false
                 }
                 return WelcomeDropHandling.handle(
                     urls, allowsEditing: allowsEditing, state: state,
                     collectionStore: collectionStore, coverExtractor: coverExtractor,
-                    preferences: preferences
+                    preferences: preferences,
+                    notify: { appState?.postViewerNotice($0) }
                 )
             }
         }
         .onDisappear {
             appState.welcomeDropHandler = nil
+        }
+    }
+
+    private func showNotice(_ message: String) {
+        noticeDismissTask?.cancel()
+        noticeMessage = message
+        noticeDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: FileBrowserState.toastDuration)
+            guard !Task.isCancelled else { return }
+            noticeMessage = nil
         }
     }
 
@@ -218,6 +251,14 @@ struct WelcomeView: View {
             ) else { return }
             if let autoFolder {
                 collectionStore.setAutoFolder(autoFolder, for: created)
+                // 棚のフォルダを落として作ったときは、そのフォルダの許可も預ける(2026-09-27)。落としたフォルダにはドロップの
+                // 許可が付いているが、自動登録フォルダを走査するのは FolderAccessStore が覆う場所だけなので、預けないと
+                // 「アクセスを許可」待ちのまま止まっていた(docs/14 の「フォルダをドロップ → 権限も付いてくる」はこれで本当になる)。
+                // シートで別のフォルダへ変えたときは、そのフォルダの許可は付いてこないので預けない。
+                if creation.fromDrop, creation.fromShelf, autoFolder == creation.autoFolder,
+                   !folderAccess.isPathCovered(autoFolder) {
+                    folderAccess.add(url: autoFolder)
+                }
             }
             coverExtractor.enqueue(collectionStore.items(in: created, sort: .dateAddedAscending))
             // **ドロップで作ったときはパネルを出さない**(ユーザー指示 2026-09-09)。
@@ -269,49 +310,103 @@ enum WelcomeDropHandling {
     ///
     /// **編集モードのときだけ引き受ける。** 閲覧中のドロップは従来どおり「その本を開く」で、
     /// 意味が変わるのは編集モードに入っている間だけ、という1つの規則にしてある。
+    /// (タイルの上に落としたときは、タイル自身の受け口が先に受ける ―― `addDropped(_:toCollection:…)`。)
+    ///
+    /// 本にならなかったもの・既に入っていた本は `notify` で知らせる(2026-09-27。以前は黙っていた)。
     ///
     /// - Parameter onFinished: 振り分け(フォルダの列挙を伴うのでメインアクターの外で走る)が
     ///   終わり、結果を積み終えたときに呼ぶ(**テストのための口**。画面は渡さない)。
     static func handle(
         _ urls: [URL], allowsEditing: Bool, state: WelcomeLibraryState,
         collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
-        preferences: AppPreferences, onFinished: (@MainActor () -> Void)? = nil
+        preferences: AppPreferences, notify: @escaping @MainActor (String) -> Void = { _ in },
+        onFinished: (@MainActor () -> Void)? = nil
     ) -> Bool {
         guard allowsEditing, state.isEditing, !urls.isEmpty,
               resolvedLibrary(state: state, collectionStore: collectionStore) != nil
         else { return false }
         let order = preferences.siblingBookOrder
+        let locale = preferences.effectiveLocale
         let openedCollectionID = state.openedCollectionID
         Task {
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             if let openedCollectionID,
                collectionStore.collection(withID: openedCollectionID) != nil {
-                // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsの
-                // コメント参照)。待っている間に消されたコレクションには足さないよう、戻ってから
-                // idで引き直す。
-                let pending = await CollectionStore.makePendingItems(
-                    for: CollectionDropClassifier.booksToAdd(from: classified)
+                await add(
+                    classified, toCollection: openedCollectionID,
+                    collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify
                 )
-                if let collection = collectionStore.collection(withID: openedCollectionID) {
-                    addBooks(
-                        pending, to: collection,
-                        collectionStore: collectionStore, coverExtractor: coverExtractor
-                    )
-                }
             } else {
-                queueCreations(from: classified, into: state)
+                let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
+                if queueCreations(from: classified, into: state) {
+                    if skipped > 0 { notify(skippedMessage(skipped, locale: locale)) }
+                } else {
+                    notify(noBooksMessage(locale: locale))
+                }
             }
             onFinished?()
         }
         return true
     }
 
-    private static func addBooks(
-        _ pending: [CollectionStore.PendingItem], to collection: BookCollection,
-        collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor
+    /// タイルの上に落とされた本を、そのコレクションへ足す(編集モードのとき。2026-09-27、ホームの操作の統一 ―― 以前はタイルの上でも
+    /// 一覧の余白と同じく新しいコレクションを作っていた)。
+    static func addDropped(
+        _ urls: [URL], toCollection collectionID: UUID, collectionStore: CollectionStore,
+        coverExtractor: CollectionCoverExtractor, preferences: AppPreferences,
+        notify: @escaping @MainActor (String) -> Void
     ) {
-        guard !pending.isEmpty else { return }
-        coverExtractor.enqueue(collectionStore.add(pending, to: collection))
+        guard !urls.isEmpty else { return }
+        let order = preferences.siblingBookOrder
+        let locale = preferences.effectiveLocale
+        Task {
+            let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
+            await add(
+                classified, toCollection: collectionID,
+                collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify
+            )
+        }
+    }
+
+    /// 振り分けたものをコレクションへ足し、結果を知らせる(棚は中の本に展開する)。
+    private static func add(
+        _ classified: [CollectionDropClassifier.Item], toCollection collectionID: UUID,
+        collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
+        locale: Locale, notify: @MainActor (String) -> Void
+    ) async {
+        let books = CollectionDropClassifier.booksToAdd(from: classified)
+        let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
+        guard !books.isEmpty else {
+            notify(noBooksMessage(locale: locale))
+            return
+        }
+        // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsの
+        // コメント参照)。待っている間に消されたコレクションには足さないよう、戻ってから
+        // idで引き直す。
+        let pending = await CollectionStore.makePendingItems(for: books)
+        guard let collection = collectionStore.collection(withID: collectionID), !pending.isEmpty else { return }
+        let added = collectionStore.add(pending, to: collection)
+        coverExtractor.enqueue(added)
+        var message = FileBrowserActions.addedToCollectionMessage(
+            addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name, locale: locale
+        )
+        if skipped > 0 { message += " " + skippedMessage(skipped, locale: locale) }
+        notify(message)
+    }
+
+    /// 落としたものに本が 1 つも無かった(ばらの画像・中間フォルダ・空のフォルダ・対応しないファイル)。
+    static func noBooksMessage(locale: Locale) -> String {
+        String(
+            localized: "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books.",
+            language: locale
+        )
+    }
+
+    /// 本でないので登録しなかった数。
+    static func skippedMessage(_ count: Int, locale: Locale) -> String {
+        count == 1
+            ? String(localized: "1 item wasn’t added because it isn’t a book.", language: locale)
+            : String(format: String(localized: "%lld items weren’t added because they aren’t books.", language: locale), count)
     }
 
     /// 一覧へのドロップ。ばらの本はまとめて1つのコレクションに、棚(本が並んだフォルダ)は

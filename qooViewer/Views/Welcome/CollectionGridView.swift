@@ -66,6 +66,14 @@ struct CollectionGridView: View {
     @FocusState private var isSearchFocused: Bool
     /// ライブラリの設定のポップオーバー(LibraryPaneControls.isShowingSettingsのコメント)。
     @State private var isShowingSettings = false
+    /// 一覧がキーの行き先か(矢印キー・⌘A・Return を受ける。2026-09-27、ホームの操作の統一)。札を押す・余白を押すと入る。
+    @FocusState private var isGridFocused: Bool
+    /// 右クリックの相手の枠(HomeContextMenuTargetBorder)。
+    @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
+    /// 頭文字で選ぶ(type-select)の入力の控え。
+    @State private var typeSelect = HomeTypeSelect()
+    /// ファイルを運んでいる間、その上にある札(編集モードのとき。落とすとその札のコレクションへ足す)。
+    @State private var dropTargetCollectionID: UUID?
 
     /// 検索欄の文字列を照合できる形にしたもの。空欄ならnil(絞り込まない)。
     private var searchQuery: LibrarySearchQuery? {
@@ -273,14 +281,20 @@ struct CollectionGridView: View {
                 .frame(width: columns.contentWidth)
                 .frame(maxWidth: .infinity)
                 .padding(Self.gridPadding)
-                // 編集モード中は、余白(札の隙間・外周・最後の行より下)から帯を引いて
-                // まとめて選べる。札の上で押し始めたドラッグは従来どおり札のもの。
+                // 余白(札の隙間・外周・最後の行より下)から帯を引いてまとめて選べる。札の上で押し始めたドラッグは札のもの。
+                // 2026-09-27 からは編集モードに関係なくいつでも、Finder と同じく ⌘ / ⇧ を押していなければ選び直し
+                // (それまでは編集モードの中だけで、選択に足す向きだった)。余白のクリックは選択を外す。
                 .marqueeSelectable(
                     marquee,
-                    isEnabled: allowsEditing && state.isEditing,
+                    isEnabled: true,
                     minimumHeight: gridSize.height,
                     selection: $state.selectedCollectionIDs,
-                    shownIDs: Set(collections.map(\.id))
+                    shownIDs: Set(collections.map(\.id)),
+                    mode: .replacing,
+                    onBackgroundClick: {
+                        state.selectedCollectionIDs = []
+                        isGridFocused = true
+                    }
                 )
                 // 作り直しの鍵は2つ。
                 //
@@ -317,6 +331,93 @@ struct CollectionGridView: View {
         // グリッドの作り直し)。**`.id`より外に付けること** ―― 中に付けるとビューごと
         // 作り直されて、変化に気づく前に消える。
         .onChange(of: gridID) { marquee.forgetFrames() }
+        // キーは動かない外枠で受ける(セルに焦点を持たせると、Lazy なセルが手放されたときに行き先が消える ――
+        // SmartLibraryPane.grid と同じ)。焦点の枠は描かない(選択の枠がある)。
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isGridFocused)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleKey(press)
+        }
+        // 「編集」▸「すべてを選択」(⌘A)。いま出ているぶんだけ。
+        .onCommand(#selector(NSResponder.selectAll(_:))) {
+            state.collectionSelection.selectAll(order: collections.map(\.id))
+        }
+        // 帯・全選択のボタンで選び直したら、そのままキーが効くように一覧へ焦点を移す。
+        .onChange(of: state.selectedCollectionIDs) { _, selection in
+            if !selection.isEmpty { isGridFocused = true }
+        }
+        // 画面に出たらキーの行き先にする(コレクションへ入った・一覧へ戻った直後から矢印キー・Return・⌘↑ が効くように。
+        // Finder がウインドウの一覧に焦点を置くのと同じ)。
+        .onAppear { isGridFocused = true }
+    }
+
+    // MARK: - クリックとキー(2026-09-27、ホームの操作の統一。HomeGridInteraction)
+
+    private var columnCount: Int {
+        WelcomeGridColumns(
+            availableWidth: gridSize.width, itemWidth: state.tileSize, spacing: Self.spacing, padding: Self.gridPadding
+        ).count
+    }
+
+    /// 札のクリック。ふつうは選び、ダブルクリックで中へ入る(環境設定「クリック 1 回で開く」なら 1 回で入る)。
+    private func clicked(_ collection: BookCollection) {
+        isGridFocused = true
+        switch HomeGridInteraction.currentClickAction(opensWithSingleClick: preferences.homeOpensWithSingleClick) {
+        case .open:
+            open(collection)
+        case .select(let click):
+            state.collectionSelection.click(collection.id, click, order: collections.map(\.id))
+        case .ignore:
+            break
+        }
+    }
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        guard let command = HomeGridInteraction.keyCommand(
+            key: press.key, characters: press.characters, modifiers: press.modifiers
+        ) else { return .ignored }
+        let order = collections.map(\.id)
+        var target: UUID?
+        switch command {
+        case .open:
+            let selected = collections.filter { state.selectedCollectionIDs.contains($0.id) }
+            guard let only = selected.first else { return .handled }
+            // 複数を選んでいるときに 1 つだけ開くと、どれが開いたのか読めない(スマートライブラリと同じ)。
+            guard selected.count == 1 else {
+                NSSound.beep()
+                return .handled
+            }
+            open(only)
+            return .handled
+        case .leave:
+            // 一覧はいちばん外側(出る先が無い)。Esc は検索欄などへ渡す。
+            return .ignored
+        case .move(let direction, let extending):
+            target = state.collectionSelection.move(direction, extending: extending, order: order, columns: columnCount)
+        case .jump(let kind, let extending):
+            let step = HomeGridReveal.rowsPerPage(marquee: marquee, spacing: Self.spacing) * columnCount
+            target = state.collectionSelection.jump(kind.gridJump(step: step), extending: extending, order: order)
+        case .typeSelect(let characters):
+            let current = state.collectionSelection.cursor.flatMap { order.firstIndex(of: $0) }
+            if let index = typeSelect.match(characters, names: collections.map(\.name), current: current) {
+                state.collectionSelection.select(order[index])
+                target = order[index]
+            }
+        }
+        if let target, let index = order.firstIndex(of: target) {
+            HomeGridReveal.reveal(row: index / columnCount, marquee: marquee, padding: Self.gridPadding, spacing: Self.spacing)
+        }
+        return .handled
+    }
+
+    /// この札が右クリックの相手か(枠を描く)。右クリックした札が選択の中なら選んだ札の全部(contextTargets と同じ規則)。
+    private func isContextTarget(_ collection: BookCollection) -> Bool {
+        guard let highlighted = contextHighlight.highlightedRowID else { return false }
+        if highlighted == collection.id.uuidString { return true }
+        let selection = state.selectedCollectionIDs
+        return selection.count > 1 && selection.contains(collection.id)
+            && selection.contains(where: { $0.uuidString == highlighted })
     }
 
     @ViewBuilder
@@ -346,20 +447,47 @@ struct CollectionGridView: View {
             },
             isEditing: allowsEditing && state.isEditing,
             isSelected: state.selectedCollectionIDs.contains(collection.id),
-            onOpen: { open(collection) },
-            onToggleSelection: { state.toggleCollectionSelection(collection.id) }
+            isFocused: isGridFocused,
+            // 右クリックの相手・ファイルを落とす先のどちらでも同じ枠(どちらも「これが相手」の印)。
+            isContextTarget: isContextTarget(collection) || dropTargetCollectionID == collection.id,
+            onClick: { clicked(collection) }
         )
-        // 右クリックのメニューは編集モードのときだけ付ける。**項目が空のcontextMenuは付けない**
-        // ―― 空の枠が一瞬出るだけの当たり所になる(WelcomeQuickOpenList.rowの同じ判断)。
-        if allowsEditing && state.isEditing {
-            let targets = contextTargets(for: collection)
-            // 1つを相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
-            // 2026-09-09)。押せてしまうと、右クリックした1つだけに効くのか選んだ全部に効くのかが
-            // 画面から読めない。
-            let isSingle = targets.count == 1
-            tile.contextMenu {
-                // 編集モード中はクリックが選択になるので、中へ入る道をここに残す
-                // (CollectionTileの型コメント参照)。
+        let targets = contextTargets(for: collection)
+        // 1つを相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
+        // 2026-09-09)。押せてしまうと、右クリックした1つだけに効くのか選んだ全部に効くのかが
+        // 画面から読めない。
+        let isSingle = targets.count == 1
+        // 右クリックのメニューは**いつでも付ける**(2026-09-27、ホームの操作の統一。監査 #30。それまでは編集モードの中だけで、
+        // 閲覧中はメニューが出なかった)。**削除だけは今どおり編集モードの中**(利用者の判断 ―― 取り消せない書き込みなので、
+        // ゴミ箱と同じくモードの奥に置く)。シークレットウインドウでは書き込む項目を淡色にする(消さない ―― 利用者の決定 2026-09-23)。
+        tile
+            .contextMenuHover(id: collection.id.uuidString, in: contextHighlight)
+            // 編集モードでは、札の上に落とした本はその札のコレクションへ足す(2026-09-27、ホームの操作の統一。監査 #36 ―― 以前は
+            // 札の上でも余白と同じく新しいコレクションを作っていた)。札の外(余白)はウインドウ全体の受け口のまま(WelcomeDropHandling)。
+            .modifier(CollectionTileDropTarget(
+                isEnabled: allowsEditing && state.isEditing,
+                isTargeted: Binding(
+                    get: { dropTargetCollectionID == collection.id },
+                    set: { targeted in
+                        if targeted {
+                            dropTargetCollectionID = collection.id
+                        } else if dropTargetCollectionID == collection.id {
+                            dropTargetCollectionID = nil
+                        }
+                    }
+                ),
+                refusesDrop: { [weak appState] in
+                    appState.map { HomeBookDragTracker.isDragging(from: $0) } ?? false
+                },
+                receive: { [weak appState] urls in
+                    WelcomeDropHandling.addDropped(
+                        urls, toCollection: collection.id, collectionStore: collectionStore,
+                        coverExtractor: coverExtractor, preferences: preferences,
+                        notify: { appState?.postViewerNotice($0) }
+                    )
+                }
+            ))
+            .contextMenu {
                 Button("Open") { open(collection) }
                     .disabled(!isSingle)
                 Divider()
@@ -368,19 +496,24 @@ struct CollectionGridView: View {
                         collectionID: collection.id, name: collection.name, libraryID: library.id
                     )
                 }
-                .disabled(!isSingle)
+                .disabled(!isSingle || !allowsEditing)
                 Divider()
-                moveMenu(for: targets)
+                if allowsEditing {
+                    moveMenu(for: targets)
+                } else if collectionStore.libraries.count > 1 {
+                    // `.contextMenu` の中の `Menu` には `.disabled` が効かないので、押せない `Button` で描く
+                    // (FileBrowserDisabledSubmenu の型コメント)。
+                    FileBrowserDisabledSubmenu(title: String(localized: "Move to Library", language: locale))
+                }
                 Divider()
                 Button("Rename…") { renamingCollectionID = collection.id }
-                    .disabled(!isSingle)
-                Button("Delete…", role: .destructive) {
-                    deletingCollectionIDs = targets.map(\.id)
+                    .disabled(!isSingle || !allowsEditing)
+                if allowsEditing && state.isEditing {
+                    Button("Delete…", role: .destructive) {
+                        deletingCollectionIDs = targets.map(\.id)
+                    }
                 }
             }
-        } else {
-            tile
-        }
     }
 
     /// コレクションの中へ入る。**検索を残すかはここで決める** ―― 中に一致する本があれば残して
@@ -504,5 +637,22 @@ struct CollectionGridView: View {
         state.pendingCreations.append(
             .init(defaultName: "", books: [], fromShelf: false, fromDrop: false)
         )
+    }
+}
+
+/// 札をファイルの落とし先にする(編集モードのときだけ。CollectionGridView.tile)。受け口の中身は本を開く経路と同じ
+/// `fileURLDropTarget`(URL の取り出しを 1 か所に保つ ―― BookFileDropTarget.swift)。
+private struct CollectionTileDropTarget: ViewModifier {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let refusesDrop: () -> Bool
+    let receive: ([URL]) -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.fileURLDropTarget(isTargeted: $isTargeted, refusesDrop: refusesDrop, receiveURLs: receive)
+        } else {
+            content
+        }
     }
 }

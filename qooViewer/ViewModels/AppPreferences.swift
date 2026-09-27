@@ -49,6 +49,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
+        static let homeOpensWithSingleClick = "qooViewer.pref.homeOpensWithSingleClick"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
         static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
         static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
@@ -423,6 +424,15 @@ final class AppPreferences: ObservableObject {
     /// ボタン操作はこの設定に関わらず常にシングルクリックのまま。
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { defaults.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
+    }
+    /// ホームの本棚(コレクションの一覧・コレクションの中)とスマートライブラリで、**クリック 1 回で開く**か(環境設定「一般」▸
+    /// ホーム。2026-09-27、利用者の決定。既定 OFF)。
+    ///
+    /// OFF(既定)ではクリックで選び、ダブルクリック・Return・⌘↓ で開く(Finder・ファイルブラウザと同じ)。ON ではふつうのクリックで
+    /// 開き、選ぶのは ⌘ / ⇧ クリック・帯・キー。**ファイルブラウザには効かない**(選んだ項目の名前をもう一度クリックして名前を
+    /// 変える操作とぶつかる。Finder にもこの設定は無い)。サイドパネルの `sidePanelUsesDoubleClick` とは面が違うので別の設定。
+    @Published var homeOpensWithSingleClick: Bool {
+        didSet { defaults.set(homeOpensWithSingleClick, forKey: Keys.homeOpensWithSingleClick) }
     }
     // 撤去した設定(改善要望7、2026-09-13)。**UserDefaultsの値は消さない** ―― 古い版を起動した
     // 人の設定を壊さないため。キーの一覧はdocs/06「環境設定」。
@@ -1315,6 +1325,7 @@ final class AppPreferences: ObservableObject {
         self.sidePanelWidth = Self.storedDouble(defaults.object(forKey: Keys.sidePanelWidth), default: 280, range: 100...10_000)
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
+        self.homeOpensWithSingleClick = defaults.object(forKey: Keys.homeOpensWithSingleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
         self.folderBrowserSortKey =
@@ -1504,6 +1515,7 @@ extension AppPreferences {
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
                 Keys.showRecentFavoritesOnWelcome,
                 Keys.offersRemovingMissingCollectionBooks,
+                Keys.homeOpensWithSingleClick,
                 Keys.libraryFeatureEnabled,
                 Keys.fileBrowserFeatureEnabled,
                 Keys.smartLibraryFeatureEnabled,
@@ -1661,6 +1673,7 @@ extension AppPreferences {
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
+            homeOpensWithSingleClick = source.homeOpensWithSingleClick
             libraryFeatureEnabled = source.libraryFeatureEnabled
             fileBrowserFeatureEnabled = source.fileBrowserFeatureEnabled
             smartLibraryFeatureEnabled = source.smartLibraryFeatureEnabled

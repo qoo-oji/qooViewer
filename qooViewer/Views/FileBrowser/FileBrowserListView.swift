@@ -612,12 +612,15 @@ struct FileBrowserListView: NSViewRepresentable {
             proposedDropOperation dropOperation: NSTableView.DropOperation
         ) -> NSDragOperation {
             guard let actions else { return [] }
-            let folder = dropFolder(row: row, operation: dropOperation)
+            var folder = dropFolder(row: row, operation: dropOperation)
+            let (decision, _) = actions.dropDecision(for: info, into: folder ?? displayedFolder)
+            // 「ビューアで開く」の設定では、フォルダの行の上でもそのフォルダへは入れない(開く)ので、行を強調しない
+            // (2026-09-27、ホームの操作の統一 ―― 以前は行が強調されるのに、落とすと開いていた)。
+            if case .openInViewer = decision { folder = nil }
             if folder == nil {
                 // フォルダの行の上でなければ、表全体(表示中のフォルダ)を受け口として強調する。
                 tableView.setDropRow(-1, dropOperation: .on)
             }
-            let (decision, _) = actions.dropDecision(for: info, into: folder ?? displayedFolder)
             let operation = decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
             (tableView as? FileBrowserTableView)?.isWholeTableDropTarget = folder == nil && !operation.isEmpty
             return operation

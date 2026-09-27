@@ -511,7 +511,7 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 | 役目 | アイコン表示 | リストと共有するもの |
 |---|---|---|
 | 選択・⌘ / ⇧ クリック・余白からの帯 | `NSCollectionView` の標準(⇧ クリックは範囲ではなく追加。Finder のアイコン表示と同じ) | ―(リストは `NSTableView` の標準) |
-| 矢印キー | `FileBrowserState.moveSelection`(`GridKeyboardNavigation`)。起点はクリックで選んだ項目(`setSelectionAnchor`) | ―(標準の矢印キーは独自のレイアウトで右矢印が真下へ移り、下矢印で動かなかった。実機 2026-09-15) |
+| 矢印キー | `FileBrowserState.moveSelection`(`GridKeyboardNavigation`)。起点はクリックで選んだ項目(`setSelectionAnchor`)。**⇧ で起点からの範囲**(2026-09-27。それまでは ⇧ を付けても 1 件を選び直していた。スマートライブラリ・本棚と同じ) | ―(標準の矢印キーは独自のレイアウトで右矢印が真下へ移り、下矢印で動かなかった。実機 2026-09-15) |
 | type-select | `FileBrowserCollectionView.keyDown` → `FileBrowserState.typeSelect`(`NSCollectionView` には無い) | ― |
 | Return / ⌘↓ で開く、⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑、コピー・カット・ペースト | `FileBrowserCollectionView.keyDown` / `copy:` など | `FileBrowserEditCommand.forKey`、`FileBrowserEditResponding` |
 | 右クリック | `menu(for:)` で押したセルを控え、`menuNeedsUpdate` で組む | `FileBrowserMenuBuilder`(対象の規則も同じ) |
@@ -608,9 +608,12 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   **必ず確認する**(Finder と同じ文面「この項目はすぐに削除されます。この操作は取り消せません。」、既定のボタンは「キャンセル」。
   `confirmImmediateDeletion(of:reason: .requested)`)。その先はゴミ箱の無い場所での ⌘⌫ と同じ道(中にロックされた項目があれば
   確認・`DeleteFilesImmediatelyCommand`・取り消しには積まない)。淡色の条件は「ゴミ箱に入れる」と同じ `canChange`(読み取り専用・
-  ビューアで開いている本は断る)。メニューバーのファイルメニューにも「ゴミ箱に入れる」のすぐ下に置き、一覧のキーは Finder と同じ ⌥⌘⌫
-  (`FileBrowserEditCommand.deleteImmediately`)。**メニューバーでは常に見せる** ―― SwiftUI の `Commands` では代わりの項目
-  (`isAlternate`)を作れないため(Finder は ⌥ を押している間だけ入れ替える)。
+  ビューアで開いている本は断る)。一覧のキーは Finder と同じ ⌥⌘⌫(`FileBrowserEditCommand.deleteImmediately`)。メニューバーの
+  ファイルメニューでも、Finder と同じく ⌥ を押している間だけ「ゴミ箱に入れる」と入れ替わる ―― SwiftUI の `.modifierKeyAlternate(.option)`
+  (macOS 15+)が AppKit の代わりの項目を作る。2026-09-27 までは「SwiftUI の `Commands` では代わりの項目を作れない」として、すぐ下に
+  常に見せていた(監査 16。移動メニューの「ライブラリ」は既にこれで作れていた)。ホームの外ではどちらもキーが無く、SwiftUI は代わりの項目の
+  キーを `"\0"`(元の項目は `""`)にするが、AppKit はこれも 1 行に畳む(AppKit 単体でメニューを開いて実測)。
+  `HomeMenuTests.deleteImmediatelyIsTheOptionAlternateOfMoveToTrash` が組まれたメニューバーを読んで確かめる。
 - **常にこのアプリケーションで開く**(`FileBrowserActions.alwaysOpen`): Finder と同じく**そのファイルだけ**の既定のアプリにして、
   そのアプリで開く。`NSWorkspace.setDefaultApplication(at:toOpenFileAt:)` がファイルに拡張属性 `com.apple.LaunchServices.OpenWith` を
   書く ―― **サンドボックスの中から通る**(テストホストで実測 2026-09-21: 書いた後 `urlForApplication(toOpen:)` がそのアプリを返し、
@@ -1211,6 +1214,8 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 - **何をするか**(`FileBrowserDropDecision`): アプリの中からのドラッグ(`FileBrowserDragTracker` が出し口の始まりから終わりまで覚える)は
   常に移動・コピー。**他のアプリからは環境設定「他のアプリからドロップしたとき」**(`fileBrowserExternalDropAction`、既定「ビューアで開く」
   = ウインドウのほかの場所へ落としたときと同じく本を開く /「コピー・移動」)。コンピュータ(行き先なし)へは運ばない。
+  **「ビューアで開く」のときは、フォルダの行・セル・ツリーの行・パスバーの成分を強調しない**(2026-09-27、ホームの操作の統一。
+  そのフォルダへは入れず開くので。以前は行が強調されるのに、落とすと開いていた)。代わりに一覧全体を受け口として強調する。
 - **修飾キーはドロップの瞬間のマウスのイベントから読む**(`FileDropPlan.Modifiers.current`)。`NSEvent.modifierFlags` はいまのキーの状態で、
   ボタンと ⌥ をほぼ同時に離すと、離した瞬間のイベントの処理中にもう ⌥ なしを返した(同じフォルダへの複製が「何もしない」に化けた。実機)。
 - **よく使う項目の並べ替え**(2026-09-14、ユーザー要望): ツリーのよく使う項目の行は、並べ替えのためだけに掴める。ペーストボードには項目の id だけを

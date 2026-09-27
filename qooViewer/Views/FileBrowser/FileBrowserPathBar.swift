@@ -183,7 +183,12 @@ final class FileBrowserPathControl: NSPathControl {
             return []
         }
         let (decision, _) = dropCoordinator.dropDecision(for: sender, at: index)
-        targetIndex = decision.isAccepted ? index : nil
+        // 「ビューアで開く」の設定では、そのフォルダへは入れない(開く)ので成分を強調しない(2026-09-27。一覧と同じ)。
+        if case .openInViewer = decision {
+            targetIndex = nil
+        } else {
+            targetIndex = decision.isAccepted ? index : nil
+        }
         return decision.dragOperation(sourceMask: sender.draggingSourceOperationMask)
     }
 

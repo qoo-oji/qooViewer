@@ -1333,6 +1333,9 @@ struct QooViewerApp: App {
             CommandGroup(after: .pasteboard) {
                 // ファイルブラウザの「ここに項目を移動」(⌥⌘V。Finder と同じキー。2026-09-15 までは一覧のキー操作だけだった)。
                 // ファイルブラウザ機能がOFFの間は出さない。
+                // Finder では「ペースト」の ⌥ の代わりの項目だが、ここでは常に見せる。「ペースト」は SwiftUI の標準の群(.pasteboard)の
+                // 項目で `.modifierKeyAlternate` を付けられず、群ごと置き換えると手前の欄に合わせた淡色が効かなくなる(監査 16、2026-09-27 に
+                // 利用者の判断で「このまま」。「すぐに削除…」のほうは代わりの項目にした ―― HomeMenuCommands.swift)。
                 if preferences.fileBrowserFeatureEnabled {
                 Button("Move Item Here") { [weak focusedAppState] in
                     guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil),
@@ -1990,7 +1993,13 @@ struct QooViewerApp: App {
         )
         guard panel.runModal() == .OK,
               let request = BookOpenRequest(openingCandidates: panel.urls) else { return }
-        openInNewWindow(request, asTab: false, tabTarget: nil)
+        // 複数の本を選んだら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。DroppedBooks)。
+        let urls = panel.urls
+        let order = preferences.siblingBookOrder
+        Task { @MainActor in
+            let sequenced = await BookOpenRequest.sequenced(from: urls, order: order)
+            openInNewWindow(sequenced ?? request, asTab: false, tabTarget: nil)
+        }
     }
 
     /// 「お気に入り」メニューの一覧から「新しいウインドウで開く」「新しいタブで開く」を
@@ -2731,7 +2740,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 以前はここが`urls.first`で、先頭以外を黙って捨てていた。
         // 何をどう1冊にまとめるか(全部画像なら1冊 / それ以外は先頭のみ)の判定は、
         // ドロップ・パネル経由と食い違わないようBookOpenRequestの1箇所に集約してある。
-        guard let request = BookOpenRequest(openingCandidates: urls) else { return }
+        guard let fallback = BookOpenRequest(openingCandidates: urls) else { return }
+        // 複数の本なら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。ウインドウへのドロップと同じ。DroppedBooks)。
+        // 並びを作るにはフォルダを読むので、メインの外で調べてから開く。**1 件・全部が画像なら今までどおりその場で開く**
+        // (起動時に渡された本の扱いの順序を変えないため。待つのは複数の本が渡されたときだけ)。
+        guard fallback.urls.count == 1, Set(urls.map(\.path)).count > 1 else {
+            runExternalOpen(fallback)
+            return
+        }
+        let order = preferences?.siblingBookOrder ?? .byName
+        Task { @MainActor [weak self] in
+            let request = await BookOpenRequest.sequenced(from: urls, order: order) ?? fallback
+            self?.runExternalOpen(request)
+        }
+    }
+
+    /// `application(_:open:)` の続き(並びを作り終えてから)。
+    private func runExternalOpen(_ request: BookOpenRequest) {
         // メニューバーのメニューが開いている間に外部(AppleScript・openコマンド等)から本を
         // 渡された場合は、メニューが閉じるまで保留する。ウインドウの再利用でも新規作成でも、
         // ウインドウタイトルの変更・ウインドウの生成・FocusedValueの変化を伴い、開いている

@@ -33032,6 +33032,182 @@
           }
         }
       }
+    },
+    "Open Items with a Single Click" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Items with a Single Click"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリック 1 回で開く"
+          }
+        }
+      }
+    },
+    "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションとその中の本、スマートライブラリに効きます。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be opened as a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be opened as a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は本として開けません。"
+          }
+        }
+      }
+    },
+    "None of the items can be opened as a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None of the items can be opened as a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として開けるものがありません。"
+          }
+        }
+      }
+    },
+    "1 item wasn’t opened because it isn’t a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 item wasn’t opened because it isn’t a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない 1 件は開きませんでした。"
+          }
+        }
+      }
+    },
+    "%lld items weren’t opened because they aren’t books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items weren’t opened because they aren’t books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない %lld 件は開きませんでした。"
+          }
+        }
+      }
+    },
+    "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "何も登録しませんでした。書庫・PDF・EPUB のファイルと、画像のフォルダを本として登録できます。"
+          }
+        }
+      }
+    },
+    "1 item wasn’t added because it isn’t a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 item wasn’t added because it isn’t a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない 1 件は登録しませんでした。"
+          }
+        }
+      }
+    },
+    "%lld items weren’t added because they aren’t books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items weren’t added because they aren’t books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない %lld 件は登録しませんでした。"
+          }
+        }
+      }
+    },
+    "1 book was already in the collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 book was already in the collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 冊はすでにコレクションに入っていました。"
+          }
+        }
+      }
+    },
+    "%lld books were already in the collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books were already in the collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊はすでにコレクションに入っていました。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

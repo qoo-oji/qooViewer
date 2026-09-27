@@ -140,3 +140,34 @@ extension View {
         modifier(SidePanelContextHighlightModifier(rowID: rowID))
     }
 }
+
+// MARK: - ホームのグリッド(2026-09-27)
+
+/// ホームのグリッド(本棚のコレクションの一覧・コレクションの中・スマートライブラリ)の、右クリックの相手の枠
+/// (ホームの操作の統一。監査 #29、docs/plans/home-interaction-design.md)。
+///
+/// 仕組みはサイドパネルと同じ `SidePanelContextMenuHighlight`(ホバーとメニューの開閉の突き合わせ)。グリッドが自分で 1 つ持ち
+/// (`@StateObject`)、セルは `contextMenuHover(id:in:)` でホバーを知らせるだけ。**枠はセルが描く** ―― 選んであるものを右クリック
+/// したときは選んだぶん全部が相手になる(Finder と同じ規則)ので、どのセルに枠が要るかはグリッドが相手の規則から決めて渡す。
+extension View {
+    func contextMenuHover(id: String, in highlight: SidePanelContextMenuHighlight) -> some View {
+        onHover { isHovering in
+            highlight.updateHover(rowID: id, isHovering: isHovering)
+        }
+    }
+}
+
+/// 右クリックの相手の枠。**常に置いたまま色だけを変える**(サイドパネルの枠と同じ理由 ―― メニューの表示中にビューの構造を
+/// 変えると macOS 26 で落ちる経路に触れうる)。アクセント色の枠なので、面をアクセント色で塗られても読めるよう輪郭を付ける
+/// (すりガラス面の決まりごと)。
+struct HomeContextMenuTargetBorder<S: InsettableShape>: View {
+    let shape: S
+    let isTarget: Bool
+
+    var body: some View {
+        shape
+            .strokeBorder(isTarget ? Color.accentColor : Color.clear, lineWidth: 2)
+            .panelOutlinedAccent(in: shape, isEnabled: isTarget)
+            .allowsHitTesting(false)
+    }
+}

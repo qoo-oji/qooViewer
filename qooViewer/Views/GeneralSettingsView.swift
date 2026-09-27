@@ -118,6 +118,14 @@ struct GeneralSettingsView: View {
                     isOn: $preferences.libraryFeatureEnabled,
                     help: "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the other features you have on (or, with all of them off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
                 )
+                // 2026-09-27、利用者の決定(ホームの操作の統一)。既定はクリックで選び、ダブルクリックで開く(Finder と同じ)。
+                // ライブラリもスマートライブラリも OFF の間は効かない(AppPreferences.homeOpensWithSingleClick)。
+                SettingsToggle(
+                    "Open Items with a Single Click",
+                    isOn: $preferences.homeOpensWithSingleClick,
+                    help: "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+                )
+                .disabled(!preferences.libraryFeatureEnabled && !preferences.smartLibraryFeatureEnabled)
                 // ユーザー要望 2026-09-10。勝手に消す設定ではなく「起動時に一覧を出して尋ねる」
                 // 設定なので、ラベルも Offer(尋ねる)にしてある。何を対象にするか
                 // (外付けを外しているだけの本は対象外)は吹き出しへ。

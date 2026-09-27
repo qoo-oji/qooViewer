@@ -29,6 +29,12 @@ extension EnvironmentValues {
 struct ViewerNotice: Equatable {
     let id = UUID()
     let message: String
+    /// 出した時刻。知らせの後で画面が替わる(ドロップで本を開いた・開けずにホームのまま)ことがあるので、後から現れた画面が
+    /// 出したばかりの知らせを拾えるようにする(`isFresh`)。
+    let postedAt = Date()
+
+    /// 後から現れた画面が拾ってよい新しさか。
+    var isFresh: Bool { Date().timeIntervalSince(postedAt) < 5 }
 }
 
 // MARK: - 「コレクションに登録」をホームの外から(ビューア・サイドパネル・メニューバー・メタデータの編集)

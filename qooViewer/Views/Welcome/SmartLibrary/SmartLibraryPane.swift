@@ -867,6 +867,10 @@ struct SmartLibraryContent: View {
     @FocusState private var isSearchFocused: Bool
     /// グリッドがキーの行き先か(矢印キー・Return を受ける。選択の枠の色もこれで決まる ―― `SelectionEmphasisBorder`)。
     @FocusState private var isGridFocused: Bool
+    /// 余白から帯を引いてまとめて選ぶ(MarqueeSelection。`@State` で持つだけで購読しない理由は CollectionGridView の同じ宣言)。
+    @State private var marquee = MarqueeSelection()
+    /// 右クリックの相手の枠(HomeContextMenuTargetBorder)。
+    @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
 
     @State private var missingBook: String?
     /// グリッドのスクロール位置。選んだ枠を見える位置へ動かすときは、行の位置を実測から割り出して pt で渡す
@@ -1187,9 +1191,12 @@ struct SmartLibraryContent: View {
                                 // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
                                 showsAuthorOnly: state.grouping == .author && state.openedGroup == nil,
                                 isSelected: isSelected, isFocused: isGridFocused,
+                                isContextTarget: isContextTarget(item),
                                 savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained
                             )
                                 .onTapGesture { clicked(item) }
+                                .contextMenuHover(id: item.id, in: contextHighlight)
+                                .marqueeCell(item.id, in: marquee)
                                 // Finder などへ運ぶと本がコピーされる(2026-09-23。HomeBookTransfer.swift の冒頭)。
                                 .homeBookDragSource { beginDrag(from: item) }
                                 .contextMenu { contextMenu(for: item) }
@@ -1199,8 +1206,11 @@ struct SmartLibraryContent: View {
                                            coverFit: preferences.smartLibraryCoverFit,
                                            cropAnchor: books.first.map(cropAnchor(for:)) ?? .center,
                                            isSelected: isSelected, isFocused: isGridFocused,
+                                           isContextTarget: isContextTarget(item),
                                            savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained)
                                 .onTapGesture { clicked(item) }
+                                .contextMenuHover(id: item.id, in: contextHighlight)
+                                .marqueeCell(item.id, in: marquee)
                                 .contextMenu {
                                     Button(grouping == .author ? "Show Books by This Author" : "Show Books in Series") {
                                         state.openedGroup = name
@@ -1215,6 +1225,23 @@ struct SmartLibraryContent: View {
                 .frame(width: columns.contentWidth)
                 .frame(maxWidth: .infinity)
                 .padding(Self.gridPadding)
+                // 余白から帯を引いてまとめて選ぶ(2026-09-27、ホームの操作の統一。監査 #39。本棚と同じ MarqueeSelection)。
+                // ⌘ / ⇧ を押していなければ選び直し。余白のクリックは選択を外す(外枠の onTapGesture と同じ)。
+                .marqueeSelectable(
+                    marquee,
+                    isEnabled: true,
+                    minimumHeight: gridSize.height,
+                    selection: Binding(
+                        get: { state.selection.ids },
+                        set: { state.setSelection($0, cursor: state.selection.cursor) }
+                    ),
+                    shownIDs: Set(state.gridItems.map(\.id)),
+                    mode: .replacing,
+                    onBackgroundClick: {
+                        state.clearSelection()
+                        isGridFocused = true
+                    }
+                )
                 // 画面外の表紙をまとめて手放す(`cellImageBudget`)。ScrollView の内側なのでスクロール位置は変わらない。
                 .id(gridID)
                 // ホイール1ノッチのスクロール量のために、裏の NSScrollView を控える(ScrollViewAccessor の
@@ -1300,21 +1327,31 @@ struct SmartLibraryContent: View {
             // 列の数はこの寸法から割り出す。寸法より先に届いた「見せて」は、寸法が決まってからやり直す。
             if let pendingRevealID { reveal(pendingRevealID) }
         }
+        // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(`.id` の外に付ける ―― CollectionGridView の同じ箇所)。
+        .onChange(of: gridID) { marquee.forgetFrames() }
     }
 
     /// セルのクリック。2 回目のクリック(ダブルクリック)なら開く。修飾キーはクリックの出来事から読む
     /// (SwiftUI の `TapGesture` は修飾キーもクリックの回数も渡さない。回数ごとに別の `TapGesture` を重ねると、
     /// 1 回のクリックがダブルクリックの間隔ぶん待たされる)。
+    ///
+    /// 2026-09-27 からは読み方を本棚と共有する(`HomeGridInteraction`)。環境設定「クリック 1 回で開く」なら 1 回で開く。
     private func clicked(_ item: SmartGridItem) {
         isGridFocused = true
-        let event = NSApp.currentEvent
-        if let event, event.clickCount >= 2 {
-            activate(item)
-            return
+        switch HomeGridInteraction.currentClickAction(opensWithSingleClick: preferences.homeOpensWithSingleClick) {
+        case .open: activate(item)
+        case .select(let click): state.click(item.id, click)
+        case .ignore: break
         }
-        let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
-        let click: SmartGridSelection.Click = flags.contains(.command) ? .toggle : (flags.contains(.shift) ? .extend : .plain)
-        state.click(item.id, click)
+    }
+
+    /// この枠が右クリックの相手か(枠を描く)。本は、右クリックした本が選択の中なら選んだ本の全部(`contextTargets`)。
+    /// 束の右クリックは選択に関係なくその束だけが相手。
+    private func isContextTarget(_ item: SmartGridItem) -> Bool {
+        guard let highlighted = contextHighlight.highlightedRowID else { return false }
+        if highlighted == item.id { return true }
+        guard case .book = item, state.selection.contains(highlighted), state.selection.ids.count > 1 else { return false }
+        return state.selection.contains(item.id)
     }
 
     /// 枠を開く: 本は開き、束はその中へ。
@@ -1821,6 +1858,8 @@ private struct SmartBookCell: View {
     /// 選んでいるか・グリッドがキーの行き先か(選択の枠の色。`SmartBookThumbnail`)。
     var isSelected = false
     var isFocused = true
+    /// 右クリックの相手か(`SmartBookThumbnail`)。
+    var isContextTarget = false
     /// 作った表紙をディスクキャッシュへ書くか(シークレットウインドウは false。FileBrowserThumbnailProvider の型コメント)。
     var savesToDisk = true
     /// 表紙の絵をセルが持ったときに呼ぶ(グリッドの帳簿。SmartLibraryContent.cellImageBudget)。
@@ -1836,6 +1875,7 @@ private struct SmartBookCell: View {
                                frameAspect: coverShape.cropAspect, fit: coverFit, cropAnchor: cropAnchor,
                                marginColor: appearance.effectiveSmartLibraryCoverMargin,
                                alignment: coverShape.uncroppedAlignment, isSelected: isSelected, isFocused: isFocused,
+                               isContextTarget: isContextTarget,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
                 if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
@@ -1913,6 +1953,7 @@ private struct SmartGroupCell: View {
     var cropAnchor: CoverCropAnchor = .center
     var isSelected = false
     var isFocused = true
+    var isContextTarget = false
     var savesToDisk = true
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
@@ -1955,7 +1996,7 @@ private struct SmartGroupCell: View {
                     marginColor: appearance.effectiveSmartLibraryCoverMargin,
                     alignment: coverShape.uncroppedAlignment,
                     stack: .init(layers: 2, offset: offset, count: books.count),
-                    isSelected: isSelected, isFocused: isFocused,
+                    isSelected: isSelected, isFocused: isFocused, isContextTarget: isContextTarget,
                     savesToDisk: savesToDisk, onImageRetained: onImageRetained
                 )
                 .frame(width: width, height: height, alignment: .bottomLeading)
@@ -2007,6 +2048,8 @@ private struct SmartBookThumbnail: View {
     /// 選択の枠(表紙の絵の実際の大きさに掛ける ―― 枠に掛けると細長い表紙の左右が空く。紙と同じ理由)。
     var isSelected = false
     var isFocused = true
+    /// 右クリックの相手か(枠を描く。HomeContextMenuTargetBorder。2026-09-27)。
+    var isContextTarget = false
     var savesToDisk = true
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
@@ -2081,12 +2124,14 @@ private struct SmartBookThumbnail: View {
                     .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
                     .overlay { selectionBorder(shape: shape) }
                     .panelOutlinedAccent(in: shape, isEnabled: isSelected)
+                    .overlay { HomeContextMenuTargetBorder(shape: shape, isTarget: isContextTarget) }
                     .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
                     .overlay(alignment: .bottomTrailing) { countBadge }
             } else {
                 shape.fill(Color.secondary.opacity(0.15))
                     .panelOutlinedFrame(in: shape)
                     .overlay { selectionBorder(shape: shape) }
+                    .overlay { HomeContextMenuTargetBorder(shape: shape, isTarget: isContextTarget) }
                     .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
                     .overlay(alignment: .bottomTrailing) { countBadge }
                     .overlay {

@@ -352,6 +352,29 @@ struct FileBrowserStateTests {
         #expect(state.selection == [ids[2]])
     }
 
+    @Test("⇧矢印は起点から移動先までを選ぶ(Finder・スマートライブラリと同じ。2026-09-27 までは 1 件を選び直していた)")
+    func shiftArrowKeysExtendTheSelection() async throws {
+        let fixture = try Fixture("fb-shift-arrows")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let ids = state.entries.map(\.id)
+        #expect(ids.count >= 4)
+
+        state.moveSelection(.right, columns: 2)
+        #expect(state.selection == [ids[0]])
+        state.moveSelection(.right, columns: 2, extending: true)
+        #expect(state.selection == [ids[0], ids[1]])
+        state.moveSelection(.down, columns: 2, extending: true)
+        #expect(state.selection == Set(ids[0...3]))
+        // 伸ばした側を戻すと縮む(起点は最初の項目のまま)。
+        state.moveSelection(.up, columns: 2, extending: true)
+        #expect(state.selection == [ids[0], ids[1]])
+        // ⇧ を離して動けば 1 件に戻る。
+        state.moveSelection(.left, columns: 2)
+        #expect(state.selection == [ids[0]])
+    }
+
     @Test("名前の編集の依頼は、一覧が済ませたら下ろす(別の依頼は残す)。フォルダを移ると捨てる")
     func renameRequestLifecycle() async throws {
         let fixture = try Fixture("fb-rename-request")

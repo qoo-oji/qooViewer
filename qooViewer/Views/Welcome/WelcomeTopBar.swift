@@ -348,7 +348,8 @@ struct WelcomeTopBar: View {
                 if library.id == selectedLibraryID { return }
             }
             guard !isSelected else {
-                state.openedCollectionID = nil
+                // 同じライブラリの一覧へ戻る(出てきたコレクションを選んだ状態に ―― 見出しの ‹ と同じ)。
+                state.leaveCollection()
                 return
             }
             state.selectedLibraryID = library.id
