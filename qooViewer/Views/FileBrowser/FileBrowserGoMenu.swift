@@ -8,7 +8,7 @@ import SwiftUI
 /// サーバへ接続 ―― は置かない(ユーザー指示)。Finder で ⌥ / ⌃ を押すと現れる「内包しているフォルダ」の
 /// 代替(新規ウインドウに表示など)も置かない。「ライブラリ」だけは Finder と同じく「ホーム」の ⌥ の代替。
 ///
-/// 本を表示しているとき・本棚のときは、従来のページ移動の項目(QooViewerApp の CommandMenu("Move"))。
+/// 本を表示しているとき・本棚のときは、従来のページ移動の項目(QooViewerApp の CommandMenu("Go"))。
 /// 切り替えは MenuCheckmarkState.fileBrowserNavigation の有無で決まる(値型の FocusedValue)。
 ///
 /// 標準の場所を開いても、読む権限が無ければ右ペインに「アクセスを許可…」が出る(書類・デスクトップは

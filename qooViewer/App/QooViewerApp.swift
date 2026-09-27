@@ -66,6 +66,9 @@ struct QooViewerApp: App {
     /// (そこのコメント参照)。mainウインドウが最初に表示された時点でtrueになる。
     @State private var suppressesExternalEventWindows = false
 
+    /// ヘルプメニューの「qooViewer ヘルプ」が開く使い方マニュアル(公開リポジトリの MANUAL.md)。
+    static let manualURL = URL(string: "https://github.com/qoo-oji/qooViewer/blob/main/MANUAL.md")!
+
     /// 起動時にmainウインドウを開く大きさ。**前回終了時のフレームの大きさ**で、無ければ
     /// 900x640(この機能を入れる前の固定値)。位置は`defaultMainWindowPosition`。
     ///
@@ -240,16 +243,17 @@ struct QooViewerApp: App {
         }
     }()
 
-    /// 表示メニューの「サイドパネルを隠す」。本を開いている間の項目と、3つともOFF(ライブラリ・ファイルブラウザ・スマートライブラリ)のホームの項目で共用する(呼ぶ側が
+    /// 表示メニューの「サイドパネルを表示/隠す」⌃⌘S。本を開いている間の項目と、3つともOFF(ライブラリ・ファイルブラウザ・スマートライブラリ)のホームの項目で共用する(呼ぶ側が
     /// 環境設定「サイドパネルを有効にする」を見て、OFFなら丸ごと省く)。
-    private var hideSidePanelToggle: some View {
-        Toggle(
-            "Hide Side Panel",
-            isOn: Binding(
-                get: { menuCheckmarkState?.hideSidePanel ?? false },
-                set: { focusedAppState?.hideSidePanel = $0 }
-            )
-        )
+    ///
+    /// ツールバー・プログレスバーの項目とあわせて、チェックの付く「隠す」ではなく名前が「表示」と「隠す」で入れ替わる項目にした
+    /// (2026-09-27、監査 20。macOS の「ツールバーを表示/隠す」「サイドバーを表示/隠す」と同じ形。キーもそれに合わせた)。
+    private var sidePanelVisibilityButton: some View {
+        let isHidden = menuCheckmarkState?.hideSidePanel ?? false
+        return Button(ViewerPanelPart.sidePanel.visibilityTitleKey(isHidden: isHidden)) { [weak focusedAppState] in
+            focusedAppState?.hideSidePanel.toggle()
+        }
+        .keyboardShortcut("s", modifiers: [.command, .control])
     }
 
     /// 本を表示しているとき(と本棚)の「移動」メニューの中身。ファイルブラウザの間は FileBrowserGoMenuItems に入れ替わる。
@@ -1082,9 +1086,9 @@ struct QooViewerApp: App {
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
                     )
                     // ライブラリ・ファイルブラウザ・スマートライブラリが3つともOFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
-                    // (ContentView.isSidePanelSuppressedForWelcome)ので、v1.42 までと同じく「サイドパネルを隠す」を置く。
+                    // (ContentView.isSidePanelSuppressedForWelcome)ので、v1.42 までと同じく「サイドパネルを表示/隠す」を置く。
                     if preferences.sidePanelFeatureEnabled && menuCheckmarkState?.homeMenu.mode == .classic {
-                        hideSidePanelToggle
+                        sidePanelVisibilityButton
                     }
                 } else {
                     let hasBook = focusedAppState?.currentBook != nil
@@ -1095,22 +1099,21 @@ struct QooViewerApp: App {
                     // 表示中でもフルスクリーンと同様、マウスを上下端に近づけると一時的に表示される
                     // (ViewerView.bodyのshowToolbar/showProgressBar、
                     // updateAutoHiddenChromeVisibility参照)。
-                    Toggle(
-                        "Hide Toolbar",
-                        isOn: Binding(
-                            get: { menuCheckmarkState?.hideToolbar ?? false },
-                            set: { focusedAppState?.hideToolbar = $0 }
-                        )
-                    )
+                    //
+                    // 名前が「表示」と「隠す」で入れ替わる(sidePanelVisibilityButton のコメント)。キーはツールバーが macOS の標準の ⌥⌘T、
+                    // プログレスバーは標準の項目が無いので ⌥⌘P(利用者の指定で P。Finder の「パスバーを表示/隠す」と同じキー)。
+                    Button(ViewerPanelPart.toolbar.visibilityTitleKey(isHidden: menuCheckmarkState?.hideToolbar ?? false)) {
+                        [weak focusedAppState] in
+                        focusedAppState?.hideToolbar.toggle()
+                    }
+                    .keyboardShortcut("t", modifiers: [.command, .option])
                     .disabled(!hasBook)
 
-                    Toggle(
-                        "Hide Progress Bar",
-                        isOn: Binding(
-                            get: { menuCheckmarkState?.hideProgressBar ?? false },
-                            set: { focusedAppState?.hideProgressBar = $0 }
-                        )
-                    )
+                    Button(ViewerPanelPart.progressBar.visibilityTitleKey(isHidden: menuCheckmarkState?.hideProgressBar ?? false)) {
+                        [weak focusedAppState] in
+                        focusedAppState?.hideProgressBar.toggle()
+                    }
+                    .keyboardShortcut("p", modifiers: [.command, .option])
                     .disabled(!hasBook)
 
                     // サイドパネルは既定で常時表示。ONにすると、ツールバー/プログレスバーの
@@ -1128,7 +1131,7 @@ struct QooViewerApp: App {
                         // 本を開いていない間はどちらに倒してもパネルは出てこないため
                         // (ContentView.isSidePanelSuppressedForWelcome)、hideToolbar/hideProgressBarと
                         // 同じくグレーアウトする(効かない設定を触れるままにしない)。
-                        hideSidePanelToggle.disabled(!hasBook)
+                        sidePanelVisibilityButton.disabled(!hasBook)
                     }
 
                     Divider()
@@ -1236,7 +1239,8 @@ struct QooViewerApp: App {
                 }
             }
 
-            CommandMenu("Move") {
+            // 英語のメニュー名は Finder・Preview と同じ "Go"(2026-09-27 まで "Move"。監査 19)。日本語は「移動」のまま。
+            CommandMenu("Go") {
                 // ファイルブラウザを表示している間は、Finder の「移動」メニューと同じ項目に入れ替える
                 // (改善要望7 段階4 の追加要望。FileBrowserGoMenuItems のコメント)。項目の数が変わるのは
                 // 本を開く・閉じる・本棚と切り替えるときだけで、どれもメニューを開いている最中には起きない
@@ -1292,9 +1296,12 @@ struct QooViewerApp: App {
                 let undoTitle = metadataWorkspace.map { $0.undoName } ?? menuCheckmarkState?.fileBrowserUndoTitle
                 let redoTitle = metadataWorkspace.map { $0.redoName } ?? menuCheckmarkState?.fileBrowserRedoTitle
                 let isEditingText = stores.textEditingMenuState.isEditingText
-                // 欄を編集中は欄の取り消しなので、ファイル操作の名前を題に出さない。
-                Button((isEditingText ? nil : undoTitle).map { String(format: String(localized: "Undo %@"), $0) }
-                       ?? String(localized: "Undo")) {
+                // 欄を編集中は欄の取り消しなので、題と可否は欄のもの(「タイプ入力を取り消す」。2026-09-27、監査 22 ――
+                // TextEditingMenuState の型コメント)。ファイル操作の名前は出さない。
+                let textUndo = stores.textEditingMenuState.textUndo
+                Button(isEditingText
+                       ? textUndo.undoTitle ?? String(localized: "Undo")
+                       : undoTitle.map { String(format: String(localized: "Undo %@"), $0) } ?? String(localized: "Undo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
@@ -1304,10 +1311,10 @@ struct QooViewerApp: App {
                     }
                 }
                 .keyboardShortcut("z", modifiers: .command)
-                .disabled(undoTitle == nil && !isEditingText)
-                // 欄を編集中は欄の取り消しなので、ファイル操作の名前を題に出さない。
-                Button((isEditingText ? nil : redoTitle).map { String(format: String(localized: "Redo %@"), $0) }
-                       ?? String(localized: "Redo")) {
+                .disabled(isEditingText ? !textUndo.canUndo : undoTitle == nil)
+                Button(isEditingText
+                       ? textUndo.redoTitle ?? String(localized: "Redo")
+                       : redoTitle.map { String(format: String(localized: "Redo %@"), $0) } ?? String(localized: "Redo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
@@ -1317,7 +1324,7 @@ struct QooViewerApp: App {
                     }
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(redoTitle == nil && !isEditingText)
+                .disabled(isEditingText ? !textUndo.canRedo : redoTitle == nil)
             }
 
             // 「編集」(Edit)メニューの実際の内容。以前はそれぞれ「お気に入り」「レイアウト」と
@@ -1535,6 +1542,15 @@ struct QooViewerApp: App {
                     openWindow(id: "editMetadata")
                 }
                 .disabled(isPrivate)
+            }
+
+            // ヘルプメニュー。ヘルプブック(CFBundleHelpBookName)は作らず、GitHub 上の MANUAL.md を開く(2026-09-27、利用者の判断。
+            // 監査 26)。置き換えないと既定の「qooViewer ヘルプ」が「ヘルプはありません」を出すだけになる。検索欄は AppKit のもので残る。
+            CommandGroup(replacing: .help) {
+                Button("qooViewer Help") {
+                    NSWorkspace.shared.open(Self.manualURL)
+                }
+                .keyboardShortcut("?", modifiers: .command)
             }
         }
         .environment(\.locale, locale)
@@ -2513,13 +2529,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// applicationDidFinishLaunchingよりも早いタイミングのapplicationWillFinishLaunchingで行う。
     /// registerはあくまで「まだ値がない場合の既定値」を与えるだけなので、他の設定と衝突しない。
     ///
-    /// 要望: 「編集」メニューの末尾にmacOS自身が自動的に挿入する「自動入力」「音声入力を
-    /// 開始」「絵文字と記号」(および、それらの手前の区切り線)を消してほしい。このアプリには
-    /// テキスト編集機能自体が無いため、これらは常に無関係かつ不要。
-    /// 「音声入力を開始」「絵文字と記号」の2つは、AppKitが参照する非公開のUserDefaultsキー
-    /// (NSDisabledDictationMenuItem/NSDisabledCharacterPaletteMenuItem)にtrueを登録する
-    /// ことで抑制できる(NSInitialToolTipDelayと同じ理由で、ここ=起動の最も早いタイミングで
-    /// 登録する)。
+    /// 「編集」メニューの末尾に macOS が足す「自動入力」「音声入力を開始」「絵文字と記号」は**消さない**(2026-09-27、監査 17)。
+    /// 以前は「このアプリには文字の入力欄が無い」という要望で、非公開のキー(NSDisabledDictationMenuItem /
+    /// NSDisabledCharacterPaletteMenuItem)と、末尾を切り落とす処理(自動入力には対応するキーが無かった)で消していたが、
+    /// 今は名前の変更・検索・メタデータの入力欄があり、その前提が崩れていた(カット/コピー/ペーストは同じ理由で先に戻してある)。
     func applicationWillFinishLaunching(_ notification: Notification) {
         // 本を渡されての起動かは applicationDidFinishLaunching で分かる。それより先に「開く」が届いてもよいように、先に立てておく。
         isLaunchingToOpenDocuments = true
@@ -2531,8 +2544,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UserDefaults.standard.register(defaults: [
             "NSInitialToolTipDelay": 200,
-            "NSDisabledDictationMenuItem": true,
-            "NSDisabledCharacterPaletteMenuItem": true,
         ])
         // メニューバーのメニューの開閉を数えるゲートを、最初のメニューが開かれるより前に
         // 作っておく(sharedは遅延生成のため、初回の利用が「メニューが開いている最中」だと
@@ -2549,59 +2560,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 上のNSDisabledDictationMenuItem/NSDisabledCharacterPaletteMenuItemとは異なり、
-    /// 「自動入力」(AutoFill)の抑制には対応するUserDefaultsキーが存在しない(非公開APIとしても
-    /// 見つからない)。そのため、自前で「編集」メニューの末尾の余分な項目を取り除く。
-    ///
-    /// バグ修正(ユーザー報告): 当初はNSMenu.didBeginTrackingNotification(メニューを開こうと
-    /// した瞬間に飛ぶ通知)だけで毎回取り除く実装にしていたが、実機で確認したところ
-    /// 「自動入力」が消えなかった。macOSがこれを挿入するタイミングは非公開で、
-    /// didBeginTrackingより後(メニューが実際に画面に描画される直前など)である可能性が高いと
-    /// 考えられる。そのため、次の3段構えにした。
-    /// 1. cleanUpEditMenu()を起動直後(applicationDidFinishLaunching、AppKit自身がこれらの
-    ///    項目を挿入し終えているはずのタイミング)に1回、即座に呼ぶ。
-    /// 2. 念のため、SwiftUIによるメニューバー構築がまだ完了していない場合に備えて、
-    ///    Task { @MainActor in ... }で次のRunLoopに回してからもう1回呼ぶ。
-    /// 3. さらに、メニューを開こうとするたびに毎回(NSMenu.didBeginTrackingNotification)、
-    ///    同じくTask { @MainActor in ... }で「その通知の処理がすべて終わった直後」まで遅らせて
-    ///    呼ぶことで、macOSが同じタイミングで後から追加してくる場合にも対応する
-    ///    (継続的なセーフティネット)。
-    ///
-    /// 「編集」メニューかどうかは、タイトル(ローカライズにより"Edit"/"編集"と変わる)ではなく、
-    /// このアプリが「編集」メニューの最後の項目として必ず配置している項目の有無で判定する
-    /// (QooViewerApp.swiftのCommandGroup(after: .pasteboard)参照。このアプリが対応する言語は
-    /// AppLanguage.swiftの通り日本語・英語の2つのみのため、この2パターンだけを見れば十分)。
-    /// その項目より後ろに残っている項目(=macOSが自動的に追加したもの)をすべて削除する。
-    ///
-    /// 重要: ここは「編集」メニューの実際の最後の項目と必ず一致させること。以前は
-    /// 「レイアウトの編集…」がメニューの最後だったためその文言を指定していたが、その下に
-    /// 「メタデータの編集…」を追加したことで、この定数を更新しないと新しい項目の方が
-    /// 「macOSが勝手に足した余分な項目」と見なされ、実行時に消されてしまう
-    /// (今後この下へ項目を足す場合も同様に更新が必要)。
-    private static let editMenuLastOwnItemTitles: Set<String> = ["Edit Metadata…", "メタデータの編集…"]
-    private var editMenuTrackingObserver: NSObjectProtocol?
-
-    /// NSApp.mainMenuの直下から、上のeditMenuLastOwnItemTitlesのいずれかを含むサブメニュー
-    /// (=「編集」メニュー)を探し出し、見つかれば末尾の余分な項目を取り除く。見つからなければ
-    /// (メニューバーがまだ構築されていない等)何もしない。
-    /// 明示的に@MainActorを付けている理由はQooViewerApp構造体本体のコメントと同じ
-    /// (NSApp/NSMenuなどAppKitのAPIはメインアクター隔離のため、Task { @MainActor in ... }
-    /// のような非同期コンテキストから呼んでもコンパイルエラーにならないようにするため)。
-    @MainActor
-    private func cleanUpEditMenu() {
-        guard let topLevelItems = NSApp.mainMenu?.items else { return }
-        for topLevelItem in topLevelItems {
-            guard let menu = topLevelItem.submenu else { continue }
-            guard let lastOwnIndex = menu.items.firstIndex(where: {
-                AppDelegate.editMenuLastOwnItemTitles.contains($0.title)
-            }) else { continue }
-            while menu.items.count > lastOwnIndex + 1 {
-                menu.removeItem(at: menu.items.count - 1)
-            }
-            return
-        }
-    }
-
     /// 「ファイル」メニューの中で、**区切り線が2本続いてしまう箇所**を1本に詰める。
     ///
     /// ユーザー報告 2026-09-11: 「CBZの書き出し…」と「閉じる」の間に区切り線が2本ある。
@@ -2614,15 +2572,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (CommandGroupとDividerの組み合わせで余分な区切り線が出る)にあたる。
     ///
     /// ■ なぜNSMenuを直接触ってよいのか
-    /// 「編集」メニューの末尾から「自動入力」を取り除いているcleanUpEditMenu()と**同じ形**に
-    /// してある(呼ぶ契機も同じ)。メニューを開いている最中の項目数の変更はmacOS 26で落ちうる
-    /// (MenuBarMenuGateの型コメント参照)が、こちらは`didBeginTracking`= **これから開く**
-    /// 時点で、しかも「余分な区切り線を消す」1回きりの整形であり、あちらと同じ条件で動く。
+    /// メニューを開いている最中の項目数の変更はmacOS 26で落ちうる(MenuBarMenuGateの型コメント参照)が、
+    /// こちらは`didBeginTracking`= **これから開く**時点で、しかも「余分な区切り線を消す」1回きりの整形である。
+    /// 呼ぶ契機は 3 つ: 起動直後・次の RunLoop(SwiftUI のメニューバー構築がまだなら)・メニューを開こうとするたび
+    /// (その通知の処理が終わった直後。以前は「編集」メニューの末尾の「自動入力」を消す処理と同じ契機で動いていた ――
+    /// そちらは 2026-09-27 にやめた。監査 17)。
     ///
     /// 「ファイル」メニューかどうかは、タイトル(ローカライズで変わる)ではなく、このアプリが
-    /// 必ず置いている項目の有無で判定する(cleanUpEditMenuと同じ考え方)。**下の定数は
-    /// ファイルメニューの実際の項目と必ず一致させること。**
-    private static let fileMenuOwnItemTitles: Set<String> = ["Export as CBZ…", "CBZの書き出し…"]
+    /// 必ず置いている項目の有無で判定する。**下の定数はファイルメニューの実際の項目と必ず一致させること**
+    /// (2026-09-27 に日本語を「CBZとして書き出す…」へ改めた。監査 19)。
+    private var fileMenuTrackingObserver: NSObjectProtocol?
+    private static let fileMenuOwnItemTitles: Set<String> = ["Export as CBZ…", "CBZとして書き出す…"]
 
     @MainActor
     private func collapseFileMenuSeparators() {
@@ -2649,12 +2609,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if (notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool) ?? true {
             isLaunchingToOpenDocuments = false
         }
-        cleanUpEditMenu()
         collapseFileMenuSeparators()
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.cleanUpEditMenu()
-            self.collapseFileMenuSeparators()
+            self?.collapseFileMenuSeparators()
         }
         // ファイルブラウザの「置き換える」の途中で落ちたときに残った退避を、元の場所へ戻して知らせる
         // (改善要望7 段階4b。ReplaceBackupRecovery)。フォルダのアクセス権は AppStores の生成時に開いている。
@@ -2665,14 +2622,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // コードの中で参照している」という警告(Swift 6言語モードではエラーになる)が出る。
         // 外側のクロージャに入った直後にguard let selfで弱参照を1回だけ強参照(let、値が
         // 変わらないことが保証される)に変換し、その強参照だけを内側のTaskへ渡すようにする。
-        editMenuTrackingObserver = NotificationCenter.default.addObserver(
+        fileMenuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                self.cleanUpEditMenu()
                 self.collapseFileMenuSeparators()
             }
         }

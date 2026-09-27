@@ -15,16 +15,34 @@ import Combine
 /// (`QooViewerApp.isEditingText`。項目の中身の振り分けと同じ判定)。
 ///
 /// メニューへは `AppStores.allObjectWillChangePublishers` を通して届ける(開いている最中のメニューを作り直さない。MenuBarMenuGate)。
+///
+/// ■ 欄の取り消しの名前と可否(2026-09-27、監査 22)
+/// 「取り消す」は差し替えてあって responder chain の検証(`validateMenuItem`)を通らないので、欄を編集していても
+/// 「タイプ入力を取り消す」の名前が出ず、戻すものが無くても押せた。欄の `undoManager`(フィールドエディタならウインドウのもの)から
+/// 名前(`undoMenuItemTitle`。AppKit が訳したもの)と可否を写し、取り消しの積み場所が変わるたびに確かめ直す。値が変わったときだけ
+/// 知らせるので、打鍵ごとにメニューを作り直すことはない(名前が変わるのは打ち始めと、戻し切ったときくらい)。
 @MainActor
 final class TextEditingMenuState: ObservableObject {
     @Published private(set) var isEditingText = false
+    /// 欄の取り消し・やり直しの題と可否。編集していない間は既定の値。
+    @Published private(set) var textUndo = TextUndoState()
     private var observers: [NSObjectProtocol] = []
+
+    struct TextUndoState: Equatable {
+        var undoTitle: String?
+        var redoTitle: String?
+        var canUndo = false
+        var canRedo = false
+    }
 
     init() {
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             NSText.didBeginEditingNotification, NSText.didEndEditingNotification,
             NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            // 欄の取り消しの積み場所が変わったとき(打った・戻した・やり直した)。どの UndoManager からでも来るが、見るのは
+            // キーウインドウの欄のものだけで、値が変わらなければ何も知らせない。
+            .NSUndoManagerDidCloseUndoGroup, .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange,
         ]
         for name in names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -39,5 +57,13 @@ final class TextEditingMenuState: ObservableObject {
     private func refresh() {
         let editing = QooViewerApp.isEditingText
         if editing != isEditingText { isEditingText = editing }
+        var undo = TextUndoState()
+        if editing, let manager = (NSApp.keyWindow?.firstResponder as? NSTextView)?.undoManager {
+            undo = TextUndoState(
+                undoTitle: manager.undoMenuItemTitle, redoTitle: manager.redoMenuItemTitle,
+                canUndo: manager.canUndo, canRedo: manager.canRedo
+            )
+        }
+        if undo != textUndo { textUndo = undo }
     }
 }

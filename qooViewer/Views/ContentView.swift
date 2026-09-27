@@ -537,6 +537,7 @@ struct ContentView: View {
             smartBookPaths: isShown && welcomeLibrary.mode == .smart ? welcomeLibrary.smartSelectedBookPaths : [],
             shelfSort: opened != nil ? welcomeLibrary.itemSort : welcomeLibrary.collectionSort,
             browserViewMode: fileBrowser.viewMode,
+            smartViewMode: smartLibrary.viewMode,
             browserSortKey: fileBrowser.sortKey,
             browserSortDirection: fileBrowser.sortDirection,
             hiddenListColumns: fileBrowser.hiddenListColumns.sorted()
@@ -1068,6 +1069,7 @@ struct ContentView: View {
         fileBrowser.preferences = preferences
         appState.fileBrowser = fileBrowser
         appState.welcomeLibrary = welcomeLibrary
+        appState.smartLibrary = smartLibrary
         // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
         // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
         // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。

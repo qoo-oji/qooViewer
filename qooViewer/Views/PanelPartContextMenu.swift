@@ -12,16 +12,21 @@ enum ViewerPanelPart {
     /// 余白のクリック、同じ操作の再実行)ため。メニューは「調整…」だけになる。
     case pageList
 
-    /// 「この部品を隠す」項目の文言。持たない部品(ページ一覧パネル)ではnil。
+    /// 「隠す」設定を持つか(ページ一覧パネルは持たない)。
+    var hasVisibilitySetting: Bool { self != .pageList }
+
+    /// 「この部品を表示/隠す」項目の文言。今の設定が「隠す」なら「表示」、そうでなければ「隠す」
+    /// (2026-09-27 まではチェックの付く「隠す」だった。macOS の「ツールバーを表示/隠す」と同じ形へ。監査 20)。
     /// 文言はメニューバー「表示」メニューの対応する項目
     /// (QooViewerApp.swiftのCommandGroup(after: .toolbar))と**同じ文字列を共有する**。
     /// 同じ設定を2か所から切り替えるのに呼び名が違うと、別々の機能に見えてしまうため。
-    var hideTitleKey: LocalizedStringKey? {
+    /// ページ一覧パネルには呼ばない(`hasVisibilitySetting`)。
+    func visibilityTitleKey(isHidden: Bool) -> LocalizedStringKey {
         switch self {
-        case .toolbar: return "Hide Toolbar"
-        case .progressBar: return "Hide Progress Bar"
-        case .sidePanel: return "Hide Side Panel"
-        case .pageList: return nil
+        case .toolbar: return isHidden ? "Show Toolbar" : "Hide Toolbar"
+        case .progressBar: return isHidden ? "Show Progress Bar" : "Hide Progress Bar"
+        case .sidePanel: return isHidden ? "Show Side Panel" : "Hide Side Panel"
+        case .pageList: return ""
         }
     }
 
@@ -78,8 +83,12 @@ private struct PanelPartContextMenu: ViewModifier {
             // 優先される(この指定で潰されることはない)。
             .contentShape(Rectangle())
             .contextMenu {
-                if let hideTitleKey = part.hideTitleKey, let hideBinding {
-                    Toggle(hideTitleKey, isOn: hideBinding)
+                // 自動で隠す設定のときも、右クリックできるのはポインタを寄せて出てきている間なので、名前は「表示」になる
+                // (押せば常に表示へ戻る)。メニューバーと同じ名前・同じ動き。
+                if part.hasVisibilitySetting, let hideBinding {
+                    Button(part.visibilityTitleKey(isHidden: hideBinding.wrappedValue)) {
+                        hideBinding.wrappedValue.toggle()
+                    }
 
                     Divider()
                 }

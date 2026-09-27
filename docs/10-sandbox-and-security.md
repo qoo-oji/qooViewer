@@ -149,15 +149,15 @@ ScopedBookmarkAgent が `smb://…` のマウントを求め、30 秒後に NetA
 まとめてあります。**フォルダのアクセス権だけは、シークレットウインドウでもその場限りの本でも
 保存します**(本の記録ではなく権限そのもの)。「すべてのデータを削除」でも残します。
 
-## Finder で開く
+## Finder で表示
 
 `FinderReveal` / `PageFileAccess`。フォルダの本のページは実物を選択、書庫や PDF の中のページは
 入れ物のファイルを選択(代わりに「画像を書き出す」の導線を出す)。入れ子書庫のページは
 一時ファイルではなく本を指す。サイドパネルのフォルダブラウザは `NSWorkspace.shared.open`。
 
-隣の「ファイルブラウザで開く」(`AppState.revealInFileBrowser`)は同じものを qooViewer のファイルブラウザで見せる。
+隣の「ファイルブラウザで表示」(`AppState.revealInFileBrowser`)は同じものを qooViewer のファイルブラウザで見せる。
 Finder と違って**読めるのは `FolderAccessStore` に許可のあるフォルダだけ**で、本を 1 冊開いた許可では隣が読めないので、
-許可が無ければファイルブラウザの側に「アクセスを許可…」が出る(→ [15](15-file-browser.md#ファイルブラウザで開くfilebrowserrevealswift))。
+許可が無ければファイルブラウザの側に「アクセスを許可…」が出る(→ [15](15-file-browser.md#ファイルブラウザで表示filebrowserrevealswift))。
 
 ## ファイルブラウザ(改善要望7)
 

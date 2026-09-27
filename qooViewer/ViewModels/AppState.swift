@@ -736,6 +736,8 @@ final class AppState: ObservableObject {
     weak var fileBrowserActions: FileBrowserActions?
     /// このウインドウのウェルカム画面の状態(段階 8)。「ファイルブラウザで開く」がモードを切り替える。持ち主はContentView。
     weak var welcomeLibrary: WelcomeLibraryState?
+    /// このウインドウのスマートライブラリの状態。表示メニューの「アイコン」「リスト」が見せ方を切り替える(2026-09-27)。持ち主はContentView。
+    weak var smartLibrary: SmartLibraryViewState?
 
     /// このウインドウの位置・サイズが決まって、最初の描画を1回通したか
     /// (ContentViewのWindowAccessorが立てる)。

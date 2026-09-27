@@ -82,6 +82,8 @@ struct HomeMenuState: Equatable {
     /// 本棚の並び順(コレクションの中なら本の並び、一覧ならコレクションの並び)。
     var shelfSort: FavoritesSortOption = .nameAscending
     var browserViewMode: FileBrowserViewMode = .list
+    /// スマートライブラリの見せ方(表示メニューの「アイコン」「リスト」⌘1 / ⌘2 がスマートライブラリにも効く。2026-09-27、監査 21)。
+    var smartViewMode: SmartLibraryViewMode = .grid
     var browserSortKey: FolderBrowserSortKey = .name
     var browserSortDirection: FolderBrowserSortDirection = .ascending
     /// リストで隠している列(FileBrowserState.hiddenListColumns を並びを固定して)。

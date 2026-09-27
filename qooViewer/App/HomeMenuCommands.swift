@@ -403,6 +403,8 @@ struct FileBrowserFileMenuItems: View {
         Button("Add to Favorite Locations") { [weak appState] in
             Self.perform(appState) { actions, entries in actions.addToFavoriteLocations(entries) }
         }
+        // Finder の「サイドバーに追加」と同じ ⌃⌘T(2026-09-27、監査 25)。
+        .homeMenuShortcut("t", modifiers: [.command, .control], isActive: isShown)
         .disabled(selection?.canAddToFavoriteLocations != true)
     }
 
@@ -434,7 +436,7 @@ struct FileBrowserFileMenuItems: View {
 /// ホーム画面を出している間の表示メニューの中身。本棚とファイルブラウザで**同じ並び**にし、その場で意味の無い項目は淡色。
 struct HomeViewMenuItems: View {
     /// 環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」「スマートライブラリを有効にする」。ファイルブラウザがOFFなら
-    /// 表示形式と列(ファイルブラウザだけの項目)を出さず、3つともOFF(本棚を足す前のウェルカム画面)なら何も出さない。
+    /// 列(ファイルブラウザだけの項目)を、スマートライブラリもOFFなら表示形式も出さず、3つともOFF(本棚を足す前のウェルカム画面)なら何も出さない。
     let isLibraryFeatureEnabled: Bool
     let isFileBrowserFeatureEnabled: Bool
     let isSmartLibraryFeatureEnabled: Bool
@@ -442,6 +444,7 @@ struct HomeViewMenuItems: View {
     let appState: AppState?
 
     private var isBrowser: Bool { home.isShown && home.mode == .browser }
+    private var isSmart: Bool { home.isShown && home.mode == .smart }
 
     var body: some View {
         if isLibraryFeatureEnabled || isFileBrowserFeatureEnabled || isSmartLibraryFeatureEnabled {
@@ -451,15 +454,27 @@ struct HomeViewMenuItems: View {
 
     @ViewBuilder
     private var items: some View {
-        if isFileBrowserFeatureEnabled {
+        if isFileBrowserFeatureEnabled || isSmartLibraryFeatureEnabled {
+            // ファイルブラウザとスマートライブラリの見せ方(2026-09-27 からスマートライブラリにも効く)。キーは Finder と同じ
+            // アイコン ⌘1・リスト ⌘2(監査 21)。ビューアの表示モードの ⌘1〜⌘4 とは、ホームの間は表示メニューの中身ごと
+            // 入れ替わっているのでぶつからない。本棚の間はキーを付けない(homeMenuShortcut)。
             // 外側の閉包でも`appState`を明示的に捕まえる理由は HomeMenuItems の「ライブラリ」と同じ
             // (Swift 6.4 の #ImplicitStrongCapture。捕まえ方そのものは変えていない)。
-            ForEach(FileBrowserViewMode.allCases, id: \.self) { [appState] mode in
+            ForEach(Array(FileBrowserViewMode.allCases.enumerated()), id: \.element) { [appState] index, mode in
                 Toggle(String(localized: mode.menuTitle), isOn: Binding(
-                    get: { [home, isBrowser] in isBrowser && home.browserViewMode == mode },
-                    set: { [weak appState] _ in appState?.fileBrowser?.viewMode = mode }
+                    get: { [home, isBrowser, isSmart] in
+                        (isBrowser && home.browserViewMode == mode) || (isSmart && Self.smartViewMode(for: mode) == home.smartViewMode)
+                    },
+                    set: { [weak appState, isSmart] _ in
+                        if isSmart {
+                            appState?.smartLibrary?.viewMode = Self.smartViewMode(for: mode)
+                        } else {
+                            appState?.fileBrowser?.viewMode = mode
+                        }
+                    }
                 ))
-                .disabled(!isBrowser)
+                .homeMenuShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command, isActive: isBrowser || isSmart)
+                .disabled(!(isBrowser || isSmart))
             }
 
             Divider()
@@ -510,6 +525,9 @@ struct HomeViewMenuItems: View {
         Divider()
 
         // 大きさ(操作列のスライダー・ピンチと同じ値)。ファイルブラウザはアイコン表示のときだけ。
+        // ⌘+ は US 配列では ⇧⌘=、JIS 配列では ⇧⌘; でしか届かない(メニューの照合は Shift を含んだ文字で行う。AppKit 単体で
+        // 合成イベントを当てて確認、2026-09-27)。Safari・プレビューと同じく ⌘= でも拡大するよう、ホームの中に見えないボタンを
+        // 置いてある(HomeZoomInEqualsShortcut。監査 24)。
         Button("Zoom In") { [weak appState, home] in Self.resize(larger: true, appState: appState, home: home) }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(!canResize)
@@ -547,8 +565,19 @@ struct HomeViewMenuItems: View {
         .disabled(!(isBrowser && home.browserViewMode == .list))
     }
 
-    private var canResize: Bool {
-        home.isShelfShown || (isBrowser && home.browserViewMode == .icons)
+    /// ファイルブラウザの見せ方に当たるスマートライブラリの見せ方(アイコン = グリッド)。
+    private static func smartViewMode(for mode: FileBrowserViewMode) -> SmartLibraryViewMode {
+        switch mode {
+        case .icons: .grid
+        case .list: .list
+        }
+    }
+
+    private var canResize: Bool { Self.canResize(home) }
+
+    /// 「拡大」「縮小」が効くか(本棚か、ファイルブラウザのアイコン表示)。ホームの ⌘= もこれで見る(HomeZoomInEqualsShortcut)。
+    static func canResize(_ home: HomeMenuState) -> Bool {
+        home.isShelfShown || (home.isShown && home.mode == .browser && home.browserViewMode == .icons)
     }
 
     /// 基準か向きの片方だけを差し替える。もう片方は**いまの値**から取る(メニューの値は保留されうるので使わない)。
@@ -562,7 +591,7 @@ struct HomeViewMenuItems: View {
     }
 
     /// 1 回で約 1.25 倍 / 0.8 倍(ピンチと同じ積み上げ方。WelcomeLibraryState.resizeTiles(byMagnification:))。
-    private static func resize(larger: Bool, appState: AppState?, home: HomeMenuState) {
+    static func resize(larger: Bool, appState: AppState?, home: HomeMenuState) {
         let magnification: CGFloat = larger ? 0.25 : -0.2
         if home.isShown && home.mode == .browser {
             appState?.fileBrowser?.stepIconSize(larger: larger)
@@ -584,5 +613,31 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+/// ホームの ⌘= を「拡大」にする見えないボタン(2026-09-27、監査 24)。
+///
+/// 表示メニューの「拡大」は ⌘+ で、メニューの照合は Shift を含んだ文字で行われるので、US 配列の ⌘=(Shift 無し)は届かない。
+/// Safari・プレビューは ⌘= でも拡大する。SwiftUI のメニュー項目には 2 つ目のキーを付けられず、AppKit の隠し項目を後から足すと
+/// SwiftUI の作り直しとぶつかるので、ホームの中にキーだけを持つボタンを置く(キーはウインドウのビューがメニューより先に受ける)。
+/// 効く条件はメニューの「拡大」と同じ(`HomeViewMenuItems.canResize`)。閉包は AppState を weak で持つ(ViewerActionRelay と同じ理由 ――
+/// SwiftUI はボタンの閉包を AppKit の側へ渡し、ウインドウより長く残ることがある)。
+struct HomeZoomInEqualsShortcut: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        let home = appState.homeMenu
+        let appState = self.appState
+        Button("Zoom In") { [weak appState] in
+            guard let appState else { return }
+            HomeViewMenuItems.resize(larger: true, appState: appState, home: appState.homeMenu)
+        }
+        .keyboardShortcut("=", modifiers: .command)
+        .disabled(!HomeViewMenuItems.canResize(home))
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
