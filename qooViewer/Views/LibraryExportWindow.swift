@@ -222,45 +222,47 @@ struct LibraryExportWindow: View {
         if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
 
-        isExporting = true
-        resultMessage = nil
-        skippedFilePaths = []
-        // ⌘Q の確認のために数える(RunningWorkRegistry)。
-        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
-        Task {
-            defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
-            let selection = LibraryImportExportService.ExportSelection(
-                includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
-                includeLayouts: includeLayouts, includeMetadata: includeMetadata,
-                includeMetadataRules: includeMetadataRules,
-                includeCollections: includeCollections,
-                includeReadingStates: includeReadingStates,
-                includeSmartLibrary: includeSmartLibrary,
-                includeFileBrowser: includeFileBrowser,
-                includeSettings: includeSettings
-            )
-            let (file, result) = await LibraryImportExportService.buildExportFile(
-                selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
-                layoutStore: layoutStore, metadataStore: metadataStore,
-                metadataRulesStore: metadataRulesStore, collectionStore: collectionStore,
-                backupStores: backupStores
-            )
-            do {
-                try LibraryImportExportService.write(file, to: url)
-                didSucceed = true
-                resultMessage = String(localized: "Export complete.", language: locale)
-                skippedFilePaths = result.allSkippedFilePaths
-            } catch {
-                didSucceed = false
-                resultMessage = String(
-                    format: String(localized: "Export failed: %@", language: locale),
-                    error.localizedDescription
+            isExporting = true
+            resultMessage = nil
+            skippedFilePaths = []
+            // ⌘Q の確認のために数える(RunningWorkRegistry)。
+            let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
+            Task {
+                defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
+                let selection = LibraryImportExportService.ExportSelection(
+                    includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
+                    includeLayouts: includeLayouts, includeMetadata: includeMetadata,
+                    includeMetadataRules: includeMetadataRules,
+                    includeCollections: includeCollections,
+                    includeReadingStates: includeReadingStates,
+                    includeSmartLibrary: includeSmartLibrary,
+                    includeFileBrowser: includeFileBrowser,
+                    includeSettings: includeSettings
                 )
+                let (file, result) = await LibraryImportExportService.buildExportFile(
+                    selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
+                    layoutStore: layoutStore, metadataStore: metadataStore,
+                    metadataRulesStore: metadataRulesStore, collectionStore: collectionStore,
+                    backupStores: backupStores
+                )
+                do {
+                    try LibraryImportExportService.write(file, to: url)
+                    didSucceed = true
+                    resultMessage = String(localized: "Export complete.", language: locale)
+                    skippedFilePaths = result.allSkippedFilePaths
+                } catch {
+                    didSucceed = false
+                    resultMessage = String(
+                        format: String(localized: "Export failed: %@", language: locale),
+                        error.localizedDescription
+                    )
+                }
+                isExporting = false
             }
-            isExporting = false
         }
     }
 }

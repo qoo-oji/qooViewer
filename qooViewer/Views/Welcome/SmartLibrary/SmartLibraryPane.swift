@@ -312,10 +312,13 @@ struct SmartLibrarySidebar: View {
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(localized: "Choose folders whose books appear in the smart library.", language: locale)
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            folderAccess.add(url: url)
-            store.addFolder(url)
+        // このウインドウのシート(2026-09-27。WindowSheet)。その間にスマートライブラリ機能が切られていたら足さない(上のドロップと同じ)。
+        WindowSheet.begin(panel) { [weak appState] response in
+            guard response == .OK, appState?.preferences?.smartLibraryFeatureEnabled ?? false else { return }
+            for url in panel.urls {
+                folderAccess.add(url: url)
+                store.addFolder(url)
+            }
         }
     }
 
@@ -1455,8 +1458,9 @@ struct SmartLibraryContent: View {
             for: HomeBookOpenWith.applications(forBookAt: book.id), locale: locale,
             open: { application in openWith(book, application: application) },
             chooseOther: {
-                guard let application = OpenWithApplications.chooseApplication(locale: locale) else { return }
-                openWith(book, application: application)
+                OpenWithApplications.chooseApplication(locale: locale) { application in
+                    openWith(book, application: application)
+                }
             }
         )
     }
@@ -1472,12 +1476,14 @@ struct SmartLibraryContent: View {
     private func startExport(_ book: SmartBook, format: BookExportFormat) {
         guard exportRequest == nil else { return }
         withResolvedURL(for: book) { url in
-            guard let export = FileBrowserBookSheet.Export.make(
-                url: url, bookID: book.id, isDirectory: book.kind == .folder, format: format, preferences: preferences,
-                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                usesPageListCache: !appState.isPrivateWindow
-            ) else { return }
-            exportRequest = HomeBookExportRequest(export: export)
+            Task {
+                guard let export = await FileBrowserBookSheet.Export.make(
+                    url: url, bookID: book.id, isDirectory: book.kind == .folder, format: format, preferences: preferences,
+                    bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
+                    usesPageListCache: !appState.isPrivateWindow
+                ), exportRequest == nil else { return }
+                exportRequest = HomeBookExportRequest(export: export)
+            }
         }
     }
 

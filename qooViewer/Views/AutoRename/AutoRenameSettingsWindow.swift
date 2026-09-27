@@ -105,6 +105,11 @@ struct AutoRenameSettingsWindow: View {
         guard !preferences.fileBrowserFeatureEnabled else { return }
         sheet = nil
         let box = hostWindow
+        // 「フォルダを追加…」「アクセスを許可…」のパネルもこのウインドウのシート(2026-09-27。WindowSheet)。キャンセルとして下ろす
+        // (パネルの続きは何もしない)。
+        if let window = box.window, let panel = window.attachedSheet as? NSSavePanel {
+            window.endSheet(panel, returnCode: .cancel)
+        }
         Task { @MainActor in
             var waits = 0
             while box.window?.attachedSheet != nil, waits < 100 {
@@ -476,15 +481,17 @@ private struct AutoRenameRuleEditor: View {
             localized: "Choose a folder in Favorite Locations, or a folder inside one, to rename items in automatically.",
             language: locale
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let panelDirectory = panel.directoryURL ?? url.deletingLastPathComponent()
-        Task {
-            let result = await service.addTarget(folder: url, toRule: ruleID)
-            addProblem = Self.message(for: result, locale: locale)
-            // 次の「フォルダを追加…」は、よく使う項目の「＋」と同じく**パネルを閉じた時点で見ていた場所**から始める
-            // (FileBrowserActions.addFavoriteLocation)。
-            if result == .added {
-                lastAddedTarget = AddedTarget(path: AutoRename.canonicalPath(of: url), panelDirectory: panelDirectory)
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            let panelDirectory = panel.directoryURL ?? url.deletingLastPathComponent()
+            Task {
+                let result = await service.addTarget(folder: url, toRule: ruleID)
+                addProblem = Self.message(for: result, locale: locale)
+                // 次の「フォルダを追加…」は、よく使う項目の「＋」と同じく**パネルを閉じた時点で見ていた場所**から始める
+                // (FileBrowserActions.addFavoriteLocation)。
+                if result == .added {
+                    lastAddedTarget = AddedTarget(path: AutoRename.canonicalPath(of: url), panelDirectory: panelDirectory)
+                }
             }
         }
     }
@@ -597,8 +604,10 @@ private struct AutoRenameTargetRow: View {
         panel.directoryURL = target.url
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(localized: "To rename items in this folder automatically, please select and grant access to it.", language: locale)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        _ = folderAccess.add(url: url)
-        service.refreshAvailability()
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            _ = folderAccess.add(url: url)
+            service.refreshAvailability()
+        }
     }
 }

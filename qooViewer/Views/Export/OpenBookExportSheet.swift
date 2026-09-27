@@ -223,11 +223,13 @@ struct OpenBookExportSheet: View {
     }
 
     private func chooseDestination() {
-        guard let folder = ExportDestinationPanel.present(
-            for: format, startingAt: destination?.url, locale: preferences.effectiveLocale
-        ) else { return }
-        // パネルで今まさに選んだフォルダには既に権限が付いている。
-        destination = Destination(url: folder, isSecurityScoped: false)
+        Task {
+            guard let folder = await ExportDestinationPanel.present(
+                for: format, startingAt: destination?.url, locale: preferences.effectiveLocale
+            ) else { return }
+            // パネルで今まさに選んだフォルダには既に権限が付いている。
+            destination = Destination(url: folder, isSecurityScoped: false)
+        }
     }
 
     private func run(_ destination: Destination) async {
@@ -265,8 +267,13 @@ enum ExportDestinationPanel {
     /// - Parameter startingAt: いま選ばれている保存先(シートの「変更…」)。前回このパネルで選んだものなら前回パネルを閉じた場所、
     ///   違えばその親から開く(中に入った状態で開かないように。`LastUsedFolderMemory.folderPanelStartDirectory(current:)`)。
     ///   nilならこの形式で前回パネルを閉じた場所。
+    ///   - window: パネルを付けるウインドウ(nil ならキーウインドウ。WindowSheet)。
     /// - Returns: 選ばれたフォルダ。キャンセルされたらnil。
-    static func present(for format: BookExportFormat, startingAt: URL?, locale: Locale) -> URL? {
+    ///
+    /// パネルはウインドウのシート(2026-09-27。監査 docs/plans/macos-conventions-audit-2026-09-26.md の 10)なので async。
+    static func present(
+        for format: BookExportFormat, startingAt: URL?, locale: Locale, window: NSWindow? = nil
+    ) async -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -274,7 +281,7 @@ enum ExportDestinationPanel {
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = String(localized: "Choose a destination folder for the exported book.", language: locale)
         panel.directoryURL = format.lastUsedFolder.folderPanelStartDirectory(current: startingAt)
-        guard panel.runModal() == .OK, let folder = panel.url else { return nil }
+        guard await WindowSheet.run(panel, for: window) == .OK, let folder = panel.url else { return nil }
         format.lastUsedFolder.remember(folder, panelDirectory: panel.directoryURL)
         return folder
     }

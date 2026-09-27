@@ -552,10 +552,12 @@ struct ExportWindowContent<Options: View>: View {
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = configuration.destinationPanelMessage(locale)
         panel.directoryURL = configuration.lastUsedFolder.folderPanelStartDirectory()
-        guard panel.runModal() == .OK, let destination = panel.url else { return }
-        configuration.lastUsedFolder.remember(destination, panelDirectory: panel.directoryURL)
-        // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
-        startExport(to: destination, isSecurityScoped: false, locale: locale)
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let destination = panel.url else { return }
+            configuration.lastUsedFolder.remember(destination, panelDirectory: panel.directoryURL)
+            // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
+            startExport(to: destination, isSecurityScoped: false, locale: locale)
+        }
     }
 
     private func startExport(to destination: URL, isSecurityScoped: Bool, locale: Locale) {
@@ -954,9 +956,11 @@ struct ExportCoverPickerContent: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
-        dismiss()
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
+            dismiss()
+        }
     }
 }
 

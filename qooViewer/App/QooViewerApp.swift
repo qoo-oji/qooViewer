@@ -1545,8 +1545,8 @@ struct QooViewerApp: App {
         .windowResizability(.contentSize)
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
         // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
-        .defaultWindowPlacement { _, context in
-            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
+        .defaultWindowPlacement { _, _ in
+            BookWindowOpener.pendingWindowPlacement()
         }
         // バグ修正(ユーザー報告): "main" WindowGroupと同じ理由で、こちらの状態復元も
         // 無効化する。当初は"main"だけに適用していたが、AppDelegate.application(_:open:)が
@@ -1577,8 +1577,8 @@ struct QooViewerApp: App {
         }
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
         // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
-        .defaultWindowPlacement { _, context in
-            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
+        .defaultWindowPlacement { _, _ in
+            BookWindowOpener.pendingWindowPlacement()
         }
         // ここだけ"book"の`.contentSize`ではなく"main"と同じ`.automatic` + `.defaultSize`に
         // している(ユーザー要望「サイズ・位置を通常の新規ウインドウと同様に」)。シークレット
@@ -1614,8 +1614,8 @@ struct QooViewerApp: App {
         }
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
         // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
-        .defaultWindowPlacement { _, context in
-            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
+        .defaultWindowPlacement { _, _ in
+            BookWindowOpener.pendingWindowPlacement()
         }
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
@@ -3050,7 +3050,14 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     /// おそれがあるのを避けるため。
     @objc func forceCloseWindow(_ sender: Any?) {
         guard let window else { return }
-        guard Self.confirmCloseIfMultipleTabs(for: window, preferences: preferences) else { return }
+        Self.confirmCloseIfMultipleTabs(for: window, preferences: preferences) { [weak self] in
+            self?.closeAllTabs()
+        }
+    }
+
+    /// `forceCloseWindow(_:)`の確認の後。タブの顔ぶれは確認のシートの間に変わりうるので、閉じる時点で取り直す。
+    private func closeAllTabs() {
+        guard let window else { return }
         let windowsToClose = window.tabGroup?.windows ?? [window]
         for windowToClose in windowsToClose {
             // 本を閉じてから(windowShouldCloseと同じ)。close()はwindowShouldCloseを通らないので、
@@ -3077,23 +3084,35 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
             delegate.forceCloseWindow(nil)
             return
         }
-        guard confirmCloseIfMultipleTabs(for: window, preferences: preferences) else { return }
-        for tab in window.tabGroup?.windows ?? [window] {
-            tab.performClose(nil)
+        confirmCloseIfMultipleTabs(for: window, preferences: preferences) { [weak window] in
+            guard let window else { return }
+            for tab in window.tabGroup?.windows ?? [window] {
+                tab.performClose(nil)
+            }
         }
     }
 
     /// window(赤い閉じるボタンまたは「ウインドウを閉じる」メニューで閉じようとしているウインドウ)
     /// が複数のタブを開いているときは、環境設定の「複数のタブが開いているウインドウを閉じるときに
-    /// 確認する」がONの場合に限り、本当に閉じてよいか確認するダイアログを表示する。設定がOFF、
-    /// またはタブが1つ以下のときは確認なしでtrue(閉じてよい)を返す。
+    /// 確認する」がONの場合に限り、本当に閉じてよいか確認するダイアログを表示し、「ウインドウを閉じる」なら
+    /// `close`を呼ぶ。設定がOFF、またはタブが1つ以下のときは確認なしで`close`を呼ぶ。
+    ///
+    /// 確認はこのウインドウのシート(2026-09-27。Safari と同じ。監査 docs/plans/macos-conventions-audit-2026-09-26.md の 10)。
+    /// 以前は`runModal()`のアプリモーダルで、答えるまでほかのウインドウも止まっていた。シートが既に出ていれば
+    /// (確認の最中に赤いボタン・⇧⌘W をもう一度)何もしない ―― 2 つ目を重ねると、1 つ目に答えた後にもう一度尋ねることになる。
     ///
     /// Cmd+Wとタブバー自身の×ボタンはタブ1枚しか閉じないので、この確認は出ない
     /// (closeButtonClicked(_:)参照)。
-    static func confirmCloseIfMultipleTabs(for window: NSWindow, preferences: AppPreferences?) -> Bool {
-        guard preferences?.confirmBeforeClosingMultipleTabsWindow ?? true else { return true }
+    static func confirmCloseIfMultipleTabs(
+        for window: NSWindow, preferences: AppPreferences?, then close: @escaping () -> Void
+    ) {
+        guard preferences?.confirmBeforeClosingMultipleTabsWindow ?? true else { return close() }
         let tabCount = window.tabGroup?.windows.count ?? 1
-        guard tabCount > 1 else { return true }
+        guard tabCount > 1 else { return close() }
+        guard window.attachedSheet == nil else {
+            NSSound.beep()
+            return
+        }
 
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let alert = NSAlert()
@@ -3105,7 +3124,9 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         )
         alert.addButton(withTitle: String(localized: "Close Window", language: locale))
         alert.addButton(withTitle: String(localized: "Cancel", language: locale))
-        return alert.runModal() == .alertFirstButtonReturn
+        WindowSheet.begin(alert, for: window) { response in
+            if response == .alertFirstButtonReturn { close() }
+        }
     }
 
     override func responds(to aSelector: Selector!) -> Bool {

@@ -76,10 +76,12 @@ struct AccessPermissionsSettingsView: View {
             localized: "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder).",
             language: locale
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        // ここでstartAccessingSecurityScopedResource()を呼ぶ必要は無い(対になるstopが無く、
-        // 呼ぶたびにカーネルリソースを漏らしていた)。アクセスの開閉はFolderAccessStoreが
-        // 一手に管理する(FolderAccessStore.accessedURLsByPathのコメント参照)。
-        folderAccess.add(url: url)
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            // ここでstartAccessingSecurityScopedResource()を呼ぶ必要は無い(対になるstopが無く、
+            // 呼ぶたびにカーネルリソースを漏らしていた)。アクセスの開閉はFolderAccessStoreが
+            // 一手に管理する(FolderAccessStore.accessedURLsByPathのコメント参照)。
+            folderAccess.add(url: url)
+        }
     }
 }

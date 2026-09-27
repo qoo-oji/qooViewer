@@ -201,13 +201,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
                 ? String(localized: "Choose where to extract the archive.", language: locale)
                 : String(format: String(localized: "Choose where to extract the %lld archives.", language: locale), count)
         }
-        let response: NSApplication.ModalResponse
-        if let window = appState?.hostWindow, window.attachedSheet == nil, window.isVisible {
-            response = await panel.beginSheetModal(for: window)
-        } else {
-            response = panel.runModal()
-        }
-        return response == .OK ? panel.url : nil
+        return await WindowSheet.run(panel, for: appState?.hostWindow) == .OK ? panel.url : nil
     }
 
     func showProblem(_ problem: FileBrowserProblem) {
@@ -220,10 +214,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
     }
 
     private func run(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        if let window = appState?.hostWindow, window.attachedSheet == nil, window.isVisible {
-            return await alert.beginSheetModal(for: window)
-        }
-        return alert.runModal()
+        await WindowSheet.run(alert, for: appState?.hostWindow)
     }
 }
 

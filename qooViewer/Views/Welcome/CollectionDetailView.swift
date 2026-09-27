@@ -730,8 +730,9 @@ struct CollectionDetailView: View {
                     for: applications, locale: locale,
                     open: { application in openItem(itemID, withApplicationAt: application) },
                     chooseOther: {
-                        guard let application = OpenWithApplications.chooseApplication(locale: locale) else { return }
-                        openItem(itemID, withApplicationAt: application)
+                        OpenWithApplications.chooseApplication(locale: locale) { application in
+                            openItem(itemID, withApplicationAt: application)
+                        }
                     }
                 ))
             }
@@ -761,12 +762,15 @@ struct CollectionDetailView: View {
             return
         }
         let name = url.lastPathComponent
-        guard let export = FileBrowserBookSheet.Export.make(
-            url: url, bookID: item.bookID, isDirectory: !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)),
-            format: format, preferences: preferences, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            metadataStore: metadataStore, collectionStore: collectionStore, usesPageListCache: allowsEditing
-        ) else { return }
-        exportRequest = HomeBookExportRequest(export: export)
+        let bookID = item.bookID
+        Task {
+            guard let export = await FileBrowserBookSheet.Export.make(
+                url: url, bookID: bookID, isDirectory: !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)),
+                format: format, preferences: preferences, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                metadataStore: metadataStore, collectionStore: collectionStore, usesPageListCache: allowsEditing
+            ), exportRequest == nil else { return }
+            exportRequest = HomeBookExportRequest(export: export)
+        }
     }
 
     // MARK: - コピー・ドラッグ(2026-09-23)

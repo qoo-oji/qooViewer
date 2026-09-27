@@ -58,7 +58,8 @@ the widest option's width made every Settings pop-up read "the first option"; th
 `Menu` (`SettingsPicker.widthProbe`) and is applied on macOS 15 only — built with the macOS 27 SDK and run on macOS 27,
 the label is drawn as-is, so the reserved width left short options stuck at the left of a wide button (2026-09-18). Linking against the macOS 27 SDK also hides menu item images by default
 (ordinary images too, not just SF Symbols): the Open With app icons are forced visible (`NSMenuItem.showsImageOnMacOS27()`, wrapped in
-`#if compiler(>=6.4)` because CI's Xcode 26.6 lacks the API; `.labelStyle(.titleAndIcon)` in SwiftUI), and a two-axis `ScrollView`
+`#if compiler(>=6.4)` because CI's Xcode 26.6 lacks the API — the macOS 26 SDK also leaves some SwiftUI types non-Sendable, e.g.
+`WindowPlacement`, so never return one out of `MainActor.assumeIsolated`: a local Xcode 27 build passes and CI fails, 2026-09-27; `.labelStyle(.titleAndIcon)` in SwiftUI), and a two-axis `ScrollView`
 now puts smaller content top-leading (the Actual Size window centers it itself). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
 capture explicit, never by dropping the inner `weak`.
@@ -497,6 +498,10 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   import); the default button and Esc keep the app running. New long user-started work calls `begin()`/`end(_:)`; tests never touch the
   shared registry (`forCurrentProcess` is nil under tests). Destructive choices are never the default button, and a SwiftUI `.alert`
   without a `role: .cancel` button gets an automatic no-op "Cancel" — give the safe choice that role (docs/09「その他の小さな約束」).
+  **Save/open panels and confirmation alerts that belong to a window go through `WindowSheet`** (2026-09-27): a sheet on that window
+  (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
+  Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in
+  New Window…). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
   Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
 - **Private windows record nothing; their write items are dimmed, never removed** (user decision 2026-09-23 — an item
   disappears only when the feature it uses is switched off). What a private window must not write is listed on

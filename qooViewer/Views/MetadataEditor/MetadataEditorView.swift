@@ -744,12 +744,8 @@ struct MetadataBookTableView: View {
             alert.addButton(withTitle: "Apply anyway".ui)
             alert.addButton(withTitle: "Cancel".ui)
             let apply = { [workspace] in workspace.setSeries(name, for: ids) }
-            if let window = NSApp.keyWindow, window.attachedSheet == nil {
-                alert.beginSheetModal(for: window) { response in
-                    if response == .alertFirstButtonReturn { apply() }
-                }
-            } else if alert.runModal() == .alertFirstButtonReturn {
-                apply()
+            WindowSheet.begin(alert) { response in
+                if response == .alertFirstButtonReturn { apply() }
             }
         }
     }
@@ -1116,7 +1112,9 @@ struct MetadataExcludedFoldersSheet: View {
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(localized: "Choose folders whose books are left out of metadata registration.", language: locale)
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls { rulesStore.addExcludedFolder(url) }
+        WindowSheet.begin(panel) { response in
+            guard response == .OK else { return }
+            for url in panel.urls { rulesStore.addExcludedFolder(url) }
+        }
     }
 }

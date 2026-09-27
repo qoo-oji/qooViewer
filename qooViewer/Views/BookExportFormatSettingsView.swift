@@ -107,10 +107,11 @@ struct BookExportFormatSettingsView: View {
                 stored.wrappedValue = newValue
                 guard newValue == .fixedFolder else { return }
                 // フォルダ選択パネルは、この場(ポップアップの選択が反映されている最中)では
-                // 開かない。NSOpenPanel.runModal()はモーダルループを回すので、SwiftUIの
-                // 更新の途中で呼ぶと再入することになる。値の反映を終わらせてから開く。
+                // 開かない。値の反映を終わらせてから開く(以前の NSOpenPanel.runModal() はモーダルループを
+                // 回すので、SwiftUIの更新の途中で呼ぶと再入した。今はシート ―― WindowSheet ―― だが、
+                // 出す先がないときはアプリモーダルへ落ちるので、この順序は保つ)。
                 Task { @MainActor in
-                    guard !chooseFixedFolder(),
+                    guard await !chooseFixedFolder(),
                           format.fixedFolder.lastFolderPath() == nil
                     else { return }
                     // 一度も設定されていないのにフォルダを選ばずに閉じられた。保存先の
@@ -133,15 +134,15 @@ struct BookExportFormatSettingsView: View {
                 // 「保存先」ではなく「形式」に見える(ExportDestinationLabel参照)。
                 ExportDestinationLabel(path: path)
                 Button("Change…") {
-                    _ = chooseFixedFolder()
+                    Task { await chooseFixedFolder() }
                 }
             }
         }
     }
 
-    /// 保存先フォルダを選ばせる。選ばれたらtrue。
+    /// 保存先フォルダを選ばせる。選ばれたらtrue。パネルは環境設定のウインドウのシート(2026-09-27。WindowSheet)。
     @discardableResult
-    private func chooseFixedFolder() -> Bool {
+    private func chooseFixedFolder() async -> Bool {
         let locale = preferences.effectiveLocale
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -154,7 +155,7 @@ struct BookExportFormatSettingsView: View {
         // 固定の保存先そのものの中からは開かない(LastUsedFolderMemory.folderPanelStartDirectory(current:))。
         panel.directoryURL = format.fixedFolder.folderPanelStartDirectory()
             ?? format.lastUsedFolder.folderPanelStartDirectory()
-        guard panel.runModal() == .OK, let folder = panel.url else { return false }
+        guard await WindowSheet.run(panel) == .OK, let folder = panel.url else { return false }
         format.fixedFolder.remember(folder, panelDirectory: panel.directoryURL)
         fixedFolderGeneration &+= 1
         return true

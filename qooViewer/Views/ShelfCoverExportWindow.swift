@@ -226,8 +226,10 @@ private struct ShelfCoverExportContentView: View {
         if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
-        Task { await viewModel.export(to: url) }
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+            Task { await viewModel.export(to: url) }
+        }
     }
 }

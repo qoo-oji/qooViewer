@@ -209,10 +209,10 @@ extension FileBrowserActions {
     /// 「その他…」。アプリケーションフォルダでアプリを選んでもらって開く。LaunchServices の候補に無いアプリは
     /// サンドボックスから開けないことがある(OpenWithApplications の型コメント)。失敗は報告する。
     func chooseApplicationAndOpen(_ entries: [FileBrowserEntry]) {
-        guard !entries.isEmpty,
-              let application = OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent)
-        else { return }
-        open(entries, withApplicationAt: application)
+        guard !entries.isEmpty else { return }
+        OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent) { [weak self] application in
+            self?.open(entries, withApplicationAt: application)
+        }
     }
 
     /// 「常にこのアプリケーションで開く」を出してよいか(右クリックで ⌥ を押している間。2026-09-21)。ファイルに既定のアプリを
@@ -267,10 +267,12 @@ extension FileBrowserActions {
     }
 
     func chooseApplicationAndAlwaysOpen(_ entries: [FileBrowserEntry]) {
-        guard canAlwaysOpenWith(entries),
-              let application = OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent)
-        else { return }
-        alwaysOpen(entries, withApplicationAt: application)
+        guard canAlwaysOpenWith(entries) else { return }
+        OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent) { [weak self] application in
+            // パネルはシートなので、選んでいる間に読み取り専用へ切り替わりうる。
+            guard let self, canAlwaysOpenWith(entries) else { return }
+            alwaysOpen(entries, withApplicationAt: application)
+        }
     }
 
     // MARK: - メタデータ・書き出し
@@ -302,14 +304,19 @@ extension FileBrowserActions {
     }
 
     private func presentExport(of url: URL, isDirectory: Bool, format: BookExportFormat) {
-        guard let state, state.bookSheet == nil, let preferences, let bookmarkStore, let layoutStore, let metadataStore,
-              let export = FileBrowserBookSheet.Export.make(
+        guard let state, state.bookSheet == nil, let preferences, let bookmarkStore, let layoutStore, let metadataStore
+        else { return }
+        let usesPageListCache = allowsSaving
+        Task { @MainActor [weak state] in
+            guard let export = await FileBrowserBookSheet.Export.make(
                 url: url, bookID: url.path, isDirectory: isDirectory, format: format, preferences: preferences,
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                usesPageListCache: allowsSaving
-              )
-        else { return }
-        state.bookSheet = FileBrowserBookSheet(kind: .export(export))
+                usesPageListCache: usesPageListCache
+            ) else { return }
+            // フォルダを選んでいる間(シート)に別の頼みが入っていれば、そちらを残す。
+            guard let state, state.bookSheet == nil else { return }
+            state.bookSheet = FileBrowserBookSheet(kind: .export(export))
+        }
     }
 
     // MARK: - 下請け

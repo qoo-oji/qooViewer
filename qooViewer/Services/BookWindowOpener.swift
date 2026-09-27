@@ -316,14 +316,25 @@ enum BookWindowOpener {
 
     /// 本のウインドウの WindowGroup("book"/"normal"/"private")の`.defaultWindowPlacement`から、SwiftUI がウインドウを作るときに呼ばれる。
     /// 控えてある行き先があれば、それをウインドウの最初の位置・大きさにする(控えは消さない ―― 透明にする指定と、当て損ねたときの
-    /// やり直しは WindowAccessor の`applyPendingPlacement`が受け取る)。無ければ nil(WindowGroup の既定のまま)。
-    static func pendingWindowPlacement(display: DisplayProxy) -> WindowPlacement? {
+    /// やり直しは WindowAccessor の`applyPendingPlacement`が受け取る)。無ければ WindowGroup の既定のまま。
+    ///
+    /// `.defaultWindowPlacement`の閉包はメインアクタの外として型付けされているので、控えを読むところだけを
+    /// `MainActor.assumeIsolated`に入れ、そこから返すのは Sendable な`CGRect`にする。macOS 26 の SDK では`WindowPlacement`の
+    /// Sendable 適合が使えない(unavailable)ので、`WindowPlacement`そのものを assumeIsolated から返すと Swift 6 ではエラー
+    /// (2026-09-27、CI の Xcode 26.6。Xcode 27 では通っていた)。
+    nonisolated static func pendingWindowPlacement() -> WindowPlacement {
+        guard let content = MainActor.assumeIsolated({ pendingContentRect() }) else { return WindowPlacement() }
+        return WindowPlacement(content.origin, size: content.size)
+    }
+
+    /// 控えてある行き先の中身の領域を、`WindowPlacement`の座標で。
+    private static func pendingContentRect() -> CGRect? {
         guard let pendingPlacement, pendingPlacement.deadline > Date(), let frame = pendingPlacement.frame else { return nil }
         // WindowPlacement の位置と大きさは**中身の領域**(タイトルバーを除く)のもので、座標は左上が原点で下向き(主画面の左上が 0)。
         // AppKit のフレームは左下が原点で上向きで、タイトルバーを含む。
         let content = NSWindow.contentRect(forFrameRect: frame, styleMask: pendingPlacement.styleMask)
         let primaryHeight = NSScreen.screens.first?.frame.height ?? content.maxY
-        return WindowPlacement(CGPoint(x: content.minX, y: primaryHeight - content.maxY), size: content.size)
+        return CGRect(origin: CGPoint(x: content.minX, y: primaryHeight - content.maxY), size: content.size)
     }
 
     /// 新しく決まったウインドウに、控えてある行き先を当てる(ContentView の WindowAccessor から、ウインドウが決まった最初の 1 回)。

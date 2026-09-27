@@ -388,20 +388,22 @@ struct LibraryImportWindow: View {
         if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
 
-        do {
-            let file = try LibraryImportExportService.read(from: url)
-            loadedFile = file
-            sourceFileName = url.lastPathComponent
-            summary = nil
-            loadErrorMessage = nil
-        } catch {
-            loadErrorMessage = String(
-                format: String(localized: "This file couldn't be read: %@", language: locale),
-                error.localizedDescription
-            )
+            do {
+                let file = try LibraryImportExportService.read(from: url)
+                loadedFile = file
+                sourceFileName = url.lastPathComponent
+                summary = nil
+                loadErrorMessage = nil
+            } catch {
+                loadErrorMessage = String(
+                    format: String(localized: "This file couldn't be read: %@", language: locale),
+                    error.localizedDescription
+                )
+            }
         }
     }
 

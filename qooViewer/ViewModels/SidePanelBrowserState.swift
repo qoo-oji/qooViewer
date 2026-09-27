@@ -340,13 +340,15 @@ final class SidePanelBrowserState: ObservableObject {
             localized: "To show files in this folder, please select and grant access to it.",
             language: locale
         )
-        guard panel.runModal() == .OK, let grantedURL = panel.url else { return }
-
-        // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
-        // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
-        // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
-        folderAccess?.add(url: grantedURL)
-        reload()
+        // 操作されたウインドウ(キー)のシート(2026-09-27。WindowSheet)。
+        WindowSheet.begin(panel) { [weak self] response in
+            guard response == .OK, let grantedURL = panel.url else { return }
+            // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
+            // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
+            // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
+            self?.folderAccess?.add(url: grantedURL)
+            self?.reload()
+        }
     }
 
     /// 今表示中のフォルダをFinderで開く(ユーザー要望)。AppState.revealCurrentBookInFinder()の

@@ -1373,22 +1373,26 @@ struct DiffPane: View {
     private func importFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
-        text = String(decoding: data, as: UTF8.self)
-        message = "Loaded. Press “Apply” to put it to work"
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+            text = String(decoding: data, as: UTF8.self)
+            message = "Loaded. Press “Apply” to put it to work"
+        }
     }
 
     private func exportFile() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "qooMeta rule changes.json".ui
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try editing.settings.changes.data(half).write(to: url, options: .atomic)
-            message = "Written".ui
-        } catch {
-            // 書けなかったことを黙っていない(持っていくつもりのファイルが、実は無いことになる)。
-            editing.errors = [error.localizedDescription]
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try editing.settings.changes.data(half).write(to: url, options: .atomic)
+                message = "Written".ui
+            } catch {
+                // 書けなかったことを黙っていない(持っていくつもりのファイルが、実は無いことになる)。
+                editing.errors = [error.localizedDescription]
+            }
         }
     }
 }

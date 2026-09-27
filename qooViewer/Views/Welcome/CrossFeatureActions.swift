@@ -181,11 +181,7 @@ enum HomeBookOpenWith {
                 alert.alertStyle = .warning
                 alert.messageText = OpenWithApplications.failureTitle(application: application, locale: locale)
                 alert.informativeText = error.localizedDescription
-                if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                    alert.beginSheetModal(for: window) { _ in }
-                } else {
-                    alert.runModal()
-                }
+                WindowSheet.begin(alert, for: NSApp.keyWindow ?? NSApp.mainWindow) { _ in }
             }
         }
     }
@@ -211,6 +207,7 @@ struct HomeBookExportRequest: Identifiable {
 extension FileBrowserBookSheet.Export {
     /// 本を開かずに書き出すシートの材料。保存先の決め方はビューアの右クリックと同じ(ViewerView.startOpenBookExport):
     /// 環境設定「レイアウト」で決めてあれば何も尋ねず、決めていなければ先にフォルダを選んでもらう(やめたら nil)。
+    /// フォルダの選択は操作されたウインドウのシート(WindowSheet)なので async ―― 選んでいる間にほかのウインドウは動く。
     ///
     /// - Parameters:
     ///   - url: 本の実体(コレクションの本ならブックマークから解決した URL ―― 書き出しがスコープを開けて読む)。
@@ -222,14 +219,14 @@ extension FileBrowserBookSheet.Export {
         url: URL, bookID: String, isDirectory: Bool, format: BookExportFormat, preferences: AppPreferences,
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
         collectionStore: CollectionStore? = nil, usesPageListCache: Bool
-    ) -> FileBrowserBookSheet.Export? {
+    ) async -> FileBrowserBookSheet.Export? {
         let destination: OpenBookExportSheet.Destination
         let asks: Bool
         if preferences.bookExportDestinationMode(for: format) == .fixedFolder, let fixed = format.fixedFolder.lastFolder() {
             destination = .init(url: fixed, isSecurityScoped: true)
             asks = false
         } else {
-            guard let chosen = ExportDestinationPanel.present(
+            guard let chosen = await ExportDestinationPanel.present(
                 for: format, startingAt: nil, locale: preferences.effectiveLocale
             ) else { return nil }
             destination = .init(url: chosen, isSecurityScoped: false)

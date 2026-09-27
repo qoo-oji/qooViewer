@@ -550,8 +550,10 @@ private struct CoverArea: View {
         panel.message = String(
             localized: "Choose an image file to use as the cover.", language: locale
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
+        }
     }
 }
 
@@ -737,7 +739,9 @@ private struct FileBrowserCoverArea: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: locale)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
+        }
     }
 }

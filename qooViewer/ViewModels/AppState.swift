@@ -877,8 +877,11 @@ final class AppState: ObservableObject {
             localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
             locale: locale
         )
-        guard panel.runModal() == .OK else { return }
-        open(urls: panel.urls)
+        // このウインドウのシート(2026-09-27。WindowSheet)。以前はアプリモーダルで、選ぶ間ほかのウインドウも止まっていた。
+        WindowSheet.begin(panel, for: hostWindow) { [weak self] response in
+            guard response == .OK else { return }
+            self?.open(urls: panel.urls)
+        }
     }
 
     /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
@@ -1410,13 +1413,19 @@ final class AppState: ObservableObject {
             localized: "To open all images in this folder, please select and grant access to this folder.",
             language: locale
         )
-        guard ensureAccess(toFolder: folderURL, message: accessMessage) else { return }
-        // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
-        // 開く前にpendingInitialPageの宛先を確定できる。
-        pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
-        // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積んであるので、
-        // 別のウインドウへ譲ると着地先を失う(open(request:reusesExistingWindow:)のコメント参照)。
-        open(url: folderURL, reusesExistingWindow: false)
+        let bookID = currentBook?.id
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await ensureAccess(toFolder: folderURL, message: accessMessage) else { return }
+            // パネルはシートなので、その間にメニューバーから別の本へ移っていれば何もしない(置き換える先が違う)。
+            guard currentBook?.id == bookID else { return }
+            // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
+            // 開く前にpendingInitialPageの宛先を確定できる。
+            pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
+            // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積んであるので、
+            // 別のウインドウへ譲ると着地先を失う(open(request:reusesExistingWindow:)のコメント参照)。
+            open(url: folderURL, reusesExistingWindow: false)
+        }
     }
 
     /// 今表示しているページの実ファイルURL(そのページがフォルダ内の独立した画像の場合のみ)。
@@ -1437,7 +1446,9 @@ final class AppState: ObservableObject {
     ///
     /// - Parameter message: パネルに出す説明文。呼び出し元によって目的が違うため受け取る。
     /// - Returns: 許可が得られたらtrue。ユーザーがパネルをキャンセルしたらfalse。
-    private func ensureAccess(toFolder folderURL: URL, message: String) -> Bool {
+    ///
+    /// パネルはこのウインドウのシート(2026-09-27。WindowSheet)なので async。
+    private func ensureAccess(toFolder folderURL: URL, message: String) async -> Bool {
         if let folderAccess, folderAccess.isPathCovered(folderURL) { return true }
 
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
@@ -1448,7 +1459,7 @@ final class AppState: ObservableObject {
         panel.directoryURL = folderURL
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = message
-        guard panel.runModal() == .OK, let grantedURL = panel.url else { return false }
+        guard await WindowSheet.run(panel, for: hostWindow) == .OK, let grantedURL = panel.url else { return false }
         _ = folderAccess?.add(url: grantedURL)
         // ユーザーが親フォルダなど別の場所を選んだ場合でも、目的のフォルダが配下に入っていれば
         // 列挙できる。入っていなければこの後の読み込みが素直にエラーになる。
@@ -1476,9 +1487,10 @@ final class AppState: ObservableObject {
             localized: "To show files in the same folder, please select and grant access to this folder.",
             language: locale
         )
-        guard ensureAccess(toFolder: parent, message: accessMessage) else { return }
-
-        reloadSiblingBooks()
+        Task { @MainActor [weak self] in
+            guard let self, await ensureAccess(toFolder: parent, message: accessMessage) else { return }
+            reloadSiblingBooks()
+        }
     }
 
     /// 現在の本(ファイルまたはフォルダ)をFinderで開く(ユーザー要望)。ファイルメニュー・

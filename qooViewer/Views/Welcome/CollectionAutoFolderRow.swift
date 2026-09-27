@@ -190,12 +190,14 @@ struct CollectionAutoFolderRow: View {
             localized: "Choose a folder. Books added to it are added to this collection automatically.",
             language: locale
         )
-        guard panel.runModal() == .OK, let chosen = panel.url else { return }
-        // パネルで選んだ時点で権限は付いているので、そのままFolderAccessStoreへ預ける
-        // (自前でstartAccessing…しないこと。FolderAccessStore参照)。
-        folderAccess.add(url: chosen)
-        folder = chosen
-        lastChoice = (chosen, panel.directoryURL ?? chosen.deletingLastPathComponent())
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let chosen = panel.url else { return }
+            // パネルで選んだ時点で権限は付いているので、そのままFolderAccessStoreへ預ける
+            // (自前でstartAccessing…しないこと。FolderAccessStore参照)。
+            folderAccess.add(url: chosen)
+            folder = chosen
+            lastChoice = (chosen, panel.directoryURL ?? chosen.deletingLastPathComponent())
+        }
     }
 
     /// 「選択…」のパネルをどこから始めるか。
@@ -236,8 +238,10 @@ struct CollectionAutoFolderRow: View {
             localized: "Grant access to this folder so books added to it can be added to the collection automatically.",
             language: locale
         )
-        guard panel.runModal() == .OK, let granted = panel.url else { return }
-        folderAccess.add(url: granted)
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, let granted = panel.url else { return }
+            folderAccess.add(url: granted)
+        }
     }
 }
 

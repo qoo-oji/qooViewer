@@ -246,7 +246,7 @@ struct ViewerView: View {
     @State private var imageExportErrorMessage: String?
     /// 「このページをエクスポート」の保存パネルを、いま出そうとしている最中かどうか。
     /// 同じパネルが入れ子で開くのを防ぐためだけの目印(exportImage(_:)参照)。
-    @State private var isExportingSinglePage = false
+    @State private var isExportingImage = false
 
     /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
     /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
@@ -954,31 +954,28 @@ struct ViewerView: View {
 
     /// 画像のエクスポート本体。NSSavePanelで保存先を選んでもらってから、実際の画像の読み込み・
     /// (結合が必要な場合は)合成・書き込みを非同期に行う
-    /// (LibraryExportWindow.exportButtonTappedと同じ「パネル表示 → Task」の順序)。
-    /// パネルをキャンセルした場合は何もしない。
+    /// (パネルはこのウインドウのシート。WindowSheet)。パネルをキャンセルした場合は何もしない。
     ///
-    /// 見開きの結合はパネルより前がすべて同期的だが、1ページの書き出しだけはパネルを出す前に
-    /// 拡張子の解決(await)を1回挟む(下のコメント参照)。
+    /// 1ページの書き出しはパネルを出す前に拡張子の解決(await)を1回挟む(下のコメント参照)。
     private func exportImage(_ request: ImageExportRequest) {
         switch request {
         case .singlePage(let index):
             guard viewModel.book.pages.indices.contains(index) else { return }
             // 保存パネルを二重に開かない。すぐ下の理由でパネルが出るまでに`await`を1回挟むため、
-            // その隙にもう一度この操作を起動できてしまい、runModal()が入れ子になりうる
-            // (パネルが出た後はアプリモーダルなので操作できず、隙はこの`await`の間だけ)。
-            // ここから`isExportingSinglePage`の代入までに中断点が無いので、この判定で塞げる。
-            guard !isExportingSinglePage else { return }
-            isExportingSinglePage = true
+            // その隙にもう一度この操作を起動できてしまう(パネルが出た後は WindowSheet が 2 つ目を断るが、
+            // 出る前の隙はこの判定で塞ぐ)。ここから`isExportingImage`の代入までに中断点が無い。
+            guard !isExportingImage else { return }
+            isExportingImage = true
             let page = viewModel.book.pages[index]
             // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
             // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
             // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
             // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。
             Task {
-                defer { isExportingSinglePage = false }
+                defer { isExportingImage = false }
                 do {
                     guard let ext = try await viewModel.exportableImageFileExtension(at: index) else { return }
-                    guard let url = presentImageExportSavePanel(
+                    guard let url = await presentImageExportSavePanel(
                         defaultFileName: ImageExporter.defaultFileName(for: page, fileExtension: ext),
                         contentType: ImageExporter.contentType(forExtension: ext)
                     ) else { return }
@@ -1004,11 +1001,14 @@ struct ViewerView: View {
             let leadingPage = viewModel.book.pages[leadingIndex]
             let trailingPage = viewModel.book.pages[trailingIndex]
             let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
-            guard let url = presentImageExportSavePanel(
-                defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
-                contentType: ImageExporter.contentType(forExtension: ext)
-            ) else { return }
+            guard !isExportingImage else { return }
+            isExportingImage = true
             Task {
+                defer { isExportingImage = false }
+                guard let url = await presentImageExportSavePanel(
+                    defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
+                    contentType: ImageExporter.contentType(forExtension: ext)
+                ) else { return }
                 guard let leftImage = await viewModel.fullResolutionImage(at: leftIndex),
                       let rightImage = await viewModel.fullResolutionImage(at: rightIndex)
                 else {
@@ -1075,14 +1075,19 @@ struct ViewerView: View {
             return
         }
 
-        guard let chosen = ExportDestinationPanel.present(
-            for: format, startingAt: nil, locale: preferences.effectiveLocale
-        ) else { return }
-        openBookExport = OpenBookExportRequest(
-            format: format, viewModel: exportViewModel,
-            destination: .init(url: chosen, isSecurityScoped: false),
-            asksBeforeExporting: true
-        )
+        // フォルダの選択はこのウインドウのシート(2026-09-27。WindowSheet)。選んでいる間に同じ頼みが来ても、2 つ目のパネルは
+        // WindowSheet が断る。その間にメニューバーから別の本へ移っていたら、書き出しのシートは出さない。
+        let bookID = viewModel.book.id
+        Task {
+            guard let chosen = await ExportDestinationPanel.present(
+                for: format, startingAt: nil, locale: preferences.effectiveLocale, window: hostWindow
+            ), openBookExport == nil, viewModel.book.id == bookID else { return }
+            openBookExport = OpenBookExportRequest(
+                format: format, viewModel: exportViewModel,
+                destination: .init(url: chosen, isSecurityScoped: false),
+                asksBeforeExporting: true
+            )
+        }
     }
 
     /// 進行中の「本の書き出し」があれば止めて、シートを畳む。
@@ -1179,15 +1184,15 @@ struct ViewerView: View {
         }
     }
 
-    /// 保存先のフォルダとファイル名を指定するためのウインドウ(要望)。LibraryExportWindow.
-    /// exportButtonTappedと同じ、同期的なNSSavePanel.runModal()。
-    private func presentImageExportSavePanel(defaultFileName: String, contentType: UTType) -> URL? {
+    /// 保存先のフォルダとファイル名を指定するためのウインドウ(要望)。このウインドウのシート
+    /// (2026-09-27。WindowSheet。以前はアプリモーダルの runModal())。
+    private func presentImageExportSavePanel(defaultFileName: String, contentType: UTType) async -> URL? {
         let locale = preferences.effectiveLocale
         let panel = NSSavePanel()
         panel.allowedContentTypes = [contentType]
         panel.nameFieldStringValue = defaultFileName
         panel.message = String(localized: "Choose where to save the exported image.", language: locale)
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        guard await WindowSheet.run(panel, for: hostWindow) == .OK, let url = panel.url else { return nil }
         return url
     }
 

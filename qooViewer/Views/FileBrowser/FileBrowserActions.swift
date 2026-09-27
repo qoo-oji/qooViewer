@@ -314,9 +314,12 @@ final class FileBrowserActions {
             localized: "To show files in this folder, please select and grant access to it.",
             language: locale
         )
-        guard panel.runModal() == .OK, let granted = panel.url else { return }
-        folderAccess?.add(url: granted)
-        state.reload()
+        // 操作されたウインドウのシート(2026-09-27。WindowSheet)。
+        WindowSheet.begin(panel) { [self] response in
+            guard response == .OK, let granted = panel.url else { return }
+            folderAccess?.add(url: granted)
+            state.reload()
+        }
     }
 
     /// よく使う項目に足す(「＋」)。選んだフォルダの読み取りも同時に許可される
@@ -334,15 +337,19 @@ final class FileBrowserActions {
             localized: "Choose a folder to add to Favorite Locations. qooViewer can then show the files in it.",
             language: locale
         )
-        guard panel.runModal() == .OK, let granted = panel.url else { return }
-        folderAccess?.add(url: granted)
-        favoriteLocations?.add(granted)
-        state?.navigate(to: granted)
-        // 次の「＋」は**パネルを閉じた時点で見ていた場所**から始める(2026-09-15、ユーザー判断)。FolderB の中まで入って
-        // 何も選ばずに「追加」したなら FolderB の中から。
-        // 以前の案は「足したフォルダの親」(granted.deletingLastPathComponent())で、入ってから追加しても FolderA に
-        // 戻る。要望があればそちらへ戻すかもしれないので、戻すときはこの右辺を親に替えるだけでよい。
-        state?.lastAddedFavoriteLocation = (granted, panel.directoryURL ?? granted.deletingLastPathComponent())
+        // 操作されたウインドウのシート(2026-09-27。WindowSheet)。その間にファイルブラウザ機能が切られていたら足さない。
+        WindowSheet.begin(panel) { [self] response in
+            guard response == .OK, let granted = panel.url,
+                  preferences?.fileBrowserFeatureEnabled ?? true else { return }
+            folderAccess?.add(url: granted)
+            favoriteLocations?.add(granted)
+            state?.navigate(to: granted)
+            // 次の「＋」は**パネルを閉じた時点で見ていた場所**から始める(2026-09-15、ユーザー判断)。FolderB の中まで入って
+            // 何も選ばずに「追加」したなら FolderB の中から。
+            // 以前の案は「足したフォルダの親」(granted.deletingLastPathComponent())で、入ってから追加しても FolderA に
+            // 戻る。要望があればそちらへ戻すかもしれないので、戻すときはこの右辺を親に替えるだけでよい。
+            state?.lastAddedFavoriteLocation = (granted, panel.directoryURL ?? granted.deletingLastPathComponent())
+        }
     }
 
     /// 「＋」のパネルをどこから始めるか。基本は一覧で見ているフォルダ。ただし直前の「＋」で足したフォルダへ移動したまま

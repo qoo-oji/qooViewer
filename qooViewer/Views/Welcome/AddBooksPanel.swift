@@ -184,8 +184,11 @@ struct AddBooksPanel: View {
             localized: "Choose manga folders, or zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB files to add to this collection.",
             language: locale
         )
-        guard panel.runModal() == .OK else { return }
-        add(panel.urls)
+        // このウインドウのシート(2026-09-27。WindowSheet)。その間にライブラリ機能が切られていたら足さない。
+        WindowSheet.begin(panel) { response in
+            guard response == .OK, preferences.libraryFeatureEnabled else { return }
+            add(panel.urls)
+        }
     }
 
     /// 落とされた/選ばれたURLから本だけを拾って登録する。棚(本の並んだフォルダ)は中の本へ
