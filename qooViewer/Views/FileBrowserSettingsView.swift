@@ -14,9 +14,10 @@ struct FileBrowserSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
-            // 並び(2026-09-27、環境設定の点検で利用者が決めた): ファイルを変える操作(読み取り専用・自動リネーム・外からの
-            // ドロップ・圧縮の形式)→ 開くとき(最初のフォルダ・画像フォルダ)→ 見え方(並び・ツリー・アイコン表示)→
-            // 「ファイルブラウザで表示」の行き先。
+            // 並び(2026-09-27、環境設定の点検で利用者と決めた): より根本的なものほど上、同じくらいなら触る頻度の高いものから。
+            // ファイル操作(読み取り専用 = ほかの操作すべての前提・自動リネーム)→ 他のアプリからのドロップ(ファイルが動く)→ 画像フォルダを開くとき
+            // (ダブルクリックの意味)→ 最初のフォルダ → 並べ替え → アイコン表示(動画の絵は裏でも作る)→ ツリー → 圧縮の形式
+            // (拡張子が変わるだけ)→ 「ファイルブラウザで表示」の行き先。
             // 読み取り専用モード(決定事項 Q12、段階 8.5)。既定 ON なので、ファイルを変えたい人が最初に探す場所として先頭に置く。
             Section {
                 SettingsToggle(
@@ -52,14 +53,15 @@ struct FileBrowserSettingsView: View {
                 Text("Drag and Drop")
             }
 
+            // 2026-09-14、ユーザー要望。右クリックの「開く」は常にこの反対(FileBrowserImageFolderOpenAction)。
             Section {
                 SettingsPicker(
-                    "Format of Compressed Files",
-                    selection: $preferences.fileBrowserCompressionFormat,
-                    help: "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
+                    "Double-Click or Return",
+                    selection: $preferences.fileBrowserImageFolderOpenAction,
+                    help: "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected."
                 )
             } header: {
-                Text("Compression")
+                Text("Opening Image Folders")
             }
 
             Section {
@@ -75,17 +77,6 @@ struct FileBrowserSettingsView: View {
                 Text("When the File Browser Opens")
             }
 
-            // 2026-09-14、ユーザー要望。右クリックの「開く」は常にこの反対(FileBrowserImageFolderOpenAction)。
-            Section {
-                SettingsPicker(
-                    "Double-Click or Return",
-                    selection: $preferences.fileBrowserImageFolderOpenAction,
-                    help: "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected."
-                )
-            } header: {
-                Text("Opening Image Folders")
-            }
-
             Section {
                 SettingsToggle(
                     "Keep Folders on Top",
@@ -94,6 +85,16 @@ struct FileBrowserSettingsView: View {
                 )
             } header: {
                 Text("Sorting")
+            }
+
+            Section {
+                SettingsToggle(
+                    "Make Thumbnails for Videos",
+                    isOn: $preferences.fileBrowserVideoThumbnailsEnabled,
+                    help: "Shows a frame from each video in icon view, made by Quick Look. While qooViewer is open, thumbnails for the videos in your favorite locations and their subfolders are also made in the background, so they appear right away. Some formats, such as MKV, need a Quick Look extension from another app."
+                )
+            } header: {
+                Text("Icon View")
             }
 
             Section {
@@ -112,13 +113,13 @@ struct FileBrowserSettingsView: View {
             }
 
             Section {
-                SettingsToggle(
-                    "Make Thumbnails for Videos",
-                    isOn: $preferences.fileBrowserVideoThumbnailsEnabled,
-                    help: "Shows a frame from each video in icon view, made by Quick Look. While qooViewer is open, thumbnails for the videos in your favorite locations and their subfolders are also made in the background, so they appear right away. Some formats, such as MKV, need a Quick Look extension from another app."
+                SettingsPicker(
+                    "Format of Compressed Files",
+                    selection: $preferences.fileBrowserCompressionFormat,
+                    help: "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
                 )
             } header: {
-                Text("Icon View")
+                Text("Compression")
             }
 
             Section {

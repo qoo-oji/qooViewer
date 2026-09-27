@@ -11,36 +11,25 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
-            // 並びは影響の大きいもの・よく触るものから(2026-09-27、環境設定の点検で利用者が決めた): 起動時 → ホーム(アプリの
-            // 形そのものが変わる機能の ON/OFF)→ ウインドウとタブ → サイドパネル → 保存データ → 履歴 → 言語(一度決めたら
-            // 触らない)。
+            // 並び(2026-09-27、環境設定の点検で利用者と決めた): **より根本的なもの(他の設定・機能の前提になるもの)ほど上**。
+            // 言語(すべての表示の前提)→ 機能の有無(ホームの機能・サイドパネルの ON/OFF)→ 機能がある前提での動き方(起動時 →
+            // ウインドウとタブ)→ データの保持(保存データ → 履歴)。言語を「一度決めたら触らない」として末尾へ回したら、利用者に
+            // 「最悪」と言われて戻した ―― 触る頻度は重要度ではない(根本度が同じくらいのものの間でだけ、触る頻度で並べる)。
             Section {
-                // 「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」と
-                // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
-                SettingsToggle(
-                    "Reopen the Book You Were Last Reading",
-                    isOn: $preferences.launchOpensLastBook
-                )
-                // シークレットで起動する設定では、そもそも「前回読んでいた本」が記録されず、
-                // 記録済みのものも意図的に無視する(ContentView.performLaunchActionsIfNeeded
-                // 参照)。効かない設定を触れるままにしておくと「壊れている」と受け取られるため、
-                // ここでグレーアウトして理由を吹き出しに置く。
-                .disabled(preferences.launchInPrivateMode)
-                SettingsToggle("Start in Full Screen", isOn: $preferences.launchFullScreen)
-                // ユーザー要望: アプリの通常起動・Finderからのダブルクリック・Dockアイコンへの
-                // ドラッグ&ドロップなど、すべての経路で既定でシークレットウインドウとして
-                // 開くモードが欲しい。
-                SettingsToggle(
-                    "Start in Private Mode",
-                    isOn: $preferences.launchInPrivateMode,
-                    help: "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+                // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
+                // 次回の起動から(AppLanguage.applyAppleLanguagesOverride参照)。それを吹き出しで言う。
+                SettingsPicker(
+                    "Display Language",
+                    selection: $preferences.displayLanguage,
+                    help: "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
                 )
             } header: {
-                Text("On Launch")
+                Text("Language")
             }
 
             Section {
-                // 並びは帯の左からと同じ: ファイルブラウザ・スマートライブラリ・ライブラリ(2026-09-22、利用者の指示)。
+                // 並びは帯の左からと同じ: ファイルブラウザ・スマートライブラリ・ライブラリ(2026-09-22、利用者の指示。2026-09-27 の
+                // 点検で影響の大きさ順に並べ替える案を出したが、利用者の判断でこのまま)。
                 // ユーザー要望 2026-09-21。3 つとも OFF にすると、ホームは本棚を足す前のウェルカム画面に戻る
                 // (AppPreferences.fileBrowserFeatureEnabled)。
                 SettingsToggle(
@@ -92,28 +81,14 @@ struct GeneralSettingsView: View {
 
             Section {
                 SettingsToggle(
-                    "Quit When the Last Window Closes",
-                    isOn: $preferences.quitWhenLastWindowClosed
-                )
-                SettingsToggle(
-                    "Confirm Before Closing a Window with Several Tabs",
-                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow
-                )
-            } header: {
-                Text("Windows & Tabs")
-            }
-
-            Section {
-                SettingsToggle(
                     "Enable Side Panel",
                     isOn: $preferences.sidePanelFeatureEnabled,
                     help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
                 )
-                // サイドパネル機能がOFFの間、以下はどれも効かない設定になる。
-                // 「前回読んでいた本を開き直す」をシークレット起動時にグレーアウトするのと
-                // 同じ理由(効かない設定を触れるままにすると「壊れている」と受け取られる)で、
-                // まとめて無効にする。**この欄へ設定を足すときは、この Group の中へ入れること。**
-                Group {
+                // サイドパネル機能がOFFの間、以下はどれも効かない設定になる。以前は淡色にしていたが、
+                // 2026-09-27 に**出さない**ようにした(利用者の指示)。機能そのものが無い間は、その機能の細かい設定は
+                // 並べる意味が無い。**この欄へ設定を足すときは、この if の中へ入れること。**
+                if preferences.sidePanelFeatureEnabled {
                     SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
                     // 「サイドパネルの」はSectionヘッダが言っているので落とし、
                     // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
@@ -139,9 +114,48 @@ struct GeneralSettingsView: View {
                         help: "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order."
                     )
                 }
-                .disabled(!preferences.sidePanelFeatureEnabled)
             } header: {
                 Text("Side Panel")
+            }
+
+            Section {
+                // 並び(2026-09-27): シークレットモードを先頭に ―― 記録を残すかどうかという、この欄のほかの項目の前提を決める設定で、
+                // 下の「前回読んでいた本を開き直す」を淡色にする側でもある。
+                // ユーザー要望: アプリの通常起動・Finderからのダブルクリック・Dockアイコンへの
+                // ドラッグ&ドロップなど、すべての経路で既定でシークレットウインドウとして
+                // 開くモードが欲しい。
+                SettingsToggle(
+                    "Start in Private Mode",
+                    isOn: $preferences.launchInPrivateMode,
+                    help: "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+                )
+                // 「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」と
+                // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
+                SettingsToggle(
+                    "Reopen the Book You Were Last Reading",
+                    isOn: $preferences.launchOpensLastBook
+                )
+                // シークレットで起動する設定では、そもそも「前回読んでいた本」が記録されず、
+                // 記録済みのものも意図的に無視する(ContentView.performLaunchActionsIfNeeded
+                // 参照)。効かない設定を触れるままにしておくと「壊れている」と受け取られるため、
+                // ここでグレーアウトして理由を吹き出しに置く。
+                .disabled(preferences.launchInPrivateMode)
+                SettingsToggle("Start in Full Screen", isOn: $preferences.launchFullScreen)
+            } header: {
+                Text("On Launch")
+            }
+
+            Section {
+                SettingsToggle(
+                    "Quit When the Last Window Closes",
+                    isOn: $preferences.quitWhenLastWindowClosed
+                )
+                SettingsToggle(
+                    "Confirm Before Closing a Window with Several Tabs",
+                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow
+                )
+            } header: {
+                Text("Windows & Tabs")
             }
 
             Section {
@@ -176,18 +190,6 @@ struct GeneralSettingsView: View {
                 }
             } header: {
                 Text("History")
-            }
-
-            Section {
-                // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
-                // 次回の起動から(AppLanguage.applyAppleLanguagesOverride参照)。それを吹き出しで言う。
-                SettingsPicker(
-                    "Display Language",
-                    selection: $preferences.displayLanguage,
-                    help: "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
-                )
-            } header: {
-                Text("Language")
             }
 
             // 説明文がこの画面だけ長いのは、対象外にしている2つがあるため

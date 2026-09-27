@@ -8,8 +8,9 @@ struct ReadingSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
-            // 並びはよく触るものから(2026-09-27、環境設定の点検で利用者が決めた): ページ送り → 見開きのブックマーク →
-            // スクロール → ポインタ → スライドショー → サムネイルのプレビュー。
+            // 並び(2026-09-27、環境設定の点検で利用者と決めた): より根本的なものほど上、同じくらいなら触る頻度の高いものから。
+            // ページ送り(閲覧の土台)→ スクロール → ポインタ(読んでいる間ずっと効く)→ スライドショー → 見開き表示中のブックマーク →
+            // サムネイルプレビュー(個別の機能にだけ効く 3 つ。間隔は本ごとに変えることがあるので先に)。
             Section {
                 // 説明文はラベルの言い換えだったので落とした。
                 // 「前のページへ」「次のページへ」は物語的な向きで、右開きの本で画面右の
@@ -27,21 +28,6 @@ struct ReadingSettingsView: View {
                 )
             } header: {
                 Text("Page Turning")
-            }
-
-            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
-            // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
-            // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
-            // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
-            // 「本を開く」から移した(2026-09-27、環境設定の点検。本を開くときではなく読んでいる間の設定)。
-            Section {
-                SettingsPicker(
-                    "Target Page",
-                    selection: $preferences.spreadBookmarkTargetBehavior,
-                    help: "Right-clicking a page always bookmarks the page you clicked, regardless of this setting."
-                )
-            } header: {
-                Text("Bookmarks in Spread View")
             }
 
             Section {
@@ -97,6 +83,21 @@ struct ReadingSettingsView: View {
                 }
             } header: {
                 Text("Slideshow")
+            }
+
+            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
+            // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
+            // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
+            // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
+            // 「本を開く」から移した(2026-09-27、環境設定の点検。本を開くときではなく読んでいる間の設定)。
+            Section {
+                SettingsPicker(
+                    "Target Page",
+                    selection: $preferences.spreadBookmarkTargetBehavior,
+                    help: "Right-clicking a page always bookmarks the page you clicked, regardless of this setting."
+                )
+            } header: {
+                Text("Bookmarks in Spread View")
             }
 
             // プログレスバーのフィルムストリップの設定(ON/OFFも含めて)は、環境設定「外観」の

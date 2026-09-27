@@ -10,6 +10,18 @@ struct SmartLibrarySettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 並び(2026-09-27、環境設定の点検で利用者と決めた): より根本的なものほど上。「先頭の著者だけを使う」は絞り込み・条件・
+            // 検索・並べ替えが見る値そのものを決めるので、見た目だけの表紙の形より先。
+            Section {
+                SettingsToggle(
+                    "Use Only the First Author",
+                    isOn: $preferences.smartLibraryUsesFirstAuthorOnly,
+                    help: "Books with more than one author are treated as if they had only the first one: in the Authors metadata button, smart collection conditions, search, sorting and the Authors column of the list. The books’ metadata isn’t changed. Group by Author always uses the first author."
+                )
+            } header: {
+                Text("Authors")
+            }
+
             // 2026-09-23、利用者の要望(ライブラリの「カバーの形」を持ち込む。SmartLibraryCoverShape)。
             Section {
                 SettingsPicker(
@@ -41,16 +53,6 @@ struct SmartLibrarySettingsView: View {
                 .disabled(preferences.smartLibraryCoverShape == .matchImage || preferences.smartLibraryCoverFit == .pad)
             } header: {
                 Text("Icon View")
-            }
-
-            Section {
-                SettingsToggle(
-                    "Use Only the First Author",
-                    isOn: $preferences.smartLibraryUsesFirstAuthorOnly,
-                    help: "Books with more than one author are treated as if they had only the first one: in the Authors metadata button, smart collection conditions, search, sorting and the Authors column of the list. The books’ metadata isn’t changed. Group by Author always uses the first author."
-                )
-            } header: {
-                Text("Authors")
             }
 
             SettingsResetSection(
