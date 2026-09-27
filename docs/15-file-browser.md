@@ -207,8 +207,8 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 |---|---|---|---|
 | ON | ON | 帯(切り替え + ライブラリ)と、本棚かファイルブラウザ | 選んだほう(保存する) |
 | ON | OFF | **ファイルブラウザを足す前の形(v1.50〜v1.56)**: 帯の左端は切り替えのボタンの代わりに**「本を開く…」「履歴から開く」**(`WelcomeTopBar.openButtons` / `RecentBooksPopover`)、区切り、ライブラリ、「＋」。中身は本棚 | `.shelf` に固定 |
-| OFF | ON | ファイルブラウザだけ(帯なし) | `.browser` に固定 |
-| OFF | OFF | **本棚を足す前のウェルカム画面**(`ClassicWelcomeView`: 「開く…」・ドロップの案内・最近開いた本 10 件。2026-09-09 までの `WelcomeView` を git から戻したもの) | `.classic` |
+| OFF | ON | ファイルブラウザだけ(帯なし)。「直前の本へ戻る」のボタンの置き場が無いので、本を閉じてホームへ戻った時点でファイルブラウザが直前の本を選んで見せる(`WelcomeLibraryState.revealsLastBookInFileBrowser`、2026-09-28。[09](09-ui-and-windows.md)) | `.browser` に固定 |
+| OFF | OFF | **本棚を足す前のウェルカム画面**(`ClassicWelcomeView`: 「開く…」・ドロップの案内・最近開いた本 10 件。2026-09-09 までの `WelcomeView` を git から戻したもの。左上に「直前の本へ戻る」`HomeLastBookButton`、2026-09-28) | `.classic` |
 
 - `.classic` は選べるモードではない。`mode == .shelf` / `.browser` を見ている場所(メニューの値・ウインドウのタイトル・`ContentView.isFileBrowserShown`)が、
   どちらも出ていないときに自然に偽になるよう独立した値にした。押し込まれたモードは保存しないので、両方 ON へ戻すと前に見ていたほうへ戻る。

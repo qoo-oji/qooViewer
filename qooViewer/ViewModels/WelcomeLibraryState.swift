@@ -100,6 +100,13 @@ final class WelcomeLibraryState: ObservableObject {
     /// 帯を出すか。ライブラリかスマートライブラリがあるときだけ(ファイルブラウザだけのホームは帯なし ―― 切り替える相手が無い)。
     var showsTopBar: Bool { isLibraryFeatureEnabled || isSmartLibraryFeatureEnabled }
 
+    /// ホームへ戻ったとき、直前に開いていた本をファイルブラウザに選ばせるか(2026-09-28、利用者の要望「ホームから前の本に戻る
+    /// ボタン」)。**帯が無く、ファイルブラウザだけのホーム**のとき。帯があればその左端に「直前の本へ戻る」のボタンを置き、
+    /// 帯もファイルブラウザも無ければ旧ウェルカム画面の左上に置く(`HomeLastBookButton`)が、この組だけはボタンの置き場が無い。
+    /// 代わりに、戻った時点でファイルブラウザがその本を表示・選択している状態にする(Finder などから開いた本も含めて、
+    /// **ビューアを開く前のフォルダへ戻すのではなく**その本の場所へ行く。`WelcomeView` の onAppear)。
+    var revealsLastBookInFileBrowser: Bool { !showsTopBar && isFileBrowserFeatureEnabled }
+
     /// 機能のON/OFFが変わった。保存してあるモードを、いま出せるモードへ読み替えて当てる。
     private func applyFeatureChange() {
         isForcingMode = true

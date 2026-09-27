@@ -450,6 +450,18 @@ final class FileBrowserState: ObservableObject {
         go(to: destination)
     }
 
+    /// 入っているフォルダで**この項目を選んで**見せる(フォルダの本でも中へは入らない)。ホームへ戻ったときに直前に開いていた本を
+    /// 選ぶため(`WelcomeLibraryState.revealsLastBookInFileBrowser`、2026-09-28)。`show(_:isDirectory:)` と同じく、出ていなければ
+    /// 次に出たときに。見える位置へのスクロールは `reveal` が頼む(`scrollRequest`)。
+    func show(selecting url: URL) {
+        guard isVisible else {
+            pendingDestination = .item(url)
+            return
+        }
+        hasStarted = true
+        go(to: .item(url))
+    }
+
     /// 予約・「ファイルブラウザで開く」の行き先。
     enum Destination: Equatable {
         /// このフォルダの中を見せる。

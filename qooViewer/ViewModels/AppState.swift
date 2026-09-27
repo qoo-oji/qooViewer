@@ -111,6 +111,46 @@ final class AppState: ObservableObject {
     @Published var currentBook: MangaBook?
     @Published var errorMessage: String?
 
+    /// このウインドウ(タブ)で**直前に開いていた本**(2026-09-28、利用者の要望「ホームから前の本に戻るボタン」)。
+    ///
+    /// 本を開けた時点で置き換え、閉じても(`closeBook`)消さない ―― ホームへ戻ったあとに、この本へ戻るための控え。開いた
+    /// ことが一度も無いタブでは nil で、ホームのボタン(`HomeLastBookButton`)は淡色になる。
+    ///
+    /// **メモリの上にだけ持ち、ファイルにも UserDefaults にも書かない**(利用者の指示)。だからシークレットウインドウでも
+    /// 使える(`isPrivateWindow` が書かないと約束しているのは記録であって、このウインドウが生きている間の状態ではない)。
+    /// 「前回の本」(`LastActiveBookStore`)や履歴とは別物: あちらはアプリをまたいで残す記録、こちらはこのタブの中だけの控え。
+    @Published private(set) var lastOpenedBook: LastOpenedBook?
+
+    /// `lastOpenedBook` の中身。
+    struct LastOpenedBook: Equatable {
+        /// 開き直すための要求(棚のフォルダ・画像をまとめた 1 冊・コレクションから開いた並びも、そのまま)。URL は開いたときの
+        /// URL そのもので、ブックマークから解決したもののセキュリティスコープも持っている(`open(request:)` が開き直す)。
+        let request: BookOpenRequest
+        /// 実際に開いた本の場所(棚なら中の 1 冊)。ファイルブラウザに選ばせるのはこちら。
+        let sourceURL: URL
+        /// 表示していた題名(ボタンのツールチップ用)。
+        let title: String
+    }
+
+    /// 直前に開いていた本を、このウインドウで開き直す(ホームのボタン)。無ければ何もしない。
+    func reopenLastBook() {
+        guard let last = lastOpenedBook else { return }
+        open(request: last.request)
+    }
+
+    /// 帯の無いファイルブラウザだけのホームが、次に出たときに `lastOpenedBook` を選んで見せるべきか
+    /// (`WelcomeLibraryState.revealsLastBookInFileBrowser`)。**本を閉じてホームへ戻ったときだけ** true にし、読み込みに
+    /// 失敗してホームが出た場合は対象外(利用者の指示 2026-09-28 ―― 失敗の知らせを見ている画面で、別の本の場所へ勝手に
+    /// 移らない)。`closeBook` が立て、失敗の反映が下ろし、ホームが `takeLastBookForHomeSelection` で 1 回だけ受け取る。
+    private(set) var lastBookAwaitsHomeSelection = false
+
+    /// ホームが出たときに 1 回だけ受け取る(受け取ったら消える)。選ぶ本が無ければ nil。
+    func takeLastBookForHomeSelection() -> LastOpenedBook? {
+        guard lastBookAwaitsHomeSelection else { return nil }
+        lastBookAwaitsHomeSelection = false
+        return lastOpenedBook
+    }
+
     /// 本を開いた直後に表示したいページ。「同じフォルダの画像をすべて開く」
     /// (openAllImagesInCurrentFolder)が、直前まで見ていた画像のページへ着地させるために使う。
     ///
@@ -1280,6 +1320,8 @@ final class AppState: ObservableObject {
                     }
                     self.currentBook = book
                     self.errorMessage = nil
+                    // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
+                    self.lastOpenedBook = LastOpenedBook(request: request, sourceURL: book.sourceURL, title: book.title)
                     // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
                     if self.pendingInitialPage?.bookID != book.id {
                         self.pendingInitialPage = nil
@@ -1310,6 +1352,8 @@ final class AppState: ObservableObject {
                 MenuBarMenuGate.shared.run(self.menuGateKey("openCompleted")) { [weak self] in
                     guard let self, self.openToken == token else { return }
                     self.currentBook = nil
+                    // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
+                    self.lastBookAwaitsHomeSelection = false
                     self.clearSiblingBooks()
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
@@ -1451,6 +1495,8 @@ final class AppState: ObservableObject {
     func closeBook() {
         openTask?.cancel()
         bookSequence = nil
+        // 閉じて戻ったホームには、直前の本を選ばせてよい(lastBookAwaitsHomeSelection のコメント)。
+        if currentBook != nil, lastOpenedBook != nil { lastBookAwaitsHomeSelection = true }
         currentBook = nil
         clearSiblingBooks()
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの

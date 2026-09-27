@@ -24589,6 +24589,22 @@
         }
       }
     },
+    "Return to “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Return to “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」へ戻る"
+          }
+        }
+      }
+    },
     "Return to Home" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -24602,6 +24618,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ホームへ戻る"
+          }
+        }
+      }
+    },
+    "Return to Last Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Return to Last Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直前の本へ戻る"
           }
         }
       }

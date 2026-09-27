@@ -17,6 +17,7 @@ import UniformTypeIdentifiers
 ///   (シークレットウインドウでは出さない)。お気に入りの列は `FavoritesFeature` が有効なときだけ(いまは出ない)
 /// - 「開く…」のボタンに ⌘O を付けない(ファイルメニューの「開く…」が持っている)
 /// - 背景は WelcomeView が敷く
+/// - 左上に「直前の本へ戻る」(`HomeLastBookButton`、2026-09-28。帯の左端の代わり)
 struct ClassicWelcomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
@@ -140,6 +141,12 @@ struct ClassicWelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 左上に「直前の本へ戻る」(2026-09-28、利用者の要望)。帯が無いこの画面では、帯の左端の代わりにここへ置く
+        // (WelcomeTopBar の型コメント)。中央の塊とは重ならない位置なので overlay でよい。
+        .overlay(alignment: .topLeading) {
+            HomeLastBookButton()
+                .padding(12)
+        }
         // 列幅の上限に使うウインドウ幅。測っているのは「画面いっぱいに広がる外枠」なので、
         // ここで決まる列幅が測定対象の幅を変えることはなく、レイアウトのループにはならない。
         // 1px単位のちらつきで再計算が走らないよう丸めてから受け取る。

@@ -861,7 +861,7 @@ ON へ戻せば棚は元のまま見える。お気に入りの `FavoritesFeatur
 別に ON/OFF できる**(2026-09-22、`AppPreferences.smartLibraryFeatureEnabled`。並びは ファイルブラウザ・スマートライブラリ・
 ライブラリ)。ホームの形は 3 つの組で決まる(`WelcomeLibraryState.constrained`: OFF の機能のモードは出せず、出せなければ
 本棚 → ファイルブラウザ → スマートライブラリ、全部 OFF なら `.classic`)。帯はライブラリかスマートライブラリがあるときだけ
-(`showsTopBar`)、ファイルブラウザが OFF なら左端は「本を開く…」「履歴から開く」、ライブラリが OFF ならチップと「＋」は出ない。
+(`showsTopBar`)、いちばん左は常に「直前の本へ戻る」(`HomeLastBookButton`、2026-09-28。[09](09-ui-and-windows.md))、ファイルブラウザが OFF ならその右は「本を開く…」「履歴から開く」、ライブラリが OFF ならチップと「＋」は出ない。
 OFF で止まるもの(2026-09-22 の監査): 画面・帯・「ホーム」メニューの項目、集め直し(走っている最中のものも取り消す)、
 保存した一覧の読み込み、メタデータの編集ウインドウの対象フォルダの探索。集めた一覧・qooMeta の索引・探した結果はメモリから
 手放す(`SmartLibraryCatalog.setFeatureEnabled`。世代を進め、await の後で見る)。止めないのは対象フォルダの付け替え

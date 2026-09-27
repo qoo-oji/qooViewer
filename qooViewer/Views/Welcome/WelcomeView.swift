@@ -131,6 +131,15 @@ struct WelcomeView: View {
         }
         .onAppear {
             if let notice = appState.viewerNotice, notice.isFresh { showNotice(notice.message) }
+            // 帯が無くファイルブラウザだけのホームには「直前の本へ戻る」のボタンの置き場が無いので、本を閉じて戻ってきた時点で
+            // ファイルブラウザに直前の本を選ばせる(2026-09-28、利用者の要望。WelcomeLibraryState.revealsLastBookInFileBrowser)。
+            // ホームは本を開いている間は畳まれているので、戻るたびにここを通る。選ぶのは**本を閉じて戻ってきたとき**だけで、
+            // 一度も開いていないタブ(起動直後)や、読み込みに失敗してホームが出たときは何もしない(AppState.lastBookAwaitsHomeSelection。
+            // 利用者の指示)。見せるのは実際に開いた本(棚なら中の 1 冊)で、ビューアを開く前に見ていたフォルダへは戻さない ――
+            // Finder などから開いた本も同じように選ばれる。選んだ行へのスクロールは FileBrowserState.reveal が頼む。
+            if state.revealsLastBookInFileBrowser, let last = appState.takeLastBookForHomeSelection() {
+                fileBrowser.show(selecting: last.sourceURL)
+            }
         }
         // 名前を訊くシート。棚をまとめてドロップすると複数たまるので、1枚を開いたまま中身だけ
         // 差し替えて順に処理し、行列が空になった時点で閉じる(CollectionNameSheet.

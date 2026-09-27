@@ -3,6 +3,11 @@ import SwiftUI
 /// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、そのすぐ右にライブラリを増やす「＋」
 /// (2026-09-27 までは帯の右端に置いていた。`newLibraryButton`)。
 ///
+/// ■ いちばん左の「直前の本へ戻る」(2026-09-28)
+/// このタブで直前に開いていた本へ戻る(`HomeLastBookButton`。控えは `AppState.lastOpenedBook`、メモリの上だけ)。
+/// すぐ右のボタン(ファイルブラウザ、または「本を開く…」)とは区切り線で分ける。帯が無いホームでの扱いは
+/// `WelcomeLibraryState.revealsLastBookInFileBrowser` と `ClassicWelcomeView`。
+///
 /// ■ 左端の「ファイルブラウザ」(改善要望7 段階3、2026-09-13)
 /// 押すとファイルブラウザを出す(WelcomeLibraryState.selectMode。出ている間にもう一度押してもそのまま ―― 以前は本棚へ
 /// 戻っていた。2026-09-23、利用者の指示)。ファイルブラウザの間はどのライブラリのチップも選ばれていない見た目にし、
@@ -89,6 +94,10 @@ struct WelcomeTopBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // いちばん左は「直前の本へ戻る」(2026-09-28、利用者の要望。このタブで直前に開いていた本へ戻る。一度も開いていなければ
+            // 淡色)。すぐ右のボタン(既定ではファイルブラウザ)とは役割が違うので区切る。
+            HomeLastBookButton()
+            WelcomeSeparator(axis: .vertical, length: 20)
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は、切り替えのボタンと区切りを出さない
             // (ファイルブラウザを足す前の帯の形。2026-09-21、ユーザー要望)。
             if state.isFileBrowserFeatureEnabled {

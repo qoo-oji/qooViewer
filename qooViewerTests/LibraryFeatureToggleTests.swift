@@ -90,6 +90,9 @@ struct LibraryFeatureToggleTests {
                     state.isSmartLibraryFeatureEnabled = smart
                     #expect(allowed.isEmpty ? state.mode == .classic : allowed.contains(state.mode), "\(label)")
                     #expect(state.showsTopBar == (library || smart), "\(label)")
+                    // 「直前の本へ戻る」のボタンの置き場が無い組(帯なし + ファイルブラウザだけ)だけ、ファイルブラウザが本を選ぶ
+                    // (2026-09-28。WelcomeLibraryState.revealsLastBookInFileBrowser)。
+                    #expect(state.revealsLastBookInFileBrowser == (!(library || smart) && fileBrowser), "\(label)")
                     // 帯・メニューの切り替え: 出せるモードを押せばそのモード、いまのモードをもう一度押してもそのまま
                     // (2026-09-23、利用者の指示。以前はほかのモードへ戻っていた)。
                     for target in allowed {

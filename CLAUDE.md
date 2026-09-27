@@ -192,7 +192,10 @@ double-click/Return/⌘↓ opens, ⌘↑/Esc leaves a collection or group, ⌘/�
 smart library, never in the file browser). Edit mode no longer changes clicks: it only decides what a drop means (open vs.
 create/add — and a drop on a tile adds to that collection), shows the select-all/trash buttons and the delete items, and the
 header rename; creating/adding/renaming are not gated on it (the user kept edit mode on purpose: without it, people who drop
-to open would lose drop-to-create). The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
+to open would lose drop-to-create). **「直前の本へ戻る」** (2026-09-28): the leftmost item of every Home top bar (and the top-left of the classic screen) reopens the book this
+tab last opened, from `AppState.lastOpenedBook` — a per-window, in-memory record (never written to disk, so private windows have it too);
+with no top bar and only the file browser, `WelcomeView`'s onAppear instead makes the browser select that book, but only after `closeBook`
+(`AppState.takeLastBookForHomeSelection`), never after a failed load. The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
 `FileBrowserState` one-per-window — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list, tree and icons are AppKit (`NSTableView`/`NSOutlineView`/`NSCollectionView` — the icon view was moved off SwiftUI on 2026-09-15 so all three share the same drop, menu, key and rename paths), listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
