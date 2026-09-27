@@ -21636,7 +21636,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」の設定を初期値に戻しますか?"
+            "value" : "「%@」の設定を初期設定に戻しますか?"
           }
         }
       }
@@ -21653,7 +21653,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "初期値に戻す"
+            "value" : "初期設定に戻す"
           }
         }
       }
@@ -21687,7 +21687,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この項目を初期値に戻す"
+            "value" : "この項目を初期設定に戻す"
           }
         }
       }
@@ -23773,7 +23773,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ルールセットをすべてデフォルトに戻しますか?"
+            "value" : "ルールセットをすべて初期設定に戻しますか?"
           }
         }
       }
@@ -23790,7 +23790,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "シリーズと巻数の抽出を、すべてデフォルトに戻しますか?"
+            "value" : "シリーズと巻数の抽出を、すべて初期設定に戻しますか?"
           }
         }
       }
@@ -23807,7 +23807,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてデフォルトに戻す…"
+            "value" : "すべて初期設定に戻す…"
           }
         }
       }
@@ -23857,7 +23857,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "順番をデフォルトに戻す"
+            "value" : "順番を初期設定に戻す"
           }
         }
       }
@@ -23874,7 +23874,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この一覧をデフォルトに戻す"
+            "value" : "この一覧を初期設定に戻す"
           }
         }
       }
@@ -23923,7 +23923,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "デフォルトに戻す"
+            "value" : "初期設定に戻す"
           }
         }
       }
@@ -30565,7 +30565,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "デフォルトのままです"
+            "value" : "初期設定のままです"
           }
         }
       }

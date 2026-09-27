@@ -990,12 +990,20 @@ struct ContentView: View {
             appState.open(url: url)
         }
 
+        // フルスクリーンにするのは**このウインドウ自身**(`appState.hostWindow`)。2026-09-27 までは 0.1 秒待ってから
+        // `NSApp.windows.first` を相手にしていた(監査 docs/plans/macos-conventions-audit-2026-09-26.md の 15): アプリの全ウインドウの
+        // 一覧の先頭は、起動時にウインドウが 2 枚以上あれば別の本のウインドウ、見えない内部のウインドウならフルスクリーンにならない。
+        // 0.1 秒も見込みの数字だったので、自分のウインドウが決まって画面に出るまで待つ(長くて 3 秒。出なければ諦める)。
         if preferences.launchFullScreen {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                if let window = NSApp.windows.first, !window.styleMask.contains(.fullScreen) {
-                    window.toggleFullScreen(nil)
+            Task { @MainActor [weak appState] in
+                var waits = 0
+                while !(appState?.hostWindow?.isVisible ?? false), waits < 60 {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    waits += 1
                 }
+                guard let window = appState?.hostWindow, window.isVisible,
+                      !window.styleMask.contains(.fullScreen) else { return }
+                window.toggleFullScreen(nil)
             }
         }
 

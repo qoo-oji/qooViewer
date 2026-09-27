@@ -6,7 +6,7 @@ import SwiftUI
 /// 元はビューアの背景色専用(`BackgroundColorPickerSheet`)だったが、「外観」画面の追加で
 /// 同じ体裁のダイアログが複数の設定 ― 背景色、すりガラスの面ごとの重ね色、ページ一覧で
 /// 表示中のページを示す枠の色 ― から必要になったため、見出しだけを差し替えられる汎用の
-/// ダイアログに一般化した。中身(パレット・RGB調整・プレビュー・Revert/Cancel/OK)は
+/// ダイアログに一般化した。中身(パレット・RGB調整・プレビュー・Revert/Cancel/Choose)は
 /// どの用途でも同じでよい。
 ///
 /// 上下2段の構成になっている。
@@ -14,7 +14,7 @@ import SwiftUI
 ///   (パレットは「だいたいの色をすばやく決める」ための入口で、確定手段ではない)
 /// - 下段: R/G/Bそれぞれのスライダーと数値入力欄、および調整中の色のプレビュー
 ///
-/// 編集中の値は`workingColor`(このView内の@State)だけに持ち、OKを押したときに初めて
+/// 編集中の値は`workingColor`(このView内の@State)だけに持ち、「選択」を押したときに初めて
 /// 呼び出し元へ渡す。キャンセルすると何も起きないので、いじった結果が気に入らなければ
 /// そのまま閉じれば元の色のままになる。
 struct CustomColorPickerSheet: View {
@@ -23,15 +23,15 @@ struct CustomColorPickerSheet: View {
     let titleKey: LocalizedStringKey
     /// ダイアログを開いた時点のカスタム色(編集の出発点)。
     let initialColor: RGBColorValue
-    /// OKが押されたときだけ、確定した色を渡して呼ばれる。キャンセル時は呼ばれない。
+    /// 「選択」が押されたときだけ、確定した色を渡して呼ばれる。キャンセル時は呼ばれない。
     let onCommit: (RGBColorValue) -> Void
     /// キャンセルされたときだけ呼ばれる。呼び出し元は「カスタム」を選んだこと自体を
     /// ダイアログを開く前の値へ戻すのに使う(AppearanceSettingsView参照)。
     ///
-    /// `.sheet(onDismiss:)`ではなく専用のクロージャにしているのは、あちらがOKとキャンセルの
+    /// `.sheet(onDismiss:)`ではなく専用のクロージャにしているのは、あちらが「選択」とキャンセルの
     /// どちらでも呼ばれてしまい区別できないため。このシートはシート外クリックでは閉じず、
     /// Escは下の「キャンセル」ボタン(`.cancelAction`)が受けるので、閉じる経路は
-    /// OKとキャンセルの2つしかなく、取りこぼしは起きない。
+    /// 「選択」とキャンセルの2つしかなく、取りこぼしは起きない。
     let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -238,7 +238,8 @@ struct CustomColorPickerSheet: View {
             }
             .keyboardShortcut(.cancelAction)
 
-            Button("OK") {
+            // 確定のボタンは何をするかの動詞(2026-09-27、監査 docs/plans/macos-conventions-audit-2026-09-26.md の 14。以前は「OK」)。
+            Button("Choose") {
                 onCommit(workingColor)
                 dismiss()
             }

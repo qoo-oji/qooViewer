@@ -929,7 +929,7 @@ struct MetadataEditorSheetView: View {
 
     var body: some View {
         let buttonWidth = MetadataButtonWidthEstimator.equalWidth(
-            for: [String(localized: "Cancel", language: locale), String(localized: "OK", language: locale)],
+            for: [String(localized: "Cancel", language: locale), String(localized: "Apply", language: locale)],
             minWidth: 60, chrome: 0
         )
         VStack(alignment: .leading, spacing: 14) {
@@ -939,7 +939,8 @@ struct MetadataEditorSheetView: View {
                 Spacer(minLength: 0)
                 Button(role: .cancel) { dismiss() } label: { Text("Cancel").frame(width: buttonWidth) }
                     .keyboardShortcut(.cancelAction)
-                Button { apply(); dismiss() } label: { Text("OK").frame(width: buttonWidth) }
+                // 確定のボタンは何をするかの動詞(2026-09-27、監査の 14。以前は「OK」)。
+                Button { apply(); dismiss() } label: { Text("Apply").frame(width: buttonWidth) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canApply)
             }
