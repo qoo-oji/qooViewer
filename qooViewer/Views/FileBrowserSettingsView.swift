@@ -14,6 +14,9 @@ struct FileBrowserSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 並び(2026-09-27、環境設定の点検で利用者が決めた): ファイルを変える操作(読み取り専用・自動リネーム・外からの
+            // ドロップ・圧縮の形式)→ 開くとき(最初のフォルダ・画像フォルダ)→ 見え方(並び・ツリー・アイコン表示)→
+            // 「ファイルブラウザで表示」の行き先。
             // 読み取り専用モード(決定事項 Q12、段階 8.5)。既定 ON なので、ファイルを変えたい人が最初に探す場所として先頭に置く。
             Section {
                 SettingsToggle(
@@ -41,6 +44,26 @@ struct FileBrowserSettingsView: View {
 
             Section {
                 SettingsPicker(
+                    "When Items Are Dropped from Other Apps",
+                    selection: $preferences.fileBrowserExternalDropAction,
+                    help: "Open in Viewer opens the dropped items as a book, as when you drop them anywhere else in the window. Copy or Move puts them in the folder you drop them on, like the Finder: items on the same volume are moved and items from another volume are copied. Hold Option to always copy or Command to always move. Dragging within qooViewer always copies or moves."
+                )
+            } header: {
+                Text("Drag and Drop")
+            }
+
+            Section {
+                SettingsPicker(
+                    "Format of Compressed Files",
+                    selection: $preferences.fileBrowserCompressionFormat,
+                    help: "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
+                )
+            } header: {
+                Text("Compression")
+            }
+
+            Section {
+                SettingsPicker(
                     "Folder to Show First",
                     selection: $preferences.fileBrowserStartupLocation,
                     help: "The folder the file browser shows the first time you switch to it in a window. After that, each window keeps showing the folder you were in."
@@ -50,16 +73,6 @@ struct FileBrowserSettingsView: View {
                 }
             } header: {
                 Text("When the File Browser Opens")
-            }
-
-            Section {
-                SettingsPicker(
-                    "While a Book Is Open",
-                    selection: $preferences.fileBrowserRevealDestination,
-                    help: "Where Show in File Browser opens the file browser when the window is showing a book. In a window that isn't showing a book, the file browser opens in that window."
-                )
-            } header: {
-                Text("Show in File Browser")
             }
 
             // 2026-09-14、ユーザー要望。右クリックの「開く」は常にこの反対(FileBrowserImageFolderOpenAction)。
@@ -110,22 +123,12 @@ struct FileBrowserSettingsView: View {
 
             Section {
                 SettingsPicker(
-                    "When Items Are Dropped from Other Apps",
-                    selection: $preferences.fileBrowserExternalDropAction,
-                    help: "Open in Viewer opens the dropped items as a book, as when you drop them anywhere else in the window. Copy or Move puts them in the folder you drop them on, like the Finder: items on the same volume are moved and items from another volume are copied. Hold Option to always copy or Command to always move. Dragging within qooViewer always copies or moves."
+                    "While a Book Is Open",
+                    selection: $preferences.fileBrowserRevealDestination,
+                    help: "Where Show in File Browser opens the file browser when the window is showing a book. In a window that isn't showing a book, the file browser opens in that window."
                 )
             } header: {
-                Text("Drag and Drop")
-            }
-
-            Section {
-                SettingsPicker(
-                    "Format of Compressed Files",
-                    selection: $preferences.fileBrowserCompressionFormat,
-                    help: "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
-                )
-            } header: {
-                Text("Compression")
+                Text("Show in File Browser")
             }
 
             SettingsResetSection(

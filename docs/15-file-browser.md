@@ -306,7 +306,8 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
 
 ## 一覧の読み込み
 
-- **`FileIO.perform` の上で `FileManager.enumerator(… [.skipsSubdirectoryDescendants, .skipsHiddenFiles, .skipsPackageDescendants])`**。
+- **`FileIO.perform` の上で `FileManager.enumerator(… [.skipsSubdirectoryDescendants, .skipsHiddenFiles, .skipsPackageDescendants])`**
+  (「隠しファイルを表示」の間は `.skipsHiddenFiles` を外す。下の「隠しファイル」)。
   `DirectoryBrowser.listingAsync`(`Task.detached`)は流用しない ―― 応答しない共有で協調プールが塞がる(→ [03](03-architecture.md#並行処理の規約))。
   列挙の入口の失敗はエラーハンドラで拾って投げ直し、空のときだけ実在と読み取り権限を確かめる(読めないフォルダを空と取り違えない)。
 - **全ファイルを出す**(サイドパネルは本だけ)。**子フォルダの中を見ない**(三角も件数も出さない)。
@@ -371,6 +372,23 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
 変われば取り直す。パネルが受けたキーは一覧へ回すので、矢印で次の項目へ移る。書庫の本・PDF・フォルダの見え方は macOS の
 クイックルックに任せる(zip は中身の一覧など。利用者の判断)。スペースは頭文字での選択より先に受ける。読み取り専用モードでも使える。
 左のツリーでは出さない(Finder のサイドバーと同じ)。
+
+## 隠しファイル(2026-09-27、利用者の指示)
+
+表示メニュー「隠しファイルを表示」**⇧⌘.**(Finder と同じキー。Finder はメニューに項目を出さずキーだけだが、ここではキーの在りかが
+分かるように項目にした。環境設定には置かない ―― 利用者の判断)で、名前が `.` で始まる項目と `UF_HIDDEN` の項目も出す。
+
+- 値は `FileBrowserState.showsHiddenFiles`。表示形式と同じく**ウインドウごと**で、最後に選んだ値を `qooViewer.fileBrowser.showsHiddenFiles`
+  に書き、次に作る状態が引き継ぐ(Finder の ⇧⌘. はアプリ全体に効くが、このアプリの表示の状態はウインドウごとに揃えた)。変えたら今の
+  フォルダを読み直す。メニューは `HomeMenuState.showsHiddenFiles` の写しでチェックを付け、キーはファイルブラウザの間だけ付ける
+  (`homeMenuShortcut`)。
+- 一覧は `FileBrowserListing.entries(in:includesHidden:)`。出すときも **`.DS_Store` だけは出さない**(Finder も隠しファイルを表示している
+  ときに出さない、Finder 自身の控え)。行には `FileBrowserEntry.isHidden`(`.isHiddenKey`)を持たせ、リスト・アイコン・ツリーで
+  **カットした項目と同じく淡く**描く(Finder と同じ)。
+- ツリーは `Coordinator.includesHidden` に写し、切り替えたら `reloadExpandedRows(in: nil)` で開いている行の子を読み直し、閉じている行の
+  三角を調べ直す(`DirectoryProbe.hasSubdirectory(at:includesHidden:)`)。
+- サイドパネルのフォルダブラウザ(`DirectoryBrowser`)は対象外(本を探す一覧で、隠しファイルを出す意味が無い)。本として開いたときの
+  ページの読み飛ばし(→ [04](04-book-loading.md))も変わらない。
 
 ## 選択・スクロール先は「パス」で持つ
 
@@ -456,7 +474,8 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
 子を読むとき(行を開いたとき)に、それぞれの子に**直下のサブフォルダがあるか**を `DirectoryProbe.hasSubdirectory` で 1 回だけ調べ、
 無い行には三角を出さない(qooLibrary の同名の関数を写したもの)。段階 3 では TCC と往復を理由に調べていなかったが、次のように避けられる。
 
-- `readdir` を最初のサブフォルダで打ち切る。数える規則は一覧と揃える(`.` で始まる名前・`UF_HIDDEN`・パッケージ・記号リンクは数えない)。
+- `readdir` を最初のサブフォルダで打ち切る。数える規則は一覧と揃える(`.` で始まる名前・`UF_HIDDEN`・パッケージ・記号リンクは数えない。
+  「隠しファイルを表示」の間は隠しフォルダも数える ―― `includesHidden`)。
 - **TCC の保護下の場所はパスの文字列だけで除外**(`protectedPrefixes`。`~/Library` の他アプリのデータ・File Provider の置き場に、
   **デスクトップ・書類・ダウンロードを足した** ―― ホームフォルダの読み取りを許可した状態でホームフォルダを開くと、入ってもいない 3 つの中を読んで
   ダイアログが出るため)。**ネットワーク越しの場所はマウント表で除外**(子の数だけ往復しない)。
@@ -1319,7 +1338,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | 値 | キー | 備考 |
 |---|---|---|
 | モード | `qooViewer.welcome.mode` | |
-| 表示形式・アイコンの大きさ・左の幅・隠したリストの列 | `qooViewer.fileBrowser.*` | 環境設定の画面に並ばないので `qooViewer.pref.*` にしない(「初期設定に戻す」の対象外) |
+| 表示形式・アイコンの大きさ・左の幅・隠したリストの列・隠しファイルを表示 | `qooViewer.fileBrowser.*` | 環境設定の画面に並ばないので `qooViewer.pref.*` にしない(「初期設定に戻す」の対象外) |
 | 最後に表示したフォルダ | `qooViewer.fileBrowser.lastFolderPath` | **パスだけ**(空文字はコンピュータ)。読む権限は `FolderAccessStore` だけが持つ。**シークレットウインドウでは書かない** |
 | 一括リネームの前回の入力 | `qooViewer.fileBrowser.bulkRename`(JSON) | 方式ごとの欄を別々に覚える(Finder の `BulkRename*` と同じ)。**シークレットウインドウでは書かない**(そのウインドウの間は覚える) |
 | よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。「＋」のパネルは一覧のいまのフォルダから始めるが、**直前の「＋」で足したフォルダにいる間は、そのとき閉じたパネルの `directoryURL` から始める**(`FileBrowserState.lastAddedFavoriteLocation`、2026-09-15、ユーザー要望。足すと一覧がその中へ移動し、次のパネルが中に入った状態で開いていた)。覚えるのはウインドウの間だけ。「足したフォルダの親」から始める案もあり、要望次第で戻す可能性がある(`addFavoriteLocation` のコメント)。右クリックの「よく使う項目に登録」は権限を足さない。シークレットウインドウでは登録・削除させない |
@@ -1332,7 +1351,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal`。空になればファイルごと消す。**「すべてのデータを削除」で消える**(2026-09-14、ユーザー判断。それまでは対象から漏れていた)。消すのは終了時(と次の起動の最初)で、
 予約した時点では消さない(終了までに走る置き換えが記録を要る)。途中で落ちて隠しフォルダに残っていた元の項目は、記録が消えると戻されず知らされもしない。テスト中はプロセスごとの一時フォルダ |
 
-環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(読み取り専用・起動時のフォルダ・「ファイルブラウザで表示」の行き先・画像フォルダを開くとき・フォルダを上に・現在のフォルダまでツリーを展開・ツリーのサブフォルダを右と同じ順に並べる・動画のサムネイルを生成・他のアプリからドロップしたとき・圧縮ファイルの形式)。
+環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた。並びは、ファイルを変える操作(読み取り専用・自動リネーム・他のアプリからドロップしたとき・圧縮ファイルの形式)→ 起動時のフォルダ → 画像フォルダを開くとき → フォルダを上に → 現在のフォルダまでツリーを展開・ツリーのサブフォルダを右と同じ順に並べる → 動画のサムネイルを生成 → 「ファイルブラウザで表示」の行き先(2026-09-27、環境設定の点検で利用者が決めた)。
 絵のキャッシュの行は環境設定「キャッシュ」に置いた。
 
 ## リーク
@@ -1347,14 +1366,14 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 
 | suite | 見るもの |
 |---|---|
-| `FileBrowserListingTests` | 全ファイル・隠しファイル・パッケージ、`notFound` / `needsAccess` の分類、コンピュータの行の選び方、絞り込み、退避先 |
+| `FileBrowserListingTests` | 全ファイル・隠しファイル(「隠しファイルを表示」では出して印、`.DS_Store` は出さない)・パッケージ、`notFound` / `needsAccess` の分類、コンピュータの行の選び方、絞り込み、退避先 |
 | `FileBrowserListEditingTests` | リスト表示の名前の編集中に一覧が変わっても、編集していた項目の名前を変えること(表は自分で組み、Coordinator を本物で動かす) |
 | `FileSystemChangeTests` | 知らせの中身(起きた順の付け替え・読み直しの要るフォルダ)、箱のまとめ方、エンジンが種類ごとに知らせること、別のウインドウの操作で読み直すこと、祖先の名前の変更に付いていくこと、カットの記憶がアプリで 1 つであること・ペーストボードが替わったら下ろすこと |
 | `FileBrowserOpenBookGuardTests` | 開いている本(そのもの・祖先・中身)の名前の変更・移動・ゴミ箱を断り、コピーは通すこと |
 | `BookRecordRelocatorTests`(FileBrowser の外) | アプリ自身が動かした本の保存データの付け替え(フォルダごと・キャプション・取り消し・先客のあるパス・**別ボリューム**) |
 | `FileBrowserNameEditingTests` | 名前の編集を始めてよい条件、クリックの予約の取りやめ、リストの名前の欄がふだん編集できないこと、リスト・アイコン表示とも無い項目では始めず、編集中に項目が消えたら名前を変えずに取りやめること |
 | `FileBrowserStateTests` | 外での変更で読み直す範囲(フォルダ自身と直下だけ、`/private` の書き方)、一覧と並べ替え(読み直さない)、保存、絞り込みと選択、上へ/戻る/進む、世代番号、消えたフォルダの退避、reveal、選択の維持、クリックと矢印、起動時のフォルダ、シークレットで書かない、type-select、名前の編集の依頼を下ろす・捨てる |
-| `DirectoryProbeTests` | 三角の判定(ファイルだけ/フォルダあり、隠し・`UF_HIDDEN`・パッケージ・記号リンクを数えず一覧と一致、保護下と読めない場所は nil、既定の保護下の一覧) |
+| `DirectoryProbeTests` | 三角の判定(ファイルだけ/フォルダあり、隠し・`UF_HIDDEN`・パッケージ・記号リンクを数えず一覧と一致、「隠しファイルを表示」では隠しフォルダを数える、保護下と読めない場所は nil、既定の保護下の一覧) |
 | `BulkRenameTests` | 一括リネームの名前の決め方を Finder の実測結果で固定(登録済みの拡張子・3 方式・日付の書式・番号を進める衝突・`name 2`・大文字小文字と正規化・使えない名前・押せる条件・例の行・開始番号の欄) |
 | `ArchiveExtractionPlanTests` / `ArchiveExtractorTests` / `ZipCompressorTests`(FileOperations) | 捨てるパスの各種(`..` を `/` と `\` で、絶対パス、ドライブ名、制御文字、長い名前)・深い入れ子(PATH_MAX とスタック)・`__MACOSX` と記号リンク・書庫の中の名前の衝突・飽和加算・限度、Zip Slip の書庫を展開して外に何も書かないこと、zip(CP932 を含む)・7z・rar のフィクスチャを展開して reader の中身と一致すること、展開先での `name 2`、暗号化された rar、始める前の限度、中止で何も残らないこと、開けない書庫を越えて続けること、圧縮の中身(フォルダごと・隠しファイルを入れない・無圧縮と deflate)と展開しての往復、読めないサブフォルダで失敗すること、末尾の欠けた zip を置かないこと、NFC と bit 11、出力の名前と `name 2.zip`、圧縮の中止。ディスクフルは `FileOperationVolumeTests`(tiny ボリューム) |
 | `FileDropPlanTests` | ドロップの移動/コピーの規則(ボリューム・⌥・⌘・元が移動を許さない)、自分の中へ・自分のフォルダへの移動を断る、他のアプリからのドロップと環境設定、カーソルの操作、読み取り専用モードで運ばないことと出し口のコピーだけのマスク |

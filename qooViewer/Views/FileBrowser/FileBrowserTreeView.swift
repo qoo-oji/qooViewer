@@ -249,6 +249,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var appliedChange: FileBrowserState.TreeReloadRequest?
         /// 行に反映したカットの記憶(右ペインと同じく、カットしたフォルダの行を淡くする)。
         private var appliedCutPaths: Set<String> = []
+        /// 子を読むときに隠しフォルダも出すか(FileBrowserState.showsHiddenFiles を写したもの。変わったら開いている行を読み直す)。
+        private var includesHidden = false
         private var isApplyingSelection = false
         private let menuBuilder = FileBrowserMenuBuilder()
         private var volumeObservers: [NSObjectProtocol] = []
@@ -380,6 +382,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             actions = view.actions
             favoriteLocations = view.favoriteLocations
             var needsRedraw = false
+            // 「隠しファイルを表示」を切り替えたら、開いている行の子と閉じている行の三角を読み直す(右ペインと揃える。
+            // 開いていた隠しフォルダの行は、隠すと子ごと消える)。最初の update(makeNSView から)では、まだ何も読んでいない。
+            if view.state.showsHiddenFiles != includesHidden {
+                includesHidden = view.state.showsHiddenFiles
+                reloadExpandedRows(in: nil)
+            }
             if view.outlineWidth != outlineWidth || view.locale != locale
                 || view.allowsEditingFavorites != allowsEditingFavorites {
                 outlineWidth = view.outlineWidth
@@ -719,8 +727,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard !targets.isEmpty else { return }
             let weakNodes = targets.map(\.0)
             let urls = targets.map(\.1)
+            let includesHidden = self.includesHidden
             Task { [weak self] in
-                let results = await FileIO.perform { urls.map { DirectoryProbe.hasSubdirectory(at: $0) } }
+                let results = await FileIO.perform {
+                    urls.map { DirectoryProbe.hasSubdirectory(at: $0, includesHidden: includesHidden) }
+                }
                 guard let self, let outline = self.outline else { return }
                 for (weakNode, result) in zip(weakNodes, results) {
                     guard let node = weakNode.node, node.hasSubfolders != result, !outline.isItemExpanded(node) else { continue }
@@ -754,6 +765,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // 世代は、たたんだ(`outlineViewItemDidCollapse`)ときにだけ進む。読み直しの頼みでは進めない(進めると、読み直しが
             // 続く間ずっと結果を捨て続ける)。
             let mine = node.loadGeneration
+            let includesHidden = self.includesHidden
             node.childrenTask = Task { [weak self, weak node] in
                 let folders: [(FileBrowserEntry, Bool?)]
                 do {
@@ -761,9 +773,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
                         // 三角のための問い合わせは、子を読むこの 1 回にまとめる(行を描くたびに調べない)。
                         // **ネットワーク越しでは調べない**(子の数だけ往復する)。マウント表はファイルシステムに触らない。
                         let probes = !MountTable.current().isRemote(url)
-                        return try FileBrowserListing.entries(in: url)
+                        return try FileBrowserListing.entries(in: url, includesHidden: includesHidden)
                             .filter(\.isNavigableFolder)
-                            .map { ($0, probes ? DirectoryProbe.hasSubdirectory(at: $0.url) : nil) }
+                            .map { ($0, probes ? DirectoryProbe.hasSubdirectory(at: $0.url, includesHidden: includesHidden) : nil) }
                     }
                 } catch {
                     folders = []
@@ -885,8 +897,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 ?? FileBrowserCellView(identifier: identifier, showsIcon: true)
             cell.icon?.image = node.kind == .volume ? FileBrowserIconProvider.volumeIcon : FileBrowserIconProvider.folderIcon
             cell.configure(text: node.name, outlineWidth: outlineWidth)
-            cell.alphaValue = isCut(node) ? 0.5 : 1
+            cell.alphaValue = isDimmed(node) ? 0.5 : 1
             return cell
+        }
+
+        /// 淡く描く行か: カットしたフォルダと、隠しフォルダ(「隠しファイルを表示」のとき。右ペインと同じく Finder に揃える)。
+        private func isDimmed(_ node: Node) -> Bool {
+            isCut(node) || node.listing?.isHidden == true
         }
 
         /// カットしたフォルダの行か(リスト・アイコン表示の淡い表示と揃える。2026-09-19 の総点検 ―― それまでは右ペインで
@@ -903,7 +920,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 guard let node = outline.item(atRow: row) as? Node, !node.isGroup,
                       let cell = rowView.view(atColumn: 0) as? NSView
                 else { return }
-                cell.alphaValue = self.isCut(node) ? 0.5 : 1
+                cell.alphaValue = self.isDimmed(node) ? 0.5 : 1
             }
         }
 

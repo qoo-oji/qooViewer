@@ -35,6 +35,24 @@ struct FileBrowserListingTests {
         #expect(book.opensAsBook)
     }
 
+    @Test("「隠しファイルを表示」では . で始まる項目と UF_HIDDEN の項目も出し、隠しファイルの印を付ける。.DS_Store は出さない(Finder と同じ)")
+    func includesHiddenItemsWhenAsked() throws {
+        let temporary = try TemporaryDirectory("listing-hidden")
+        let folder = try temporary.directory("root")
+        try Data("x".utf8).write(to: folder.appendingPathComponent("note.txt"))
+        try Data("hidden".utf8).write(to: folder.appendingPathComponent(".hidden"))
+        try Data("store".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
+        let flagged = try temporary.directory("root/flagged")
+        #expect(chflags(flagged.path, UInt32(UF_HIDDEN)) == 0)
+
+        #expect(Set(try FileBrowserListing.entries(in: folder).map(\.url.lastPathComponent)) == ["note.txt"])
+
+        let entries = try FileBrowserListing.entries(in: folder, includesHidden: true)
+        #expect(Set(entries.map(\.url.lastPathComponent)) == ["note.txt", ".hidden", "flagged"])
+        let hidden = Dictionary(uniqueKeysWithValues: entries.map { ($0.url.lastPathComponent, $0.isHidden) })
+        #expect(hidden == ["note.txt": false, ".hidden": true, "flagged": true])
+    }
+
     @Test("パッケージは中へ入らない1項目で、「フォルダを上に」ではファイルの側に並ぶ")
     func packagesAreSingleItems() throws {
         let temporary = try TemporaryDirectory("listing-package")

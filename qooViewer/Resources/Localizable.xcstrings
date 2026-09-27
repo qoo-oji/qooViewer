@@ -3983,6 +3983,22 @@
         }
       }
     },
+    "Also applies when a slideshow reaches the last page; with Loop or a next-book choice, the slideshow keeps going. “Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also applies when a slideshow reaches the last page; with Loop or a next-book choice, the slideshow keeps going. “Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スライドショーが最後のページに達したときも、この設定に従います(ループ・次の本へ進むときは、スライドショーを続けます)。「ホームへ戻る」は本だけを閉じて、同じウインドウにホームを表示します。「タブを閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ウインドウを閉じる」はウインドウをタブごと閉じます。"
+          }
+        }
+      }
+    },
     "Also Write the Volume Number to ComicInfo’s Volume Element" : {
       "localizations" : {
         "en" : {
@@ -26010,6 +26026,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り一覧を表示"
+          }
+        }
+      }
+    },
+    "Show Hidden Files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Hidden Files"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隠しファイルを表示"
           }
         }
       }

@@ -355,9 +355,12 @@ struct ViewerView: View {
             MenuBarMenuGate.shared.run(boundaryGateKey) { [weak appState, weak viewModel] in
                 guard let appState, let viewModel else { return }
                 switch request {
-                case .openSiblingBook(let forward, let landsOnEdge):
+                case .openSiblingBook(let forward, let landsOnEdge, let continuesSlideshow):
                     if forward {
-                        appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: landsOnEdge)
+                        appState.openSibling(
+                            after: viewModel.book.sourceURL, landsOnFirstPage: landsOnEdge,
+                            startsSlideshow: continuesSlideshow
+                        )
                     } else {
                         appState.openSibling(before: viewModel.book.sourceURL, landsOnLastPage: landsOnEdge)
                     }
@@ -468,6 +471,11 @@ struct ViewerView: View {
         }
         appState.performAutoLayout = {
             isShowingAutoLayoutConfirmation = true
+        }
+        // スライドショーが前の本の最後のページに達して、この本へ来た場合は続きを流す(AppState.pendingStartsSlideshow。
+        // 下の clearPendingInitialPage で一緒に捨てるので、その前に読む)。
+        if appState.pendingStartsSlideshow {
+            viewModel.startSlideshow()
         }
         // 「同じフォルダの画像をすべて開く」の着地ページ指定は一度きり。ViewerViewModelの生成時に
         // 受け取り済みなので、ここで捨てて次に同じ本を開き直したときに再適用されないようにする

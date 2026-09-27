@@ -8,14 +8,18 @@ struct ReadingSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 並びはよく触るものから(2026-09-27、環境設定の点検で利用者が決めた): ページ送り → 見開きのブックマーク →
+            // スクロール → ポインタ → スライドショー → サムネイルのプレビュー。
             Section {
                 // 説明文はラベルの言い換えだったので落とした。
                 // 「前のページへ」「次のページへ」は物語的な向きで、右開きの本で画面右の
                 // ページへ進む操作なども含む(FirstPageBehavior/LastPageBehavior参照)。
                 SettingsPicker("At the First Page", selection: $preferences.firstPageBehavior)
+                // スライドショーが最後のページに達したときも、この設定に従う(cooViewer と同じ。2026-09-27、
+                // ViewerViewModel.handleSlideshowReachedEnd)。それを吹き出しで言う。
                 SettingsPicker(
                     "At the Last Page", selection: $preferences.lastPageBehavior,
-                    help: "“Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs."
+                    help: "Also applies when a slideshow reaches the last page; with Loop or a next-book choice, the slideshow keeps going. “Return to Home” closes only the book and shows Home in the same window. “Close Tab” closes this tab (the window too, if it is the only tab). “Close Window” closes the window and all its tabs."
                 )
                 SettingsToggle(
                     "Trackpad Flicks Turn Pages",
@@ -23,6 +27,21 @@ struct ReadingSettingsView: View {
                 )
             } header: {
                 Text("Page Turning")
+            }
+
+            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
+            // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
+            // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
+            // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
+            // 「本を開く」から移した(2026-09-27、環境設定の点検。本を開くときではなく読んでいる間の設定)。
+            Section {
+                SettingsPicker(
+                    "Target Page",
+                    selection: $preferences.spreadBookmarkTargetBehavior,
+                    help: "Right-clicking a page always bookmarks the page you clicked, regardless of this setting."
+                )
+            } header: {
+                Text("Bookmarks in Spread View")
             }
 
             Section {
@@ -33,6 +52,51 @@ struct ReadingSettingsView: View {
                 )
             } header: {
                 Text("Scrolling")
+            }
+
+            Section {
+                // 「自動的に」が何を指すのか(=動かしていないあいだ)をラベルへ入れて、
+                // 言い換えでしかなかった説明文を無くした。
+                SettingsToggle(
+                    "Hide the Pointer While You Are Not Moving It",
+                    isOn: $preferences.autoHideCursor
+                )
+                SettingsSlider(
+                    "Delay Before Hiding",
+                    value: $preferences.cursorAutoHideDelay,
+                    in: 0.5...10,
+                    step: 0.5
+                ) { value in
+                    String(format: "%.1f s", value)
+                }
+                .disabled(!preferences.autoHideCursor)
+            } header: {
+                Text("Pointer")
+            }
+
+            Section {
+                // ユーザー要望: 特に10秒未満のときに0.1秒単位で詰めたい。
+                // 0.1秒刻みだとスライダーの1ステップが1pt未満になり、ドラッグでは狙った値に
+                // 止められないため、ステッパーを添えてある(SettingsSlider.showsStepper参照)。
+                // 下限を1秒から0.5秒へ下げたのは、0.1秒単位で詰めたいのは短い側だという
+                // 要望の趣旨に沿わせるため。
+                //
+                // スライダー本体だけ0.5秒刻みにしている。`Slider`は刻みの数だけ目盛りを描くので、
+                // 0.1秒刻みのままだと295本が潰れて**1本の直線に見えていた**(ユーザー報告)。
+                // ドラッグで0.1秒を狙えないのは元々承知の上でステッパーを添えているので、
+                // 目盛りは読み取れる粗さにして、細かい調整はステッパーへ任せる。
+                SettingsSlider(
+                    "Interval",
+                    value: $preferences.slideshowInterval,
+                    in: 0.5...30,
+                    step: 0.1,
+                    showsStepper: true,
+                    sliderStep: 0.5
+                ) { value in
+                    String(format: "%.1f s", value)
+                }
+            } header: {
+                Text("Slideshow")
             }
 
             // プログレスバーのフィルムストリップの設定(ON/OFFも含めて)は、環境設定「外観」の
@@ -77,51 +141,6 @@ struct ReadingSettingsView: View {
                 }
             } header: {
                 Text("Thumbnail Preview")
-            }
-
-            Section {
-                // ユーザー要望: 特に10秒未満のときに0.1秒単位で詰めたい。
-                // 0.1秒刻みだとスライダーの1ステップが1pt未満になり、ドラッグでは狙った値に
-                // 止められないため、ステッパーを添えてある(SettingsSlider.showsStepper参照)。
-                // 下限を1秒から0.5秒へ下げたのは、0.1秒単位で詰めたいのは短い側だという
-                // 要望の趣旨に沿わせるため。
-                //
-                // スライダー本体だけ0.5秒刻みにしている。`Slider`は刻みの数だけ目盛りを描くので、
-                // 0.1秒刻みのままだと295本が潰れて**1本の直線に見えていた**(ユーザー報告)。
-                // ドラッグで0.1秒を狙えないのは元々承知の上でステッパーを添えているので、
-                // 目盛りは読み取れる粗さにして、細かい調整はステッパーへ任せる。
-                SettingsSlider(
-                    "Interval",
-                    value: $preferences.slideshowInterval,
-                    in: 0.5...30,
-                    step: 0.1,
-                    showsStepper: true,
-                    sliderStep: 0.5
-                ) { value in
-                    String(format: "%.1f s", value)
-                }
-            } header: {
-                Text("Slideshow")
-            }
-
-            Section {
-                // 「自動的に」が何を指すのか(=動かしていないあいだ)をラベルへ入れて、
-                // 言い換えでしかなかった説明文を無くした。
-                SettingsToggle(
-                    "Hide the Pointer While You Are Not Moving It",
-                    isOn: $preferences.autoHideCursor
-                )
-                SettingsSlider(
-                    "Delay Before Hiding",
-                    value: $preferences.cursorAutoHideDelay,
-                    in: 0.5...10,
-                    step: 0.5
-                ) { value in
-                    String(format: "%.1f s", value)
-                }
-                .disabled(!preferences.autoHideCursor)
-            } header: {
-                Text("Pointer")
             }
 
             SettingsResetSection(

@@ -521,8 +521,8 @@ struct FileBrowserListView: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("cell." + column.rawValue)
             let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? FileBrowserCellView)
                 ?? FileBrowserCellView(identifier: identifier, showsIcon: column == .name)
-            // カットした項目は淡く(Finder と同じ)。
-            cell.alphaValue = state?.isCut(entry) == true ? 0.5 : 1
+            // カットした項目と隠しファイル(「隠しファイルを表示」のとき)は淡く(Finder と同じ)。
+            cell.alphaValue = state?.isCut(entry) == true || entry.isHidden ? 0.5 : 1
             switch column {
             case .name:
                 cell.icon?.image = icon(for: entry)

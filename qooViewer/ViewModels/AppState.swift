@@ -139,11 +139,19 @@ final class AppState: ObservableObject {
     /// してある。受け取ったViewerViewは`clearPendingInitialPage()`で必ず捨てる。
     @Published private(set) var pendingInitialEdge: InitialPageEdge?
 
-    /// ViewerViewが`pendingInitialPage`/`pendingInitialEdge`を受け取り終えたあと(onAppear)に呼ぶ。
+    /// 次に開く本で、開いたらすぐスライドショーを始めるか。スライドショーが最後のページに達し、環境設定「最後のページで」が
+    /// 「次の本へ」「次の本の最初のページへ」だったときだけ true(cooViewer と同じく、次の本でもスライドショーを続ける。
+    /// ViewerViewModel.handleSlideshowReachedEnd)。次の本は新しいビューアとして出るので、前のビューアのスライドショーは
+    /// 続けられず、ここに積んで引き継ぐ。宛先を本のIDで絞れないのは`pendingInitialEdge`と同じで、扱いも同じ
+    /// (`open(request:…)`が毎回上書きし、失敗したら捨て、受け取ったViewerViewは`clearPendingInitialPage()`で捨てる)。
+    private(set) var pendingStartsSlideshow = false
+
+    /// ViewerViewが`pendingInitialPage`/`pendingInitialEdge`/`pendingStartsSlideshow`を受け取り終えたあと(onAppear)に呼ぶ。
     /// 一度きりの指定なので、次に同じ本を開き直したときに再適用されないようここで捨てる。
     func clearPendingInitialPage() {
         pendingInitialPage = nil
         pendingInitialEdge = nil
+        pendingStartsSlideshow = false
     }
     /// 現在開いている本と同じフォルダにある、他の本のURL一覧(現在の本自身は除く)。
     /// 「Fileメニュー」→「同じフォルダのファイルを開く」の一覧に使う。
@@ -904,12 +912,12 @@ final class AppState: ObservableObject {
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
     func open(
         url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true,
-        initialEdge: InitialPageEdge? = nil
+        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
     ) {
         open(
             request: BookOpenRequest(url, recordsInHistory: recordsInHistory),
             reusesExistingWindow: reusesExistingWindow,
-            initialEdge: initialEdge
+            initialEdge: initialEdge, startsSlideshow: startsSlideshow
         )
     }
 
@@ -997,9 +1005,11 @@ final class AppState: ObservableObject {
     /// - Parameter initialEdge: 開いた本で、読書位置の記憶や環境設定「開始ページ」より優先して
     ///   着地させたい端(`pendingInitialEdge`参照)。指定が無ければ、前の操作が積んだ指定を
     ///   ここで確実に捨てる。
+    /// - Parameter startsSlideshow: 開いた本ですぐスライドショーを始めるか(`pendingStartsSlideshow`参照)。
+    ///   `initialEdge`と同じく、指定が無ければ前の操作が積んだ指定をここで捨てる。
     func open(
         request: BookOpenRequest, reusesExistingWindow: Bool = true,
-        initialEdge: InitialPageEdge? = nil
+        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
     ) {
         // ユーザー要望: 同じ本を、同じ性質のウインドウ/タブで二重に開かない。既に開いて
         // いるものがあれば、そちらを前面に出すだけにする(ページ位置はそのまま。向こうで
@@ -1038,11 +1048,13 @@ final class AppState: ObservableObject {
         // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
         // (2026-09-23 の 3 回目の監査の低: 以前はセキュリティスコープ・一覧の並び・着地指定を新しい本のものへ替えた後でやめるので、
         // 表示中の本のスコープが閉じ、「次の本」も今の本の一覧をたどれなくなった)。
-        let beforeOpen = (scopedURLs: securityScopedBookURLs, sequence: bookSequence, initialEdge: pendingInitialEdge)
+        let beforeOpen = (scopedURLs: securityScopedBookURLs, sequence: bookSequence, initialEdge: pendingInitialEdge,
+                          startsSlideshow: pendingStartsSlideshow)
         // 「次の本の最初のページへ」等の着地指定は、実際に読み込みを始めるここで毎回置き換える
         // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
         pendingInitialEdge = initialEdge
+        pendingStartsSlideshow = startsSlideshow
         // 一覧の並びも、実際に読み込みを始めるここで置き換える(別のウインドウを前面に出して終えた場合は触れない)。
         bookSequence = request.sequence
         // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLsの
@@ -1115,6 +1127,7 @@ final class AppState: ObservableObject {
                         self.securityScopedBookURLs = reopened
                         self.bookSequence = beforeOpen.sequence
                         self.pendingInitialEdge = beforeOpen.initialEdge
+                        self.pendingStartsSlideshow = beforeOpen.startsSlideshow
                         self.cancelOpen()
                         return
                     }
@@ -1300,6 +1313,7 @@ final class AppState: ObservableObject {
                     self.clearSiblingBooks()
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
+                    self.pendingStartsSlideshow = false
                     self.errorMessage = (error as? LocalizedError)?.errorDescription
                         ?? String(localized: "The book could not be opened.", language: locale)
                 }
@@ -1329,9 +1343,13 @@ final class AppState: ObservableObject {
     /// 同じフォルダ内の次の本へシームレスに移動する
     /// - Parameter landsOnFirstPage: 環境設定「最後のページで」が「次の本の最初のページへ」の
     ///   場合にtrue。その本の読書位置の記憶や「開始ページ」の設定より優先して先頭へ着地させる。
-    func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false) {
+    /// - Parameter startsSlideshow: 開いた本でスライドショーを続けるか(`pendingStartsSlideshow`参照)。次の本が無ければ
+    ///   何も開かないので、スライドショーは止まったままになる。
+    func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false) {
         if let bookSequence {
-            openInSequence(bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil)
+            openInSequence(
+                bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow
+            )
             return
         }
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
@@ -1343,7 +1361,7 @@ final class AppState: ObservableObject {
             // (open(request:reusesExistingWindow:)のコメント参照)。
             self?.open(
                 url: next, reusesExistingWindow: false,
-                initialEdge: landsOnFirstPage ? .first : nil
+                initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow
             )
         }
     }
@@ -1379,7 +1397,9 @@ final class AppState: ObservableObject {
     /// **先へ進まずに止める**(鳴らす)。飛ばして先へ進むと、眠っていたディスクが起きるのを待てば開けた本を、黙って越えて
     /// しまう ―― 止めておけば、もう一度押したときにはディスクが起きている。繋がっていないボリューム上のパス(スマート
     /// ライブラリの本)は、マウント表の綴りだけで分かるので触らずに飛ばす。
-    private func openInSequence(_ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?) {
+    private func openInSequence(
+        _ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?, startsSlideshow: Bool = false
+    ) {
         let candidates = sequence.candidatePositions(forward: forward)
         guard !candidates.isEmpty else { return }
         sequenceTask?.cancel()
@@ -1406,7 +1426,7 @@ final class AppState: ObservableObject {
                 // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。
                 self.open(
                     request: BookOpenRequest(url, sequence: sequence.moved(to: position)),
-                    reusesExistingWindow: false, initialEdge: initialEdge
+                    reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow
                 )
                 return
             }

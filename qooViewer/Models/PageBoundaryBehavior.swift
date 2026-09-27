@@ -110,7 +110,9 @@ enum PageBoundaryRequest: Equatable {
     /// - Parameter forward: trueなら次の本、falseなら前の本。
     /// - Parameter landsOnEdge: trueなら、読書位置の記憶や環境設定「開始ページ」より優先して
     ///   「次の本の最初のページ」「前の本の最後のページ」へ着地させる(AppState.PendingInitialEdge参照)。
-    case openSiblingBook(forward: Bool, landsOnEdge: Bool)
+    /// - Parameter continuesSlideshow: trueなら、開いた本でもスライドショーを続ける(スライドショーが最後のページに
+    ///   達して「次の本へ」になったとき。cooViewer と同じ。AppState.pendingStartsSlideshow参照)。
+    case openSiblingBook(forward: Bool, landsOnEdge: Bool, continuesSlideshow: Bool = false)
     /// 本だけ閉じてホームへ戻る(LastPageBehavior.returnToWelcome参照)
     case returnToWelcome
     /// このタブを閉じる(LastPageBehavior.closeTab参照)

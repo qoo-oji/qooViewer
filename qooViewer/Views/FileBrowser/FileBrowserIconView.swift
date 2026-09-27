@@ -464,7 +464,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             )
             item.cell.configure(
                 entry: entry, kind: kind, iconSize: iconSize, outlineWidth: outlineWidth,
-                isCut: state.isCut(entry), isDropTarget: dropTargetID == entry.id
+                isDimmed: state.isCut(entry) || entry.isHidden, isDropTarget: dropTargetID == entry.id
             )
             requestThumbnail(for: item, entry: entry, kind: kind, isPrivate: state.isPrivate)
         }
@@ -1310,14 +1310,15 @@ final class FileBrowserIconCellView: NSView {
     }
 
     func configure(
-        entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, outlineWidth: CGFloat, isCut: Bool, isDropTarget: Bool
+        entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, outlineWidth: CGFloat, isDimmed: Bool, isDropTarget: Bool
     ) {
         self.entry = entry
         self.kind = kind
         self.iconSize = iconSize
         self.outlineWidth = outlineWidth
         self.isDropTarget = isDropTarget
-        alphaValue = isCut ? 0.5 : 1
+        // カットした項目と隠しファイル(「隠しファイルを表示」のとき)は淡く(Finder と同じ)。
+        alphaValue = isDimmed ? 0.5 : 1
         toolTip = entry.displayName
         let width = FileBrowserIconView.cellWidth(iconSize: iconSize)
         displayName = FileBrowserIconView.twoLineName(entry.displayName, width: width - 8)

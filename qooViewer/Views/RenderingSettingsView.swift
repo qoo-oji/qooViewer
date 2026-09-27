@@ -2,7 +2,10 @@ import SwiftUI
 import Foundation
 
 /// 環境設定ウインドウの「画像の表示」画面。画像そのものの描画・表示のされ方に関する設定
-/// (拡大率・補間品質・見開き判定の閾値・先読み枚数)をまとめる。
+/// (拡大率・補間品質・ルーペ)をまとめる。
+///
+/// 見開き判定の閾値(単ページにする幅 ÷ 高さ)は「レイアウト」へ移した(2026-09-27、環境設定の点検。画像の描き方では
+/// なく見開きの組み方の規則なので)。
 ///
 /// 背景色は、アプリの外観に関する設定を1画面へ集約する方針(ユーザー要望)により
 /// 「外観」画面(AppearanceSettingsView)へ移した。背景色は「画像がどう描かれるか」ではなく
@@ -67,22 +70,6 @@ struct RenderingSettingsView: View {
                 }
             } header: {
                 Text("Loupe")
-            }
-
-            Section {
-                // 何と何の比なのかだけラベルへ引き上げ、判定の全文は吹き出しに残す
-                // (「〜以上なら単ページ」という規則はラベルに収まらない)。
-                SettingsSlider(
-                    "Single-Page Threshold (Width ÷ Height)",
-                    value: $preferences.singlePageAspectRatioThreshold,
-                    in: 0.5...3.0,
-                    step: 0.05,
-                    help: "An image whose width ÷ height is at least this value is shown on its own instead of being paired into a spread."
-                ) { value in
-                    String(format: "%.2f", value)
-                }
-            } header: {
-                Text("Spread Display")
             }
 
             // 「前後に先読みするページ数」は、メモリの使用量に直結する設定を1画面に集める方針

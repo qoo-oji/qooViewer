@@ -1534,7 +1534,7 @@ extension AppPreferences {
                 Keys.reopenBehavior,
                 Keys.finderOpenBehavior,
                 Keys.favoriteOpenBehavior,
-                Keys.spreadBookmarkTargetBehavior,
+                // spreadBookmarkTargetBehavior は「閲覧中の動作」へ移した(2026-09-27。下の case .reading)。
                 Keys.defaultReadingDirection,
                 Keys.defaultDisplayMode,
                 // 「画像の表示」から移した(defaultScalingModeのコメント)。
@@ -1547,7 +1547,7 @@ extension AppPreferences {
                 Keys.interpolationQuality,
                 Keys.loupeMagnificationPercent,
                 Keys.loupeDiameter,
-                Keys.singlePageAspectRatioThreshold,
+                // singlePageAspectRatioThreshold は「レイアウト」へ移した(2026-09-27。下の case .layout)。
                 // prefetchPageCountは「キャッシュ」画面へ移した(下のcase .cache参照)。
             ]
         case .reading:
@@ -1555,6 +1555,8 @@ extension AppPreferences {
                 Keys.firstPageBehavior,
                 Keys.lastPageBehavior,
                 Keys.treatTrackpadFlickAsWheel,
+                // 「本を開く」から移した(2026-09-27、環境設定の点検。本を開くときではなく読んでいる間の設定)。
+                Keys.spreadBookmarkTargetBehavior,
                 Keys.invertTwoFingerScrolling,
                 // フィルムストリップのON/OFF(showProgressBarThumbnailPreview)は、見た目の設定
                 // 一式と一緒に「外観」の担当へ移した(上のcase .appearance参照)。
@@ -1582,6 +1584,8 @@ extension AppPreferences {
         case .layout:
             return [
                 Keys.missingLayoutAutoLayout,
+                // 「画像の表示」から移した(2026-09-27、環境設定の点検。画像の描き方ではなく見開きの組み方の規則)。
+                Keys.singlePageAspectRatioThreshold,
                 Keys.bookExportCompletionBehavior,
                 Keys.bookExportWritesVolumeElement,
             ]
@@ -1689,7 +1693,6 @@ extension AppPreferences {
             reopenBehavior = source.reopenBehavior
             finderOpenBehavior = source.finderOpenBehavior
             favoriteOpenBehavior = source.favoriteOpenBehavior
-            spreadBookmarkTargetBehavior = source.spreadBookmarkTargetBehavior
             defaultReadingDirectionSetting = source.defaultReadingDirectionSetting
             defaultDisplayMode = source.defaultDisplayMode
             defaultScalingMode = source.defaultScalingMode
@@ -1699,11 +1702,11 @@ extension AppPreferences {
             interpolationQuality = source.interpolationQuality
             loupeMagnificationPercent = source.loupeMagnificationPercent
             loupeDiameter = source.loupeDiameter
-            singlePageAspectRatioThreshold = source.singlePageAspectRatioThreshold
         case .reading:
             firstPageBehavior = source.firstPageBehavior
             lastPageBehavior = source.lastPageBehavior
             treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
+            spreadBookmarkTargetBehavior = source.spreadBookmarkTargetBehavior
             invertTwoFingerScrolling = source.invertTwoFingerScrolling
             thumbnailHoverPreviewDelay = source.thumbnailHoverPreviewDelay
             thumbnailHoverPreviewSize = source.thumbnailHoverPreviewSize
@@ -1721,6 +1724,7 @@ extension AppPreferences {
             fileBrowserThumbnailCacheLimitMB = source.fileBrowserThumbnailCacheLimitMB
         case .layout:
             missingLayoutAutoLayout = source.missingLayoutAutoLayout
+            singlePageAspectRatioThreshold = source.singlePageAspectRatioThreshold
             bookExportCompletionBehavior = source.bookExportCompletionBehavior
             bookExportDestinationModes = source.bookExportDestinationModes
             bookExportDataCleanups = source.bookExportDataCleanups

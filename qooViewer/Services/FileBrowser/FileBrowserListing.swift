@@ -30,6 +30,9 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     let typeDescription: String?
     let creationDate: Date?
     let modificationDate: Date?
+    /// 隠しファイル(名前が`.`で始まる・`UF_HIDDEN`)。「隠しファイルを表示」(⇧⌘.)にしているときだけ一覧に入り、
+    /// Finder と同じく淡く描く(2026-09-27)。
+    var isHidden = false
 
     /// 選択・スクロール先の鍵。**末尾の`/`を持たないパス**(FileBrowserState.id(for:))。
     /// 列挙はフォルダのURLを末尾`/`付きで返し、外から渡されるURLは付いていないことが多いので、
@@ -103,20 +106,24 @@ nonisolated enum FileBrowserListing {
     /// (qooLibrary 実測)。種類(`localizedTypeDescription`)だけは拡張子ごとに1回で済むので含めない。
     static let resourceKeys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .localizedNameKey,
-        .totalFileSizeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey,
+        .totalFileSizeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isHiddenKey,
     ]
 
-    /// フォルダの直下を読む。隠しファイルは出さない(Finderの既定と同じ)。
+    /// フォルダの直下を読む。隠しファイルは既定では出さない(Finderの既定と同じ)。
     ///
     /// `contentsOfDirectory`ではなく`enumerator`: APFSで約3倍速い(検討メモ §12)。その代わり、
     /// 列挙の入口で失敗したことは例外ではなくエラーハンドラで知らされるので、ここで拾って投げ直す。
-    static func entries(in folder: URL) throws -> [FileBrowserEntry] {
+    /// - Parameter includesHidden: 隠しファイルも出す(表示メニュー「隠しファイルを表示」⇧⌘.。2026-09-27)。そのときも
+    ///   `.DS_Store`だけは出さない ―― Finder も隠しファイルを表示しているときに出さない、Finder 自身の控えのファイル。
+    static func entries(in folder: URL, includesHidden: Bool = false) throws -> [FileBrowserEntry] {
         var rootError: Error?
         let folderPath = MountTable.normalized(folder.path)
         guard let enumerator = FileManager.default.enumerator(
             at: folder,
             includingPropertiesForKeys: resourceKeys,
-            options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles, .skipsPackageDescendants],
+            options: includesHidden
+                ? [.skipsSubdirectoryDescendants, .skipsPackageDescendants]
+                : [.skipsSubdirectoryDescendants, .skipsHiddenFiles, .skipsPackageDescendants],
             errorHandler: { url, error in
                 // 子の1件が読めないだけなら続ける(その行は属性の欠けた行になる)。
                 if MountTable.normalized(url.path) == folderPath { rootError = error }
@@ -131,6 +138,7 @@ nonisolated enum FileBrowserListing {
         while let url = enumerator.nextObject() as? URL {
             count += 1
             if count % 256 == 0, Cancellation.isRequestedInCurrentScope { throw CancellationError() }
+            if includesHidden, url.lastPathComponent == ".DS_Store" { continue }
             result.append(makeEntry(url, kindCache: &kindCache))
         }
         if let rootError { throw rootError }
@@ -171,7 +179,8 @@ nonisolated enum FileBrowserListing {
             fileSize: isDirectory && !isPackage ? nil : (values?.totalFileSize ?? values?.fileSize).map(Int64.init),
             typeDescription: typeDescription(for: url, isDirectory: isDirectory, isPackage: isPackage, cache: &kindCache),
             creationDate: values?.creationDate,
-            modificationDate: values?.contentModificationDate
+            modificationDate: values?.contentModificationDate,
+            isHidden: values?.isHidden ?? url.lastPathComponent.hasPrefix(".")
         )
     }
 

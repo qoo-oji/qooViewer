@@ -22,10 +22,13 @@ nonisolated enum DirectoryProbe {
     ///
     /// **数える規則はツリーの一覧(`FileBrowserListing.entries` → `isNavigableFolder`)と揃える**:
     /// - 名前が `.` で始まる項目と `UF_HIDDEN` の項目は数えない(`.skipsHiddenFiles` はどちらも隠す。qooLibrary では
-    ///   `UF_HIDDEN` を見落として「空なのに三角が出る」になった)
+    ///   `UF_HIDDEN` を見落として「空なのに三角が出る」になった)。**`includesHidden` のときは数える**(一覧も
+    ///   隠しファイルを出す ―― 表示メニュー「隠しファイルを表示」。`FileBrowserListing.entries(in:includesHidden:)`)
     /// - パッケージは数えない(ツリーに出さない)
     /// - 記号リンクは数えない(一覧の `.isDirectoryKey` はリンク自身を見るので、ツリーに出ない)
-    static func hasSubdirectory(at url: URL, protectedPrefixes: [String] = protectedPrefixes) -> Bool? {
+    static func hasSubdirectory(
+        at url: URL, includesHidden: Bool = false, protectedPrefixes: [String] = protectedPrefixes
+    ) -> Bool? {
         if isPrivacyProtected(url, prefixes: protectedPrefixes) { return nil }
         guard let directory = opendir(url.path) else { return nil }
         defer { closedir(directory) }
@@ -34,18 +37,19 @@ nonisolated enum DirectoryProbe {
             let name = withUnsafePointer(to: &value.d_name) {
                 String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self))
             }
-            if name.hasPrefix(".") { continue }
+            if name == "." || name == ".." { continue }
+            if !includesHidden, name.hasPrefix(".") { continue }
             let type = Int32(value.d_type)
             let child = url.appendingPathComponent(name)
             var status = stat()
             switch type {
             case DT_DIR:
                 // UF_HIDDEN を見るための lstat。引けなければ隠れていない側へ倒す(型コメントの害の非対称)。
-                if lstat(child.path, &status) == 0, status.st_flags & UInt32(UF_HIDDEN) != 0 { continue }
+                if !includesHidden, lstat(child.path, &status) == 0, status.st_flags & UInt32(UF_HIDDEN) != 0 { continue }
             case DT_UNKNOWN:
                 // d_type を返さないファイルシステムのための保険。リンクは辿らない(lstat)。
                 guard lstat(child.path, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
-                      status.st_flags & UInt32(UF_HIDDEN) == 0
+                      includesHidden || status.st_flags & UInt32(UF_HIDDEN) == 0
                 else { continue }
             default:
                 continue

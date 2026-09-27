@@ -34,6 +34,21 @@ struct DirectoryProbeTests {
         #expect(try FileBrowserListing.entries(in: root).filter(\.isNavigableFolder).isEmpty)
     }
 
+    @Test("「隠しファイルを表示」では隠しフォルダも数える(一覧も出すので)")
+    func countsHiddenFoldersWhenAsked() throws {
+        let (temporary, root) = try folder("probe-hidden-shown")
+        _ = try temporary.directory("root/.dot")
+        #expect(DirectoryProbe.hasSubdirectory(at: root, protectedPrefixes: []) == false)
+        #expect(DirectoryProbe.hasSubdirectory(at: root, includesHidden: true, protectedPrefixes: []) == true)
+        #expect(try FileBrowserListing.entries(in: root, includesHidden: true).filter(\.isNavigableFolder).count == 1)
+
+        let (flaggedTemporary, flaggedRoot) = try folder("probe-flagged-shown")
+        let flagged = try flaggedTemporary.directory("root/flagged")
+        #expect(chflags(flagged.path, UInt32(UF_HIDDEN)) == 0)
+        #expect(DirectoryProbe.hasSubdirectory(at: flaggedRoot, protectedPrefixes: []) == false)
+        #expect(DirectoryProbe.hasSubdirectory(at: flaggedRoot, includesHidden: true, protectedPrefixes: []) == true)
+    }
+
     @Test("保護下の場所とその中は読まずに nil、読めない場所も nil")
     func unknownWhenProtectedOrUnreadable() throws {
         let (temporary, root) = try folder("probe-protected")

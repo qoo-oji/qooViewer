@@ -52,6 +52,25 @@ struct FileBrowserStateTests {
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == fixture.id(fixture.root))
     }
 
+    @Test("「隠しファイルを表示」を切り替えると読み直して隠しファイルが出入りし、値は次に作る状態へ引き継がれる")
+    func showingHiddenFilesReloadsAndPersists() async throws {
+        let fixture = try Fixture("fb-hidden")
+        try Data("h".utf8).write(to: fixture.root.appendingPathComponent(".hidden"))
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        #expect(!fixture.names().contains(".hidden"))
+
+        fixture.state.showsHiddenFiles = true
+        await fixture.state.settle()
+        #expect(fixture.names().contains(".hidden"))
+        #expect(fixture.state.entries.first { $0.url.lastPathComponent == ".hidden" }?.isHidden == true)
+        #expect(FileBrowserState(defaults: fixture.suite.defaults).showsHiddenFiles)
+
+        fixture.state.showsHiddenFiles = false
+        await fixture.state.settle()
+        #expect(!fixture.names().contains(".hidden"))
+    }
+
     @Test("並べ替えの基準と向きを変えると、読み直さずに並べ替わる。「フォルダを上に」を切ると混ざる")
     func sortingReordersInPlace() async throws {
         let fixture = try Fixture("fb-sort")

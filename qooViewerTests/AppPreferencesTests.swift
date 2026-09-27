@@ -292,16 +292,16 @@ struct AppPreferencesTests {
         .appearance: [],
         .opening: [
             "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior",
-            "spreadBookmarkTargetBehavior", "defaultReadingDirectionSetting",
+            "defaultReadingDirectionSetting",
             "defaultDisplayMode", "defaultScalingMode",
         ],
         .rendering: [
             "maxUpscalePercent", "maxPinchZoomPercent", "interpolationQuality",
-            "loupeMagnificationPercent", "loupeDiameter", "singlePageAspectRatioThreshold",
+            "loupeMagnificationPercent", "loupeDiameter",
         ],
         .reading: [
             "firstPageBehavior", "lastPageBehavior", "treatTrackpadFlickAsWheel",
-            "invertTwoFingerScrolling", "thumbnailHoverPreviewDelay", "thumbnailHoverPreviewSize",
+            "spreadBookmarkTargetBehavior", "invertTwoFingerScrolling", "thumbnailHoverPreviewDelay", "thumbnailHoverPreviewSize",
             "slideshowInterval", "autoHideCursor", "cursorAutoHideDelay",
         ],
         .cache: [
@@ -310,7 +310,7 @@ struct AppPreferencesTests {
             "fileBrowserThumbnailCacheEnabled", "fileBrowserThumbnailCacheLimitMB",
         ],
         .layout: [
-            "missingLayoutAutoLayout", "bookExportCompletionBehavior", "bookExportDestinationModes",
+            "missingLayoutAutoLayout", "singlePageAspectRatioThreshold", "bookExportCompletionBehavior", "bookExportDestinationModes",
             "bookExportDataCleanups", "bookExportHistoryCleanups", "bookExportRenumbersImages",
             "bookExportIncludesExcludedPages", "bookExportWritesVolumeElement",
         ],

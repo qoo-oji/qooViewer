@@ -99,7 +99,6 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.reopenBehavior = otherCase(p.reopenBehavior)
     p.finderOpenBehavior = otherCase(p.finderOpenBehavior)
     p.favoriteOpenBehavior = otherCase(p.favoriteOpenBehavior)
-    p.spreadBookmarkTargetBehavior = otherCase(p.spreadBookmarkTargetBehavior)
     p.defaultReadingDirectionSetting = otherCase(p.defaultReadingDirectionSetting)
     p.defaultDisplayMode = otherCase(p.defaultDisplayMode)
     p.defaultScalingMode = otherCase(p.defaultScalingMode)
@@ -110,12 +109,12 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.interpolationQuality = otherCase(p.interpolationQuality)
     p.loupeMagnificationPercent += 1
     p.loupeDiameter += 1
-    p.singlePageAspectRatioThreshold += 1
 
     // MARK: 閲覧中の動作
     p.firstPageBehavior = otherCase(p.firstPageBehavior)
     p.lastPageBehavior = otherCase(p.lastPageBehavior)
     p.treatTrackpadFlickAsWheel.toggle()
+    p.spreadBookmarkTargetBehavior = otherCase(p.spreadBookmarkTargetBehavior)
     p.invertTwoFingerScrolling.toggle()
     // 範囲(0〜1 秒)の中で動かす。読み直すと範囲へ収める(AppPreferences.storedDouble)ので、外へ出すと往復で変わる。
     p.thumbnailHoverPreviewDelay = p.thumbnailHoverPreviewDelay == 0.5 ? 0.6 : 0.5
@@ -136,6 +135,7 @@ func mutateEverySetting(_ p: AppPreferences) {
 
     // MARK: レイアウトと書き出し
     p.missingLayoutAutoLayout = otherCase(p.missingLayoutAutoLayout)
+    p.singlePageAspectRatioThreshold += 1
     p.bookExportCompletionBehavior = otherCase(p.bookExportCompletionBehavior)
     p.bookExportWritesVolumeElement.toggle()
     for format in BookExportFormat.allCases {

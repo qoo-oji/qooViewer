@@ -11,18 +11,9 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
-            Section {
-                // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
-                // 次回の起動から(AppLanguage.applyAppleLanguagesOverride参照)。それを吹き出しで言う。
-                SettingsPicker(
-                    "Display Language",
-                    selection: $preferences.displayLanguage,
-                    help: "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
-                )
-            } header: {
-                Text("Language")
-            }
-
+            // 並びは影響の大きいもの・よく触るものから(2026-09-27、環境設定の点検で利用者が決めた): 起動時 → ホーム(アプリの
+            // 形そのものが変わる機能の ON/OFF)→ ウインドウとタブ → サイドパネル → 保存データ → 履歴 → 言語(一度決めたら
+            // 触らない)。
             Section {
                 // 「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」と
                 // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
@@ -46,53 +37,6 @@ struct GeneralSettingsView: View {
                 )
             } header: {
                 Text("On Launch")
-            }
-
-            Section {
-                SettingsToggle(
-                    "Quit When the Last Window Closes",
-                    isOn: $preferences.quitWhenLastWindowClosed
-                )
-                SettingsToggle(
-                    "Confirm Before Closing a Window with Several Tabs",
-                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow
-                )
-            } header: {
-                Text("Windows & Tabs")
-            }
-
-            Section {
-                SettingsSlider(
-                    "Books to Keep Data For",
-                    value: $preferences.maxTrackedBooksCount,
-                    in: 50...2000,
-                    step: 50,
-                    // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
-                    // ラベルに入れると長すぎるので、ホバーの吹き出しへ。
-                    help: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first."
-                ) { value in
-                    "\(Int(value))"
-                }
-            } header: {
-                Text("Saved Data")
-            }
-
-            // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の
-            // 一覧表示は、それぞれ個別にON/OFFできるようにする(既定はON)。
-            Section {
-                SettingsSlider(
-                    "Recent Files to Keep",
-                    value: $preferences.recentFilesLimit,
-                    in: AppPreferences.recentFilesLimitRange,
-                    step: 5,
-                    // 「履歴を何件保持するか」はラベルが言っているので落とし、
-                    // ラベルからは分からない「どこに出るのか」だけを残す。
-                    help: "Shown in the File menu's Open Recent and in the side panel's History mode."
-                ) { value in
-                    "\(Int(value))"
-                }
-            } header: {
-                Text("History")
             }
 
             Section {
@@ -148,6 +92,19 @@ struct GeneralSettingsView: View {
 
             Section {
                 SettingsToggle(
+                    "Quit When the Last Window Closes",
+                    isOn: $preferences.quitWhenLastWindowClosed
+                )
+                SettingsToggle(
+                    "Confirm Before Closing a Window with Several Tabs",
+                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow
+                )
+            } header: {
+                Text("Windows & Tabs")
+            }
+
+            Section {
+                SettingsToggle(
                     "Enable Side Panel",
                     isOn: $preferences.sidePanelFeatureEnabled,
                     help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
@@ -185,6 +142,52 @@ struct GeneralSettingsView: View {
                 .disabled(!preferences.sidePanelFeatureEnabled)
             } header: {
                 Text("Side Panel")
+            }
+
+            Section {
+                SettingsSlider(
+                    "Books to Keep Data For",
+                    value: $preferences.maxTrackedBooksCount,
+                    in: 50...2000,
+                    step: 50,
+                    // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
+                    // ラベルに入れると長すぎるので、ホバーの吹き出しへ。
+                    help: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first."
+                ) { value in
+                    "\(Int(value))"
+                }
+            } header: {
+                Text("Saved Data")
+            }
+
+            // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の
+            // 一覧表示は、それぞれ個別にON/OFFできるようにする(既定はON)。
+            Section {
+                SettingsSlider(
+                    "Recent Files to Keep",
+                    value: $preferences.recentFilesLimit,
+                    in: AppPreferences.recentFilesLimitRange,
+                    step: 5,
+                    // 「履歴を何件保持するか」はラベルが言っているので落とし、
+                    // ラベルからは分からない「どこに出るのか」だけを残す。
+                    help: "Shown in the File menu's Open Recent and in the side panel's History mode."
+                ) { value in
+                    "\(Int(value))"
+                }
+            } header: {
+                Text("History")
+            }
+
+            Section {
+                // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
+                // 次回の起動から(AppLanguage.applyAppleLanguagesOverride参照)。それを吹き出しで言う。
+                SettingsPicker(
+                    "Display Language",
+                    selection: $preferences.displayLanguage,
+                    help: "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
+                )
+            } header: {
+                Text("Language")
             }
 
             // 説明文がこの画面だけ長いのは、対象外にしている2つがあるため

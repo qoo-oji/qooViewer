@@ -32,6 +32,7 @@ final class FileBrowserState: ObservableObject {
         static let treeWidth = "qooViewer.fileBrowser.treeWidth"
         static let lastFolderPath = "qooViewer.fileBrowser.lastFolderPath"
         static let bulkRename = "qooViewer.fileBrowser.bulkRename"
+        static let showsHiddenFiles = "qooViewer.fileBrowser.showsHiddenFiles"
     }
 
     /// 保存が無いときに隠す列。作成日は既定で出さない(2026-09-14、ユーザーの判断)。
@@ -122,6 +123,17 @@ final class FileBrowserState: ObservableObject {
         didSet {
             guard viewMode != oldValue else { return }
             defaults.set(viewMode.rawValue, forKey: Keys.viewMode)
+        }
+    }
+
+    /// 隠しファイル(名前が`.`で始まる・`UF_HIDDEN`)も出すか(2026-09-27、利用者の指示)。表示メニュー「隠しファイルを表示」
+    /// ⇧⌘. で切り替える(Finder と同じキー。環境設定には置かない)。表示形式と同じくウインドウごとの値で、最後に選んだ値を
+    /// 次に開くウインドウが引き継ぐ。変えたら今のフォルダを読み直す(ツリーは`FileBrowserTreeView`が自分で読み直す)。
+    @Published var showsHiddenFiles: Bool {
+        didSet {
+            guard showsHiddenFiles != oldValue else { return }
+            defaults.set(showsHiddenFiles, forKey: Keys.showsHiddenFiles)
+            reload()
         }
     }
 
@@ -357,6 +369,7 @@ final class FileBrowserState: ObservableObject {
         self.changeCenter = changeCenter ?? .defaultForState()
         self.cutClipboard = cutClipboard ?? .defaultForState()
         viewMode = FileBrowserViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .list
+        showsHiddenFiles = defaults.bool(forKey: Keys.showsHiddenFiles)
         hiddenListColumns = defaults.stringArray(forKey: Keys.hiddenListColumns).map(Set.init)
             ?? Self.defaultHiddenListColumns
         iconSize = (defaults.object(forKey: Keys.iconSize) as? Double)
@@ -591,6 +604,7 @@ final class FileBrowserState: ObservableObject {
         // なり、以前はメインで、アクティブ化・ホームへ戻る・FSEvents のたびに走っていた。読んでいる間に並びの設定が変わっていたら、
         // `apply` がメインで並べ直す。
         let sort = self.sort
+        let includesHidden = showsHiddenFiles
         isLoading = true
         needsReloadAfterLoad = false
         inFlightFolderID = .some(Self.id(of: folder))
@@ -607,7 +621,7 @@ final class FileBrowserState: ObservableObject {
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
             if let folder {
                 do {
-                    outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder)) })
+                    outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden)) })
                 } catch is CancellationError {
                     return
                 } catch {

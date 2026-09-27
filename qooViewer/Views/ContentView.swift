@@ -516,7 +516,8 @@ struct ContentView: View {
             smartViewMode: smartLibrary.viewMode,
             browserSortKey: fileBrowser.sortKey,
             browserSortDirection: fileBrowser.sortDirection,
-            hiddenListColumns: fileBrowser.hiddenListColumns.sorted()
+            hiddenListColumns: fileBrowser.hiddenListColumns.sorted(),
+            showsHiddenFiles: fileBrowser.showsHiddenFiles
         )
     }
 

@@ -78,19 +78,8 @@ struct OpeningSettingsView: View {
                 Text("Opening Another Book")
             }
 
-            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
-            // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
-            // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
-            // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
-            Section {
-                SettingsPicker(
-                    "Target Page",
-                    selection: $preferences.spreadBookmarkTargetBehavior,
-                    help: "Right-clicking a page always bookmarks the page you clicked, regardless of this setting."
-                )
-            } header: {
-                Text("Bookmarks in Spread View")
-            }
+            // 「見開き表示でのブックマーク」は「閲覧中の動作」へ移した(2026-09-27、環境設定の点検。本を開くときではなく
+            // 読んでいる間の設定なので)。
 
             SettingsResetSection(
                 help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."

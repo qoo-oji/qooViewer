@@ -88,6 +88,8 @@ struct HomeMenuState: Equatable {
     var browserSortDirection: FolderBrowserSortDirection = .ascending
     /// リストで隠している列(FileBrowserState.hiddenListColumns を並びを固定して)。
     var hiddenListColumns: [String] = []
+    /// ファイルブラウザで隠しファイルも出しているか(FileBrowserState.showsHiddenFiles。表示メニュー「隠しファイルを表示」)。
+    var showsHiddenFiles = false
 
     var isShelfShown: Bool { isShown && mode == .shelf }
 

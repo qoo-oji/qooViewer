@@ -3,6 +3,9 @@ import SwiftUI
 /// 環境設定ウインドウの「レイアウト」画面(ユーザー要望)。
 ///
 /// ■ この画面が受け持つこと
+/// 0. 見開きの組み方の規則(横長の画像を単ページにする閾値)。レイアウトの保存データが無いページはこれで組まれる。
+///    元は「画像の表示」にあったが、画像の描き方ではなく見開きの組み方の設定なので、2026-09-27 にここへ移した
+///    (環境設定の点検、利用者の判断)。
 /// 1. レイアウトの保存データを持っていない本を開いたときに、本全体を自動レイアウトするか
 /// 2. 形式(EPUB / PDF / CBZ)ごとの、書き出しの保存先・オプションの既定値・
 ///    書き出し終わった本の後始末
@@ -53,9 +56,10 @@ struct LayoutSettingsView: View {
         .onDisappear { navigator.openedLayoutFormat = nil }
     }
 
-    /// 一覧のページ(自動レイアウト・形式の一覧・書き出したあとの動作・初期設定に戻す)。
+    /// 一覧のページ(見開きの規則・自動レイアウト・形式の一覧・書き出したあとの動作・初期設定に戻す)。
     private var rootPage: some View {
         SettingsPaneContainer {
+            spreadSection
             autoLayoutSection
             formatsSection
             completionSection
@@ -65,6 +69,26 @@ struct LayoutSettingsView: View {
             ) {
                 preferences.resetToDefaults(.layout)
             }
+        }
+    }
+
+    // MARK: - 0. 見開きの組み方
+
+    private var spreadSection: some View {
+        Section {
+            // 何と何の比なのかだけラベルへ引き上げ、判定の全文は吹き出しに残す
+            // (「〜以上なら単ページ」という規則はラベルに収まらない)。
+            SettingsSlider(
+                "Single-Page Threshold (Width ÷ Height)",
+                value: $preferences.singlePageAspectRatioThreshold,
+                in: 0.5...3.0,
+                step: 0.05,
+                help: "An image whose width ÷ height is at least this value is shown on its own instead of being paired into a spread."
+            ) { value in
+                String(format: "%.2f", value)
+            }
+        } header: {
+            Text("Spread Display")
         }
     }
 

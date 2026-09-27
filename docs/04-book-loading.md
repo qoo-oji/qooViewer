@@ -307,6 +307,16 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 「次の本の最初のページへ」「前の本の最後のページへ」は `AppState.pendingInitialEdge` に積み、
 `ViewerViewModel.init` が読書位置より優先して着地させます。
 
+**スライドショーが最後のページに達したときも「最後のページで」に従う**(2026-09-27、利用者の指示。cooViewer と同じ ――
+cooViewer のスライドショーは手でページを送るのと同じ処理を呼び、最後のページでは「ループ」の設定で分かれて、「しない」のとき
+だけ止まる。coo-ona/cooViewer の `Controller.m` `lockedImageDisplay`)。以前は設定に関係なく止まるだけで、MANUAL もそう書いていた。
+`ViewerViewModel.handleSlideshowReachedEnd` が振り分ける: ループは先頭へ戻して続ける。「次の本へ」「次の本の最初のページへ」は
+このビューアのスライドショーを止め、`PageBoundaryRequest.openSiblingBook(continuesSlideshow: true)` で頼む。次の本は同じウインドウに
+**新しいビューア**として出るので、続きは `AppState.pendingStartsSlideshow` に積んで引き継ぐ(`pendingInitialEdge` と同じ扱い ――
+`open(request:…)` が毎回上書きし、失敗・棚の読み替えで別のウインドウへ譲ったときは戻し、`ViewerView.handleOnAppear` が読んで
+`clearPendingInitialPage()` で捨てる)。次の本が無ければ何も開かないので、止まったまま。ホームへ戻る・タブ/ウインドウを閉じる・
+何もしないは止めてから、その動作。「毎回確認」は止めてからシートを出す(選んだ動作でスライドショーは続けない)。
+
 **一覧から開いた本は、一覧の並びをたどる**(2026-09-22、利用者の指示)。ライブラリのコレクション(ホームの中・サイドパネルの
 ツリー)とスマートライブラリから開いた本は、要求に**そのとき見えていた並び**(検索・絞り込み・並べ替えの後。スマート
 ライブラリの束はその位置に中の本を巻の順に展開)を `BookSequence` として載せ(`BookOpenRequest.sequence`。新しいタブ/

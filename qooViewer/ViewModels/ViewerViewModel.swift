@@ -678,7 +678,13 @@ final class ViewerViewModel: ObservableObject {
         let restoredIndex = min(
             max(restoredIndexByKey ?? state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0)
         )
-        let wasOnLastPage = preparedBook.pages.count > 0 && restoredIndex >= preparedBook.pages.count - 1
+        // 「最後まで読んでいた」は、最後に表示していた画面に最後のページが写っていたか(BookReadingState.isAtLastPage)で
+        // 決める。読書位置の番号だけで見ると、見開き表示の最後の画面(記録されるのは見開きの**先の**ページ = count-2)で
+        // 閉じた本が当たらず、「最後まで読んでいたら最初から」が見開きでは働かなかった(2026-09-27、環境設定の点検で見つけた)。
+        // 番号での判定も残す: isAtLastPage を足す前の行は false のままなので、単ページで最終ページを開いていた本を拾う。
+        // 中身が差し替わったと判断した本は行を作り直しているので(上)、古い isAtLastPage を持ち越さない。
+        let wasOnLastPage = preparedBook.pages.count > 0
+            && (restoredIndex >= preparedBook.pages.count - 1 || (isReturningToKnownBook && state.isAtLastPage))
         let initialIndex: Int
         var needsConfirmation = false
         // 呼び出し側から表示したいページが指定されている場合は、そちらを最優先する。
@@ -2226,10 +2232,44 @@ final class ViewerViewModel: ObservableObject {
                     if self.currentIndex + step < self.book.pages.count {
                         self.advance(forward: true)
                     } else {
-                        self.stopSlideshow()
+                        self.handleSlideshowReachedEnd()
                     }
                 }
             }
+        }
+    }
+
+    /// スライドショーが最後のページに達したとき(最後のページを 1 間隔ぶん見せた後)。
+    ///
+    /// 環境設定「最後のページで」に従う ―― cooViewer と同じ(2026-09-27、利用者の指示)。cooViewer のスライドショーは
+    /// 手でページを送るのと同じ処理を呼び、最後のページでは「ループ」の設定で分かれる: ループなら先頭へ戻って続け、
+    /// 次のフォルダ・アーカイブへなら次の本を開いて**そのまま続け**、「しない」のときだけ止まる(coo-ona/cooViewer の
+    /// Controller.m `lockedImageDisplay`)。以前のこのアプリは設定に関係なく止まるだけだった。
+    ///
+    /// - ループ: 先頭へ戻り、スライドショーは続く。
+    /// - 次の本へ(最初のページへ): ここでは止め、開いた本で始め直してもらう。次の本は同じウインドウに新しい
+    ///   ビューアとして出るので、このビューモデルのタスクは続けられない(AppState.pendingStartsSlideshow)。次の本が
+    ///   無ければ何も開かず、止まったままになる。
+    /// - ホームへ戻る・タブ/ウインドウを閉じる・何もしない: 止めてから、その動作をする。
+    /// - 毎回確認: 止めてから、手で送ったときと同じシートを出す(選んだ動作ではスライドショーを続けない ――
+    ///   尋ねるために止まったので、続けるかどうかは改めて決めてもらう)。
+    func handleSlideshowReachedEnd() {
+        let behavior = preferences.lastPageBehavior
+        switch behavior {
+        case .loop:
+            performLastPageBehavior(.loop)
+        case .nextBookFirstPage, .nextBook:
+            stopSlideshow()
+            pendingBoundaryPrompt = nil
+            onPageBoundaryRequest?(.openSiblingBook(
+                forward: true, landsOnEdge: behavior == .nextBookFirstPage, continuesSlideshow: true
+            ))
+        case .ask:
+            stopSlideshow()
+            pendingBoundaryPrompt = .forward
+        case .returnToWelcome, .closeTab, .closeWindow, .none:
+            stopSlideshow()
+            performLastPageBehavior(behavior)
         }
     }
 

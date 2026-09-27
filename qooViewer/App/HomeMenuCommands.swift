@@ -540,6 +540,18 @@ struct HomeViewMenuItems: View {
 
             // リストの列(見出しの右クリックと同じ。名前の列は隠せない)。
             columnsMenu
+
+            // 隠しファイル(2026-09-27、利用者の指示)。キーは Finder と同じ ⇧⌘.(Finder はメニューに項目を出さずキーだけだが、
+            // ここではキーの在りかが分かるように項目にする)。ファイルブラウザの間だけ効き、キーもその間だけ付ける(homeMenuShortcut)。
+            Toggle("Show Hidden Files", isOn: Binding(
+                get: { [home, isBrowser] in isBrowser && home.showsHiddenFiles },
+                set: { [weak appState] _ in
+                    guard let state = appState?.fileBrowser else { return }
+                    state.showsHiddenFiles.toggle()
+                }
+            ))
+            .homeMenuShortcut(".", modifiers: [.command, .shift], isActive: isBrowser)
+            .disabled(!isBrowser)
         }
 
         // フルスクリーンの項目(AppKit が足す)との区切り。本を読んでいるときの中身と同じ理由(QooViewerApp の表示メニュー)。

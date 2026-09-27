@@ -87,6 +87,26 @@ struct ViewerViewModelTests {
         #expect(afterStoppingMidway.currentIndex == 2)
     }
 
+    @Test("「最後まで読んでいたら最初から」は、見開きの最後の画面で閉じた本も先頭へ戻す")
+    func fromStartIfFinishedLastTimeCountsTheLastSpread() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.reopenBehavior = .fromStartIfFinishedLastTime
+        let book = try await harness.makeBook(pageCount: 6)
+
+        // 見開きの最後の画面(5–6 ページ)。記録される読書位置は先の 5 ページ(番号 4)で、最終ページ(番号 5)ではない。
+        let first = await harness.open(book)
+        #expect(first.displayMode == .spread)
+        first.jump(toPageIndex: 4)
+        await first.settle()
+        #expect(first.currentImages.count == 2)
+        harness.close()
+        #expect(harness.readingState(for: book)?.lastPageKey == book.pages[4].sortKey)
+
+        let reopened = await harness.open(book)
+        #expect(reopened.currentIndex == 0)
+    }
+
     @Test("「毎回確認」は、前回位置が先頭でないときだけ尋ねる")
     func askConfirmsOnlyWhenThereIsSomewhereToResume() async throws {
         let harness = try ViewerHarness()
@@ -254,6 +274,75 @@ struct ViewerViewModelTests {
         viewer.advance(forward: true)
         await viewer.settle()
         #expect(viewer.currentIndex == 4)
+    }
+
+    // MARK: - スライドショーの末尾
+
+    @Test("スライドショーが最後のページに達したら、環境設定「最後のページで」に従う(cooViewer と同じ)",
+          arguments: [LastPageBehavior.loop, .nextBook, .nextBookFirstPage, .returnToWelcome, .closeTab, .closeWindow, .none, .ask])
+    func theSlideshowFollowsTheLastPageBehavior(behavior: LastPageBehavior) async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.lastPageBehavior = behavior
+        let book = try await harness.makeBook(pageCount: 6)
+        let viewer = await harness.open(book)
+        var requests: [PageBoundaryRequest] = []
+        viewer.onPageBoundaryRequest = { requests.append($0) }
+        viewer.jump(toPageIndex: 4)
+        await viewer.settle()
+        viewer.startSlideshow()
+        defer { viewer.stopSlideshow() }
+
+        viewer.handleSlideshowReachedEnd()
+        await viewer.settle()
+
+        switch behavior {
+        case .loop:
+            // 先頭へ戻って続ける。
+            #expect(viewer.currentIndex == 0)
+            #expect(viewer.isSlideshowActive)
+            #expect(requests.isEmpty)
+        case .nextBook, .nextBookFirstPage:
+            // ここでは止め、次の本で始め直してもらう(AppState.pendingStartsSlideshow)。
+            #expect(!viewer.isSlideshowActive)
+            #expect(requests == [.openSiblingBook(forward: true, landsOnEdge: behavior == .nextBookFirstPage,
+                                                  continuesSlideshow: true)])
+        case .returnToWelcome:
+            #expect(!viewer.isSlideshowActive)
+            #expect(requests == [.returnToWelcome])
+        case .closeTab:
+            #expect(!viewer.isSlideshowActive)
+            #expect(requests == [.closeTab])
+        case .closeWindow:
+            #expect(!viewer.isSlideshowActive)
+            #expect(requests == [.closeWindow])
+        case .none:
+            #expect(!viewer.isSlideshowActive)
+            #expect(requests.isEmpty)
+            #expect(viewer.currentIndex == 4)
+        case .ask:
+            // 止めてから、手で送ったときと同じシートを出す。
+            #expect(!viewer.isSlideshowActive)
+            #expect(viewer.pendingBoundaryPrompt == .forward)
+            #expect(requests.isEmpty)
+        }
+    }
+
+    @Test("手で最後のページから送ったときの「次の本へ」は、スライドショーを引き継がない")
+    func aManualTurnDoesNotStartTheSlideshowInTheNextBook() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.lastPageBehavior = .nextBook
+        let book = try await harness.makeBook(pageCount: 6)
+        let viewer = await harness.open(book)
+        var requests: [PageBoundaryRequest] = []
+        viewer.onPageBoundaryRequest = { requests.append($0) }
+        viewer.jump(toPageIndex: 4)
+        await viewer.settle()
+
+        viewer.advance(forward: true)
+        await viewer.settle()
+        #expect(requests == [.openSiblingBook(forward: true, landsOnEdge: false, continuesSlideshow: false)])
     }
 
     // MARK: - ブックマークの追加
