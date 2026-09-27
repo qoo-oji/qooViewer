@@ -526,8 +526,8 @@ struct HomeViewMenuItems: View {
 
         // 大きさ(操作列のスライダー・ピンチと同じ値)。ファイルブラウザはアイコン表示のときだけ。
         // ⌘+ は US 配列では ⇧⌘=、JIS 配列では ⇧⌘; でしか届かない(メニューの照合は Shift を含んだ文字で行う。AppKit 単体で
-        // 合成イベントを当てて確認、2026-09-27)。Safari・プレビューと同じく ⌘= でも拡大するよう、ホームの中に見えないボタンを
-        // 置いてある(HomeZoomInEqualsShortcut。監査 24)。
+        // 合成イベントを当てて確認、2026-09-27)。Safari・プレビューと同じく ⌘= でも拡大するよう、ホームにキーのモニタを
+        // 付けてある(HomeZoomInEqualsKeyMonitor。監査 24)。
         Button("Zoom In") { [weak appState, home] in Self.resize(larger: true, appState: appState, home: home) }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(!canResize)
@@ -575,7 +575,7 @@ struct HomeViewMenuItems: View {
 
     private var canResize: Bool { Self.canResize(home) }
 
-    /// 「拡大」「縮小」が効くか(本棚か、ファイルブラウザのアイコン表示)。ホームの ⌘= もこれで見る(HomeZoomInEqualsShortcut)。
+    /// 「拡大」「縮小」が効くか(本棚か、ファイルブラウザのアイコン表示)。ホームの ⌘= もこれで見る(HomeZoomInEqualsKeyMonitor)。
     static func canResize(_ home: HomeMenuState) -> Bool {
         home.isShelfShown || (home.isShown && home.mode == .browser && home.browserViewMode == .icons)
     }
@@ -616,28 +616,65 @@ extension View {
     }
 }
 
-/// ホームの ⌘= を「拡大」にする見えないボタン(2026-09-27、監査 24)。
-///
-/// 表示メニューの「拡大」は ⌘+ で、メニューの照合は Shift を含んだ文字で行われるので、US 配列の ⌘=(Shift 無し)は届かない。
-/// Safari・プレビューは ⌘= でも拡大する。SwiftUI のメニュー項目には 2 つ目のキーを付けられず、AppKit の隠し項目を後から足すと
-/// SwiftUI の作り直しとぶつかるので、ホームの中にキーだけを持つボタンを置く(キーはウインドウのビューがメニューより先に受ける)。
-/// 効く条件はメニューの「拡大」と同じ(`HomeViewMenuItems.canResize`)。閉包は AppState を weak で持つ(ViewerActionRelay と同じ理由 ――
-/// SwiftUI はボタンの閉包を AppKit の側へ渡し、ウインドウより長く残ることがある)。
-struct HomeZoomInEqualsShortcut: View {
-    @EnvironmentObject private var appState: AppState
+extension View {
+    /// ホームの ⌘= を「拡大」にする(2026-09-27、監査 24)。HomeZoomInEqualsKeyMonitor の型コメント。
+    func homeZoomInEqualsKey(appState: AppState) -> some View {
+        modifier(HomeZoomInEqualsKey(appState: appState))
+    }
+}
 
-    var body: some View {
-        let home = appState.homeMenu
-        let appState = self.appState
-        Button("Zoom In") { [weak appState] in
-            guard let appState else { return }
+private struct HomeZoomInEqualsKey: ViewModifier {
+    let appState: AppState
+    @State private var monitor = HomeZoomInEqualsKeyMonitor()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { monitor.install(appState: appState) }
+            .onDisappear { monitor.remove() }
+    }
+}
+
+/// ホームの ⌘= を「拡大」にする、ウインドウごとのキーのモニタ。
+///
+/// 表示メニューの「拡大」は ⌘+ で、メニューの照合は Shift を含んだ文字で行われるので、US 配列の ⌘=(Shift 無し)は届かない
+/// (AppKit 単体に合成イベントを当てて確認)。Safari・プレビューは ⌘= でも拡大する。SwiftUI のメニュー項目には 2 つ目のキーを
+/// 付けられず、AppKit の隠し項目を後から足すと SwiftUI の作り直しとぶつかる。**`.keyboardShortcut("=")` を持つ見えない SwiftUI の
+/// ボタンは効かなかった**(実機、2026-09-27。0×0・不透明度 0 のボタンをホームの背景に置いたが、⌘= で何も起きなかった)。
+/// ローカルモニタはメニューの照合より先にキーを受ける。
+///
+/// 受けるのは自分のウインドウ宛て・シートが出ていない・修飾が ⌘(と Shift)だけ・文字が "=" のときで、効く条件はメニューの「拡大」と同じ
+/// (`HomeViewMenuItems.canResize`)。Shift も許すのは JIS 配列の "=" が ⇧- だから(US 配列の ⇧⌘= は文字が "+" になりメニューが受ける)。
+/// ホームが出ている間だけ取り付ける(本を開くとホームごと外れる)。
+///
+/// 実機(JIS 配列のキーボード、2026-09-27): メニューの ⌘+ は ⇧⌘; と ⌘;(AppKit がキー配列に合わせて読み替える)で効き、⇧⌘- は
+/// 効かなかった。US 配列の ⌘= はキーボードの種類を ANSI にした合成イベント(CGEvent の keyboardEventKeyboardType = 40)で確かめた。
+@MainActor
+final class HomeZoomInEqualsKeyMonitor {
+    /// deinitから外すためにnonisolated(unsafe)。触るのはメインスレッドだけ(FileBrowserNavigationGestureMonitor と同じ)。
+    nonisolated(unsafe) private var token: Any?
+
+    func install(appState: AppState) {
+        guard token == nil else { return }
+        token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak appState] event in
+            guard let appState, let window = appState.hostWindow, event.window === window,
+                  window.attachedSheet == nil,
+                  event.modifierFlags.intersection([.command, .option, .control]) == .command,
+                  event.charactersIgnoringModifiers == "=",
+                  HomeViewMenuItems.canResize(appState.homeMenu)
+            else { return event }
             HomeViewMenuItems.resize(larger: true, appState: appState, home: appState.homeMenu)
+            return nil
         }
-        .keyboardShortcut("=", modifiers: .command)
-        .disabled(!HomeViewMenuItems.canResize(home))
-        .frame(width: 0, height: 0)
-        .opacity(0)
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
+    }
+
+    func remove() {
+        guard let token else { return }
+        NSEvent.removeMonitor(token)
+        self.token = nil
+    }
+
+    // `.onDisappear`はウインドウを閉じたときに必ず来るとは限らない。取り外し損ねても、箱が解放されれば外れる。
+    deinit {
+        if let token { NSEvent.removeMonitor(token) }
     }
 }

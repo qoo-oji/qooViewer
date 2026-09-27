@@ -1546,11 +1546,11 @@ struct QooViewerApp: App {
 
             // ヘルプメニュー。ヘルプブック(CFBundleHelpBookName)は作らず、GitHub 上の MANUAL.md を開く(2026-09-27、利用者の判断。
             // 監査 26)。置き換えないと既定の「qooViewer ヘルプ」が「ヘルプはありません」を出すだけになる。検索欄は AppKit のもので残る。
+            // ⌘? は付けない: macOS がヘルプメニューの検索欄を開くキーとして先に取る(実機で、項目に付けても検索欄が開いた)。
             CommandGroup(replacing: .help) {
                 Button("qooViewer Help") {
                     NSWorkspace.shared.open(Self.manualURL)
                 }
-                .keyboardShortcut("?", modifiers: .command)
             }
         }
         .environment(\.locale, locale)

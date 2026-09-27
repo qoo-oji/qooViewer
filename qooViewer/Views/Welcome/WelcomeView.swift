@@ -86,8 +86,8 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // ⌘= でも「拡大」(表示メニューの ⌘+ は US 配列の ⌘= で届かない。HomeZoomInEqualsShortcut)。
-        .background { HomeZoomInEqualsShortcut() }
+        // ⌘= でも「拡大」(表示メニューの ⌘+ は US 配列の ⌘= で届かない。HomeZoomInEqualsKeyMonitor)。
+        .homeZoomInEqualsKey(appState: appState)
         // 環境設定「外観」の「ウェルカム画面」に従う背景。「ウインドウの背後を透かす」
         // (welcomeGlass。既定OFF)がONのときだけ、背後のウインドウ/デスクトップが
         // わずかに透けるすりガラス+重ね色を敷く(ユーザー要望: のっぺりして見える。
