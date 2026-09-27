@@ -4228,6 +4228,22 @@
         }
       }
     },
+    "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニューバー「ファイル」の「最近使った項目を開く」と、サイドパネルの「履歴」モードに効きます。すでに本を表示しているときだけ適用されます。ホームから開く場合は、常に現在のウインドウで開きます。"
+          }
+        }
+      }
+    },
     "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13782,6 +13798,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Finderから"
+          }
+        }
+      }
+    },
+    "From History" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From History"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴から"
           }
         }
       }

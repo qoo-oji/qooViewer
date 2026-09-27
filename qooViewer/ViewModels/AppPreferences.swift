@@ -42,6 +42,7 @@ final class AppPreferences: ObservableObject {
             "qooViewer.pref.confirmBeforeClosingMultipleTabsWindow"
         static let finderOpenBehavior = "qooViewer.pref.finderOpenBehavior"
         static let favoriteOpenBehavior = "qooViewer.pref.favoriteOpenBehavior"
+        static let historyOpenBehavior = "qooViewer.pref.historyOpenBehavior"
         static let maxTrackedBooksCount = "qooViewer.pref.maxTrackedBooksCount"
         static let hideToolbar = "qooViewer.pref.hideToolbar"
         static let hideProgressBar = "qooViewer.pref.hideProgressBar"
@@ -359,6 +360,13 @@ final class AppPreferences: ObservableObject {
     /// この環境設定1箇所で挙動を固定できるように変更した。
     @Published var favoriteOpenBehavior: FinderOpenBehavior {
         didSet { defaults.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
+    }
+    /// 既に本を表示している状態で、履歴(メニューバー「ファイル」→「最近使った項目を開く」、サイドパネルの「履歴」モード)から
+    /// 別の本を開こうとしたときの挙動(2026-09-28、利用者の要望。既定は「現在の本を閉じて新しい本を開く」= それまでの挙動)。
+    /// 「Finderから」「お気に入りから」と同じ問い・同じ選択肢なので `FinderOpenBehavior` をそのまま使う。まだ本を表示していない
+    /// (ホーム)ときは、設定に関わらずそのウインドウで開く(`AppState.openFromHistory`)。
+    @Published var historyOpenBehavior: FinderOpenBehavior {
+        didSet { defaults.set(historyOpenBehavior.rawValue, forKey: Keys.historyOpenBehavior) }
     }
     /// 見開き表示中(実際に2ページ組でペア表示されているとき)、クリック位置の情報が無い経路
     /// (ツールバーのボタン・メニューバー「お気に入り」メニュー・キーボードショートカット)から
@@ -1313,6 +1321,9 @@ final class AppPreferences: ObservableObject {
         self.favoriteOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.favoriteOpenBehavior) ?? "")
                 ?? .replaceCurrentBook
+        self.historyOpenBehavior =
+            FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.historyOpenBehavior) ?? "")
+                ?? .replaceCurrentBook
         self.spreadBookmarkTargetBehavior =
             SpreadBookmarkTargetBehavior(rawValue: defaults.string(forKey: Keys.spreadBookmarkTargetBehavior) ?? "")
                 ?? .defaultSide
@@ -1533,6 +1544,7 @@ extension AppPreferences {
                 Keys.reopenBehavior,
                 Keys.finderOpenBehavior,
                 Keys.favoriteOpenBehavior,
+                Keys.historyOpenBehavior,
                 // spreadBookmarkTargetBehavior は「閲覧中の動作」へ移した(2026-09-27。下の case .reading)。
                 Keys.defaultReadingDirection,
                 Keys.defaultDisplayMode,
@@ -1695,6 +1707,7 @@ extension AppPreferences {
             reopenBehavior = source.reopenBehavior
             finderOpenBehavior = source.finderOpenBehavior
             favoriteOpenBehavior = source.favoriteOpenBehavior
+            historyOpenBehavior = source.historyOpenBehavior
             defaultReadingDirectionSetting = source.defaultReadingDirectionSetting
             defaultDisplayMode = source.defaultDisplayMode
             defaultScalingMode = source.defaultScalingMode

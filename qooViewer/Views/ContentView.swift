@@ -1501,6 +1501,12 @@ struct ContentView: View {
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 appState.open(url: url)
             },
+            // 履歴モードの行のクリック。環境設定「履歴から」で新しいタブ/ウインドウに開いたときはパネルを残す
+            // (onOpenInNewWindow と同じ理由。AppState.openFromHistory の戻り値)。
+            onOpenFromHistory: { url in
+                let openedHere = appState.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
+                if openedHere, dismissesOnAction { appState.isSidePanelRevealed = false }
+            },
             onBrowseToFolder: { url in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。

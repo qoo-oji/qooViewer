@@ -33,6 +33,7 @@ struct AppPreferencesTests {
         #expect(p.appearance.backgroundColorOption == .black)
         #expect(p.reopenBehavior == .resume)
         #expect(p.finderOpenBehavior == .replaceCurrentBook)
+        #expect(p.historyOpenBehavior == .replaceCurrentBook)
         #expect(p.displayLanguage == .system)
         #expect(p.appearance.appAppearance == .system)
         #expect(p.prefetchPageCount == 3)
@@ -291,7 +292,7 @@ struct AppPreferencesTests {
         // 外観タブの設定は AppearanceSettings が揃いごとに持ち、戻すのも揃いごと(AppearanceSettingsTests)。
         .appearance: [],
         .opening: [
-            "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior",
+            "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior", "historyOpenBehavior",
             "defaultReadingDirectionSetting",
             "defaultDisplayMode", "defaultScalingMode",
         ],

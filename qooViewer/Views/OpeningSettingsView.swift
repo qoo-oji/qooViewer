@@ -65,6 +65,12 @@ struct OpeningSettingsView: View {
                     selection: $preferences.finderOpenBehavior,
                     help: "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window."
                 )
+                // 履歴(「最近使った項目を開く」・サイドパネルの「履歴」)からも同じ問い(2026-09-28、利用者の要望)。
+                SettingsPicker(
+                    "From History",
+                    selection: $preferences.historyOpenBehavior,
+                    help: "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window."
+                )
                 // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
                 // 設定値(favoriteOpenBehavior)自体は残してある。
                 if FavoritesFeature.isEnabled {

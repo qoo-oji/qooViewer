@@ -99,6 +99,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.reopenBehavior = otherCase(p.reopenBehavior)
     p.finderOpenBehavior = otherCase(p.finderOpenBehavior)
     p.favoriteOpenBehavior = otherCase(p.favoriteOpenBehavior)
+    p.historyOpenBehavior = otherCase(p.historyOpenBehavior)
     p.defaultReadingDirectionSetting = otherCase(p.defaultReadingDirectionSetting)
     p.defaultDisplayMode = otherCase(p.defaultDisplayMode)
     p.defaultScalingMode = otherCase(p.defaultScalingMode)

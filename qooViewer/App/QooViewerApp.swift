@@ -989,7 +989,7 @@ struct QooViewerApp: App {
                             ) {
                                 guard let url = recentFiles.resolveForOpening(entry) else { return }
                                 SecurityScopedHandoff.begin(url)
-                                openURLPreferringFocusedWindow(url)
+                                openRecentAccordingToPreference(url)
                             }
                         }
                     }
@@ -2106,6 +2106,17 @@ struct QooViewerApp: App {
             openFavorite(favorite, asTab: true)
         case .newWindow:
             openFavorite(favorite, asTab: false)
+        }
+    }
+
+    /// 「最近使った項目を開く」から選んだ本を、環境設定「本を開く」の「履歴から」に従って開く(2026-09-28。
+    /// 分岐は `AppState.openFromHistory`)。相手のウインドウの探し方と、内容ウインドウが 1 枚も無いときの扱いは
+    /// `openURLPreferringFocusedWindow` と同じ。
+    private func openRecentAccordingToPreference(_ url: URL) {
+        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+            target.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
+        } else {
+            openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
         }
     }
 

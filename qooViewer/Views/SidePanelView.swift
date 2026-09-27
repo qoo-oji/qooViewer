@@ -88,6 +88,9 @@ struct SidePanelView: View {
     /// 「新しい本として開く」フォールバックの両方から呼ばれる)。呼び出し側でパネルを
     /// 閉じてからAppState.open(url:)を行う。
     var onOpen: (URL) -> Void
+    /// 「履歴」モードの行をクリックして開く。`onOpen` と違い、環境設定「本を開く」の「履歴から」に従って新しいタブ/ウインドウに
+    /// 開くことがある(2026-09-28。`AppState.openFromHistory`)。パネルを閉じるかどうかは呼び出し側が結果で決める。
+    var onOpenFromHistory: (URL) -> Void
     /// フォルダブラウザの移動でたどり着いたフォルダの画像を表示する(moveAndShowImages)。
     /// `onOpen`と違い**履歴に残さない** ―― 目的の本を探して通り抜けただけのフォルダで履歴が
     /// 埋まらないようにするため(BookOpenRequest.recordsInHistory参照)。
@@ -302,7 +305,7 @@ struct SidePanelView: View {
                     SidePanelHistorySectionView(
                         recentFiles: recentFiles,
                         currentBookPath: currentBookPath,
-                        onOpen: onOpen,
+                        onOpen: onOpenFromHistory,
                         onOpenInNewWindow: onOpenInNewWindow
                     )
                 }
