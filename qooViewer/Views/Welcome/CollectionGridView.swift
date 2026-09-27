@@ -426,9 +426,10 @@ struct CollectionGridView: View {
     private func tile(for collection: BookCollection) -> some View {
         let tile = CollectionTile(
             collection: collection,
-            items: Array(
-                collectionStore.items(in: collection, sort: state.itemSort)
-                    .prefix(library.coverAspectRatio.tileCellCount)
+            // 先頭の数冊だけを控えから引く(札ごとに全冊を並べ直さない。2026-09-27、表示の切り替えの監査。
+            // CollectionStore.leadingItems のコメント)。
+            items: collectionStore.leadingItems(
+                in: collection, sort: state.itemSort, limit: library.coverAspectRatio.tileCellCount
             ),
             exists: { collectionStore.cachedFileExists(for: $0) },
             isExtracting: { coverExtractor.inFlightItemIDs.contains($0.id) },

@@ -115,6 +115,10 @@ final class AppStores: ObservableObject {
     let textEditingMenuState = TextEditingMenuState()
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
     private var fileSystemChangeSubscription: AnyCancellable?
+    /// フォルダの許可が裏の解決で開いた知らせの購読(`FolderAccessStore.accessGained`)。
+    private var folderAccessGainedSubscription: AnyCancellable?
+    /// 起動時の掃除が、フォルダの許可の裏の解決を待つ上限(init の中の掃除のコメント)。
+    nonisolated static let launchFolderAccessWaitLimit: Duration = .seconds(10)
     /// 環境設定「ライブラリを有効にする」の購読(`applyLibraryFeature`)。
     private var libraryFeatureSubscription: AnyCancellable?
     /// 環境設定「ファイルブラウザを有効にする」の購読(`applyFileBrowserFeature`)。
@@ -239,6 +243,16 @@ final class AppStores: ObservableObject {
             folderAccess: folderAccess, preferences: preferences
         )
         collectionAutoFolderScanner.setLibraryFeatureEnabled(isLibraryEnabled)
+        // フォルダの許可は起動時・ボリュームの知らせで裏で解決する(2026-09-27、表示の切り替えの監査の 11。
+        // FolderAccessStore.reloadInBackground)。解決が済む前に走った自動登録フォルダの走査は、そのフォルダを「許可なし」として
+        // 見送っているので、開けたら走査し直す(ライブラリ機能が OFF なら scheduleScan の側で何もしない)。
+        // スマートライブラリも、許可が開く前に集めた(読めずに空の)結果を捨てて集め直す(SmartLibraryCatalog.handleFolderAccessGained)。
+        let scannerForAccess = collectionAutoFolderScanner
+        let catalogForAccess = smartLibraryCatalog
+        folderAccessGainedSubscription = folderAccess.accessGained.sink { [weak scannerForAccess, weak catalogForAccess] in
+            scannerForAccess?.scheduleScan()
+            catalogForAccess?.handleFolderAccessGained()
+        }
 
         bookRecordRelocator = BookRecordRelocator(
             favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
@@ -265,6 +279,14 @@ final class AppStores: ObservableObject {
             // 開いていた頃の記録)の保存データを消す(NonBookFolderSweeper)。どちらも 2026-09-22、利用者の指示。
             Task { [weak self] in
                 guard let self else { return }
+                // フォルダの許可の解決(裏で走る。FolderAccessStore.reloadInBackground)が済んでから始める。済む前は許可したフォルダの
+                // 配下の本が「許可の外」に見え、在るかを確かめきれないまま見送られる(2026-09-27、表示の切り替えの監査の 11)。
+                // 応答しない共有の許可があると解決が戻らないので、待つのは期限まで(過ぎたら今の許可で進む ―― 見送った本は消さない側に
+                // 倒れるだけ。BookExistenceProbe)。
+                let folderAccess = self.folderAccess
+                _ = try? await FileIO.withDeadline(Self.launchFolderAccessWaitLimit) { @MainActor in
+                    await folderAccess.waitForPendingResolutions()
+                }
                 // フォルダの設定が先(フォルダごと動いた本は、フォルダの付け替えでまとめて付いていく)。
                 await self.followFolderSettingsMovedOutsideTheApp()
                 let moved = await ExternalMoveSweeper.movedBooks(

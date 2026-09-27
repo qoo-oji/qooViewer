@@ -300,8 +300,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         }
 
         /// 捨てる一覧のスクロール位置を状態へ控える(リスト表示と同じ)。
-        func saveScrollOrigin(of scroll: NSScrollView) {
-            state?.saveScrollOrigin(scroll.contentView.bounds.origin, for: .icons, folder: displayedFolder)
+        func saveScrollOrigin(of scroll: HomeWheelScrollView) {
+            state?.saveScrollOrigin(scroll.scrollOriginForSaving, for: .icons, folder: displayedFolder)
         }
 
         func update(from view: FileBrowserIconView) {
@@ -1210,6 +1210,19 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         if cell.thumbnail != nil, loadedContentKey == contentKey, tier <= loadedTier { return }
         let request = "\(contentKey)|\(tier)"
         guard request != requestedKey else { return }
+        // 絵が提供役のメモリに残っていれば、頼まずにその場で描く(2026-09-27、表示の切り替えの監査)。ホームへ戻る・表示形式を
+        // 切り替えるたびにアイテムは絵を持たずに作り直され、非同期の頼みが返るまでの数フレームは種類のアイコンが見えて、
+        // 戻るたびに絵が一斉に「アイコン → 絵」と瞬いていた。メモリを覗くだけで、ディスク・ネットワークには触れない
+        // (`FileBrowserThumbnailProvider.cachedThumbnail`)。
+        if let buffer = provider.cachedThumbnail(for: entry, kind: kind, pixelSize: tier), let image = buffer.makeImage() {
+            thumbnailTask?.cancel()
+            thumbnailTask = nil
+            requestedKey = ""
+            cell.thumbnail = image
+            loadedContentKey = contentKey
+            loadedTier = tier
+            return
+        }
         requestedKey = request
         thumbnailTask?.cancel()
         thumbnailTask = Task { [weak self] in

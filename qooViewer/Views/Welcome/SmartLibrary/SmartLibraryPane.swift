@@ -1270,6 +1270,10 @@ struct SmartLibraryContent: View {
                 }
             }
         }
+        // 離れたときの位置へ戻し終えるまで見せない(2026-09-27、表示の切り替えの監査。先頭で描いてから跳ぶのを見せない ――
+        // HomeScrollRestorer の型コメント「戻し終えるまで隠す」)。GeometryReader の中ではなくここで読む(戻し終えたことを
+        // Observation で確実にこの body へ届けるため)。
+        .opacity(scrollRestorer.conceals(memory: state.scrollMemory, key: state.scrollKey(for: .grid)) ? 0 : 1)
         // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(HomeWheelScroll)。
         .homeGridWheelScroll(
             scrollBox: scrollBox,
@@ -2064,6 +2068,23 @@ private struct SmartBookThumbnail: View {
     @State private var loadedContentKey = ""
     /// 切った絵の控え(`CropCache`)。
     @State private var cropCache = CropCache()
+    /// `.task` が届く前に、提供役のメモリから同期で引いた絵(`FirstFrameImage`)。
+    @State private var firstFrame = FirstFrameImage()
+    /// 絵が届かないまま少し経ったか(スピナーを出す。`load` のコメント)。
+    @State private var isSpinnerDue = false
+
+    /// 作り直した直後のセルが最初のフレームから描く絵の控え(2026-09-27、表示の切り替えの監査)。
+    ///
+    /// ホームは本を開いている間は捨てられ、戻るとこのセルは `image == nil` から作り直される。以前は非同期の頼み
+    /// (`FileBrowserThumbnailProvider.thumbnail`)しか絵を持ってこなかったので、**絵が提供役のメモリに残っていても**最初の
+    /// 数フレームはスピナーが見え、戻るたびに表紙が一斉に「スピナー → 絵」と点滅していた。body で提供役のメモリだけを
+    /// 同期で覗けば(`cachedThumbnail`。ディスク・ネットワークには触れない)、最初のフレームから絵が出る。引いた結果(外れも)は
+    /// 鍵ごとに 1 度だけ(`makeImage()` は呼ぶたびに別の `CGImage` を返すので、body のたびに作ると描き直しを招く。`CropCache` と
+    /// 同じ理由)。参照型に持つのは body の中で書き換えるため。
+    private final class FirstFrameImage {
+        var key = ""
+        var image: CGImage?
+    }
 
     /// 切った絵を、元の絵と切り方が同じ間は同じオブジェクトで返す(2026-09-25 の監査)。`CGImage.cropping(to:)` は呼ぶたびに
     /// 別のオブジェクトを返すので、body で毎回切ると、選択・矢印キー・一覧の publish のたびに SwiftUI が絵を差し替わったものと
@@ -2097,7 +2118,7 @@ private struct SmartBookThumbnail: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)
         ZStack(alignment: alignment) {
-            if let image {
+            if let image = displayedImage {
                 // この表紙に実際に使う合わせ方(枠が無ければ nil = 切らずに収める)。
                 let mode = frameAspect.map {
                     fit.resolved(imageAspect: image.height > 0 ? CGFloat(image.width) / CGFloat(image.height) : 0, frameAspect: $0)
@@ -2139,7 +2160,7 @@ private struct SmartBookThumbnail: View {
                             Image(systemName: book.kind == .folder ? "folder" : "book.closed")
                                 .font(.system(size: width / 4))
                                 .foregroundStyle(.secondary)
-                        } else {
+                        } else if isSpinnerDue {
                             ProgressView().controlSize(.small)
                         }
                     }
@@ -2153,6 +2174,19 @@ private struct SmartBookThumbnail: View {
         .task(id: "\(contentKey)|\(Int(pixelSize))") {
             await load(pixelSize: pixelSize, contentKey: contentKey)
         }
+    }
+
+    /// 描く絵。`.task` が届く前は提供役のメモリから同期で引いたもの(`FirstFrameImage`)。
+    private var displayedImage: CGImage? {
+        if let image { return image }
+        guard let kind = thumbnailKind else { return nil }
+        let size = pixelSize
+        let key = "\(contentKey)|\(Int(size))"
+        if firstFrame.key != key {
+            firstFrame.key = key
+            firstFrame.image = thumbnails.cachedThumbnail(for: entry, kind: kind, pixelSize: size)?.makeImage()
+        }
+        return firstFrame.image
     }
 
     /// 絵の種類(作れない項目は nil)。
@@ -2246,6 +2280,26 @@ private struct SmartBookThumbnail: View {
         // 出どころが同じで、持っている絵が今の段以上なら引き直さない(縮めて描けば足りる。CollectionCoverThumbnail と同じ ――
         // 引き直した絵は帳簿に積まれていくので、往復のたびにグリッドの作り直しを呼び込む)。
         if image != nil, loadedContentKey == contentKey, pixelSize <= loadedTier { return }
+        // 最初のフレームのためにメモリから同期で引いた絵があれば、それをそのまま持つ(`FirstFrameImage`。頼み直すと同じ絵の
+        // 別の `CGImage` が届き、描き直しが 1 回増えるだけ)。
+        if image == nil, firstFrame.key == "\(contentKey)|\(Int(pixelSize))", let early = firstFrame.image {
+            didFail = false
+            image = early
+            loadedTier = pixelSize
+            loadedContentKey = contentKey
+            onImageRetained(early)
+            return
+        }
+        // スピナーは、絵が少し待っても届かないときだけ出す(2026-09-27、表示の切り替えの監査)。ディスクキャッシュから引ける
+        // 絵は数ミリ秒で届くので、すぐ出すと戻るたびにスピナーが一瞬ずつ瞬いていた。
+        let spinnerTimer: Task<Void, Never>? = image == nil && !isSpinnerDue
+            ? Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                isSpinnerDue = true
+            }
+            : nil
+        defer { spinnerTimer?.cancel() }
         // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
         let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk,
                                                 knownKey: book.thumbnailKey)

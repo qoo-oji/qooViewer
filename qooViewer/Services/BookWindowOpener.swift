@@ -126,10 +126,11 @@ enum BookWindowOpener {
                 asTab: asTab
             )
             place(newWindow, basedOn: sourceWindow, asTab: asTab)
+            // 透明を戻すのはタブへ入れる**前**(revealIfHiddenUntilTabbed のコメント)。
+            revealIfHiddenUntilTabbed(newWindow)
             if asTab, let sourceWindow {
                 sourceWindow.addTabbedWindow(newWindow, ordered: .above)
             }
-            revealIfHiddenUntilTabbed(newWindow)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             onOpened?()
@@ -248,8 +249,9 @@ enum BookWindowOpener {
     /// それまでの約 70ms は WindowGroup の既定の大きさ(900×640)で画面の中ほどに出て、開くアニメーションのあと元のウインドウの
     /// 大きさへ飛んでいた(CGWindowList を 4ms おきに読んで実測)。タブで開くときは、タブへ入る前の 1 枚のウインドウとしても見えていた。
     /// そこで開く前に行き先を控え、SwiftUI がウインドウを作るときに`.defaultWindowPlacement`(`pendingWindowPlacement`)で最初の
-    /// 位置・大きさとして渡す。ContentView の WindowAccessor(画面に出てから約 20ms 後)は`applyPendingPlacement`で同じ値を当て直し、
-    /// `place`も後からもう一度同じ値を当てる(どこかで当て損ねても、以前と同じ結果に落ちる)。
+    /// 位置・大きさとして渡し、画面に出たその場(`prepareNextNewWindowOnceShown`)でも当て直す。ContentView の WindowAccessor
+    /// (画面に出てから約 20ms 後)は`applyPendingPlacement`で同じ値を当て直し、`place`も後からもう一度同じ値を当てる
+    /// (どこかで当て損ねても、以前と同じ結果に落ちる)。
     ///
     /// - Parameter frame: nil なら位置・大きさは SwiftUI に任せる(隠すだけ)。
     /// - Parameter hidesUntilTabbed: タブで開くとき。タブへ入れるまで透明にしておく(`revealIfHiddenUntilTabbed`で戻す)。
@@ -264,17 +266,22 @@ enum BookWindowOpener {
             hidesUntilTabbed: hidesUntilTabbed,
             deadline: Date().addingTimeInterval(1)
         )
-        if hidesUntilTabbed {
-            hideNextNewWindowOnceShown()
-        }
+        prepareNextNewWindowOnceShown(frame: frame, hides: hidesUntilTabbed)
     }
 
-    /// タブで開くウインドウを、画面に出たその場で透明にする。
+    /// 新しいウインドウに、画面に出たその場で行き先を当てる(タブで開くときは透明にもする)。
     ///
     /// WindowAccessor が呼ばれるのは画面に出てから約 20ms 後で、その間、タブへ入る前の 1 枚のウインドウ(ホーム)が元のウインドウに
     /// 少しずらして重なって見えていた(CGWindowList で実測)。SwiftUI がウインドウを前へ出すとキーウインドウの知らせが同期で届くので、
-    /// その場で透明にすれば最初の描画に間に合う。相手は「控えた時点で無かったウインドウ」だけ。1 秒で見張りをやめる。
-    private static func hideNextNewWindowOnceShown() {
+    /// その場で当てれば最初の描画に間に合う。相手は「控えた時点で無かったウインドウ」だけ。1 秒で見張りをやめる。
+    ///
+    /// ■ 位置・大きさもここで当てる(2026-09-27、表示の切り替えの監査)
+    /// 本を指定して開くウインドウ(`openWindow(id:value:)`)は、`.defaultWindowPlacement`で渡した位置・大きさより**タイトルバーの
+    /// 高さ(32pt)だけ上端が下がって短く**作られ、約 20ms 後に WindowAccessor が当て直した瞬間に 32pt 跳んでいた(開くアニメーションの
+    /// 途中で跳ぶ。値を渡さない ⌘N では起きない。CGWindowList で実測)。作られたばかりのウインドウにはまだ`.fullSizeContentView`が
+    /// 付いていて、中身の領域として渡した矩形がフレームとして使われたと見られる(値の有無で扱いが違う理由は分からない)。
+    /// SwiftUI の解釈に頼らず、ここで`.fullSizeContentView`を外して(WindowAccessor が後でするのと同じ)フレームを当てる。
+    private static func prepareNextNewWindowOnceShown(frame: NSRect?, hides: Bool) {
         let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
         let tokens = NotificationObserverTokens()
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
@@ -282,8 +289,15 @@ enum BookWindowOpener {
                 MainActor.assumeIsolated {
                     guard let window = notification.object as? NSWindow,
                           !existing.contains(ObjectIdentifier(window)) else { return }
-                    window.alphaValue = 0
                     tokens.removeAll()
+                    if let frame {
+                        window.styleMask.remove(.fullSizeContentView)
+                        if window.frame != frame {
+                            window.setFrame(frame, display: false)
+                        }
+                    }
+                    guard hides else { return }
+                    window.alphaValue = 0
                     // タブへ入れる側が見つけ損ねたときに、透明のまま残さない(applyPendingPlacement と同じ保険)。
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
                         MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
@@ -353,6 +367,12 @@ enum BookWindowOpener {
     }
 
     /// `applyPendingPlacement`で透明にしたウインドウを見えるように戻す。
+    ///
+    /// **タブへ入れる前に呼ぶ**(2026-09-27、表示の切り替えの監査)。`addTabbedWindow`は元のタブをその場で画面から外すが、透明を戻した
+    /// 新しいタブが画面に出るのは次の描画で、タブへ入れた後に戻していた間は約 10〜27ms、このアプリのウインドウがどこにも無いフレームが
+    /// 出ていた(後ろのデスクトップが透ける。⌘T と「新しいタブで開く」で CGWindowList と画面の取り込みで実測)。新しいウインドウは
+    /// 元のウインドウとまったく同じ位置・大きさで作ってある(`placedFrame(asTab: true)`)ので、先に見せても元のウインドウの上に重なる
+    /// だけで、ずれて見えることは無い。
     static func revealIfHiddenUntilTabbed(_ window: NSWindow) {
         if window.alphaValue == 0 { window.alphaValue = 1 }
     }

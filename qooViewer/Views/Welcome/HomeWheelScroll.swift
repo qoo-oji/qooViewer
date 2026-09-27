@@ -72,6 +72,24 @@ enum HomeWheelScroll {
 final class HomeWheelScrollView: NSScrollView {
     /// ホイール1ノッチで動かす距離(pt)。0以下ならAppKitの標準の挙動。
     var wheelStepDistance: CGFloat = 0
+    /// 戻す途中の位置(`restoreScrollOrigin`)。nil なら戻すものは無い。
+    fileprivate(set) var pendingRestoreOrigin: CGPoint?
+    /// 戻しの世代(新しく戻し始めた・戻し終えたら、古い試し直しを捨てる)。
+    fileprivate var restoreSerial = 0
+
+    /// 枠が変わったら、戻す途中の位置を次のレイアウトで試す(`restoreScrollOrigin` の「最初のフレームより前に戻す」)。
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if pendingRestoreOrigin != nil { needsLayout = true }
+    }
+
+    /// レイアウトの中(描く前)で、中身を並べさせてから戻す。ここで届けば、作り直した一覧は最初のフレームから控えの位置で描かれる。
+    override func layout() {
+        super.layout()
+        guard pendingRestoreOrigin != nil, let documentView else { return }
+        documentView.layoutSubtreeIfNeeded()
+        applyPendingRestoreOrigin(isFinalAttempt: false)
+    }
 
     override func scrollWheel(with event: NSEvent) {
         if HomeWheelScroll.apply(event, to: self, distancePerNotch: wheelStepDistance) { return }
@@ -161,24 +179,69 @@ extension HomeWheelScrollView {
     /// 作り直した一覧を、前の一覧のスクロール位置(クリップビューの bounds の原点)へ戻す(`FileBrowserState.savedScrollOrigins`)。
     ///
     /// 作った直後は大きさが決まっていない(SwiftUI が枠を与え、表・格子が中身を並べるのはその後)ので、中身がその位置まで
-    /// 届くようになるまでランループを跨いで待つ(長くて `remainingAttempts` 回。届かなければ ―― 項目が減った ―― 届く所まで)。
-    /// 位置はクリップビューの制約(`constrainBoundsRect`。見出しの上の余白を含む)に通してから動かす。
+    /// 届くようになったら戻す(届かなければ ―― 項目が減った ―― 届く所まで)。位置はクリップビューの制約
+    /// (`constrainBoundsRect`。見出しの上の余白を含む)に通してから動かす。
+    ///
+    /// ■ 最初のフレームより前に戻す(2026-09-27、表示の切り替えの監査)
+    /// 以前は `DispatchQueue.main.async` で次のランループから試していたので、作り直した一覧は少なくとも 1 フレーム先頭で
+    /// 描かれ、それから控えの位置へ跳んでいた。いまは
+    /// - SwiftUI が枠を与えた後の**レイアウトの中**(`layout()`。描く前に必ず通る)で中身を並べさせてから試し、届けばその場で戻す
+    /// - 届かないうちは一覧を**透明にしておき**(`alphaValue`)、戻せたら見せる(先頭を見せてから跳ぶのを見せない)
+    /// - レイアウトで届かなかったとき(中身が後から来る)のために、今までどおりランループを跨いで試し直す(長くて
+    ///   `remainingAttempts` 回。尽きたら届く所まで動かして見せる)
     func restoreScrollOrigin(_ origin: CGPoint, remainingAttempts: Int = 20) {
+        restoreSerial &+= 1
+        pendingRestoreOrigin = origin
+        alphaValue = 0
+        if applyPendingRestoreOrigin(isFinalAttempt: false) { return }
+        // 枠が与えられたら `layout()` が呼ばれるようにする(setFrameSize の上書きも同じ)。
+        needsLayout = true
+        retryRestore(serial: restoreSerial, remainingAttempts: remainingAttempts)
+    }
+
+    /// 戻す途中なら戻す先、そうでなければ今の位置。捨てる一覧の位置を控える側が使う(戻し終える前に捨てられたとき、
+    /// 先頭を控えにして控えを失わないため)。
+    var scrollOriginForSaving: CGPoint {
+        pendingRestoreOrigin ?? contentView.bounds.origin
+    }
+
+    private func retryRestore(serial: Int, remainingAttempts: Int) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.documentView != nil else { return }
+            guard let self, self.restoreSerial == serial, self.pendingRestoreOrigin != nil else { return }
             // 今の大きさで中身を並べ終えてから測る(アイコン表示は幅で段数が変わる。古い幅の高さで測ると、並べ直したあとに
             // 位置がずれる)。
             self.layoutSubtreeIfNeeded()
-            let clip = self.contentView
-            let target = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
-            let reaches = clip.bounds.height > 0 && abs(target.y - origin.y) < 0.5 && abs(target.x - origin.x) < 0.5
-            if !reaches, remainingAttempts > 0 {
-                self.restoreScrollOrigin(origin, remainingAttempts: remainingAttempts - 1)
-                return
-            }
-            guard clip.bounds.height > 0 else { return }
-            clip.scroll(to: target)
-            self.reflectScrolledClipView(clip)
+            if self.applyPendingRestoreOrigin(isFinalAttempt: remainingAttempts <= 0) { return }
+            self.retryRestore(serial: serial, remainingAttempts: remainingAttempts - 1)
         }
+    }
+
+    /// 戻す途中の位置へ、中身が届いていれば動かして見せる。動かした(または諦めて見せた)ら true。
+    /// - Parameter isFinalAttempt: 届かなくても届く所まで動かして終える。
+    @discardableResult
+    func applyPendingRestoreOrigin(isFinalAttempt: Bool) -> Bool {
+        guard let origin = pendingRestoreOrigin else { return true }
+        guard documentView != nil else {
+            if isFinalAttempt { finishRestore() }
+            return isFinalAttempt
+        }
+        let clip = contentView
+        guard clip.bounds.height > 0 else {
+            if isFinalAttempt { finishRestore() }
+            return isFinalAttempt
+        }
+        let target = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+        let reaches = abs(target.y - origin.y) < 0.5 && abs(target.x - origin.x) < 0.5
+        guard reaches || isFinalAttempt else { return false }
+        clip.scroll(to: target)
+        reflectScrolledClipView(clip)
+        finishRestore()
+        return true
+    }
+
+    private func finishRestore() {
+        pendingRestoreOrigin = nil
+        restoreSerial &+= 1
+        alphaValue = 1
     }
 }

@@ -43,7 +43,7 @@ nonisolated enum BookEntryLevel {
 
 /// PDF/EPUBの中身(ページ)1件分。BookEntryLevel.documentPagesが持つ。
 /// displayNameはPageRef.displayNameと、matchKeyはPageRef.sortKeyと必ず同じ値にする。
-nonisolated struct BookDocumentPage: Hashable {
+nonisolated struct BookDocumentPage: Hashable, Sendable {
     let displayName: String
     let matchKey: String
 }
@@ -55,7 +55,7 @@ nonisolated enum BookInternalBrowsing {
     /// 行1件分。フォルダ・ネストしたアーカイブファイルはisContainer=trueで踏み込める。
     /// 画像ファイルはisImage=trueでダブルクリック時にmatchKeyをbook.pagesのsortKeyと
     /// 突き合わせてジャンプを試みる。
-    struct Entry: Identifiable, Hashable {
+    struct Entry: Identifiable, Hashable, Sendable {
         let id: String
         let displayName: String
         let isContainer: Bool
@@ -70,7 +70,7 @@ nonisolated enum BookInternalBrowsing {
         func hash(into hasher: inout Hasher) { hasher.combine(id) }
     }
 
-    enum NavigateTarget {
+    enum NavigateTarget: Sendable {
         /// フォルダの本の中で見つかった、ディスク上に実在するPDF/EPUBファイル。
         case documentFileOnDisk(URL)
         /// 現在開いているreaderの中で見つかったPDF/EPUBエントリ
@@ -101,18 +101,108 @@ nonisolated enum BookInternalBrowsing {
     static func entries(
         at level: BookEntryLevel, pageOrder: [String: Int]
     ) throws -> [Entry] {
+        try entries(from: listingSource(for: level), pageOrder: pageOrder)
+    }
+
+    /// 一覧を作る材料のうち、**スレッドを跨いで渡せるもの**(2026-09-27、表示の切り替えの監査の 11)。
+    ///
+    /// 一覧はメインの外(`FileIO`)で作る ―― フォルダの本では `contentsOfDirectory` と子ごとの属性の問い合わせ、書庫の本では
+    /// 全エントリの切り出しと並べ替えで、ネットワークボリューム上の本・大きな書庫ではメインが目に見えて止まった(本を替えるたびに
+    /// 最大 3 回)。`BookEntryLevel.archive` が持つ reader はスレッド安全ではないが、一覧を作るのに要るのは控えてあるパスの
+    /// 一覧(`allPaths`)だけなので、それだけを写して渡す。
+    enum ListingSource: Sendable {
+        case folder(URL)
+        case archive(allPaths: [String], prefix: String, matchKeyPrefix: String?)
+        case documentPages([BookDocumentPage])
+        case imageFileList([URL])
+    }
+
+    static func listingSource(for level: BookEntryLevel) -> ListingSource {
         switch level {
+        case .folder(let url): .folder(url)
+        case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
+            .archive(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix)
+        case .documentPages(_, let pages): .documentPages(pages)
+        case .imageFileList(let urls): .imageFileList(urls)
+        }
+    }
+
+    /// `entries(at:pageOrder:)` の本体。**ブロッキングする**(フォルダの一覧)ので、メインからは呼ばない。
+    static func entries(from source: ListingSource, pageOrder: [String: Int]) throws -> [Entry] {
+        switch source {
         case .folder(let url):
             return try folderEntries(in: url, pageOrder: pageOrder)
-        case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
+        case .archive(let allPaths, let prefix, let matchKeyPrefix):
             return archiveEntries(
                 allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, pageOrder: pageOrder
             )
-        case .documentPages(_, let pages):
+        case .documentPages(let pages):
             return documentEntries(pages, pageOrder: pageOrder)
         case .imageFileList(let urls):
             return imageFileEntries(urls)
         }
+    }
+
+    /// 「今のページを含む階層」を探して辿った結果(`walk`)。
+    struct RevealWalk: Sendable {
+        enum Outcome: Sendable {
+            /// 最後の段に目的のページがある。
+            case found
+            /// 目的のページはこの容器の中にあるが、容器を開くには reader が要る(書庫・PDF・EPUB。メインで続きを辿る)。
+            case needsContainer(NavigateTarget)
+            /// 見つからない(読めない・どの容器にも入っていない)。
+            case notFound
+        }
+
+        /// 辿った段。先頭は出発点、最後が今いる段。
+        var steps: [ListingSource]
+        /// 最後の段の一覧(`found` / `needsContainer` のとき)。
+        var entries: [Entry]
+        var outcome: Outcome
+    }
+
+    /// `matchKey`(ページの sortKey)を含む階層まで、**reader の要らない容器だけ**を 1 段ずつ辿る(実在するフォルダ、書庫の中の
+    /// 仮想フォルダ)。辿り方は BookContentsBrowserState.resolveLevel と同じ(一覧の中から、目的のページを配下に含む容器を探して
+    /// 踏み込む)。**ブロッキングする**(フォルダの一覧)ので `FileIO` の上で呼ぶ(2026-09-27、表示の切り替えの監査の 11)。
+    static func walk(
+        from start: ListingSource, toward matchKey: String, pageOrder: [String: Int], maxDepth: Int
+    ) -> RevealWalk {
+        var steps = [start]
+        var source = start
+        for _ in 0..<maxDepth {
+            guard !Cancellation.isRequestedInCurrentScope,
+                  let list = try? entries(from: source, pageOrder: pageOrder)
+            else { return RevealWalk(steps: steps, entries: [], outcome: .notFound) }
+            if list.contains(where: { $0.matchKey == matchKey }) {
+                return RevealWalk(steps: steps, entries: list, outcome: .found)
+            }
+            guard let container = list.first(where: {
+                $0.isContainer && Self.matchKey(matchKey, isContainedIn: $0.matchKey)
+            }), let target = container.navigateTarget else {
+                return RevealWalk(steps: steps, entries: list, outcome: .notFound)
+            }
+            switch (target, source) {
+            case (.realFolder(let url), _):
+                source = .folder(url)
+            case (.archiveVirtualFolder(let prefix), .archive(let allPaths, _, let matchKeyPrefix)):
+                source = .archive(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix)
+            default:
+                return RevealWalk(steps: steps, entries: list, outcome: .needsContainer(target))
+            }
+            steps.append(source)
+        }
+        return RevealWalk(steps: steps, entries: [], outcome: .notFound)
+    }
+
+    /// containerMatchKeyが表すフォルダ/ネストした書庫の配下にmatchKeyがあるかどうか。
+    /// 仮想フォルダのmatchKeyは末尾"/"付き(archiveEntries参照)、
+    /// 実フォルダ/書庫ファイルのmatchKeyは付いていないため、後者は"/"を補ってから比較する
+    /// (補わずに単純な前方一致だけで判定すると、"chapter1"と"chapter10"のように片方が
+    /// 他方の文字列prefixになっている兄弟同士を誤って混同してしまう)。
+    static func matchKey(_ matchKey: String, isContainedIn containerMatchKey: String) -> Bool {
+        containerMatchKey.hasSuffix("/")
+            ? matchKey.hasPrefix(containerMatchKey)
+            : matchKey.hasPrefix(containerMatchKey + "/")
     }
 
     /// PDF/EPUBの中身(ページ)の一覧。踏み込む先を持たない画像行だけが並ぶ。

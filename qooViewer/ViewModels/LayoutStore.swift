@@ -1163,9 +1163,14 @@ final class LayoutStore: ObservableObject {
     /// bookの指紋を、この本に記録済みのBookLayoutSettingsの指紋と比較する。
     /// BookLayoutSettings行自体が存在しない(この本にレイアウトデータが無い)場合は、
     /// 保護すべきものが無いため常に.unaffectedを返す。
-    func checkContentReplacement(book: MangaBook) -> LayoutContentReplacementStatus {
+    /// - Parameter currentFingerprint: 呼び出し側が既に取った今の指紋(`ContentFingerprint.current(for: book)`)。
+    ///   表示の切り替えの監査の 13(2026-09-27): ビューアは本を開くたびに、ここと読書位置の照合とで同じ本の元ファイルを
+    ///   2 回 stat していた(ネットワークボリュームではそれぞれが往復になる)。1 回取ったものを渡せるようにした。nil ならここで取る。
+    func checkContentReplacement(
+        book: MangaBook, currentFingerprint: ContentFingerprint.Snapshot? = nil
+    ) -> LayoutContentReplacementStatus {
         guard let settings = bookLayoutSettings(forBookID: book.id) else { return .unaffected }
-        let current = ContentFingerprint.current(for: book)
+        let current = currentFingerprint ?? ContentFingerprint.current(for: book)
         let recorded = ContentFingerprint.Recorded(
             pageCount: settings.recordedPageCount,
             modificationDate: settings.recordedSourceModificationDate,

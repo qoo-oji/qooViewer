@@ -160,7 +160,11 @@ struct ViewerView: View {
     @State private var actionRelay = ViewerActionRelay()
     private var hostWindow: NSWindow? { hostWindowBox.window }
     /// 現在フルスクリーン表示中かどうか。
-    @State private var isFullScreen = false
+    ///
+    /// 初期値は ContentView が渡す(`startsInFullScreen`。2026-09-27、表示の切り替えの監査)。以前は false から始め、ウインドウが
+    /// 決まった後(setUpWindowObservers)で true にしていたので、フルスクリーンで本を開く・次の本へ進むたびに(本ごとに ViewerView を
+    /// 作り直す)、最初のフレームだけツールバーとプログレスバーが自動で隠れない配置で出ていた(画面の取り込みで実測)。
+    @State private var isFullScreen: Bool
     /// このウインドウに複数のタブがあるか。右クリックの「タブを閉じる」を、タブが1枚だけのときに
     /// 淡色にするため(WindowTabGroupObserver参照)。
     @StateObject private var tabGroupObserver = WindowTabGroupObserver()
@@ -282,10 +286,15 @@ struct ViewerView: View {
     init(
         book: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
-        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
+        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil,
+        preparedModel: ViewerViewModel? = nil,
+        startsInFullScreen: Bool = false
     ) {
+        _isFullScreen = State(initialValue: startsInFullScreen)
+        // preparedModel: ContentView の ViewerHandoff が先に作って最初の見開きを読ませたもの(本が出る前の黒いフレームを
+        // 無くすため。ViewerHandoff の型コメント)。渡されたら、ほかのビューモデル用の引数は使わない。
         _viewModel = StateObject(
-            wrappedValue: ViewerViewModel(
+            wrappedValue: preparedModel ?? ViewerViewModel(
                 book: book, modelContext: modelContext, preferences: preferences,
                 layoutStore: layoutStore, metadataStore: metadataStore,
                 skipsPersistence: skipsPersistence, initialPageID: initialPageID,

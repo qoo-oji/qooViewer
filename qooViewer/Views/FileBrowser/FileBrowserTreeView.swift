@@ -126,6 +126,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         coordinator.scrollView = scroll
         // 前のツリーの開き具合と位置(型コメント「作り直しても開き具合と位置は残す」)。ボリュームの一覧を読み終えてから戻す。
         coordinator.pendingRestore = state.takeSavedTreeState()
+        coordinator.concealUntilRestored()
         coordinator.update(from: self)
         coordinator.start()
         return scroll
@@ -140,7 +141,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
-        coordinator.saveTreeState(scrollOrigin: scroll.contentView.bounds.origin)
+        coordinator.saveTreeState(scrollOrigin: scroll.scrollOriginForSaving)
         coordinator.stop()
         if let outline = coordinator.outline {
             outline.dataSource = nil
@@ -455,6 +456,37 @@ struct FileBrowserTreeView: NSViewRepresentable {
             return rootKey + "|" + FileBrowserState.id(for: url)
         }
 
+        /// 開き直しと位置の戻しが終わるまで、ツリーを透明にしておく(2026-09-27、表示の切り替えの監査)。
+        ///
+        /// 開き直しは子を 1 段ずつ非同期で読むので、以前は行が上から順に開いていく様子が見え、開き終えてから位置へ跳んでいた。
+        /// 隠しておき、戻し終えたら見せる(位置は `restoreScrollOrigin` が戻し、戻した時点で見せる)。子を読むのが遅い場所
+        /// (共有など)で待たせすぎないよう、`maximumConcealment` 秒経ったら途中でも見せる(残りは今までどおり見えながら開く)。
+        /// 子の一覧を控えから同期で組み立てる案は採らなかった ―― ボリュームの一覧もその都度 `FileIO` で読んでおり、控えた
+        /// 子が古いまま一度描かれると、読み直した時点で行が入れ替わるのが見える(隠す時間はローカルなら数十ミリ秒)。
+        func concealUntilRestored() {
+            guard let saved = pendingRestore, let scrollView,
+                  !saved.expandedKeys.isEmpty || saved.scrollOrigin != .zero
+            else { return }
+            scrollView.alphaValue = 0
+            concealGeneration += 1
+            let mine = concealGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.maximumConcealment) { [weak self] in
+                guard let self, self.concealGeneration == mine else { return }
+                self.revealTree()
+            }
+        }
+
+        /// 隠しておく上限(秒)。
+        private static let maximumConcealment: TimeInterval = 0.5
+        private var concealGeneration = 0
+
+        /// 隠していたツリーを見せる(位置を戻している途中なら、戻した時点で `HomeWheelScrollView` が見せる)。
+        private func revealTree() {
+            concealGeneration += 1
+            guard let scrollView, scrollView.pendingRestoreOrigin == nil else { return }
+            scrollView.alphaValue = 1
+        }
+
         /// 捨てるツリーの開いている行(上から。親が先に来る)と位置を控える(`dismantleNSView` から)。
         func saveTreeState(scrollOrigin: CGPoint) {
             guard let outline, let state else { return }
@@ -491,6 +523,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     _ = await self.expandedChildren(of: node, generation: generation)
                 }
                 self.pendingRestore = nil
+                // 途中でやめた・戻さなかったときも、隠したままにしない(`concealUntilRestored`)。
+                defer { self.revealTree() }
                 guard self.revealGeneration == generation, let outline = self.outline, let scroll = self.scrollView else { return }
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
                 // 開き直している間に利用者がスクロールしたら、そのまま(位置を奪わない)。

@@ -1142,6 +1142,17 @@ final class AppState: ObservableObject {
                 } else {
                     throw BookLoaderError.notFound
                 }
+                // 本の識別子(iノード・ボリューム)と「フォルダか」は、**反映の前にメインの外で**求めておく(2026-09-27、表示の切り替えの
+                // 監査の 11)。どちらもボリュームへの問い合わせで、以前は下の反映(メイン)の中で求めていた ―― FileNodeIdentifier.current の
+                // コメントのとおり、遅い・眠っているボリュームでは秒単位で止まりうる。本は読み終えたところなので、ここで求めても同じ値に
+                // なる(下の追従・補完はこの値だけを使い、ほかに識別子を読む所は無い)。記録の残らない本(シークレットウインドウ・その場
+                // 限りの本)では使わないので求めない(下の skipsPersistence と同じ条件)。
+                let sourceURL = book.sourceURL
+                let probedLocation: (identifier: FileNodeIdentifier?, isDirectory: Bool)? =
+                    isPrivate || book.leavesNoRecord ? nil : await FileIO.perform {
+                        (FileNodeIdentifier.current(for: sourceURL),
+                         (try? sourceURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true)
+                    }
                 guard !Task.isCancelled, let self else { return }
                 // 読み込み完了の反映(currentBookの設定から履歴の記録まで)は、メニューバーの
                 // メニューが開いている間は保留する。**低速なストレージ上の本は、ユーザーが
@@ -1180,7 +1191,8 @@ final class AppState: ObservableObject {
                     // 本の識別子(iノード・ボリューム)は 1 回だけ求めて、下の追従・補完のすべてへ渡す(2026-09-25 の監査。以前は
                     // 行の無いストアごとと補完とで最大 7 回、ボリュームへ問い合わせていた ―― 未接続・遅いボリュームでは秒単位で
                     // 止まりうる)。記録の残らない本では使わないので求めない。
-                    let identifier = skipsPersistence ? nil : FileNodeIdentifier.current(for: book.sourceURL)
+                    // 上(反映の前)でメインの外で求めた値(2026-09-27)。ここではボリュームへ問い合わせない。
+                    let identifier = skipsPersistence ? nil : probedLocation?.identifier
                     if !skipsPersistence {
                         var movedFrom: [String?] = []
                         movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
@@ -1199,8 +1211,9 @@ final class AppState: ObservableObject {
                         // から始まり、直したメタデータが付いてこなかった。2026-09-22 の利用者の報告と監査)。付け替えの決まり(移った先に
                         // 行があるストアは付け替えない、メタデータの読みだけの行は置き換える)は BookRecordRelocator と同じ。
                         if let oldBookID = movedFrom.compactMap({ $0 }).first {
-                            // フォルダの本は棚のキャプションの決め方が違う(BookRelocationPlan.derivedTitle)。
-                            let isDirectory = (try? book.sourceURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                            // フォルダの本は棚のキャプションの決め方が違う(BookRelocationPlan.derivedTitle)。種別は上でメインの外で
+                            // 求めてある(2026-09-27)。
+                            let isDirectory = probedLocation?.isDirectory == true
                             let plan = BookRelocationPlan(bookIDs: [oldBookID: book.id], locators: [:],
                                                           directoryBookIDs: isDirectory ? [book.id] : [])
                             self.favoritesStore?.applyBookRelocation(plan)
@@ -1264,8 +1277,11 @@ final class AppState: ObservableObject {
                     // 履歴に積まないための除外(BookOpenRequest.recordsInHistory参照)。
                     // 記録するのは**実際に開いた本**(book.sourceURL)。棚を開いた場合は、
                     // 要求されたフォルダではなくその中の1冊が残る(ShelfFolderResolver参照)。
+                    //
+                    // ブックマークの作成(ボリュームへの問い合わせ)はメインの外で行い、書き込みは頼んだ順に行う
+                    // (RecentFilesStore.recordInBackground。2026-09-27、表示の切り替えの監査の 11)。
                     if !skipsPersistence, request.recordsInHistory, request.primaryURL != nil {
-                        self.recentFiles?.record(url: book.sourceURL)
+                        self.recentFiles?.recordInBackground(url: book.sourceURL)
                     }
                     self.reloadSiblingBooks()
                 }
@@ -1515,6 +1531,15 @@ final class AppState: ObservableObject {
     /// パネルはこのウインドウのシート(2026-09-27。WindowSheet)なので async。
     private func ensureAccess(toFolder folderURL: URL, message: String) async -> Bool {
         if let folderAccess, folderAccess.isPathCovered(folderURL) { return true }
+        // 起動直後は、許可したフォルダのブックマークがまだ裏で解決中のことがある(2026-09-27、表示の切り替えの監査の 11。
+        // FolderAccessStore.reloadInBackground)。そのフォルダを覆いうる解決だけを待ってから訊き直す ―― 待たないと、許可して
+        // あるのに「許可してください」のパネルが出る。応答しない共有の許可で戻らないことがあるので、待つのは期限まで。
+        if let folderAccess {
+            _ = try? await FileIO.withDeadline(Self.sequenceProbeLimit) { @MainActor in
+                await folderAccess.waitForPendingResolutions(covering: folderURL)
+            }
+            if folderAccess.isPathCovered(folderURL) { return true }
+        }
 
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let panel = NSOpenPanel()

@@ -161,6 +161,7 @@ final class CollectionStore: ObservableObject {
     }
 
     private func invalidateLookupCaches() {
+        itemOrderRevision &+= 1
         cachedLibraries = nil
         cachedCollections = nil
         cachedItems = nil
@@ -312,6 +313,59 @@ final class CollectionStore: ObservableObject {
     func items(in collection: BookCollection, sort: FavoritesSortOption) -> [CollectionItem] {
         sorted(collection.items, sort: sort)
     }
+
+    /// このコレクションの本を並べたときの先頭 `limit` 冊(本棚の札が描く分)。答えは `items(in:sort:)` の先頭と**必ず同じ**。
+    ///
+    /// ■ なぜ控えるのか(2026-09-27、表示の切り替えの監査)
+    /// 本棚の札は 1 枚ごとに `items(in:sort:)` でコレクションの全冊を並べてから先頭の数冊だけを使っていた。並べ替えは数千冊の
+    /// コレクションで 1 回数百ミリ秒かかり(`itemsMemo` のコメント)、本棚の body は表紙を 1 冊抽出するたび(`revision`)・ホームへ
+    /// 戻って作り直すたびに組み直されるので、札の数だけ全冊の並べ替えが繰り返され、戻った直後の本棚がもたついていた。
+    ///
+    /// 並べ直しの答えを変えうるものは、本の出し入れ・名前・追加日時・付け替え(どれも `saveAndNotify` か
+    /// `invalidateLookupCaches` を通る → `itemOrderRevision`)、日付(`fileDatesRevision`)、タイトル(`BookTitleResolver.stateToken`。
+    /// タイトル順のときだけ)と並び順。**抽出の結果(`isCoverResult`)だけは並びを変えない**ので控えを残す ―― ここを捨てると
+    /// 抽出 1 冊ごとに全札の並べ替えに戻る。上位 N 件だけを選ぶ方法にしなかったのは、同じ名前の本どうしの前後まで今の
+    /// 全件の並べ替えと一致させるため(札の見た目を 1 冊も変えない)。
+    func leadingItems(in collection: BookCollection, sort: FavoritesSortOption, limit: Int) -> [CollectionItem] {
+        let key = LeadingItemsMemoKey(collectionID: collection.id, sort: sort, limit: limit)
+        let titleToken: String? = switch sort {
+        case .titleAscending, .titleDescending: titleResolver.stateToken
+        default: nil
+        }
+        if let memo = leadingItemsMemo[key], memo.itemOrderRevision == itemOrderRevision,
+           memo.fileDatesRevision == fileDatesRevision, memo.titleToken == titleToken {
+            return memo.items
+        }
+        // 古い控え(並びが変わった後のもの)は、消えた行を指していることがあるので持ち続けない。
+        if leadingItemsMemoRevision != itemOrderRevision {
+            leadingItemsMemo.removeAll()
+            leadingItemsMemoRevision = itemOrderRevision
+        }
+        let result = Array(items(in: collection, sort: sort).prefix(limit))
+        leadingItemsMemo[key] = LeadingItemsMemoEntry(
+            itemOrderRevision: itemOrderRevision, fileDatesRevision: fileDatesRevision, titleToken: titleToken, items: result
+        )
+        return result
+    }
+
+    private struct LeadingItemsMemoKey: Hashable {
+        let collectionID: UUID
+        let sort: FavoritesSortOption
+        let limit: Int
+    }
+
+    private struct LeadingItemsMemoEntry {
+        let itemOrderRevision: UInt64
+        let fileDatesRevision: UInt64
+        let titleToken: String?
+        let items: [CollectionItem]
+    }
+
+    /// 札の先頭の控え(`leadingItems`)。`itemsMemo` と違ってランループをまたいで持つ(控えの寿命は `itemOrderRevision`)。
+    private var leadingItemsMemo: [LeadingItemsMemoKey: LeadingItemsMemoEntry] = [:]
+    private var leadingItemsMemoRevision: UInt64 = 0
+    /// 本の並びを変えうる変更の通し番号(`leadingItems`)。`revision` と違い、抽出の結果では進めない。publish しない。
+    private var itemOrderRevision: UInt64 = 0
 
     // MARK: - 検索(ユーザー要望 2026-09-13)
 
@@ -1932,6 +1986,9 @@ final class CollectionStore: ObservableObject {
     ///   `Notification.Name.collectionsDidChangeIsCoverResultKey` を付ける(抽出役の積み直しが読み飛ばす)。
     private func saveAndNotify(bookID: String? = nil, isCoverResult: Bool = false) {
         try? modelContext.save()
+        // 抽出の結果(状態と比だけ)は本の並びを変えない。それ以外はすべて並びを変えうるものとして札の先頭の控えを捨てる
+        // (`leadingItems` のコメント)。
+        if !isCoverResult { itemOrderRevision &+= 1 }
         // コレクションの名前・中身の変更は`libraries`配列そのものを変えないため、@Publishedの
         // 再代入だけでは画面が追随しない(SwiftDataのモデルはクラス=参照型で、SwiftUIから見た
         // 値は同じまま)。「何かが変わった」ことだけを表す通し番号を進めて描き直させる

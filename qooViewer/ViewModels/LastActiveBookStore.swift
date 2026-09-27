@@ -18,23 +18,44 @@ import Foundation
 /// (LastUsedFolderMemory.init(defaults:)と同じ作法)。テストは実物のアプリと同じコンテナで
 /// 走るため、利用者の「前回開いていた本」を書き換えてはいけない。
 enum LastActiveBookStore {
-    private static let defaultsKey = "qooViewer.lastActiveBookBookmark"
+    private nonisolated static let defaultsKey = "qooViewer.lastActiveBookBookmark"
 
     /// アクティブなウインドウ/タブが表示している本が変わったとき、またはそのウインドウが
     /// キーウインドウになったときに呼ぶ。
-    static func record(url: URL, defaults: UserDefaults = .standard) {
-        guard let data = try? url.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) else { return }
-        defaults.set(data, forKey: defaultsKey)
+    ///
+    /// **ブックマークはメインの外で作る**(2026-09-27、表示の切り替えの監査の 11)。本を替えるたび・ウインドウを切り替えるたびに
+    /// 呼ばれ、以前はここでメインのままセキュリティスコープ付きブックマークを作っていた(ボリュームへの問い合わせ。遅い・眠っている
+    /// ボリュームの本では目に見えて止まる)。書き込みは作り終えた時点で、**まだ最後の記録・消去だったときだけ**行う
+    /// (`recordGenerations`)―― 続けて別の本を記録した・ホームへ戻って消した後に、先の記録が遅れて届いて上書きしないように。
+    /// 呼び出し側は待たない(戻り値はテストが終わりを待つためのもの)。
+    @discardableResult
+    static func record(url: URL, defaults: UserDefaults = .standard) -> Task<Void, Never> {
+        let key = ObjectIdentifier(defaults)
+        recordGenerations[key, default: 0] &+= 1
+        let generation = recordGenerations[key]
+        return Task { @MainActor in
+            let data = await FileIO.perform {
+                try? url.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+            }
+            guard let data, generation == recordGenerations[key] else { return }
+            defaults.set(data, forKey: defaultsKey)
+        }
     }
+
+    /// 記録・消去の世代(`record` のコメント)。後から呼ばれたものが勝つ。保存先ごとに数える(テストは保存先を分けて並行に走る。
+    /// 別の保存先への記録で自分の記録が捨てられないように)。
+    private static var recordGenerations: [ObjectIdentifier: Int] = [:]
 
     /// アクティブなウインドウ/タブが「何も本を開いていない状態(ウェルカム画面)」になった
     /// ときに呼ぶ。記録をクリアすることで、次回起動時に誤って本を復元してしまわないようにする
     /// (終了時にウェルカム画面を見ていたなら、次回もウェルカム画面から始まるのが正しい)。
     static func clear(defaults: UserDefaults = .standard) {
+        // 作っている最中の記録があっても、届いたときに書かせない(`record` のコメント)。
+        recordGenerations[ObjectIdentifier(defaults), default: 0] &+= 1
         defaults.removeObject(forKey: defaultsKey)
     }
 
@@ -43,8 +64,22 @@ enum LastActiveBookStore {
     /// 内容が変わっていないかどうかまではここでは確認しない(呼び出し元のContentView.swift
     /// resolveLastActiveBookURLIfUnchanged参照。BookReadingStateの指紋と比較する必要があり、
     /// SwiftDataのModelContextを使うため、ここでは行わない)。
-    static func resolve(defaults: UserDefaults = .standard) -> URL? {
+    ///
+    /// ブックマークの解決と存在確認でファイルシステムに触れるので、メインの外(FileIO)から呼ぶ(2026-09-27、表示の切り替えの
+    /// 監査の 11。以前は起動時にメインで呼んでいて、応答しないボリューム上の本だと起動が止まった)。
+    nonisolated static func resolve(defaults: UserDefaults = .standard) -> URL? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
+        return resolve(bookmarkData: data)
+    }
+
+    /// 記録そのもの(ブックマークのデータ)。起動時の確かめは、これをメインで先に読んでから解決だけをメインの外で行う ――
+    /// 確かめている間にウインドウがキーになると、本を開いていない状態として記録が消される(`clear`)ため。
+    static func recordedBookmarkData(defaults: UserDefaults = .standard) -> Data? {
+        defaults.data(forKey: defaultsKey)
+    }
+
+    /// `resolve(defaults:)`の、記録を読んだ後の部分。
+    nonisolated static func resolve(bookmarkData data: Data) -> URL? {
         // 起動時に自動で開き直すものなので、繋がっていない共有へは繋ぎに行かない(BookmarkResolution。NAS の電源が落ちていると
         // 起動のたびに 30 秒後にダイアログが出る)。
         guard let url = BookmarkResolution.resolve(data) else { return nil }

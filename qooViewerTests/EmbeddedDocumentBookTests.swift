@@ -198,6 +198,8 @@ struct EmbeddedDocumentBookTests {
         state.pageOrder = Dictionary(
             uniqueKeysWithValues: book.pages.enumerated().map { ($0.element.sortKey, $0.offset) }
         )
+        // 一覧は裏で作る(2026-09-27、表示の切り替えの監査の 11。BookContentsBrowserState.reload)。
+        await state.waitUntilListed()
 
         #expect(state.entries.map(\.displayName) == ["001.png", "002.pdf", "003.epub"])
         for entry in state.entries.dropFirst() {
@@ -210,6 +212,7 @@ struct EmbeddedDocumentBookTests {
 
         // PDF へ踏み込むと、その PDF のページだけが並ぶ。行の matchKey は本のページの sortKey。
         state.navigate(state.entries[1])
+        await state.waitUntilListed()
         #expect(state.currentLocationName == "002.pdf")
         #expect(state.entries.map(\.displayName) == ["002 (1)", "002 (2)"])
         #expect(state.entries.map(\.matchKey) == book.pages[1...2].map(\.sortKey))
@@ -222,7 +225,9 @@ struct EmbeddedDocumentBookTests {
 
         // EPUB も同じ(行の名前は EPUB の中の画像のファイル名)。
         state.goBack()
+        await state.waitUntilListed()
         state.navigate(state.entries[2])
+        await state.waitUntilListed()
         #expect(state.currentLocationName == "003.epub")
         #expect(state.entries.map(\.matchKey) == book.pages[3...4].map(\.sortKey))
         #expect(state.entries.map(\.displayName) == book.pages[3...4].map(\.displayName))

@@ -191,40 +191,42 @@ struct FolderMemoryTests {
     }
 
     @Test("記録した本を解決して返す")
-    func aRecordedBookComesBack() throws {
+    func aRecordedBookComesBack() async throws {
         let fixture = try Fixture("last-book-round")
-        LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults)
+        // 記録(ブックマークを作る)は裏で行う(2026-09-27、表示の切り替えの監査の 11)。終わるのを待つ。
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults).value
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults)?.path == fixture.alpha.path)
     }
 
     @Test("記録し直すと上書きされる(最後にアクティブだった 1 冊だけを持つ)")
-    func recordingAgainReplacesTheBook() throws {
+    func recordingAgainReplacesTheBook() async throws {
         let fixture = try Fixture("last-book-replace")
+        // 続けて記録したら、先の記録の終わりを待たなくても後のものが残る(LastActiveBookStore.recordGenerations)。
         LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults)
-        LastActiveBookStore.record(url: fixture.beta, defaults: fixture.suite.defaults)
+        await LastActiveBookStore.record(url: fixture.beta, defaults: fixture.suite.defaults).value
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults)?.path == fixture.beta.path)
     }
 
     @Test("消すと解決しなくなる(ウェルカム画面へ戻ったときに呼ぶ)")
-    func clearingStopsTheResolution() throws {
+    func clearingStopsTheResolution() async throws {
         let fixture = try Fixture("last-book-clear")
-        LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults)
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults).value
         LastActiveBookStore.clear(defaults: fixture.suite.defaults)
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults) == nil)
     }
 
     @Test("記録した本が消えていたら nil(存在しない本を復元しようとしない)")
-    func aDeletedBookResolvesToNil() throws {
+    func aDeletedBookResolvesToNil() async throws {
         let fixture = try Fixture("last-book-deleted")
-        LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults)
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults).value
         try FileManager.default.removeItem(at: fixture.alpha)
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults) == nil)
     }
 
     @Test("保存されるのはブックマーク(パスの文字列では次の起動で開けない)")
-    func theRecordedBookIsStoredAsABookmark() throws {
+    func theRecordedBookIsStoredAsABookmark() async throws {
         let fixture = try Fixture("last-book-bookmark")
-        LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults)
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: fixture.suite.defaults).value
         let stored = fixture.suite.storedDomain
         let data = try #require(stored["qooViewer.lastActiveBookBookmark"] as? Data)
         var isStale = false

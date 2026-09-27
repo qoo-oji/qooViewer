@@ -126,6 +126,16 @@ actor CollectionCoverStore {
         return image
     }
 
+    /// `cachedImage(for:revision:maxPixelSize:)` の**メモリだけを見る**同期版(ディスクには触れない。無ければ nil)。
+    ///
+    /// 2026-09-27、表示の切り替えの監査: ホームは本を開いている間は捨てられ、戻ると一覧のセル(CollectionCoverThumbnail)が
+    /// `@State` の空から作り直される。絵がメモリに残っていても、非同期の `.task` が届くまでの数フレームは下地だけが見え、
+    /// 戻るたびに表紙が一斉に「空 → 絵」と点滅していた。セルの body がこれで最初のフレームから絵を描く(棚の札の
+    /// `CollectionTile.sheetImage(forKey:request:)` と同じ手)。ロック 1 回の辞書引きなのでメインから呼んでよい。
+    nonisolated func memoryCachedImage(for itemID: UUID, revision: Int, maxPixelSize: CGFloat) -> CGImage? {
+        memoryCache.image(forKey: Self.memoryKey(for: itemID, revision: revision, maxPixelSize: maxPixelSize))
+    }
+
     /// カバーを保存する。呼び出し側(CollectionCoverExtractor)は失敗を
     /// `CollectionCoverStatus.failed`として記録する。
     ///

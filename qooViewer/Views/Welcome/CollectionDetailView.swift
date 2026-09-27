@@ -70,6 +70,9 @@ struct CollectionDetailView: View {
     @State private var missingBook: MissingBook?
     /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。同じ理由でidで持つ。
     @State private var metadataTarget: MetadataTarget?
+    /// 開く・Finder に表示するなどの前の、本 1 冊の確かめ(メインの外。CollectionItemOpenProbe の型コメント。
+    /// 2026-09-27、表示の切り替えの監査の 11)。確かめている本のカバーに回転表示を出す。
+    @State private var openTracker = CollectionItemOpenTracker()
 
     /// `.layoutDataDidChange` が届くたびに増やすだけの数。**この値自体は読まない。**
     ///
@@ -109,7 +112,8 @@ struct CollectionDetailView: View {
 
     /// 「本が見つかりません」の対象(missingBookのコメント参照)。
     ///
-    /// `reason`は開こうとして失敗した時点で割り出したもの(CollectionStore.location(for:))。
+    /// `reason`は開こうとして失敗した時点で割り出したもの(CollectionItemOpenProbe。中身は CollectionStore.location(for:) と同じ
+    /// 割り出しを、2026-09-27 からメインの外で)。
     /// **「見つからない」の理由は1つではない**ので、文言を分けるために持つ ―― 外付けを
     /// 外しているだけなら「削除」を勧めるべきではないし、ブックマークが使えなくなっただけなら
     /// 実体はまだあるかもしれない(BookLocationの型コメント参照)。
@@ -262,13 +266,24 @@ struct CollectionDetailView: View {
     }
 
     /// 本の実体のURLを解決して渡す。見つからなければ「本が見つかりません」を出す(右クリックの各項目と同じ)。
-    private func withExistingURL(ofItemWithID id: UUID, perform: (URL) -> Void) {
+    private func withExistingURL(ofItemWithID id: UUID, perform: @escaping @MainActor (URL) -> Void) {
         guard let item = collectionStore.item(withID: id) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
-            return
-        }
-        perform(url)
+        withExistingURL(of: item, perform: perform)
+    }
+
+    /// 本の実体のURLを解決して渡す。見つからなければ「本が見つかりません」を出す(開く・右クリックの各項目の共通の入口)。
+    ///
+    /// **解決と在るかの確かめはメインの外で**(2026-09-27、表示の切り替えの監査の 11)。以前はここで
+    /// `CollectionStore.resolvedExistingURL(for:purpose: .userOpen)` と `location(for:)` をメインで呼んでいて、眠っている・
+    /// 応答しない NAS の本を開こうとすると、SMB のタイムアウト(約 30 秒)まで何も出ないまま固まった
+    /// (CollectionItemOpenProbe の型コメント)。いまは待つ間もアプリは動き、長引けばカバーに回転表示が出る。
+    /// `perform` は待った後に呼ばれるので、**モデル(`CollectionItem`)をそこで読まない** ―― 必要な値は呼ぶ前に写し取る
+    /// (待つ間に別のウインドウが外していれば、モデルは使えなくなっている。missingBook のコメントと同じ理由)。
+    private func withExistingURL(of item: CollectionItem, perform: @escaping @MainActor (URL) -> Void) {
+        let material = CollectionItemOpenProbe.Material(item)
+        openTracker.resolve(material, onNotFound: { location in
+            missingBook = MissingBook(id: material.itemID, title: material.title, reason: location)
+        }, perform)
     }
 
     private var header: some View {
@@ -583,6 +598,17 @@ struct CollectionDetailView: View {
                     SelectionCheckmarkBadge(isSelected: isSelected, size: state.coverSize)
                 }
             }
+            // 開く前の確かめが長引いている本(眠っている NAS へ繋ぎに行っている等)。以前は何も出ないまま固まっていた
+            // (withExistingURL(of:) のコメント。2026-09-27、表示の切り替えの監査の 11)。カバーの上に置くのですりガラス面の
+            // 輪郭は要らないが、どんな絵の上でも見えるように不透明な地の上に描く。
+            .overlay {
+                if openTracker.resolvingItemID == item.id {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(8)
+                        .background(Color(nsColor: .windowBackgroundColor), in: Circle())
+                }
+            }
 
             // カバーの下の文字(設定が「表示しない」なら行ごと出さない)。すりガラス面に
             // 直接置く文字なので輪郭が要る(CLAUDE.mdの表)。
@@ -610,18 +636,15 @@ struct CollectionDetailView: View {
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
                 onOpenIn: { destination in
-                    guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-                        missingBook = MissingBook(
-                        id: item.id, title: item.title,
-                        reason: collectionStore.location(for: item)
-                    )
-                        return
+                    // 並びは押した時点のもの(待つ間に並びが変わっても、見ていた並びをたどる)。
+                    let sequence = BookSequence.collection(items, opening: item)
+                    withExistingURL(of: item) { url in
+                        BookWindowOpener.open(
+                            BookOpenRequest(url, sequence: sequence),
+                            to: destination, from: appState,
+                            launchCoordinator: launchCoordinator, openWindow: openWindow
+                        )
                     }
-                    BookWindowOpener.open(
-                        BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item)),
-                        to: destination, from: appState,
-                        launchCoordinator: launchCoordinator, openWindow: openWindow
-                    )
                 }
             )
             .disabled(!isSingle)
@@ -639,27 +662,17 @@ struct CollectionDetailView: View {
             // そのまま渡せば`FinderReveal`の既定の経路が種別を判定できる
             // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
             Button("Show in Finder") {
-                guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-                    missingBook = MissingBook(
-                        id: item.id, title: item.title,
-                        reason: collectionStore.location(for: item)
-                    )
-                    return
-                }
-                FinderReveal.reveal(url)
+                withExistingURL(of: item) { FinderReveal.reveal($0) }
             }
             .disabled(!isSingle)
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-                        missingBook = MissingBook(
-                            id: item.id, title: item.title,
-                            reason: collectionStore.location(for: item)
-                        )
-                        return
+                    withExistingURL(of: item) { url in
+                        // 待つ間に「ファイルブラウザを有効にする」が OFF になっていたら何もしない(CLAUDE.md: await の後で確かめ直す)。
+                        guard preferences.fileBrowserFeatureEnabled else { return }
+                        revealInFileBrowser(url)
                     }
-                    revealInFileBrowser(url)
                 }
                 .disabled(!isSingle)
             }
@@ -672,14 +685,10 @@ struct CollectionDetailView: View {
             Divider()
             Button("Edit Metadata…") {
                 guard allowsEditing else { return }
-                guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-                    missingBook = MissingBook(
-                        id: item.id, title: item.title,
-                        reason: collectionStore.location(for: item)
-                    )
-                    return
+                let itemID = item.id
+                withExistingURL(of: item) { url in
+                    metadataTarget = MetadataTarget(id: itemID, url: url)
                 }
-                metadataTarget = MetadataTarget(id: item.id, url: url)
             }
             .disabled(!allowsEditing || !isSingle)
             // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は保存データを書かないので、
@@ -742,23 +751,25 @@ struct CollectionDetailView: View {
     /// 失敗はアラートで知らせる(HomeBookOpenWith.open。スマートライブラリの右クリックと共有)。
     private func openItem(_ itemID: UUID, withApplicationAt application: URL) {
         guard let item = collectionStore.item(withID: itemID) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
-            return
+        withExistingURL(of: item) { url in
+            HomeBookOpenWith.open(url, withApplicationAt: application, scoped: true, locale: locale)
         }
-        HomeBookOpenWith.open(url, withApplicationAt: application, scoped: true, locale: locale)
     }
 
     /// 「本の書き出し」▸ 形式。保存先の決め方はファイルブラウザ・ビューアの右クリックと同じ(FileBrowserBookSheet.Export.make)。
     /// 本はブックマークから解決した URL で渡す(書き出しがスコープを開けて読む。BookExportViewModel.exportOne)。
     private func startExport(_ itemID: UUID, format: BookExportFormat) {
         guard exportRequest == nil, let item = collectionStore.item(withID: itemID) else { return }
-        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
-            return
-        }
-        let name = url.lastPathComponent
         let bookID = item.bookID
+        withExistingURL(of: item) { url in
+            // 待つ間に別の書き出しを始めていたら重ねない(下の Task の後の確かめと同じ)。
+            guard exportRequest == nil else { return }
+            startExport(url: url, bookID: bookID, format: format)
+        }
+    }
+
+    private func startExport(url: URL, bookID: String, format: BookExportFormat) {
+        let name = url.lastPathComponent
         Task {
             guard let export = await FileBrowserBookSheet.Export.make(
                 url: url, bookID: bookID, isDirectory: !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)),
@@ -792,8 +803,11 @@ struct CollectionDetailView: View {
             }
             let urls = resolved.compactMap(\.url)
             guard !urls.isEmpty else {
+                // 理由の割り出しもメインの外で(withExistingURL(of:) と同じ。2026-09-27、表示の切り替えの監査の 11)。
                 if let item = requests.first.flatMap({ collectionStore.item(withID: $0.id) }) {
-                    missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
+                    let material = CollectionItemOpenProbe.Material(item)
+                    let location = await FileIO.perform { CollectionItemOpenProbe.location(of: material) }
+                    missingBook = MissingBook(id: material.itemID, title: material.title, reason: location)
                 }
                 return
             }
@@ -950,15 +964,12 @@ struct CollectionDetailView: View {
     }
 
     private func open(_ item: CollectionItem) {
-        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-            missingBook = MissingBook(
-                        id: item.id, title: item.title,
-                        reason: collectionStore.location(for: item)
-                    )
-            return
-        }
         // 見えている並び(検索・並べ替えの後)を渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
-        appState.open(request: BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item)))
+        // 押した時点の並びを写しておく(確かめを待つ間に並びが変わっても、見ていた並びをたどる)。
+        let sequence = BookSequence.collection(items, opening: item)
+        withExistingURL(of: item) { url in
+            appState.open(request: BookOpenRequest(url, sequence: sequence))
+        }
     }
 }
 

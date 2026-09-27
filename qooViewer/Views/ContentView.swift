@@ -56,6 +56,14 @@ struct ContentView: View {
     /// 元のウインドウの記録が消えてしまう)ことがあったため。
     @State private var isConfirmedLegitimateWindow = false
 
+    /// 本を開くために作ったウインドウ/タブ(`initialRequest`が本)で、その本の読み込みがまだ終わっていないか。
+    ///
+    /// その間はホームではなくビューアの地だけを出す(2026-09-27、表示の切り替えの監査)。以前は読み込みが終わるまで
+    /// `currentBook == nil`なのでホームを描き、「新しいウインドウで開く」・Finder から新しいウインドウ/タブで開くたびに、
+    /// ホームが約 0.1 秒見えてから本へ切り替わっていた(画面の取り込みで実測)。ホームの中の仕事(一覧・表紙の読み込み)も
+    /// 無駄に始まっていた。読み込みが終われば(開けても開けなくても・中止しても)下ろす。開けなければホームとエラーが出る。
+    @State private var awaitsInitialBook: Bool
+
     /// サイドパネル上段(フォルダブラウザ)の閲覧状態。ウインドウ/タブの生存期間ずっと同じ
     /// インスタンスを使い回す(ViewerViewと違い、本の切替やウェルカム画面への出入りを
     /// またいで保持したいため)。本を開いていない状態でもパネルを使えるようにする要件上、
@@ -144,6 +152,8 @@ struct ContentView: View {
     /// ここに残る ―― 束(著者・シリーズの疑似フォルダ)の中の本を開いて「ホーム」へ戻ったとき、束の一覧ではなく同じ束の中へ
     /// 戻るため(2026-09-24、利用者の報告。それまではペインが `@StateObject` で持っていて、本を開くたびに作り直されていた)。
     @StateObject private var smartLibrary = SmartLibraryViewState()
+    /// ビューアに出す本の受け渡し(新しい本の最初の見開きが揃うまで、前の中身を出しておく。ViewerHandoff の型コメント)。
+    @StateObject private var viewerHandoff = ViewerHandoff()
     /// メニューバーへ出す「選んだ項目で押せるか」の覚え書き(`fileBrowserMenuSelection`)。
     @State private var fileBrowserMenuSelectionMemo = FileBrowserMenuSelectionMemo()
 
@@ -161,6 +171,7 @@ struct ContentView: View {
     ///   `AppState.isPrivateWindow`はウインドウが閉じるまで変わらない。
     init(initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil) {
         self.initialRequest = initialRequest
+        _awaitsInitialBook = State(initialValue: initialRequest?.bookRequest != nil)
         // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
         self.isMainWindowGroup = (isPrivateWindow == nil)
         let resolvedIsPrivate = isPrivateWindow ?? AppPreferences.isPrivateModeDefault
@@ -252,30 +263,23 @@ struct ContentView: View {
                     sidePanelView(dismissesOnAction: false, isDocked: true)
                 }
                 Group {
-                    if let book = appState.currentBook {
+                    if let shown = viewerHandoff.shown {
                         // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
                         // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
                         // 新しい本の状態にリセットされるようにしている。
+                        // ビューモデルは ViewerHandoff が先に作って最初の見開きを読ませたもの(makeViewerModel)。
+                        // それが揃うまでは、この分岐は前の本のまま(またはホームのまま)になる。
                         ViewerView(
-                            book: book, modelContext: modelContext, preferences: preferences,
+                            book: shown.book, modelContext: modelContext, preferences: preferences,
                             layoutStore: layoutStore, metadataStore: metadataStore,
-                            // シークレットウインドウか、その場限りの本(直接渡された画像から
-                            // 組み立てた本)のどちらかなら、DBへは一切書かない。
-                            // 詳細はViewerViewModel.skipsPersistence / MangaBook.BookOrigin参照。
-                            skipsPersistence: isPrivateWindow || book.leavesNoRecord,
-                            // 「同じフォルダの画像をすべて開く」で着地したいページ。
-                            // この本向けの指定でなければ渡さない(AppState.pendingInitialPage参照)。
-                            // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
-                            // appState.clearPendingInitialPage()で必ず後始末する。
-                            initialPageID: appState.pendingInitialPage
-                                .flatMap { $0.bookID == book.id ? $0.pageID : nil },
-                            // 「次の本の最初のページへ」「前の本の最後のページへ」で来た場合の
-                            // 着地先(AppState.pendingInitialEdge参照)。こちらは本のIDで
-                            // 絞り込めない代わりに、読み込みを始めるたびにAppState側が
-                            // 上書き/破棄している。
-                            initialEdge: appState.pendingInitialEdge
+                            preparedModel: shown.model,
+                            // フルスクリーンのまま本を替えても、最初のフレームからフルスクリーンの配置で描く(ViewerView.isFullScreen)。
+                            startsInFullScreen: appState.hostWindow?.styleMask.contains(.fullScreen) ?? false
                         )
-                            .id(book.id)
+                            .id(shown.book.id)
+                    } else if awaitsInitialBook {
+                        // 本を開くために作ったウインドウの、最初の本が出るまで(awaitsInitialBook のコメント)。
+                        effectiveAppearance.effectiveBackgroundColor
                     } else {
                         WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser, smartLibrary: smartLibrary)
                     }
@@ -650,6 +654,18 @@ struct ContentView: View {
         // NSApp.keyWindow(その時点でたまたまキーウインドウだったもの、必ずしも正しいとは
         // 限らない)に頼らず、本を開いている当のAppStateが持つウインドウへ確実に追加できる
         // ようにするため(詳細はAppState.hostWindowのコメント参照)。
+        // 最初の本の読み込みが終わった(開けた・開けなかった・中止した)ら、ホームを出してよい(awaitsInitialBook のコメント)。
+        // 本が開けたときは、その本がビューアに出た時点で下ろす(下の viewerHandoff.shown。それまでは地のまま)。
+        .onChange(of: appState.loadingProgress == nil) { _, isIdle in
+            if isIdle, appState.currentBook == nil { awaitsInitialBook = false }
+        }
+        .onChange(of: viewerHandoff.shown != nil) { _, isShown in
+            if isShown { awaitsInitialBook = false }
+        }
+        // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
+        .onChange(of: appState.currentBook?.id, initial: true) { _, _ in
+            viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
+        }
         .onChange(of: appState.currentBook?.id) { _, _ in
             // 本を開いたらウェルカム画面の編集モードは解除する(戻ってきたときに、
             // 出しっぱなしの編集モードで誤って棚を触らないため)。どのコレクションの中に
@@ -886,6 +902,10 @@ struct ContentView: View {
                 // ウインドウがあっても譲らない(譲ると中身の無いウインドウだけが残る。
                 // そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
                 appState.open(request: initialRequest, reusesExistingWindow: false)
+                // 読み込みを始めずに終えた(選んだ画像が多すぎる等)ときは、待たずにホームとエラーを出す。
+                if appState.loadingProgress == nil, appState.currentBook == nil {
+                    awaitsInitialBook = false
+                }
             } else if appState.actsAsRegularWindow {
                 // 起動時の動作(フルスクリーン・前回の本を開く)は、あとから開いた
                 // シークレットウインドウでは行わない。「シークレットモードで起動」がONの
@@ -989,23 +1009,39 @@ struct ContentView: View {
         // シークレットウインドウが前回のセッションを復元しないのと同じ)。
         // 「シークレットモードで起動」がONのときは、そもそも記録が増えないので実質何も
         // 起きないが、モードをONにする前の記録が残っていることはありうるため明示的に弾く。
+        //
+        // 開き直すと決まるまで(下の確かめの間)と読み込みの間は、ホームではなくビューアの地を出す(awaitsInitialBook。2026-09-27、
+        // 表示の切り替えの監査の 15。以前はホームが見えてから本に替わった)。確かめ(ブックマークの解決・存在確認・指紋)はメインの外で、
+        // 期限つき(同じ監査の 11。以前はメインで行い、応答しないボリューム上の本だと起動が止まった)。
         if preferences.launchOpensLastBook, !isPrivateWindow, appState.currentBook == nil,
-           let url = resolveLastActiveBookURLIfUnchanged() {
-            appState.open(url: url)
+           let bookmarkData = LastActiveBookStore.recordedBookmarkData() {
+            awaitsInitialBook = true
+            Task { @MainActor in
+                let url = await resolveLastActiveBookURLIfUnchanged(bookmarkData: bookmarkData)
+                guard let url, appState.currentBook == nil, appState.loadingProgress == nil else {
+                    if appState.loadingProgress == nil, appState.currentBook == nil { awaitsInitialBook = false }
+                    return
+                }
+                appState.open(url: url)
+                if appState.loadingProgress == nil, appState.currentBook == nil { awaitsInitialBook = false }
+            }
         }
 
         // フルスクリーンにするのは**このウインドウ自身**(`appState.hostWindow`)。2026-09-27 までは 0.1 秒待ってから
         // `NSApp.windows.first` を相手にしていた(監査 docs/plans/macos-conventions-audit-2026-09-26.md の 15): アプリの全ウインドウの
         // 一覧の先頭は、起動時にウインドウが 2 枚以上あれば別の本のウインドウ、見えない内部のウインドウならフルスクリーンにならない。
         // 0.1 秒も見込みの数字だったので、自分のウインドウが決まって画面に出るまで待つ(長くて 3 秒。出なければ諦める)。
+        // 起動したウインドウは、本を渡されての起動かが分かるまで透明にしてある(AppDelegate.hideLaunchWindowWhenShown)ので、
+        // 見えるようになるまで待つ(透明のままフルスクリーンにすると、切り替えの途中で現れる)。
         if preferences.launchFullScreen {
             Task { @MainActor [weak appState] in
                 var waits = 0
-                while !(appState?.hostWindow?.isVisible ?? false), waits < 60 {
+                @MainActor func isShown(_ window: NSWindow?) -> Bool { (window?.isVisible ?? false) && (window?.alphaValue ?? 0) > 0 }
+                while !isShown(appState?.hostWindow), waits < 60 {
                     try? await Task.sleep(for: .milliseconds(50))
                     waits += 1
                 }
-                guard let window = appState?.hostWindow, window.isVisible,
+                guard let window = appState?.hostWindow, isShown(window),
                       !window.styleMask.contains(.fullScreen) else { return }
                 window.toggleFullScreen(nil)
             }
@@ -1242,9 +1278,34 @@ struct ContentView: View {
                 bookContentsBrowser?.releaseResources()
                 // スマートライブラリの本集めに付けた印も外す(onDisappear が来ないと、画面が無いのに集め直し続ける)。
                 smartLibrary.releaseCatalogActivation()
+                // 最初の見開きを待っている本があれば、そのビューモデルの資源も手放す(ViewerHandoff)。
+                viewerHandoff.discardPending()
                 tokens.removeAll()
             }
         })
+    }
+
+    /// ViewerHandoff が先に作る、本のビューモデル(以前は ViewerView の init が作っていた。引数はそのとき渡していたもの)。
+    private func makeViewerModel(for book: MangaBook) -> ViewerViewModel {
+        ViewerViewModel(
+            book: book, modelContext: modelContext, preferences: preferences,
+            layoutStore: layoutStore, metadataStore: metadataStore,
+            // シークレットウインドウか、その場限りの本(直接渡された画像から
+            // 組み立てた本)のどちらかなら、DBへは一切書かない。
+            // 詳細はViewerViewModel.skipsPersistence / MangaBook.BookOrigin参照。
+            skipsPersistence: isPrivateWindow || book.leavesNoRecord,
+            // 「同じフォルダの画像をすべて開く」で着地したいページ。
+            // この本向けの指定でなければ渡さない(AppState.pendingInitialPage参照)。
+            // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
+            // appState.clearPendingInitialPage()で必ず後始末する。
+            initialPageID: appState.pendingInitialPage
+                .flatMap { $0.bookID == book.id ? $0.pageID : nil },
+            // 「次の本の最初のページへ」「前の本の最後のページへ」で来た場合の
+            // 着地先(AppState.pendingInitialEdge参照)。こちらは本のIDで
+            // 絞り込めない代わりに、読み込みを始めるたびにAppState側が
+            // 上書き/破棄している。
+            initialEdge: appState.pendingInitialEdge
+        )
     }
 
     /// このウインドウがキーウインドウ(今アクティブな画面/タブ)のときにだけ、表示している
@@ -1286,10 +1347,39 @@ struct ContentView: View {
     ///   軽量なリソース情報だけで比較する)
     /// どちらかを満たさない場合は復元を断念してnilを返す(ウェルカム画面のまま。エラーは
     /// 表示しない)。
-    private func resolveLastActiveBookURLIfUnchanged() -> URL? {
-        guard let url = LastActiveBookStore.resolve() else { return nil }
+    private func resolveLastActiveBookURLIfUnchanged(bookmarkData: Data) async -> URL? {
+        struct Probe: Sendable {
+            let url: URL
+            let modificationDate: Date?
+            let fileSize: Int64?
+        }
+        // ブックマークの解決・存在確認・更新日時とサイズの読み取りは、メインの外で期限つき(performLaunchActionsIfNeeded のコメント)。
+        // 期限を過ぎたら開き直しをあきらめてホームのまま(後から開くと、ホームを触り始めた利用者の前で画面が替わる)。
+        let probe: Probe?
+        do {
+            probe = try await FileIO.withDeadline(Self.lastActiveBookProbeLimit) {
+                await FileIO.perform { () -> Probe? in
+                    guard let url = LastActiveBookStore.resolve(bookmarkData: bookmarkData) else { return nil }
+                    let didStartAccessing = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if didStartAccessing {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+                    let resourceValues = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+                    return Probe(
+                        url: url,
+                        modificationDate: resourceValues?.contentModificationDate,
+                        fileSize: resourceValues?.fileSize.map(Int64.init)
+                    )
+                }
+            }
+        } catch {
+            return nil
+        }
+        guard let probe else { return nil }
 
-        let bookID = url.path
+        let bookID = probe.url.path
         // #Predicateでの絞り込みフェッチが、レイアウト変更直後などに0件を誤って返すことがある
         // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
         // 絞り込み無しで全件取得してからSwift側でfilterする。
@@ -1298,25 +1388,17 @@ struct ContentView: View {
               let recordedModificationDate = state.recordedSourceModificationDate else {
             // 指紋の記録がまだない(初めて記録される、またはこの仕組みを導入する前の
             // データ)場合は、比較のしようがないので復元してよいものとして扱う。
-            return url
+            return probe.url
         }
-
-        let didStartAccessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccessing {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        let resourceValues = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let currentModificationDate = resourceValues?.contentModificationDate
-        let currentFileSize = resourceValues?.fileSize.map(Int64.init)
-
-        guard recordedModificationDate == currentModificationDate,
-              state.recordedSourceFileSize == currentFileSize else {
+        guard recordedModificationDate == probe.modificationDate,
+              state.recordedSourceFileSize == probe.fileSize else {
             return nil
         }
-        return url
+        return probe.url
     }
+
+    /// 起動時に「前回の本」を確かめるのを待つ長さ(resolveLastActiveBookURLIfUnchanged)。
+    private static let lastActiveBookProbeLimit: Duration = .seconds(2)
 
     // MARK: - サイドパネル
 

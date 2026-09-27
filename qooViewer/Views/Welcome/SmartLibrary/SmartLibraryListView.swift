@@ -168,7 +168,7 @@ struct SmartLibraryListView: NSViewRepresentable {
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
         // 捨てる表の位置を控える(HomeScrollMemory。いまの場面の鍵で)。
         if let parent = coordinator.parent {
-            parent.scrollMemory.save(scroll.contentView.bounds.origin, for: parent.scrollKey)
+            parent.scrollMemory.save(scroll.scrollOriginForSaving, for: parent.scrollKey)
         }
         if let outline = coordinator.outline {
             outline.dataSource = nil

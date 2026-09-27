@@ -260,8 +260,8 @@ struct FileBrowserListView: NSViewRepresentable {
         }
 
         /// 捨てる一覧のスクロール位置を状態へ控える(FileBrowserState.savedScrollOrigins)。表に出しているフォルダのものとして控える。
-        func saveScrollOrigin(of scroll: NSScrollView) {
-            state?.saveScrollOrigin(scroll.contentView.bounds.origin, for: .list, folder: displayedFolder)
+        func saveScrollOrigin(of scroll: HomeWheelScrollView) {
+            state?.saveScrollOrigin(scroll.scrollOriginForSaving, for: .list, folder: displayedFolder)
         }
 
         func update(from view: FileBrowserListView) {

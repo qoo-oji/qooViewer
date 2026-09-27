@@ -276,28 +276,103 @@ final class MetadataWorkspace {
         if reregistersDeletedBooks { generator.reregisterDeletedBooks() }
         await generator.update()
         let workspace = MetadataWorkspace(generator: generator, store: store)
-        workspace.reloadAll()
+        // 行を組む重い部分(名前順の順位・数千冊ぶんの行・並べ替え)は画面の外で行う(表示の切り替えの監査の 17、2026-09-27)。
+        // 以前はここで reloadAll をメインで呼んでいて、窓を開いた直後にメインが止まり、読み込み中の表示(ProgressView)まで
+        // 固まっていた(docs/plans/qoometa-smart-library-plan.md の実測: 2,500 冊で 0.7〜1.2 秒)。材料はメインで集め、
+        // 組んだ結果をメインで入れる ―― 中身は reloadAll と同じ関数(buildRows)で作るので、結果は以前と変わらない。
+        //
+        // 組んでいる間にメタデータ生成の回が届いた・DB の行が変わった(revision が進んだ)ときは、組んだものを捨てて、
+        // 以前と同じくメインで組み直す(材料が古いため)。購読は組む前に始め、その間に届いた知らせを取りこぼさない。
+        let revisionBeforeBuilding = store.revision
+        let input = workspace.rowsInput()
+        workspace.isBuildingInitialRows = true
         workspace.subscription = generator.updates.sink { [weak workspace] update in
-            MainActor.assumeIsolated { workspace?.generatorDidUpdate(update) }
+            MainActor.assumeIsolated {
+                guard let workspace else { return }
+                if workspace.isBuildingInitialRows {
+                    workspace.missedUpdateWhileBuilding = true
+                    return
+                }
+                workspace.generatorDidUpdate(update)
+            }
+        }
+        let built = await Task.detached(priority: .userInitiated) { Self.buildRows(input) }.value
+        workspace.isBuildingInitialRows = false
+        if workspace.missedUpdateWhileBuilding || store.revision != revisionBeforeBuilding {
+            workspace.reloadAll()
+        } else {
+            workspace.apply(built, from: input)
         }
         return workspace
     }
 
+    /// 開いている最中(画面の外で最初の行を組んでいる間)か。その間に届いたメタデータ生成の知らせは、組み終えてから全部を
+    /// 組み直すことで受ける(`open`)。
+    @ObservationIgnored private var isBuildingInitialRows = false
+    @ObservationIgnored private var missedUpdateWhileBuilding = false
+
+    /// 行を組む材料(メインで集める。`buildRows` へ渡す)。
+    private struct RowsInput: Sendable {
+        let order: [String]
+        let names: [(id: String, name: String)]
+        /// 並びの順(提案の無い本は除く)。
+        let proposals: [BookProposal]
+        let states: [String: BookMetadataRowState]
+        let missing: Set<String>
+        let sortOrder: [KeyPathComparator<MetadataBookRow>]
+    }
+
+    /// 組んだ行(`buildRows` の結果)。
+    private struct BuiltRows: Sendable {
+        let fileRanks: [String: Int]
+        let rows: [MetadataBookRow]
+        let sortedPositions: [Int]
+    }
+
     /// 並びと行の形を読み直し、行をすべて作り直す(開いたとき・規則が変わったとき・並ぶ本が変わったとき)。
     private func reloadAll() {
+        let input = rowsInput()
+        apply(Self.buildRows(input), from: input)
+    }
+
+    /// 行を組む材料をメタデータ生成と DB から集める(メイン。辞書を引くだけ)。
+    ///
+    /// 行の形は `allRecords()`(revision が同じ間は控えを返す)から引く(表示の切り替えの監査の 17、2026-09-27)。以前は本ごとに
+    /// `record(forBookID:)` を呼び、そのたびに直した欄の JSON を解き直していた。中身は同じもの(allRecords のコメント)。
+    private func rowsInput() -> RowsInput {
+        let order = generator.listedBookIDs
+        let records = store.allRecords()
+        var states: [String: BookMetadataRowState] = [:]
+        for id in order { if let record = records[id] { states[id] = record.rowState } }
+        let names = order.map { (id: $0, name: generator.input(for: $0)?.name ?? MetadataRulesStore.baseName(forBookID: $0)) }
+        return RowsInput(order: order, names: names, proposals: order.compactMap { generator.proposal(for: $0) },
+                         states: states, missing: missing.intersection(order), sortOrder: sortOrder)
+    }
+
+    /// 名前順の順位・行・並べ替えを作る。純粋な計算で、画面の外でも呼べる(`open`)。
+    nonisolated private static func buildRows(_ input: RowsInput) -> BuiltRows {
+        let byName = input.names.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let fileRanks = Dictionary(byName.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        let rows = input.proposals.map { proposal in
+            makeRow(proposal, state: input.states[proposal.id], isMissing: input.missing.contains(proposal.id),
+                    fileRank: fileRanks[proposal.id] ?? 0)
+        }
+        return BuiltRows(fileRanks: fileRanks, rows: rows,
+                         sortedPositions: sortedPositions(of: rows, by: input.sortOrder))
+    }
+
+    /// 組んだ行を入れる(以前の reloadAll の後半と同じ順)。
+    private func apply(_ built: BuiltRows, from input: RowsInput) {
         rules = generator.rules
         formats = generator.rules.formats
-        order = generator.listedBookIDs
-        var states: [String: BookMetadataRowState] = [:]
-        for id in order { if let record = store.record(forBookID: id) { states[id] = record.rowState } }
-        self.states = states
-        let names = order.map { (id: $0, name: generator.input(for: $0)?.name ?? MetadataRulesStore.baseName(forBookID: $0)) }
-        let byName = names.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        fileRanks = Dictionary(byName.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        order = input.order
+        states = input.states
+        fileRanks = built.fileRanks
         let listed = Set(order)
         missing.formIntersection(listed)
         selection.formIntersection(listed)
-        replaceBooks(order.compactMap { id in generator.proposal(for: id).map(makeRow) })
+        // 並べ替えは組んだときの sortOrder で済ませてある。入れるまでに変わっていたら(メインの外で組んだ間)並べ直す。
+        replaceBooks(built.rows, sortedPositions: sortOrder == input.sortOrder ? built.sortedPositions : nil)
     }
 
     private func generatorDidUpdate(_ update: MetadataGenerator.Update) {
@@ -321,13 +396,23 @@ final class MetadataWorkspace {
 
     private func makeRow(_ proposal: BookProposal) -> MetadataBookRow {
         let id = proposal.id
-        return MetadataBookRow(proposal, confirmation: displayConfirmation(id, values: BookMetadataValues(proposal.metadata)),
-                               isLocked: isLocked(id), isMissing: missing.contains(id), fileRank: fileRanks[id] ?? 0)
+        return Self.makeRow(proposal, state: states[id], isMissing: missing.contains(id), fileRank: fileRanks[id] ?? 0)
+    }
+
+    /// 行を作る本体(画面の外で最初の行を組む `buildRows` と共有するため、持ちものを引数で受ける)。
+    nonisolated private static func makeRow(_ proposal: BookProposal, state: BookMetadataRowState?, isMissing: Bool,
+                                            fileRank: Int) -> MetadataBookRow {
+        MetadataBookRow(proposal, confirmation: displayConfirmation(state, values: BookMetadataValues(proposal.metadata)),
+                        isLocked: state?.isLocked == true, isMissing: isMissing, fileRank: fileRank)
     }
 
     /// 行に持たせる確定した内容(直した欄の青い字・確定したシリーズの印に使う)。ロックした本はすべての欄。
     private func displayConfirmation(_ id: String, values: BookMetadataValues) -> Confirmation {
-        guard let state = states[id] else { return .none }
+        Self.displayConfirmation(states[id], values: values)
+    }
+
+    nonisolated private static func displayConfirmation(_ state: BookMetadataRowState?, values: BookMetadataValues) -> Confirmation {
+        guard let state else { return .none }
         return state.isLocked ? values.confirmation : state.edits
     }
 
@@ -348,10 +433,15 @@ final class MetadataWorkspace {
         booksChanged()
     }
 
-    private func replaceBooks(_ rows: [MetadataBookRow]) {
+    /// - Parameter sortedPositions: 今の `sortOrder` で並べ替え済みの位置(`buildRows` が画面の外で作ったもの)。nil ならここで並べる。
+    private func replaceBooks(_ rows: [MetadataBookRow], sortedPositions presorted: [Int]? = nil) {
         books = rows
         positionByID = Dictionary(rows.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
-        sortAll()
+        if let presorted, presorted.count == rows.count {
+            sortedPositions = presorted
+        } else {
+            sortAll()
+        }
         booksChanged()
     }
 
@@ -933,6 +1023,12 @@ final class MetadataWorkspace {
     }
 
     private func precedes(_ a: Int, _ b: Int) -> Bool {
+        Self.precedes(a, b, in: books, by: sortOrder)
+    }
+
+    /// 並べ替えの比べ方の本体(画面の外で最初の行を組む `buildRows` と共有する)。
+    nonisolated private static func precedes(_ a: Int, _ b: Int, in books: [MetadataBookRow],
+                                             by sortOrder: [KeyPathComparator<MetadataBookRow>]) -> Bool {
         // ファイル名フォーマットと合致しなかった本は、並べ替えに関わらず上にまとめる(利用者の指示 2026-09-21)。
         if books[a].matchedFormat != books[b].matchedFormat { return !books[a].matchedFormat }
         for comparator in sortOrder {
@@ -945,8 +1041,18 @@ final class MetadataWorkspace {
         return a < b
     }
 
+    /// 行全体の並べ替えた位置。
+    ///
+    /// 行と並べ方は手元の写しを使って比べる(表示の切り替えの監査の 17、2026-09-27)。以前は比べるたびに `books` と `sortOrder`
+    /// (どちらも @Observable の見張られたプロパティ)を読んでいて、数千冊の並べ替えでは読むたびの見張りの記録が数万回走った。
+    /// 比べ方(precedes)は同じなので、並びは変わらない。
+    nonisolated private static func sortedPositions(of books: [MetadataBookRow],
+                                                    by sortOrder: [KeyPathComparator<MetadataBookRow>]) -> [Int] {
+        books.indices.sorted { precedes($0, $1, in: books, by: sortOrder) }
+    }
+
     private func sortAll() {
-        sortedPositions = books.indices.sorted(by: precedes)
+        sortedPositions = Self.sortedPositions(of: books, by: sortOrder)
     }
 
     private func resort(_ changed: [Int]) {

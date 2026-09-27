@@ -36,15 +36,42 @@ struct MetadataEditorWindow: View {
     @Environment(\.bookRecordRelocator) private var bookRecordRelocator
 
     @State private var model: MetadataEditorModel?
+    /// ツールバーのボタンから、中身(MetadataEditorContent)が持つ確かめの窓・シートを出す頼み。
+    @State private var toolbarRequests = MetadataEditorToolbarRequests()
+    @Environment(\.openWindow) private var openWindow
 
+    /// ツールバーと検索欄は**窓の側に置き、最初のコマから出しておく**(表示の切り替えの監査の 17、2026-09-27)。
+    /// 以前は読み込み終えた中身(MetadataEditorContent)の中にだけあり、`.task` → `model.open()` が終わってから現れたので、
+    /// 開いた直後にタイトルバーの高さが変わり、一覧が下へずれた(作り直し `reopen` で中身がいったん消えるたびにも同じ)。
+    /// 中身が無い間は同じ項目を淡色で出す(`MetadataEditorToolbarItems`)。確かめの窓とシートは中身の側に残す
+    /// (中身の @State。作り直しで閉じる振る舞いを変えない)ので、ボタンは頼み(toolbarRequests)を送るだけ。
     var body: some View {
-        Group {
-            if let model, let workspace = model.workspace {
-                MetadataEditorContent(model: model, workspace: workspace, rulesStore: rulesStore)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let workspace = model?.workspace
+        NavigationStack {
+            Group {
+                if let model, let workspace {
+                    MetadataEditorContent(model: model, workspace: workspace, rulesStore: rulesStore,
+                                          toolbarRequests: toolbarRequests)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .searchable(text: Binding(get: { workspace?.searchText ?? "" }, set: { workspace?.searchText = $0 }),
+                        placement: .toolbar, prompt: Text("Search fields and file names"))
+            .toolbar {
+                MetadataEditorToolbarItems.items(
+                    workspace: workspace,
+                    requestRegenerate: { [toolbarRequests] in toolbarRequests.requestRegenerate() },
+                    openParsingSettings: { [openWindow] in
+                        guard let workspace else { return }
+                        MetadataEditorContent.openParsingSettings(workspace: workspace, openWindow: openWindow)
+                    },
+                    openExtractionSettings: { [openWindow] in openWindow(id: SeriesRulesView.windowID) },
+                    requestExcludedFolders: { [toolbarRequests] in toolbarRequests.requestExcludedFolders() })
+            }
+            // 読み込み中は検索欄も触れないようにする(入れた文字の行き先がまだ無い)。
+            .disabled(workspace == nil)
         }
         .frame(minWidth: 900, minHeight: 480)
         .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess, metadataGenerator] in
@@ -201,9 +228,14 @@ final class MetadataEditorModel {
     /// **確かめられなかった本(アクセス権が無い・ボリュームが繋がっていない)は「無い」にしない** ―― 灰色で出して
     /// 削除を促すのは、確かに無いと分かった本だけ。
     private func checkExistence(of workspace: MetadataWorkspace) {
-        let probes = makeProbes(workspace.bookIDs)
+        let bookIDs = workspace.bookIDs
         existenceTask?.cancel()
         existenceTask = Task { [weak self, weak workspace] in
+            // 確かめの材料(本ごとに 5 つのストアのブックマークとアクセス権の判定)は、この Task の中で作る(表示の切り替えの
+            // 監査の 17、2026-09-27)。以前は open の中でメインのまま全冊ぶん作ってから返っていたので、組み上がった一覧を
+            // 描くのがその分遅れた。確かめ自体はもともと画面の外で、結果が届くのは後なので、材料を作る時が少し後になるだけ。
+            await Task.yield()
+            guard !Task.isCancelled, let probes = self?.makeProbes(bookIDs) else { return }
             let located = await Task.detached(priority: .utility) {
                 probes.map { ($0.bookID, $0.locateAtRecordedPath()) }
             }.value
@@ -316,6 +348,8 @@ struct MetadataEditorContent: View {
     let model: MetadataEditorModel
     @Bindable var workspace: MetadataWorkspace
     @Bindable var rulesStore: MetadataRulesStore
+    /// 窓のツールバーのボタンからの頼み(ツールバーは窓の側にある。MetadataEditorWindow の body のコメント)。
+    let toolbarRequests: MetadataEditorToolbarRequests
     @Environment(\.openWindow) private var openWindow
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsExcludedFolders = false
@@ -324,81 +358,26 @@ struct MetadataEditorContent: View {
     @State private var confirmsReparseAll = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                MetadataFilterBar(workspace: workspace)
-                Divider()
-                MetadataBookTableView(model: model, workspace: workspace, rulesStore: rulesStore,
-                                      openParsingSettings: openParsingSettings)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                ListWindowStatusBar {
-                    Text(verbatim: "%1$lld / %2$lld books".ui(workspace.visibleCount, workspace.books.count))
-                    if workspace.selection.count > 0 {
-                        ListWindowStatusSeparator()
-                        Text(verbatim: "%lld selected".ui(workspace.selection.count))
-                    }
-                }
-            }
-            .searchable(text: $workspace.searchText, placement: .toolbar, prompt: Text("Search fields and file names"))
-            .toolbar {
-                if workspace.isWorking {
-                    ToolbarItem { ProgressView().controlSize(.small) }
-                }
-                // 並びは利用者の指示(2026-09-21): すべて選択・メタデータを再生成・ロック・解析の設定・抽出の設定・対象外のフォルダ。
-                ToolbarItem {
-                    Button { workspace.toggleSelectAll() } label: {
-                        Label(workspace.isEveryVisibleBookSelected ? "Deselect All" : "Select All",
-                              systemImage: "checkmark.rectangle.stack")
-                    }
-                    // ほかのボタンと同じく文字も出す(絵だけでは何のボタンか分からない)。
-                    .labelStyle(.titleAndIcon)
-                    .disabled(workspace.visibleCount == 0)
-                    .help("Select All / Deselect All")
-                }
-                ToolbarItem {
-                    Button { confirmsReparseAll = true } label: {
-                        Label("Regenerate Metadata", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .disabled(workspace.regenerationTargets.isEmpty)
-                    .help("Parses and extracts the selected unlocked books again from their file names, throwing away the values you edited")
-                }
-                ToolbarItem {
-                    // 選んだ本のロック。全部ロック済みなら外す、そうでなければ掛ける(右クリックと同じ)。
-                    let selected = workspace.selectedBooks
-                    let allLocked = !selected.isEmpty && selected.allSatisfy(\.isLocked)
-                    Button { workspace.setLocked(Set(selected.map(\.id)), !allLocked) } label: {
-                        Label(allLocked ? "Unlock" : "Lock", systemImage: allLocked ? "lock.open" : "lock")
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .disabled(selected.isEmpty)
-                    .help("Locks the metadata of the selected books, or unlocks it")
-                }
-                ToolbarItem {
-                    Button { openParsingSettings() } label: {
-                        Label("Parsing Settings", systemImage: "doc.text.magnifyingglass")
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .help("Look at and correct the rule sets that read file names: the formats, the author separators and the words that choose a rule set")
-                }
-                ToolbarItem {
-                    Button { openWindow(id: SeriesRulesView.windowID) } label: {
-                        Label("Extraction Settings", systemImage: "list.bullet.indent")
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .help("Look at and correct the rules that derive the series and volume: policies, word rules and word lists")
-                }
-                ToolbarItem {
-                    Button { showsExcludedFolders = true } label: {
-                        Label("Excluded Folders", systemImage: "folder.badge.minus")
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .help("Folders whose books (including those in their subfolders) are left out of metadata registration")
-                }
-            }
-            .hardTopScrollEdgeEffect()
+        VStack(spacing: 0) {
+            MetadataFilterBar(workspace: workspace)
+            Divider()
+            MetadataBookTableView(model: model, workspace: workspace, rulesStore: rulesStore,
+                                  openParsingSettings: openParsingSettings)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ListWindowStatusBar {
+                Text(verbatim: "%1$lld / %2$lld books".ui(workspace.visibleCount, workspace.books.count))
+                if workspace.selection.count > 0 {
+                    ListWindowStatusSeparator()
+                    Text(verbatim: "%lld selected".ui(workspace.selection.count))
+                }
+            }
+        }
+        .hardTopScrollEdgeEffect()
+        // ツールバーの「メタデータを再生成」「対象外のフォルダ」(窓の側。MetadataEditorToolbarItems)。頼みの番号が進んだら出す。
+        // 作り直された中身は、それより前の頼みには応えない(onChange は最初の値では呼ばれない)。
+        .onChange(of: toolbarRequests.regenerateSerial) { confirmsReparseAll = true }
+        .onChange(of: toolbarRequests.excludedFoldersSerial) { showsExcludedFolders = true }
         // 以前の版の欄(著者・タイトル・シリーズ・巻数だけ)で登録した本がある(利用者の指示 2026-09-21: 増えた欄を埋め直す)。
         .alert("Some metadata was registered before the new fields existed",
                isPresented: Binding(get: { !model.outdatedBookIDs.isEmpty }, set: { if !$0 { model.outdatedBookIDs = [] } })) {
@@ -454,9 +433,100 @@ struct MetadataEditorContent: View {
 
     /// 解析の設定の窓を、選んでいる本のルールセットを選んだ状態で開く。
     private func openParsingSettings() {
+        Self.openParsingSettings(workspace: workspace, openWindow: openWindow)
+    }
+
+    /// 上の本体(窓の側のツールバーからも呼ぶ)。
+    static func openParsingSettings(workspace: MetadataWorkspace, openWindow: OpenWindowAction) {
         let picked = workspace.selectedBooks.first.map { workspace.presetName(for: $0.id) }
         MetadataRulesPicked.shared.open(ruleSet: picked ?? workspace.formats.defaultName)
         openWindow(id: FileNameRulesView.windowID)
+    }
+}
+
+/// ツールバーのボタンから、中身(MetadataEditorContent)の確かめの窓・シートを出すための頼み(窓に 1 つ)。
+/// 番号を進めるだけで、中身が `onChange` で受ける(同じ頼みを 2 度出せるよう、値ではなく通し番号)。
+@MainActor @Observable
+final class MetadataEditorToolbarRequests {
+    private(set) var regenerateSerial = 0
+    private(set) var excludedFoldersSerial = 0
+
+    func requestRegenerate() { regenerateSerial += 1 }
+    func requestExcludedFolders() { excludedFoldersSerial += 1 }
+}
+
+/// 「メタデータの編集」ウインドウのツールバーの項目(表示の切り替えの監査の 17、2026-09-27)。
+///
+/// 窓の側(MetadataEditorWindow)で、中身ができる前から出す。中身(`workspace`)が無い間は同じ項目を淡色で出す ―― 項目の数と
+/// 並びが変わらないので、読み終えてもツールバーとタイトルバーの形は動かない。項目と並びは以前 MetadataEditorContent にあったものと同じ。
+enum MetadataEditorToolbarItems {
+    @MainActor @ToolbarContentBuilder
+    static func items(
+        workspace: MetadataWorkspace?,
+        requestRegenerate: @escaping () -> Void,
+        openParsingSettings: @escaping () -> Void,
+        openExtractionSettings: @escaping () -> Void,
+        requestExcludedFolders: @escaping () -> Void
+    ) -> some ToolbarContent {
+        if let workspace, workspace.isWorking {
+            ToolbarItem { ProgressView().controlSize(.small) }
+        }
+        // 並びは利用者の指示(2026-09-21): すべて選択・メタデータを再生成・ロック・解析の設定・抽出の設定・対象外のフォルダ。
+        ToolbarItem {
+            Button { workspace?.toggleSelectAll() } label: {
+                Label(workspace?.isEveryVisibleBookSelected == true ? "Deselect All" : "Select All",
+                      systemImage: "checkmark.rectangle.stack")
+            }
+            // ほかのボタンと同じく文字も出す(絵だけでは何のボタンか分からない)。
+            .labelStyle(.titleAndIcon)
+            .disabled((workspace?.visibleCount ?? 0) == 0)
+            .help("Select All / Deselect All")
+        }
+        ToolbarItem {
+            Button { requestRegenerate() } label: {
+                Label("Regenerate Metadata", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(workspace?.regenerationTargets.isEmpty ?? true)
+            .help("Parses and extracts the selected unlocked books again from their file names, throwing away the values you edited")
+        }
+        ToolbarItem {
+            // 選んだ本のロック。全部ロック済みなら外す、そうでなければ掛ける(右クリックと同じ)。
+            let selected = workspace?.selectedBooks ?? []
+            let allLocked = !selected.isEmpty && selected.allSatisfy(\.isLocked)
+            Button { workspace?.setLocked(Set(selected.map(\.id)), !allLocked) } label: {
+                Label(allLocked ? "Unlock" : "Lock", systemImage: allLocked ? "lock.open" : "lock")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(selected.isEmpty)
+            .help("Locks the metadata of the selected books, or unlocks it")
+        }
+        ToolbarItem {
+            Button { openParsingSettings() } label: {
+                Label("Parsing Settings", systemImage: "doc.text.magnifyingglass")
+            }
+            .labelStyle(.titleAndIcon)
+            // 選んでいる本のルールセットを選んで開くので、中身ができるまでは押せない。
+            .disabled(workspace == nil)
+            .help("Look at and correct the rule sets that read file names: the formats, the author separators and the words that choose a rule set")
+        }
+        ToolbarItem {
+            Button { openExtractionSettings() } label: {
+                Label("Extraction Settings", systemImage: "list.bullet.indent")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(workspace == nil)
+            .help("Look at and correct the rules that derive the series and volume: policies, word rules and word lists")
+        }
+        ToolbarItem {
+            Button { requestExcludedFolders() } label: {
+                Label("Excluded Folders", systemImage: "folder.badge.minus")
+            }
+            .labelStyle(.titleAndIcon)
+            // シートは中身の側にある。
+            .disabled(workspace == nil)
+            .help("Folders whose books (including those in their subfolders) are left out of metadata registration")
+        }
     }
 }
 

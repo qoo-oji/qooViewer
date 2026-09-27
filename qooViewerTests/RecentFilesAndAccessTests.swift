@@ -143,7 +143,7 @@ struct RecentFilesAndAccessTests {
     }
 
     @Test("許可したフォルダは保存され、開き直しても残る")
-    func grantedFoldersArePersisted() throws {
+    func grantedFoldersArePersisted() async throws {
         let suite = PreferencesSuite(label: "access")
         let temporary = try TemporaryDirectory("access")
         let folder = try temporary.directory("granted")
@@ -154,6 +154,8 @@ struct RecentFilesAndAccessTests {
         #expect(suite.storedDomain[FolderAccessStore.defaultsKey] != nil)
 
         let reopened = FolderAccessStore(defaults: suite.defaults)
+        // 起動時(作った直後)の解決は裏で走る(2026-09-27、表示の切り替えの監査の 11。FolderAccessStore.reloadInBackground)。
+        await reopened.waitForPendingResolutions()
         #expect(reopened.entries.map(\.url.path) == [folder.path])
 
         let entry = try #require(reopened.entries.first)

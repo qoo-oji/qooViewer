@@ -64,16 +64,33 @@ final class FolderAccessStore: ObservableObject {
     /// - Parameter defaults: アクセス権の保存先。既定は実際のアプリの保存先(`.standard`)。
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        reload()
+        // 起動時の解決は裏で(2026-09-27、表示の切り替えの監査の 11)。以前はここで同期に `reload()` を呼び、許可したフォルダ
+        // すべてのブックマークをメインで解決していた ―― 繋がったまま応答しない共有(眠った NAS)や回っていない外付けの許可が
+        // 1 つあると、最初のウインドウが出る前に秒単位(SMB で約 30 秒)止まった。解決の済んだフォルダから順に開いて一覧へ足す
+        // (`reloadInBackground` のコメント)。
+        reloadInBackground()
         // ボリュームを付けた・外したら解決し直す(2026-09-22 の監査。以前は起動時・追加・削除のときしか解決せず、外付けを挿さずに
         // 起動すると、挿した後も次の起動まで「許可が無い」扱いで、自動登録・自動リネーム・スマートライブラリ・隣の本が黙って止まった)。
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
             volumeObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reload(reusingOpenedFolders: true) }
+                MainActor.assumeIsolated { self?.reloadInBackground() }
             })
         }
     }
+
+    /// 裏の解決(`reloadInBackground`)で、フォルダを新しく開いて一覧へ足した(`entries` を差し替えた**後**に送る)。
+    ///
+    /// `entries` の `@Published` は差し替えの**前**(willSet)に知らせるので、受け手がそこで `isPathCovered` を訊くと古い答えに
+    /// なる。起動直後、解決が済む前に「許可なし」として見送った仕事(自動登録フォルダの走査など)をやり直す契機に使う
+    /// (AppStores が購読する。2026-09-27、表示の切り替えの監査の 11)。
+    let accessGained = PassthroughSubject<Void, Never>()
+
+    /// 裏で解決している最中のブックマーク(ブックマークに書かれたパス → その解決の仕事)。
+    /// 待ちたい所(`waitForPendingResolutions`)が、関係するものだけを待てるようにパスで持つ。
+    private var pendingResolutions: [String: Task<Void, Never>] = [:]
+    /// 解決の世代。同期の `reload()`(追加・削除・名前の変更)や次の裏の解決が始まったら進め、古い解決の結果は捨てる。
+    private var resolutionGeneration = 0
 
     private var volumeObservers: [NSObjectProtocol] = []
 
@@ -177,11 +194,12 @@ final class FolderAccessStore: ObservableObject {
         BookmarkResolution.resolve(data)
     }
 
-    /// - Parameter reusingOpenedFolders: いま開いているフォルダ(ブックマークに書かれたパスが `accessedURLsByPath` にあるもの)は
-    ///   解決し直さずにそのまま使う。ボリュームの取り付け・取り外しの知らせ(2026-09-23 の 3 回目の監査の中 10)。解決はメインで
-    ///   同期に走り、繋がったまま応答しない共有(眠った NAS など)の許可があると、関係の無い USB を挿しただけで UI が止まった。
-    ///   知らせで要るのは、新しく繋がった(まだ開いていない)フォルダを開くこと、外れたボリュームのフォルダを閉じることだけ。
-    private func reload(reusingOpenedFolders: Bool = false) {
+    /// 追加・削除・名前の変更のあと(利用者の操作の直後)。すべてのブックマークをその場で解決し直す。
+    /// 呼び出し側(と `add` の直後に `isPathCovered` を訊くテスト)は、戻った時点で一覧が新しいことを当てにしている。
+    private func reload() {
+        // 裏で走っている解決の結果は捨てる(ここで全部を解決し直すので、後から届く古い結果で一覧を書き換えない)。
+        resolutionGeneration &+= 1
+        pendingResolutions = [:]
         // 繋がっていないボリュームを指すブックマークは解決しない(解決はディスクイメージを勝手にマウントし直す・秒単位で止まる
         // ことがある。BookLocationResolver のコメント)。パスはブックマークに書かれた値を読むだけで、ファイルには触らない。
         // 保存したブックマーク自体は残す(繋げば、上のボリュームの知らせでまた解決する)。
@@ -190,7 +208,6 @@ final class FolderAccessStore: ObservableObject {
             .compactMap { data -> Entry? in
                 let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
                 if let path, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: true)) { return nil }
-                if reusingOpenedFolders, let path, let opened = accessedURLsByPath[path] { return Entry(url: opened) }
                 return resolvedURL(from: data).map(Entry.init)
             }
             .sorted { $0.url.path < $1.url.path }
@@ -209,5 +226,90 @@ final class FolderAccessStore: ObservableObject {
         }
 
         entries = newEntries
+    }
+
+    /// 起動時とボリュームの取り付け・取り外しの知らせで、**メインを止めずに**解決し直す(2026-09-27、表示の切り替えの監査の 11)。
+    ///
+    /// - いま一覧にあるフォルダ(開いているもの)は解決し直さずにそのまま使う(2026-09-23 の 3 回目の監査の中 10 ―― 以前の
+    ///   `reload(reusingOpenedFolders:)`)。外れたボリュームの上のものだけ閉じて一覧から外す(マウント表を読むだけ)。
+    /// - まだ開いていないブックマークのうち、ネットワークボリュームの上のものは 1 件ずつ `FileIO` の上で解決し、済んだものから開いて
+    ///   一覧へ足す。1 件ずつ別に待つので、応答しない共有の許可が 1 つあっても、ほかのフォルダの許可は遅れない。ローカルのものは
+    ///   その場で解決する(下のループのコメント)。
+    ///
+    /// ■ 解決が済むまでの間
+    /// そのフォルダは一覧に無い(`isPathCovered` は false)。**先に「ある」と答えてはいけない**: 許可済みの配下なのに見えない
+    /// パスを「無い」と言い切る判定(BookExistenceProbe)が、スコープを開く前の `fileExists` の失敗を「消えた」と読んで保存データを
+    /// 消しうる。答えが変わるのを待ちたい所は `waitForPendingResolutions(covering:)` を、やり直したい所は `accessGained` を使う。
+    private func reloadInBackground() {
+        resolutionGeneration &+= 1
+        let generation = resolutionGeneration
+        pendingResolutions = [:]
+        let mounts = MountTable.current()
+
+        // 外れたボリュームの上のフォルダを閉じる(以前の同期の経路と同じ。ファイルには触らない)。
+        let kept = entries.filter { !mounts.isOnAnUnmountedVolume($0.url) }
+        let keptPaths = Set(kept.map(\.id))
+        for (path, url) in accessedURLsByPath where !keptPaths.contains(path) {
+            url.stopAccessingSecurityScopedResource()
+            accessedURLsByPath.removeValue(forKey: path)
+        }
+        if kept.count != entries.count { entries = kept }
+
+        for data in rawBookmarks() {
+            let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
+            if let path {
+                if mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: true)) { continue }
+                if keptPaths.contains(path) { continue }
+            }
+            // ネットワークボリューム(MNT_LOCAL でないもの)の上のものだけを裏へ回し、ローカルのものは今までどおりその場で解決する。
+            // 止まるのは応答しない共有で、ローカルの解決は数 ms。起動直後の仕事(スマートライブラリの集め直し・ファイルブラウザの
+            // 最初の一覧など。どれも許可の一覧を待たずに読みに行く)が、解決の済む前に読んで空の結果を出す・保存するのを、
+            // ローカルのフォルダについては今までどおり起こさない(解決の済む前は「許可なし」として扱う ―― 下の ■)。
+            // パスを読めないブックマーク(壊れている等)もその場で解決を試す(以前の同期の経路と同じ)。
+            guard let path, mounts.isRemote(URL(fileURLWithPath: path, isDirectory: true)) else {
+                if let url = BookmarkResolution.resolve(data) { adoptResolvedFolder(url) }
+                continue
+            }
+            let key = path
+            pendingResolutions[key] = Task { [weak self] in
+                // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
+                let url = await FileIO.perform { BookmarkResolution.resolve(data) }
+                guard let self, self.resolutionGeneration == generation else { return }
+                self.pendingResolutions.removeValue(forKey: key)
+                guard let url else { return }
+                self.adoptResolvedFolder(url)
+            }
+        }
+    }
+
+    /// 裏で解決したフォルダを開いて一覧へ足す。
+    private func adoptResolvedFolder(_ url: URL) {
+        let path = url.path
+        // 別のブックマーク(同じフォルダを指す古いもの)が先に足していれば何もしない。
+        guard !entries.contains(where: { $0.id == path }) else { return }
+        if accessedURLsByPath[path] == nil, url.startAccessingSecurityScopedResource() {
+            accessedURLsByPath[path] = url
+        }
+        entries = (entries + [Entry(url: url)]).sorted { $0.url.path < $1.url.path }
+        accessGained.send()
+    }
+
+    /// 裏の解決がまだ済んでいない許可のうち、`url` を覆いうるもの(`url` の祖先を指すもの)を待つ。
+    /// 無ければすぐ戻る。**解決は止められない**(応答しない共有では SMB のタイムアウトまで戻らない)ので、利用者の操作の
+    /// 途中で待つ所は `FileIO.withDeadline` で包むこと。
+    ///
+    /// 起動直後に「同じフォルダの本」を開こうとした・フォルダの許可を確かめた、というときに、裏の解決がまだ済んでいない
+    /// だけのフォルダを「許可が無い」としてパネルを出さないために使う(AppState.ensureAccess)。
+    func waitForPendingResolutions(covering url: URL) async {
+        let tasks = pendingResolutions.filter { key, _ in
+            isAncestor(URL(fileURLWithPath: key, isDirectory: true), of: url)
+        }.map(\.value)
+        for task in tasks { await task.value }
+    }
+
+    /// 裏の解決がすべて済むまで待つ(起動時の掃除など、許可の一覧を材料にする裏の仕事の前に。AppStores)。
+    /// 上と同じく、応答しない共有があると長く戻らないので、期限で包むこと。
+    func waitForPendingResolutions() async {
+        for task in Array(pendingResolutions.values) { await task.value }
     }
 }

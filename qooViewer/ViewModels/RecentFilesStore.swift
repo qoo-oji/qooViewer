@@ -173,20 +173,61 @@ final class RecentFilesStore: ObservableObject {
     /// 重複判定はキャッシュ済みのパス同士の比較で行う。以前は保存済みブックマークを1件ずつ
     /// 解決してパスを取り出していたため、本を1冊開くたびに履歴の件数ぶんの解決が走っていた。
     func record(url: URL) {
-        var stored = loadStored()
-        stored.removeAll { $0.path == url.path }
+        insert(url: url, prepared: Self.prepareRecord(url: url))
+    }
 
-        if let data = try? url.bookmarkData(
+    /// `record(url:)` と同じだが、**ブックマークを作る・種別を問い合わせる部分をメインの外で**行う(2026-09-27、表示の切り替えの
+    /// 監査の 11)。本を開き終えた直後(AppState の読み込み完了の反映)はこちらを使う ―― 以前はそこでメインのまま作っていて、
+    /// 遅い・眠っているボリュームの本では、開き終えた瞬間に目に見えて止まった。
+    ///
+    /// 履歴への書き込み(読み込み・保存・一覧の作り直し)はメインで行う(ほかの変更 ―― 削除・再検証の反映 ―― と同じ場所で
+    /// 順に行うため。量は保持件数ぶんの小さな JSON)。**頼まれた順に書く**: 続けて 2 冊開いたとき、後の本が先頭に来るように、
+    /// 前の記録の終わりを待ってから書く(`pendingRecord`)。戻り値はテストが終わりを待つためのもの。
+    @discardableResult
+    func recordInBackground(url: URL) -> Task<Void, Never> {
+        let previous = pendingRecord
+        let task = Task { @MainActor [weak self] in
+            let prepared = await FileIO.perform { Self.prepareRecord(url: url) }
+            await previous?.value
+            self?.insert(url: url, prepared: prepared)
+        }
+        pendingRecord = task
+        return task
+    }
+
+    /// 最後に頼まれた `recordInBackground` の仕事(次の記録はこれの後に書く)。
+    private var pendingRecord: Task<Void, Never>?
+
+    /// 頼まれた記録がすべて書き終わるまで待つ。**テストのための口**(本を開き終えた直後に履歴を確かめるテストが、裏で書いている
+    /// 記録を待つ)。通常の経路からは呼ばない。
+    func waitForPendingRecords() async {
+        while let task = pendingRecord {
+            await task.value
+            if pendingRecord == task { return }
+        }
+    }
+
+    /// 記録 1 件ぶんのファイルへの問い合わせ(ブックマークの作成・種別)。**ブロッキングする**。
+    private nonisolated static func prepareRecord(url: URL) -> (bookmark: Data, isDirectory: Bool)? {
+        guard let data = try? url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
-        ) {
-            // isDirectoryはアイコンの出し分けにしか使わないが、URLの末尾スラッシュの有無に
-            // 頼ると渡され方によって揺れるため、ここで1回だけ実体に問い合わせて確定させる。
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
-                ?? url.hasDirectoryPath
+        ) else { return nil }
+        // isDirectoryはアイコンの出し分けにしか使わないが、URLの末尾スラッシュの有無に
+        // 頼ると渡され方によって揺れるため、ここで1回だけ実体に問い合わせて確定させる。
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
+            ?? url.hasDirectoryPath
+        return (data, isDirectory)
+    }
+
+    private func insert(url: URL, prepared: (bookmark: Data, isDirectory: Bool)?) {
+        var stored = loadStored()
+        stored.removeAll { $0.path == url.path }
+
+        if let prepared {
             stored.insert(
-                StoredEntry(bookmark: data, path: url.path, isDirectory: isDirectory),
+                StoredEntry(bookmark: prepared.bookmark, path: url.path, isDirectory: prepared.isDirectory),
                 at: 0
             )
         }

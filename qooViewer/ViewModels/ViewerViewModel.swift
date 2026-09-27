@@ -341,6 +341,12 @@ final class ViewerViewModel: ObservableObject {
     private var pendingLayoutReloadFocusPageKey: String?
     /// 共有のディスクキャッシュを使うか(init の `usesDiskCaches`)。取り込むものが無かった記録(sourceProbe)もこれに従う。
     private let usesSharedDiskCaches: Bool
+    /// 保持冊数の上限による整理(LibraryDataPruner)を、まだ済ませていないか。
+    ///
+    /// 表示の切り替えの監査の 13(2026-09-27): 新しい本を開いたときの整理を init から最初の見開きの後へ移した(init のコメント)。
+    /// その前に本を閉じた(releaseResources)ときは、そこで済ませる ―― 以前は init の中で必ず済んでいたので、閉じ方によって
+    /// 整理が抜けないようにする。
+    private var pendingTrackedBooksPrune = false
 
     /// - Parameter initialPageID: 開いた直後に表示したいページの`PageRef.id`(=ファイルのパス)。
     ///   「同じフォルダの画像をすべて開く」が、直前まで見ていた画像のページへ着地させるために使う
@@ -374,8 +380,15 @@ final class ViewerViewModel: ObservableObject {
         // 解決(resolveLayoutReplacement: 既存データの採用=指紋の更新/破棄=行の削除)はどちらも
         // DBへの書き込みで、シークレットウインドウでは行えないため、確認ダイアログを出しても
         // 答えようがない。保存済みレイアウトをそのまま(読み取り専用で)適用して表示する。
+        //
+        // 指紋(元ファイルの stat)はここで 1 回だけ取り、レイアウト側の照合と下の読書位置の照合の両方で使う
+        // (表示の切り替えの監査の 13、2026-09-27。以前は同じ本を 2 回 stat していた ―― ネットワークボリュームでは
+        // それぞれが往復で、どちらも最初の見開きを読み始める前にメインで待っていた)。数えるのは除外前の本(incomingBook)で、
+        // 以前の 2 か所とも同じ本を渡していた。
+        let currentFingerprint = ContentFingerprint.current(for: incomingBook)
         let replacementStatus: LayoutContentReplacementStatus = skipsPersistence
-            ? .unaffected : layoutStore.checkContentReplacement(book: incomingBook)
+            ? .unaffected
+            : layoutStore.checkContentReplacement(book: incomingBook, currentFingerprint: currentFingerprint)
 
         // ユーザー要望: EPUB/PDFがファイル自身に持っているレイアウト情報(読み方向・見開き強制・
         // EPUBのページ単位の見開き配置)を、その本を初めて開いたときにDBへ取り込む。以降は
@@ -426,24 +439,41 @@ final class ViewerViewModel: ObservableObject {
         // 記録されている。ここで今の並びを使って鍵へ変換すると、別のページの鍵を焼き込んで
         // 元の対応が復元できなくなるため、legacyOrderedPageKeysを使う。
         let currentOrderedKeys = preparedBook.pages.map(\.sortKey)
-        let legacyOrderedKeys: [String]
-        if prepared.settings?.pageOrderOverride != nil || !prepared.overrides.isEmpty
-            || currentOrderedKeys.count > 1 {
-            legacyOrderedKeys = EffectivePageOrder.legacyOrderedPageKeys(
-                for: incomingBook, pageOrderOverride: prepared.settings?.pageOrderOverride,
-                excludedKeys: Set(prepared.overrides.filter { $0.value == .excluded }.map(\.key))
-            )
-        } else {
-            legacyOrderedKeys = currentOrderedKeys
+        // 従来順の鍵は**要るときに 1 度だけ**作る(表示の切り替えの監査の 13、2026-09-27)。使うのは鍵を持たない古い行
+        // (1.36 以前のブックマーク・読書位置)を鍵へ直すときだけなのに、以前は 2 ページ以上の本を開くたびに全ページを従来順で
+        // 並べ直していた(`compare(options: .numeric)` は遅く、1 万ページで数十 ms。reloadBookmarks でもう 1 回)。
+        // 作る中身(条件と式)は以前のまま。
+        var cachedLegacyOrderedKeys: [String]?
+        func legacyOrderedKeys() -> [String] {
+            if let cachedLegacyOrderedKeys { return cachedLegacyOrderedKeys }
+            let keys: [String]
+            if prepared.settings?.pageOrderOverride != nil || !prepared.overrides.isEmpty
+                || currentOrderedKeys.count > 1 {
+                keys = EffectivePageOrder.legacyOrderedPageKeys(
+                    for: incomingBook, pageOrderOverride: prepared.settings?.pageOrderOverride,
+                    excludedKeys: Set(prepared.overrides.filter { $0.value == .excluded }.map(\.key))
+                )
+            } else {
+                keys = currentOrderedKeys
+            }
+            cachedLegacyOrderedKeys = keys
+            return keys
         }
         // この全件は、下の「中身が差し替わった本」の後始末と最初の reloadBookmarks でも使う(2026-09-25 の監査。以前は本を開くたびに
         // Bookmark の全件を 2〜3 回フェッチしていた。全件なのは #Predicate の不具合のため ―― reloadBookmarks のコメント)。
+        // 表示の切り替えの監査の 13(2026-09-27)でも、これは絞り込みフェッチにしなかった: 読書位置(下)と違ってこの本の行は
+        // 複数あり、#Predicate が 0 件ではなく一部だけを返した場合(複合キーの述語で別の行が当たった報告がある ――
+        // LayoutStore.pageOverride(forBookID:pageKey:) のコメント)に気づけない。ほとんどの本はブックマークを持たないので、
+        // 「0 件なら全件で取り直す」形にしても速くならない。
         let allBookmarks = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         /// 開く途中でブックマークを消したか(消したなら、最初の reloadBookmarks はフェッチし直す)。
         var didDeleteBookmarksOnOpen = false
+        let ownBookmarks = allBookmarks.filter { $0.bookID == preparedBook.id }
+        // resolveKeys が従来順の鍵を読むのは、鍵を持たない行だけ(BookmarkStore.resolveKeys)。無ければ並べ直さない。
         let (_, bookmarksDidChange) = BookmarkStore.resolveKeys(
-            for: allBookmarks.filter { $0.bookID == preparedBook.id },
-            legacyOrderedKeys: legacyOrderedKeys, currentOrderedKeys: currentOrderedKeys,
+            for: ownBookmarks,
+            legacyOrderedKeys: ownBookmarks.contains { $0.pageKey == nil } ? legacyOrderedKeys() : [],
+            currentOrderedKeys: currentOrderedKeys,
             persists: !skipsPersistence
         )
         if bookmarksDidChange { try? modelContext.save() }
@@ -487,15 +517,25 @@ final class ViewerViewModel: ObservableObject {
         // ときに枚数が合わず「差し替えられた」と判断され、読書位置・読み方向・ブックマークが消えていた(1.71 の「読み方向が
         // 記憶されない」の報告。2026-09-25 に再現)。除外はユーザーの操作で、本の中身が変わったわけではない。
         // レイアウト側の判定(LayoutStore.checkContentReplacement)も除外前の本で数えている。
-        let currentFingerprint = ContentFingerprint.current(for: incomingBook)
+        // 指紋そのもの(currentFingerprint)は init の冒頭で取ったもの(レイアウト側と共有。そちらのコメント)。
 
         // #Predicate<BookReadingState> { $0.bookID == bookID }による絞り込みフェッチが、
         // レイアウト変更直後などに0件を誤って返すことがある不具合が実機で確認された
         // (LayoutStore.pageOverrides(forBookID:)のコメント参照。キャプチャしたローカル変数名が
         // モデル側プロパティ名と同名であることが関係している可能性が高い)。同じ問題を避けるため、
         // 絞り込み無しで全件取得してからSwift側でfilterする。
-        let allReadingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        let fetchedState = allReadingStates.first { $0.bookID == bookID }
+        //
+        // 表示の切り替えの監査の 13(2026-09-27): 全件(上限は環境設定の保持冊数、最大 2,000)を毎回読むのをやめ、まず絞り込み
+        // フェッチで引き、**見つからなかったときだけ**従来どおり全件から探す。記録されている不具合は「0 件を誤って返す」なので、
+        // 0 件なら全件で確かめ直せば結果は以前と変わらない。見つかった行も Swift 側で bookID を確かめ直す(別の行が当たった報告も
+        // ある ―― LayoutStore.pageOverride(forBookID:pageKey:) のコメント)。キャプチャする変数はモデルのプロパティと同じ名前に
+        // しない(上の疑いのとおり)。読み直す本(2 度目以降)はほぼこの 1 件で済み、初めて開く本だけが以前と同じ全件になる。
+        let readingStateBookID = bookID
+        let narrowedReadingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>(
+            predicate: #Predicate { $0.bookID == readingStateBookID }
+        ))) ?? []
+        let fetchedState = narrowedReadingStates.first { $0.bookID == bookID }
+            ?? ((try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []).first { $0.bookID == bookID }
         // recordedPageCountがnilなのは、この指紋の仕組みを導入する前に保存された古いデータ
         // (まだ比較のしようがない)ということなので、その場合は「差し替えなし」として扱う
         // (ContentFingerprint.looksReplaced内で判定)。
@@ -522,6 +562,8 @@ final class ViewerViewModel: ObservableObject {
         let isReturningToKnownBook = existingState != nil
 
         let state: BookReadingState
+        /// 読書状態を新しく作った(件数が増えた)ので、保持冊数の上限による整理が要るか(下の else のコメント)。
+        var prunesTrackedBooksAfterFirstSpread = false
         if skipsPersistence {
             // シークレットウインドウ: DBの行には一切触れない。保存済みの読書位置・表示設定が
             // あればそれを初期値として**コピー**した、どのコンテキストにも属さないインスタンスを
@@ -588,11 +630,11 @@ final class ViewerViewModel: ObservableObject {
             // 既存の本をそのまま開き直すだけのときは件数が増えないため、ここでは呼ばない。
             // 今どこかのウインドウで開いている本は消さない(そのViewerViewModelが行を握って
             // 書き続けているため。LibraryDataPruner.pruneIfNeededのexcludedBookIDs参照)。
-            LibraryDataPruner.pruneIfNeeded(
-                modelContext: modelContext,
-                maxTrackedBooks: max(Int(preferences.maxTrackedBooksCount), 1),
-                excludedBookIDs: Self.openBookIDs
-            )
+            //
+            // 実際の整理は最初の見開きを読み終えてから行う(下の firstSpread の後。表示の切り替えの監査の 13、2026-09-27)。
+            // 上限を超えている間は、新しい本を開くたびに全行を古い順に読み、消して保存する(ディスクへの書き込み)ので、
+            // それが最初の見開きの読み始めより前にメインで走っていた。整理の結果(どの行が消えるか)はこの本の表示に関わらない。
+            prunesTrackedBooksAfterFirstSpread = true
         }
         // 今回の指紋を常に記録しておく(次回開いたときの比較対象になる)。
         state.recordedPageCount = currentFingerprint.pageCount
@@ -620,11 +662,18 @@ final class ViewerViewModel: ObservableObject {
         // 作りたての既定値で、lastPageIndex=0は「記録」ではないため、これを従来順の番号として
         // 変換すると、並びが入れ替わる本では従来順の先頭ページ(≠今の並びの1ページ目)から
         // 始まってしまう。変換しなければrestoredIndexは素直に0になる。
-        let restoredKey: String? = isReturningToKnownBook
-            ? state.lastPageKey
-                ?? (legacyOrderedKeys.indices.contains(state.lastPageIndex)
-                    ? legacyOrderedKeys[state.lastPageIndex] : nil)
-            : nil
+        let restoredKey: String?
+        if isReturningToKnownBook {
+            if let lastPageKey = state.lastPageKey {
+                restoredKey = lastPageKey
+            } else {
+                // 鍵を持たない行(1.36 以前)のときだけ従来順を作る(legacyOrderedKeys のコメント)。
+                let legacyKeys = legacyOrderedKeys()
+                restoredKey = legacyKeys.indices.contains(state.lastPageIndex) ? legacyKeys[state.lastPageIndex] : nil
+            }
+        } else {
+            restoredKey = nil
+        }
         let restoredIndexByKey = restoredKey.flatMap { key in currentOrderedKeys.firstIndex(of: key) }
         let restoredIndex = min(
             max(restoredIndexByKey ?? state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0)
@@ -716,10 +765,32 @@ final class ViewerViewModel: ObservableObject {
         // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
         currentIndex = normalizedAnchorIndex(initialIndex)
 
+        // 最初の 1 枚のデコードを、ここで PageLoader へ先に頼んでおく(表示の切り替えの監査の 13、2026-09-27)。
+        // 下の firstSpread はメインアクターの Task なので、動き出すのは init が返り、呼び出し側(ContentView は最初の見開きが
+        // 揃うのを待ってから画面を差し替える)の残りの仕事が済んだ後になる。PageLoader は同じページの読み込みを 1 つにまとめる
+        // (pixels(at:) の inFlightTasks)ので、loadCurrentSpread の同じ要求はこの読み込みに合流するだけで、2 度デコードはしない。
+        // 頼むのは loadCurrentSpread が最初に頼むのと同じ 1 枚だけ。見開きの相方は頼まない: 1 枚目の後で組むかを決めるうえ、
+        // ソリッド 7z では 2 枚を同時に頼むと後ろのページが先に読まれて、ブロックの先頭からの伸長し直しになりうる
+        // (warmUpWideImageCacheForEntireBook のコメント)。settle() が待てるよう startupTasks に入れる。
+        let firstPageIndex = currentIndex
+        let firstPageLoader = pageLoader
+        startupTasks.append(Task.detached(priority: .userInitiated) {
+            _ = await firstPageLoader.pageImage(at: firstPageIndex)
+        })
+
         let firstSpread = Task { [weak self] () -> Void in
             await self?.loadCurrentSpread()
         }
         startupTasks.append(firstSpread)
+        // 保持冊数の上限による整理は最初の見開きの後で(上の prunesTrackedBooksAfterFirstSpread のコメント)。その前に閉じたら
+        // releaseResources が済ませる(pendingTrackedBooksPrune)。
+        if prunesTrackedBooksAfterFirstSpread {
+            pendingTrackedBooksPrune = true
+            startupTasks.append(Task { [weak self] in
+                await firstSpread.value
+                self?.pruneTrackedBooksIfPending()
+            })
+        }
         // 本を開いた直後から、本全体についてバックグラウンドで横長判定を進めておく
         // (warmUpWideImageCacheForEntireBookのコメント参照。ユーザー報告: スクロールホイールを
         // 高速に連続して回すと、primeWideImageCache(around:radius:)によるcurrentIndex付近だけの
@@ -995,6 +1066,9 @@ final class ViewerViewModel: ObservableObject {
         // テストでは、この遅れた保存がテストの後始末で解放されたコンテナに当たってテストホストごと落ちた
         // (「ModelContext.save() called after its ModelContainer has been deallocated」、CI の macOS 27)。
         flushPendingSave()
+        // 最初の見開きの前に閉じられたら、先送りしていた整理をここで済ませる(pendingTrackedBooksPrune)。この本を
+        // 開いている本の一覧から外す前に行う(整理はこの本の行を消さない)。
+        pruneTrackedBooksIfPending()
         Self.openBookCounter.withLock { $0 -= 1 }
         Self.unregisterOpenBook(openBookRegistryID)
         // スライドショーもここで止める(監査で指摘)。通常はhandleOnDisappearが先に
@@ -1026,6 +1100,19 @@ final class ViewerViewModel: ObservableObject {
         highResolutionSourceImages = []
         loupeCombinedSourceImage = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
+    }
+
+    /// 新しい本を開いたときの、保持冊数の上限による整理(init の prunesTrackedBooksAfterFirstSpread のコメント)。1 度だけ走る。
+    /// 中身は以前 init で直接呼んでいたものと同じ(今どこかのウインドウで開いている本は消さない)。
+    private func pruneTrackedBooksIfPending() {
+        guard pendingTrackedBooksPrune else { return }
+        pendingTrackedBooksPrune = false
+        LibraryDataPruner.pruneIfNeeded(
+            modelContext: modelContext,
+            maxTrackedBooks: max(Int(preferences.maxTrackedBooksCount), 1),
+            // この本は開いている本の一覧に載っているはずだが、外れた後に呼ばれても消さないよう明示的に足す。
+            excludedBookIDs: Self.openBookIDs.union([openBookRegistryID])
+        )
     }
 
     deinit {
@@ -1677,17 +1764,26 @@ final class ViewerViewModel: ObservableObject {
         // (実機で確認した不具合)。鍵を持たない行(1.36以前・本を開かずに追加された行)は、
         // ここでも必ず従来順で鍵へ変換する。
         let currentOrderedKeys = book.pages.map(\.sortKey)
-        let legacyOrderedKeys = EffectivePageOrder.orderedPages(
-            for: rawPages, pageOrderSource: book.pageOrderSource,
-            pageOrderOverride: bookLayoutSettings?.pageOrderOverride,
-            excludedKeys: Set(pageLayoutStates.filter { $0.value == .excluded }.map(\.key)),
-            usesLegacyOrder: true
-        ).map(\.sortKey)
         // ephemeralBookmarks(シークレットウインドウで目次から取り込んだ分。DBには無い)も
         // 一緒に解決する。どのModelContextにも属さないため書き込みの心配は無いが、
         // persists: falseでは書き換えられないので、下の対応表経由で番号を反映する。
+        let targets = mine + ephemeralBookmarks
+        // 従来順の鍵は、鍵を持たない行があるときだけ作る(resolveKeys が読むのはその行だけ。表示の切り替えの監査の 13、
+        // 2026-09-27 ―― 以前は本を開くたび・レイアウトを読み直すたびに全ページを従来順で並べ直していた。init の
+        // legacyOrderedKeys のコメント)。作る式は以前のまま。
+        let legacyOrderedKeys: [String]
+        if targets.contains(where: { $0.pageKey == nil }) {
+            legacyOrderedKeys = EffectivePageOrder.orderedPages(
+                for: rawPages, pageOrderSource: book.pageOrderSource,
+                pageOrderOverride: bookLayoutSettings?.pageOrderOverride,
+                excludedKeys: Set(pageLayoutStates.filter { $0.value == .excluded }.map(\.key)),
+                usesLegacyOrder: true
+            ).map(\.sortKey)
+        } else {
+            legacyOrderedKeys = []
+        }
         let (resolved, didChange) = BookmarkStore.resolveKeys(
-            for: mine + ephemeralBookmarks, legacyOrderedKeys: legacyOrderedKeys,
+            for: targets, legacyOrderedKeys: legacyOrderedKeys,
             currentOrderedKeys: currentOrderedKeys, persists: !skipsPersistence
         )
         if didChange { try? modelContext.save() }

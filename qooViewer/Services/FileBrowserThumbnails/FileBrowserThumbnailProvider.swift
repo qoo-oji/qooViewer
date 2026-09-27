@@ -311,6 +311,19 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         }
     }
 
+    /// `thumbnail(for:kind:pixelSize:...)` の**メモリだけを見る**同期版。無ければ nil(作らない・ディスクもネットワークも読まない)。
+    ///
+    /// 2026-09-27、表示の切り替えの監査: ホームは本を開いている間は捨てられ、戻るとスマートライブラリのセル・アイコン表示の
+    /// アイテムは絵を持たずに作り直される。絵がメモリに残っていても非同期の頼みが返るまでの数フレームはスピナー・種類のアイコンが
+    /// 見え、戻るたびに表紙が一斉に点滅していた。作り直したセルは最初にこれを引き、当たれば最初のフレームから絵を描く。
+    /// 出どころの判定(`resolveSource`)はセルが body で読む `sourceKey` と同じ仕事(メモリ上の索引を引くだけ)で、
+    /// キャッシュはロック 1 回の辞書引きなので、メインから呼んでよい。
+    func cachedThumbnail(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat) -> PagePixelBuffer? {
+        let (baseKey, _) = resolveSource(for: entry, kind: kind)
+        guard !failedKeys.contains(baseKey) else { return nil }
+        return memory.object(forKey: "\(baseKey)|\(Int(pixelSize))" as NSString)
+    }
+
     /// この項目の絵の出どころを表す鍵(段は含まない)。**セルが「頼み直すか」を決めるのに使う。**
     ///
     /// `revision` はコレクションの変更のたびに(表紙を 1 冊抽出するたびにも)進むので、それだけを鍵にすると、見えている

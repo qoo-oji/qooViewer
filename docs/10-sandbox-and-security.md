@@ -63,6 +63,13 @@ FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り
 - `AppState.securityScopedBookURLs`: 今開いている本のぶん。次の本を開くときと閉じるときに stop。
 - `FolderAccessStore.accessedURLsByPath`: `reload()` のたびに差分だけ開閉。追加した直後の
   フォルダも同じ経路で開く(呼び出し側で開かない)。
+  起動時とボリュームの取り付け・取り外しでは `reloadInBackground`(2026-09-27、表示の切り替えの監査の 11): 開いているものは
+  そのまま使い、ローカルのブックマークはその場で解決し、**ネットワークボリュームの上のものだけ**を 1 件ずつ `FileIO` で解決して、
+  済んだものから開いて一覧へ足す(`accessGained` を送る ―― 自動登録フォルダの走査とスマートライブラリの集め直しがやり直す)。
+  以前は起動時にすべてをメインで解決し、応答しない共有の許可が 1 つあると最初のウインドウが出る前に約 30 秒止まった。
+  解決が済むまでそのフォルダは「許可なし」(先に「ある」と答えると、スコープを開く前の `fileExists` の失敗を「消えた」と
+  読む判定が保存データを消しうる)。待ちたい所は `waitForPendingResolutions`(期限で包む)。ローカルを同期のままにしたのは、
+  起動直後の仕事(スマートライブラリの集め直し・ファイルブラウザの最初の一覧)が、解決の前に読んで空の結果を出さないため。
 - `BookLayoutEditorViewModel.securityScopedURL` / `BookExportViewModel.securityScopedURLs`:
   ウインドウが生きている間はサムネイルのために開いたままにし、`deinit` で閉じる。
   同じ本を何度読み込んでも開くのは1回だけ(Set)。

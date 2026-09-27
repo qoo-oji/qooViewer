@@ -2126,7 +2126,7 @@ struct QooViewerApp: App {
 
     /// いま記憶してある主ウインドウのフレーム(起動時に 1 度だけ読む`savedMainWindowFrame`と違い、読むたびに最新)。
     /// キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント参照)。
-    private static var currentSavedMainWindowFrame: NSRect? {
+    static var currentSavedMainWindowFrame: NSRect? {
         guard let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") else { return nil }
         let rect = NSRectFromString(saved)
         return rect.width > 0 && rect.height > 0 ? rect : nil
@@ -2148,7 +2148,7 @@ struct QooViewerApp: App {
     /// 扱い(元のウインドウと同じサイズ + 右下へのカスケード配置)にするため、
     /// openInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
     private func openNewWindow(isPrivate: Bool) {
-        let previousKeyWindow = NSApp.keyWindow
+        let previousKeyWindow = frontmostBookWindow
         // 画面に出る前に行き先を当てる(BookWindowOpener.expectNewWindow。以前は既定の大きさで一瞬出てから飛んでいた)。
         BookWindowOpener.expectNewWindow(
             frame: previousKeyWindow.map { BookWindowOpener.placedFrame(basedOn: $0, asTab: false) }
@@ -2179,6 +2179,20 @@ struct QooViewerApp: App {
         }
     }
 
+    /// 新しいウインドウ・タブの基準(大きさ・位置・タブの追加先・シークレットかどうかの引き継ぎ)にする、手前の本のウインドウ。
+    ///
+    /// 以前は`NSApp.keyWindow`そのものを使っていたので、環境設定や道具のウインドウ(ブックマーク・レイアウトの編集、履歴の削除など)が
+    /// 手前だと、**そのウインドウの大きさ**で新しいウインドウが開き(高さ 480 前後のものもあり、本のウインドウの最小の大きさを下回る)、
+    /// 「新しいタブで開く」ではそのウインドウへタブを足そうとしていた(2026-09-27、表示の切り替えの監査の 14)。キーウインドウが本の
+    /// ウインドウでなければ、いちばん手前の本のウインドウ(⌘T と同じ考え方。Safari も環境設定が手前でもブラウザのウインドウを基準にする)。
+    /// 本のウインドウが 1 枚も無ければ nil(前回終了時のフレームへ落ちる)。
+    private var frontmostBookWindow: NSWindow? {
+        if let key = NSApp.keyWindow, launchCoordinator.allOpenAppStates.contains(where: { $0.hostWindow === key }) {
+            return key
+        }
+        return launchCoordinator.frontmostContentAppState()?.hostWindow
+    }
+
     /// File ›「新規タブ」⌘T(2026-09-27)。手前の本のウインドウに、ホームから始まる空のタブを足す。
     ///
     /// 足すタブは"normal"/"private"の WindowGroup(値なし=ホーム。openNewWindow と同じ)で、シークレットかどうかは手前のウインドウから
@@ -2205,8 +2219,9 @@ struct QooViewerApp: App {
         Task { @MainActor in
             guard let newWindow = await BookWindowOpener.newlyOpenedWindow(excluding: existingWindowIDs) else { return }
             BookWindowOpener.place(newWindow, basedOn: sourceWindow, asTab: true)
-            sourceWindow.addTabbedWindow(newWindow, ordered: .above)
+            // 透明を戻すのはタブへ入れる**前**(BookWindowOpener.revealIfHiddenUntilTabbed のコメント)。
             BookWindowOpener.revealIfHiddenUntilTabbed(newWindow)
+            sourceWindow.addTabbedWindow(newWindow, ordered: .above)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -2239,7 +2254,7 @@ struct QooViewerApp: App {
     /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
     /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
     private func openInNewWindow(_ request: BookOpenRequest, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
-        let previousKeyWindow = tabTarget ?? NSApp.keyWindow
+        let previousKeyWindow = tabTarget ?? frontmostBookWindow
 
         // 新しいウインドウ/タブをシークレットにするかどうか。
         //
@@ -2456,10 +2471,11 @@ struct QooViewerApp: App {
 
             BookWindowOpener.place(newWindow, basedOn: previousKeyWindow, asTab: asTab)
 
+            // 透明を戻すのはタブへ入れる**前**(BookWindowOpener.revealIfHiddenUntilTabbed のコメント)。
+            BookWindowOpener.revealIfHiddenUntilTabbed(newWindow)
             if asTab, let previousKeyWindow {
                 previousKeyWindow.addTabbedWindow(newWindow, ordered: .above)
             }
-            BookWindowOpener.revealIfHiddenUntilTabbed(newWindow)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -2575,6 +2591,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // 本を渡されての起動かは applicationDidFinishLaunching で分かる。それより先に「開く」が届いてもよいように、先に立てておく。
         isLaunchingToOpenDocuments = true
+        // 本を渡されての起動なら SwiftUI が作る主ウインドウを見せないよう、いったん透明にする(hideLaunchWindowWhenShown)。
+        hideLaunchWindowWhenShown()
         // 前回までの起動が残した一時ファイル(入れ子の書庫の展開物)を片付ける。
         // ディレクトリの走査を伴うので、起動の邪魔をしないようメインスレッドの外で行う
         // (TemporaryFileStoreの型コメント参照)。
@@ -2647,6 +2665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ふつうの起動なら、主ウインドウは本を渡されて作られたものではない(isLaunchingToOpenDocuments のコメント)。
         if (notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool) ?? true {
             isLaunchingToOpenDocuments = false
+            revealLaunchWindow()
         }
         collapseFileMenuSeparators()
         Task { @MainActor [weak self] in
@@ -2738,6 +2757,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             minimized.deminiaturize(nil)
             return false
         }
+        // SwiftUI が開く "main" のウインドウの既定の位置・大きさ(`.defaultSize`/`.defaultPosition`)は起動時に 1 度だけ読んだ値なので、
+        // この起動の間にウインドウを動かしていると、その古い位置に出てから ContentView の復元で今の保存値へ飛んでいた
+        // (2026-09-27、表示の切り替えの監査の 16)。新しいウインドウと同じく、画面に出たその場で今の保存値を当てる
+        // (BookWindowOpener.expectNewWindow。"main" に`.defaultWindowPlacement`は無いが、キーウインドウの知らせの場で当てる)。
+        BookWindowOpener.expectNewWindow(frame: QooViewerApp.currentSavedMainWindowFrame, hidesUntilTabbed: false)
         return true
     }
 
@@ -2779,6 +2803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let request = prepared.request else {
                 // 本が 1 つも無い。開かずに、手前のウインドウに知らせる(起動した主ウインドウはそのままホームとして使う)。
                 self.isLaunchingToOpenDocuments = false
+                self.revealLaunchWindow()
                 let message = candidates.count == 1
                     ? String(format: String(localized: "“%@” can’t be opened as a book.", language: locale),
                              candidates[0].lastPathComponent)
@@ -2826,6 +2851,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 以前は、起動直後はたいてい NSWindow がまだ付いておらず新しい本のウインドウで開いていた(空の主ウインドウは後始末で閉じる)ので
     /// 目立たなかった。付いていた回だけ起きていた。そこで、このあいだは主ウインドウを使い回さず、必ず新しい本のウインドウで開く。
     private var isLaunchingToOpenDocuments = false
+
+    /// 本を渡されての起動で、透明にしてある主ウインドウ(hideLaunchWindowWhenShown)。
+    private var hiddenLaunchWindow: NSWindow?
+    private var launchWindowObserverTokens: NotificationObserverTokens?
+
+    /// 本を渡されての起動で、SwiftUI が作る主ウインドウ(ホーム)を、画面に出たその場で透明にする(2026-09-27、表示の切り替えの監査)。
+    ///
+    /// 本はその主ウインドウではなく新しい本のウインドウで開く(isLaunchingToOpenDocuments のコメント)ので、以前は**ホームのウインドウが
+    /// 出て、約 0.35 秒後に同じ位置へ本のウインドウが重なり、さらに約 1.2 秒後に後ろのホームがフェードして消える**のが毎回見えていた
+    /// (Finder のダブルクリック・Dock へのドロップでの起動。CGWindowList で実測)。主ウインドウは後始末(performExternalOpen の
+    /// 末尾)で閉じるので、それまで見せなければよい。本が 1 冊も無かったとき(主ウインドウをホームとして使う)と、ふつうの起動と
+    /// 分かったときは戻す。どこかで戻し損ねても、3 秒後に戻す。
+    ///
+    /// 透明にするのは、画面に出るとキーウインドウの知らせが同期で届くその場(BookWindowOpener.prepareNextNewWindowOnceShown と同じ)。
+    /// 本のウインドウを開き始めたら(isLaunchingToOpenDocuments が下りたら)、後から来たウインドウは透明にしない。
+    ///
+    /// **どの起動でも透明にする**: 本を渡されての起動かは、主ウインドウが画面に出た後(`application(_:open:)` と
+    /// `applicationDidFinishLaunching` の`launchIsDefaultUserInfoKey`)でしか分からない。`applicationWillFinishLaunching` では
+    /// 起動の Apple Event がまだ取れない(`currentAppleEvent` が nil。実測)。ふつうの起動なら applicationDidFinishLaunching
+    /// (画面に出る知らせの約 90ms 後。CGWindowList では、透明の間のウインドウは画面に載っていなかった)ですぐ戻す。
+    private func hideLaunchWindowWhenShown() {
+        let tokens = NotificationObserverTokens()
+        launchWindowObserverTokens = tokens
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+            tokens.add(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, let window = notification.object as? NSWindow else { return }
+                    tokens.removeAll()
+                    self.launchWindowObserverTokens = nil
+                    guard self.isLaunchingToOpenDocuments else { return }
+                    window.alphaValue = 0
+                    self.hiddenLaunchWindow = window
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                        MainActor.assumeIsolated { self?.revealLaunchWindow() }
+                    }
+                }
+            })
+        }
+    }
+
+    /// hideLaunchWindowWhenShown で透明にした主ウインドウを見えるように戻す(まだ透明にしていなければ、見張りをやめる)。
+    private func revealLaunchWindow() {
+        launchWindowObserverTokens?.removeAll()
+        launchWindowObserverTokens = nil
+        guard let window = hiddenLaunchWindow else { return }
+        hiddenLaunchWindow = nil
+        // 開くときのアニメーション(広がりながら出る)は透明の間に済んでしまうので、ふつうの起動でも主ウインドウはその場に現れる。
+        // 前へ出し直して付け直す案は、閉じるアニメーションが走ってから出し直す形になり、かえって目立った(実測)。
+        if window.alphaValue == 0 { window.alphaValue = 1 }
+    }
 
     /// `application(_:open:)` の続き(下調べを終えてから)。
     private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale) {
@@ -2929,13 +3004,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間がかかっている
         // 場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に表示中の
         // ウインドウが実在することを確認する。
-        Task { @MainActor in
+        // 本を渡されての起動なら、この主ウインドウは透明にしてある(hideLaunchWindowWhenShown)ので、閉じるまで見えない。
+        Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard let suspect = suspectBeforeOpen,
                   suspect.currentBook == nil,
                   let suspectWindow = suspect.hostWindow else { return }
             guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
             suspectWindow.close()
+            if self?.hiddenLaunchWindow === suspectWindow { self?.hiddenLaunchWindow = nil }
         }
         return nil
     }

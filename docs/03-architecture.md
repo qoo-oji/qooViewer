@@ -103,6 +103,13 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 `ContentView` は `ViewerView(...).id(book.id)` で、本が変わるたびにビューごと作り直します。
 `ViewerViewModel` は `@StateObject`、`PageLoader` はその中の `let` です。
 
+**ビューモデルはビューより先に作る**(`ViewerHandoff`、2026-09-27、表示の切り替えの監査)。`AppState.currentBook` が別の本に
+なると、`ContentView` がその本の `ViewerViewModel` を先に作って最初の見開きを読ませ、揃うまで(長くて 300ms)前の中身
+(前の本のビューア・ホーム)を出したままにし、揃ったらそのビューモデルを `ViewerView(preparedModel:)` に渡す。以前は新しい
+`ViewerView` が空の `currentImages` から始まり、本を替えるたびにページ領域が 1〜3 フレーム地だけになっていた。ビューモデルは
+ビューの大きさを知らなくても最初の見開きを読めるので、先に作ってよい。使われなかったもの(待つ間にさらに別の本・ホームへ
+替わった)は `releaseResources()` で手放す。同じ本(同じ id)に替わったときは、今までどおり同じビューモデルのまま。
+
 **資源の解放は `deinit` に任せません。** 同じウインドウで次の本を開くと、SwiftUI が古い
 `ViewerView` のノード(=`@StateObject`)を1世代ぶん抱えたままにすることがあり、実測では前の本の
 `PagePixelBuffer` が 27 枚(約 840MB)残っていました。`ViewerViewModel.releaseResources()` を
@@ -253,7 +260,8 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
    `BookLoader.load(from:progress:)` を `Task.detached` で走らせる(→ [04](04-book-loading.md))。
 3. 返ってきた `MangaBook` について、4つのストアで bookID の追従(inode による移動検知)、
    履歴の記録、`LastActiveBookStore` の更新、隣の本の一覧の再読み込みを行う。
-4. `ContentView` が `ViewerView(...).id(book.id)` を作り直し、`ViewerViewModel.init` が
+4. `ContentView`(`ViewerHandoff`)が `ViewerViewModel` を作って最初の見開きを待ち、揃ったら `ViewerView(...).id(book.id)` を
+   作り直す。`ViewerViewModel.init` が
    レイアウト設定の適用・鍵の解決・読書位置の復元・`PageLoader` の生成を行う
    (→ [07](07-page-order-layout-bookmarks.md))。
 5. `loadCurrentSpread` → `PageLoader.pageImage(at:)` → デコード → `currentImages` →

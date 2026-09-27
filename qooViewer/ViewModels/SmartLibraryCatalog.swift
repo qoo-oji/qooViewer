@@ -115,6 +115,14 @@ final class SmartLibraryCatalog: ObservableObject {
         if activeCount > 0 { scheduleRebuild(rescan: true, delay: .milliseconds(400)) }
     }
 
+    /// フォルダの許可が裏の解決で開いた(FolderAccessStore.accessGained。AppStores が呼ぶ)。
+    ///
+    /// ネットワークボリュームの上の許可は起動時に裏で解決する(2026-09-27、表示の切り替えの監査の 11)ので、その前に集めた結果は
+    /// その対象フォルダを読めずに空になっている。ボリュームを付けたときと同じく、前の結果を捨てて集め直す。
+    func handleFolderAccessGained() {
+        handleVolumeChange()
+    }
+
     /// 既定の保存先(Application Support の中)。**Caches には置かない** ―― 空きが足りないと macOS が消し、その回は保存した
     /// 一覧が無いまま探すことになる(ネットワークの対象フォルダでは長く待たされる)。消えても次に集めれば作り直される写し。
     static var defaultCacheURL: URL? {

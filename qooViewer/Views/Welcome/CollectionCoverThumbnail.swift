@@ -71,25 +71,62 @@ struct CollectionCoverThumbnail: View {
     @State private var loadedTier = 0
     /// その絵のcontentKey。比・位置・絵が変わったら大きさに関わらず読み直す。
     @State private var loadedContentKey = ""
+    /// `.task` が届く前に、メモリキャッシュから同期で引いた絵(`FirstFrameImage`)。
+    @State private var firstFrame = FirstFrameImage()
+
+    /// 作り直した直後のセルが最初のフレームから描く絵の控え(2026-09-27、表示の切り替えの監査)。
+    ///
+    /// ホームは本を開いている間は捨てられ、戻るとこのセルは `image == nil` から作り直される。以前は非同期の `.task`
+    /// (`@concurrent` の `cachedImage`)しか絵を持ってこなかったので、**絵がメモリに残っていても**最初の数フレームは下地だけが
+    /// 見え、戻るたびに表紙が一斉に「空 → 絵」と点滅していた。body でメモリキャッシュだけを同期で覗けば(ディスクには触れない。
+    /// `CollectionCoverStore.memoryCachedImage`)、最初のフレームから絵が出る(棚の札の `CollectionTile.sheetImage` と同じ手)。
+    /// 引いた結果(外れも)は鍵ごとに 1 度だけ ―― 切り出した `CGImage` は呼ぶたびに別物になり、body のたびに切ると SwiftUI が
+    /// 絵の差し替えとみなして描き直す。`@State` の値ではなく参照型に持つのは、body の中で書き換えるため(描き直しは起こさない)。
+    private final class FirstFrameImage {
+        var key = ""
+        /// 切る前の画像(帳簿へ渡す。`loadImage` のコメント)と、描く画像。
+        var source: CGImage?
+        var drawn: CGImage?
+    }
 
     /// この表紙に実際に使う合わせ方(`.crop` か `.pad`)。比は抽出したときに控えてある(CollectionItem.coverAspect)。
     private var effectiveFit: CoverFit {
         fit.resolved(imageAspect: CGFloat(item.coverAspect), frameAspect: aspectRatio.value)
     }
 
-    /// 絵が出ているか。出ていないセルだけ縁を引く(型コメントの「輪郭」参照)。
-    private var hasArtwork: Bool {
-        item.coverState == .ready && image != nil
+    /// 描く絵。`.task` が届く前はメモリキャッシュから同期で引いたもの(`FirstFrameImage`)。
+    private var displayedImage: CGImage? {
+        if let image { return image }
+        guard item.coverState == .ready else { return nil }
+        let tier = decodeTier
+        let key = "\(contentKey)|\(tier)"
+        if firstFrame.key != key {
+            let hit = coverStore.memoryCachedImage(
+                for: item.id, revision: coverRevision, maxPixelSize: Self.decodePixelSize(forTier: tier)
+            )
+            firstFrame.key = key
+            firstFrame.source = hit
+            firstFrame.drawn = hit.map(drawnImage(from:))
+        }
+        return firstFrame.drawn
+    }
+
+    /// 読んだ画像から、描く画像を作る(余白なら切らない。切るのは`CGImage.cropping(to:)`なので画素は写さない)。
+    private func drawnImage(from loaded: CGImage) -> CGImage {
+        effectiveFit == .pad ? loaded : CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
     }
 
     var body: some View {
         let shape = RoundedRectangle(
             cornerRadius: Self.cornerRadius(forWidth: displayWidth), style: .continuous
         )
+        let shownImage = displayedImage
+        // 絵が出ているか。出ていないセルだけ縁を引く(型コメントの「輪郭」参照)。
+        let hasArtwork = item.coverState == .ready && shownImage != nil
         return ZStack {
             switch item.coverState {
             case .ready:
-                if let image {
+                if let image = shownImage {
                     if effectiveFit == .pad {
                         // 余白の色で枠いっぱいを塗る(これが枠の大きさも決める ―― 画像だけだと、ZStackが収めた画像の大きさに
                         // 縮み、セルの大きさがばらつく)。
@@ -162,6 +199,15 @@ struct CollectionCoverThumbnail: View {
         let tier = decodeTier
         let key = contentKey
         if image != nil, loadedContentKey == key, tier <= loadedTier { return }
+        // 最初のフレームのためにメモリから同期で引いた絵があれば、それをそのまま持つ(`FirstFrameImage`。読み直すと同じ絵の
+        // 別の `CGImage` が届き、描き直しが 1 回増えるだけ)。
+        if image == nil, firstFrame.key == "\(key)|\(tier)", let source = firstFrame.source, let drawn = firstFrame.drawn {
+            onImageRetained?(source)
+            image = drawn
+            loadedTier = tier
+            loadedContentKey = key
+            return
+        }
         // アプリで 1 つのメモリキャッシュを通す(CollectionCoverStore.memoryCache のコメント)。戻ってきた・作り直した一覧は
         // ディスクを読まずに埋まる。
         let loaded = await coverStore.cachedImage(
@@ -175,7 +221,7 @@ struct CollectionCoverThumbnail: View {
         // 帳簿へは**切る前**の画像を渡す。CGImage.cropping(to:)が返すのは元画像を参照する
         // 部分画像で、実際に確保されている画素は切る前のぶんだから(LazyCellImageBudget)。
         onImageRetained?(loaded)
-        image = effectiveFit == .pad ? loaded : CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
+        image = drawnImage(from: loaded)
         loadedTier = tier
         loadedContentKey = key
     }

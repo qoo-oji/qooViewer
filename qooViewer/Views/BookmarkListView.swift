@@ -1054,7 +1054,9 @@ struct BookmarkEditorView: View {
         } else {
             // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
             // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
-            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: BookOpenRequest(url))
+            // 値の型は WindowGroup の`for:`と同じ WindowContentRequest で渡す(2026-09-27 まで BookOpenRequest をそのまま渡していて、
+            // 型の合うシーンが無いので何も開かず、編集ウインドウだけが閉じていた。表示の切り替えの監査で見つけた)。
+            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: WindowContentRequest.book(BookOpenRequest(url)))
         }
         closeEditorWindow()
     }
@@ -2168,7 +2170,9 @@ private struct BookmarkDetailPane: View {
         } else {
             // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
             // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
-            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: BookOpenRequest(url))
+            // 値の型は WindowGroup の`for:`と同じ WindowContentRequest で渡す(2026-09-27 まで BookOpenRequest をそのまま渡していて、
+            // 型の合うシーンが無いので何も開かず、編集ウインドウだけが閉じていた。表示の切り替えの監査で見つけた)。
+            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: WindowContentRequest.book(BookOpenRequest(url)))
             Task { @MainActor in
                 for _ in 0..<200 {
                     if let newAppState = launchCoordinator.openAppState(forBookID: bookID) {

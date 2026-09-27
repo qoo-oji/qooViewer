@@ -29,6 +29,9 @@ struct SidePanelLibraryTreeSection: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.locale) private var locale
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
+    /// 開く直前の確かめ(ブックマークの解決・存在確認)をメインの外で行う(CollectionItemOpenTracker。2026-09-27、
+    /// 表示の切り替えの監査の 11 ―― 以前はここでメインのまま `.userOpen` で解決し、応答しない共有の本だと約 30 秒固まった)。
+    @State private var openTracker = CollectionItemOpenTracker()
 
     @Binding var expandedLibraryIDs: Set<UUID>
     @Binding var expandedCollectionIDs: Set<UUID>
@@ -205,45 +208,49 @@ struct SidePanelLibraryTreeSection: View {
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
                 onOpenIn: { destination in
-                    guard let url = resolvedURL(item) else { return }
-                    onOpenInNewWindow(request(url, opening: item), destination)
+                    let makeRequest = requestMaker(opening: item)
+                    withResolvedURL(item) { url in onOpenInNewWindow(makeRequest(url), destination) }
                 }
             )
             Divider()
             Button("Show in Finder") {
-                guard let url = resolvedURL(item) else { return }
-                FinderReveal.reveal(url)
+                withResolvedURL(item) { url in FinderReveal.reveal(url) }
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let url = resolvedURL(item) else { return }
-                    revealInFileBrowser(url)
+                    withResolvedURL(item) { url in
+                        // 確かめを待つ間に機能が OFF になっていたら何もしない(await の後は確かめ直す)。
+                        guard revealInFileBrowser.isFeatureEnabled else { return }
+                        revealInFileBrowser(url)
+                    }
                 }
             }
         }
     }
 
     private func open(_ item: CollectionItem) {
-        guard let url = resolvedURL(item) else { return }
-        onOpen(request(url, opening: item))
+        let makeRequest = requestMaker(opening: item)
+        withResolvedURL(item) { url in onOpen(makeRequest(url)) }
     }
 
-    /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求。
-    private func request(_ url: URL, opening item: CollectionItem) -> BookOpenRequest {
+    /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求を作る。
+    /// 並びは押した時点で写し取る(確かめを待った後にモデルを読まない ―― その間に消えていることがある)。
+    private func requestMaker(opening item: CollectionItem) -> (URL) -> BookOpenRequest {
         let items = item.collection.map { collectionStore.items(in: $0, sort: itemSort) } ?? []
-        return BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item))
+        let sequence = BookSequence.collection(items, opening: item)
+        return { url in BookOpenRequest(url, sequence: sequence) }
     }
 
-    /// 開く直前にブックマークを解決する。見つからなければ警告音だけ鳴らす ―― 理由を書き分けた
+    /// 開く直前にブックマークを解決する(メインの外で。`openTracker`)。見つからなければ警告音だけ鳴らす ―― 理由を書き分けた
     /// アラート(「本が見つかりません」)はウェルカム画面のコレクションの中が持っており、細い
     /// パネルの行からは淡く描いてあることで伝える。
-    private func resolvedURL(_ item: CollectionItem) -> URL? {
-        guard let url = collectionStore.resolvedExistingURL(for: item, purpose: .userOpen) else {
-            NSSound.beep()
-            return nil
-        }
-        return url
+    private func withResolvedURL(_ item: CollectionItem, perform body: @escaping @MainActor (URL) -> Void) {
+        openTracker.resolve(
+            CollectionItemOpenProbe.Material(item),
+            onNotFound: { _ in NSSound.beep() },
+            body
+        )
     }
 
     /// 本の行のアイコン。コレクションに入るのは書庫・PDF・EPUB・フォルダだけなので、
