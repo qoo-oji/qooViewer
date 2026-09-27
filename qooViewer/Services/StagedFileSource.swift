@@ -18,6 +18,8 @@ nonisolated enum RandomAccessSourceError: Error {
     case readFailed(Int32)
     /// 読み込み層を止めた後の読み(本を閉じた・中止した)。
     case stopped
+    /// 手元の一時ファイルへ書けなかった(空きが無いなど)。ネットワークからは読めている。
+    case cacheWriteFailed(Int32)
 }
 
 /// ローカルのファイルを pread で読む出所(テスト、および読み込み層を通さないときの比較用)。
@@ -98,6 +100,10 @@ nonisolated func preadFully(fd: Int32, offset: UInt64, count: Int, size: UInt64)
 ///   解放されたときに消す。**読み終えた写しは残さない**(利用者の判断 2026-09-24)。
 /// - 全部揃ったらネットワーク上のファイルの記述子を閉じる(SMB のハンドルを握り続けない)。
 /// - 裏の取り寄せのスレッドはこの層を**1 回の取り寄せの間だけ**強参照する。利用者が全員手放せば、次の区切りで止まる。
+/// - **裏の取り寄せを頼んだ利用者(`StagedFillLease`)が全員手放しても、次の区切りで止まる**(2026-09-27 の監査)。以前は
+///   一度始めたら止める人がおらず、表紙を 1 枚作るために開いた本も、登録簿の猶予(30 秒)の間は丸ごと取り寄せ続けた。
+/// - 裏の取り寄せは、一時ファイルの置き場所の空きが `minimumFreeBytesForFill` を切ったら止める。手元へ書けなかった読みは、
+///   ネットワークから読んだバイト列をそのまま返す(空きが尽きても、ページが読めなくならない)。
 nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendable {
     let size: UInt64
     let blockSize: Int
@@ -126,12 +132,18 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
     private var lastForegroundFetchEnd = Date.distantPast
     private var hasForegroundRead = false
     private var stopped = false
-    private var backgroundStarted = false
+    /// 裏の取り寄せを頼んでいる数(`beginBackgroundFill` / `endBackgroundFill`)。0 になったら裏は止まる。
+    private var fillRequests = 0
+    /// 裏の取り寄せのスレッドが動いているか(止まった後にまた頼まれたら、作り直す)。
+    private var backgroundRunning = false
 
     /// 裏が前景に譲ったあと、取り寄せを再開するまでの間(飛び飛びの読みが続く間は割り込まない)。
     private static let idleGap: TimeInterval = 0.02
     /// 一度に取り寄せる並びの上限(前景)。
     private static let maxForegroundRun = 16 << 20
+
+    /// 裏の取り寄せを続ける、一時ファイルの置き場所の空きの下限(これを切ったら裏の取り寄せをやめる。前景の読みは続く)。
+    private static let minimumFreeBytesForFill: UInt64 = 1 << 30
 
     /// 前景・裏それぞれがネットワークから取り寄せた回数(テスト・計測用)。
     private(set) var foregroundFetchCount = 0
@@ -173,7 +185,7 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
     private func cacheDescriptor() throws -> Int32 {
         if cacheFD >= 0 { return cacheFD }
         let fd = open(cacheURL.path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw RandomAccessSourceError.readFailed(errno) }
+        guard fd >= 0 else { throw RandomAccessSourceError.cacheWriteFailed(errno) }
         // 大きさだけ先に決める(APFS ではスパースになり、書いたブロックの分しか場所を取らない)。
         ftruncate(fd, off_t(size))
         cacheFD = fd
@@ -198,13 +210,21 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
         lock.unlock()
     }
 
-    /// 残りを裏で取り寄せ始める(本をビューアで開いたときだけ。何度呼んでもよい)。
+    /// 残りを裏で取り寄せ始める(取りやめない頼み。テストと、手放すまで取り寄せ続けてよい利用者のため)。
+    /// 本を開く経路は `StagedFillLease`(手放したら頼みも取り下げる)を使う。
     func startBackgroundFill() {
+        beginBackgroundFill()
+    }
+
+    /// 裏の取り寄せを頼む(`endBackgroundFill` と対にする)。揃っている・空のファイルでは何もしない(待つスレッドを作らない ――
+    /// 以前は 0 バイトのファイルで、最初の前景の読みを永久に待つスレッドがこの層ごと残った)。
+    func beginBackgroundFill() {
         lock.lock()
-        let alreadyStarted = backgroundStarted
-        backgroundStarted = true
+        fillRequests += 1
+        let starts = !backgroundRunning && !stopped && presentCount < present.count
+        if starts { backgroundRunning = true }
         lock.unlock()
-        guard !alreadyStarted else { return }
+        guard starts else { return }
         let thread = Thread { [weak self] in
             // 1 回の取り寄せの間だけ強参照する(利用者が全員手放したら、次の区切りで止まる)。
             while let source = self, source.backgroundStep() {}
@@ -212,6 +232,14 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
         thread.name = "qooViewer.StagedFileSource"
         thread.qualityOfService = .utility
         thread.start()
+    }
+
+    /// 裏の取り寄せの頼みを取り下げる。頼みが無くなれば、裏は次の区切りで止まる(待っている間なら、すぐ)。
+    func endBackgroundFill() {
+        lock.lock()
+        fillRequests = max(0, fillRequests - 1)
+        lock.broadcast()
+        lock.unlock()
     }
 
     // MARK: - 前景の読み
@@ -247,12 +275,27 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
             lock.broadcast()
             lock.unlock()
         }
-        try ensure(blocks: firstBlock...fetchLast, required: firstBlock...lastBlock, isForeground: true)
+        do {
+            try ensure(blocks: firstBlock...fetchLast, required: firstBlock...lastBlock, isForeground: true)
+        } catch RandomAccessSourceError.cacheWriteFailed {
+            // 手元へ書けなかった(空きが無いなど)。ネットワークから直接読んで返す(ページが読めなくならないように)。
+            return try readRemoteDirectly(offset: offset, count: Int(end - offset))
+        }
         lock.lock()
         let fd = cacheFD
         lock.unlock()
         // 揃ったブロックがあるなら一時ファイルはある(作ってから取り寄せる)。
         return try preadFully(fd: fd, offset: offset, count: Int(end - offset), size: size)
+    }
+
+    /// 手元へ置かずに、ネットワーク上のファイルから直接読む(一時ファイルへ書けなかったとき)。記述子が閉じるのは全部揃った
+    /// ときだけで、そのときは手元へ書けているのでここへは来ない。
+    private func readRemoteDirectly(offset: UInt64, count: Int) throws -> Data {
+        lock.lock()
+        let fd = remoteFD
+        lock.unlock()
+        guard fd >= 0 else { throw RandomAccessSourceError.stopped }
+        return try preadFully(fd: fd, offset: offset, count: count, size: size)
     }
 
     private func block(containing offset: UInt64) -> Int {
@@ -364,7 +407,7 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
                 let n = pwrite(cfd, base + done, length - done, off_t(start) + off_t(done))
                 if n < 0 {
                     if errno == EINTR { continue }
-                    throw RandomAccessSourceError.readFailed(errno)
+                    throw RandomAccessSourceError.cacheWriteFailed(errno)
                 }
                 done += n
             }
@@ -376,7 +419,7 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
     /// 裏の取り寄せを 1 回ぶん進める。続けるなら true。
     private func backgroundStep() -> Bool {
         lock.lock()
-        while !stopped {
+        while !stopped && fillRequests > 0 {
             if !hasForegroundRead {
                 lock.wait()
                 continue
@@ -392,7 +435,9 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
             if quiet >= Self.idleGap { break }
             _ = lock.wait(until: Date().addingTimeInterval(Self.idleGap - quiet))
         }
-        if stopped || presentCount == present.count {
+        if stopped || fillRequests == 0 || presentCount == present.count || !Self.hasFreeSpaceForFill(cacheURL) {
+            // 止まる(また頼まれたら beginBackgroundFill がスレッドを作り直す)。
+            backgroundRunning = false
             lock.unlock()
             return false
         }
@@ -421,10 +466,20 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
         do {
             try ensure(blocks: start...end, required: start...start, isForeground: false)
         } catch {
-            // 読めなかった(切断など)。裏の取り寄せはやめる(前景の読みは、それぞれの読みで失敗を受け取る)。
+            // 読めなかった(切断など)・手元へ書けなかった。裏の取り寄せはやめる(前景の読みは、それぞれの読みで失敗を受け取る)。
+            lock.lock()
+            backgroundRunning = false
+            lock.unlock()
             return false
         }
         return true
+    }
+
+    /// 一時ファイルの置き場所に、裏の取り寄せを続けてよいだけの空きがあるか(`statfs` 1 回。分からなければ「ある」)。
+    private static func hasFreeSpaceForFill(_ cacheURL: URL) -> Bool {
+        var fs = statfs()
+        guard statfs(cacheURL.deletingLastPathComponent().path, &fs) == 0 else { return true }
+        return UInt64(fs.f_bavail) * UInt64(fs.f_bsize) >= minimumFreeBytesForFill
     }
 }
 
@@ -474,20 +529,23 @@ nonisolated final class StagedFileRegistry: @unchecked Sendable {
         return "\(url.path)|\(st.st_dev)|\(st.st_ino)|\(st.st_size)|\(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)"
     }
 
-    /// `url` の読み込み層(あれば共有、無ければ作る)。`startsBackgroundFill` なら残りを裏で取り寄せ始める。
-    func source(for url: URL, startsBackgroundFill: Bool) throws -> StagedFileSource {
+    /// `url` の読み込み層(あれば共有、無ければ作る)。裏の取り寄せは頼まない(`StagedFillLease` が頼む)。
+    ///
+    /// **ネットワーク上のファイルを開く(`open`・`fstat`)のはロックの外で**(2026-09-27 の監査)。応答しない共有のファイルを
+    /// 開くと SMB の時間切れ(約 30 秒)まで戻らないので、ロックを持ったままだと、ほかの(健全な共有の)本を開くすべての読みが
+    /// その後ろで待たされた。同じファイルを 2 つのスレッドが同時に開いたら、先に登録したほうを使い、後のものは捨てる。
+    func source(for url: URL) throws -> StagedFileSource {
         guard let key = Self.key(for: url) else { throw RandomAccessSourceError.cannotOpen }
+        lock.lock()
+        let existing = live[key]?.source
+        lock.unlock()
+        let opened = try existing ?? StagedFileSource(url: url)
         let source: StagedFileSource
         lock.lock()
-        if let existing = live[key]?.source {
-            source = existing
+        if let registered = live[key]?.source {
+            source = registered
         } else {
-            do {
-                source = try StagedFileSource(url: url)
-            } catch {
-                lock.unlock()
-                throw error
-            }
+            source = opened
             live[key] = WeakSource(source)
         }
         holds[key] = (source, Date().addingTimeInterval(gracePeriod))
@@ -500,7 +558,6 @@ nonisolated final class StagedFileRegistry: @unchecked Sendable {
         scheduleSweepIfNeeded()
         lock.unlock()
         released.removeAll()  // 強参照はロックの外で手放す
-        if startsBackgroundFill { source.startBackgroundFill() }
         return source
     }
 
@@ -544,5 +601,27 @@ nonisolated final class StagedFileRegistry: @unchecked Sendable {
         lock.unlock()
         // 強参照はここで手放す(利用者がいなければ、ここで一時ファイルが消える)。ロックの外で。
         released.removeAll()
+    }
+}
+
+/// 裏の取り寄せの頼み 1 つ(2026-09-27 の監査)。**持っている間だけ**、読み込み層が残りを裏で取り寄せる。
+///
+/// 本をめくる画面(ビューア・ブックマークとレイアウトの編集)の reader が、読み込み層の代わりにこれを出所として持つ。reader が
+/// 解放されれば頼みも取り下げられ、裏の取り寄せは次の区切りで止まる(登録簿の猶予で読み込み層そのものが残っていても)。
+/// 読みはそのまま読み込み層へ回す。
+nonisolated final class StagedFillLease: RandomAccessSource, @unchecked Sendable {
+    let source: StagedFileSource
+
+    init(_ source: StagedFileSource) {
+        self.source = source
+        source.beginBackgroundFill()
+    }
+
+    deinit { source.endBackgroundFill() }
+
+    var size: UInt64 { source.size }
+
+    func read(at offset: UInt64, count: Int) throws -> Data {
+        try source.read(at: offset, count: count)
     }
 }

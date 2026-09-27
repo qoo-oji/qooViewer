@@ -103,12 +103,18 @@ array is mutable so the viewer can reorder/exclude pages live without reopening 
 
 **Network volumes (2026-09-24/25)**: archives and PDFs on a volume without `MNT_LOCAL` (`NetworkVolumeReading`, via
 `MountTable`) are read through `StagedFileSource` — 64 KB blocks copied into a temp file (`TemporaryFileStore`), one large read
-per missing run, read-ahead scaled by bytes actually read sequentially, and (for books opened in the viewer, `stagesWholeFile`)
-the rest fetched in the background. The switch is in one place: `makeArchiveReader(kind:url:stagesWholeFile:)` and
+per missing run, read-ahead scaled by bytes actually read sequentially, and (for books opened in a page-turning screen — the viewer
+and Edit Bookmarks & Layout pass `PageLoader(stagesWholeFile: true)`; covers, thumbnails and exports must not) the rest fetched in
+the background **only while a `StagedFillLease` is held** — the reader/PDF provider holds it, so releasing the book stops the fill
+(2026-09-27 audit: before that every cover extraction fetched whole books and nothing ever stopped a fill). The fill also stops below 1 GB
+free, and a failed cache write falls back to the bytes read from the network. The switch is in one place: `makeArchiveReader(kind:url:stagesWholeFile:)` and
 `openPDFDocument(at:)` — **new code that opens an archive or a PDF file must go through them**, never `ZipArchiveReader(url:)` /
 `CGPDFDocument(url)` directly. zip uses `CentralDirectoryZipReader` (listing from the central directory only; kept answer-for-answer
-identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the one intended difference is documented on the
-type), rar/7z use the forks' positional-reader entry points. Page keys are unchanged. Copies are not kept after use (user decision);
+identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the two intended differences are documented on the
+type — the EOCD search stops 22+65535 bytes from the end, because an unbounded search pulled a whole non-zip file over the network and
+into memory; values read from an archive are untrusted, never `a + b` / `Int64(x)` on them), rar/7z use the forks' positional-reader
+entry points. unrar (built as a DLL) treats a read failure as the end of the archive, so `RarArchiveReader` records failures itself
+(`ReadFailureLog`) — a silently shorter page list made the book "look replaced" and dropped bookmarks. Page keys are unchanged. Copies are not kept after use (user decision);
 `StagedFileRegistry` shares one source per file and holds at most 4 unused ones for 30 s (each holds 2 fds). Hidden escape hatch
 `qooViewer.pref.networkVolumeStagedReading = false`; tests mark their own folder with `NetworkVolumeReading.treatAsRemoteForTesting`.
 unrar's error state is per thread in the fork (`ErrHandler` was process-wide: one thread's failure became another's result).
@@ -509,6 +515,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in
   New Window…). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
+  `close()` on a window with a sheet never calls the sheet's completion handler (measured), so `WindowSheet` ends its sheet with Cancel from
+  `willClose` of every window under it (`CloseWatch`) — several close paths (single-tab red button, Close Window over background tabs, the
+  slideshow's Close Tab) call `close()` without checking for sheets.
   Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
 - **Deleting saved data the user made is undoable** (2026-09-27): bookmarks, history, collections/libraries and removal from a
   collection go through `DataUndoStack` (per book window, `\.dataUndoStack`; tool windows use `ownsDataUndoStack()`), which snapshots

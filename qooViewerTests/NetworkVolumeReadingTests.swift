@@ -117,6 +117,82 @@ struct NetworkVolumeReadingTests {
         #expect(try reader.data(at: "003.jpg") == Data(repeating: 3, count: 100))
     }
 
+    @Test("zip ではないファイルは末尾の窓だけ読んで諦める(ファイル全体を読まない・メモリに載せない)")
+    func nonZipFileReadsOnlyTheTail() throws {
+        // 2026-09-27 の監査: 以前は EOCD を先頭まで探し、窓の外を 1MB ずつ読んで前へ連結していた(中身が RAR の .cbz・途中までの
+        // zip で、ファイル全体の取り寄せと、大きさの 2 乗の写し)。
+        let folder = try TemporaryDirectory("cdzip-notzip")
+        let url = folder.file("not-a-zip.cbz")
+        try Data(repeating: 0x41, count: 4 << 20).write(to: url)
+        let source = CountingSource(try LocalFileSource(url: url))
+        #expect(throws: (any Error).self) { _ = try CentralDirectoryZipReader(source: source) }
+        #expect(source.bytesRequested <= 128 * 1024, "\(source.bytesRequested) バイト読んだ")
+    }
+
+    @Test("意図した違い: 末尾に 64KB を超えるゴミが付いた zip は開かない(ZIPFoundation は先頭まで探して開く)")
+    func trailingGarbageBeyondCommentLimitIsNotAZip() throws {
+        let folder = try TemporaryDirectory("cdzip-trailing")
+        var writer = RawZipWriter()
+        writer.add("001.jpg", Data(repeating: 1, count: 100))
+        let zipURL = folder.file("plain.cbz")
+        try writer.write(to: zipURL)
+        let url = folder.file("trailing.cbz")
+        try (try Data(contentsOf: zipURL) + Data(repeating: 0x41, count: 70_000)).write(to: url)
+        #expect(try ZipArchiveReader(url: url).listFilePaths() == ["001.jpg"])
+        #expect(throws: (any Error).self) { _ = try CentralDirectoryZipReader(source: LocalFileSource(url: url)) }
+    }
+
+    @Test("細工された ZIP64 の値(上限近くの位置・大きさ)で落ちない")
+    func craftedZIP64ValuesDoNotTrap() throws {
+        // 2026-09-27 の監査: 位置 + 長さ・`Int64(大きさ)` が UInt64 / Int64 であふれて trap していた。
+        let folder = try TemporaryDirectory("cdzip-crafted")
+        // 0x07 は deflate として読むと「予約されたブロック型」(BTYPE=11)で、伸長は必ず失敗する(偶然伸長できて通らないように)。
+        let payload = Data(repeating: 7, count: 64)
+
+        // ローカルヘッダーの位置が上限近く → 一覧はそこで止まる。
+        var offsetWriter = RawZipWriter()
+        offsetWriter.add("000.jpg", payload)
+        offsetWriter.add("001.jpg", payload, zip64: true, centralZIP64: (64, 64, UInt64.max - 10))
+        let offsetURL = folder.file("offset.cbz")
+        try offsetWriter.write(to: offsetURL)
+        #expect(try CentralDirectoryZipReader(source: LocalFileSource(url: offsetURL)).listFilePaths() == ["000.jpg"])
+
+        // 圧縮サイズが Int64 の上限を超え、ローカルヘッダーは deflate → 取り出しは失敗するだけ。
+        var sizeWriter = RawZipWriter()
+        sizeWriter.add("000.jpg", payload)
+        sizeWriter.add("001.jpg", payload, zip64: true, centralZIP64: (64, UInt64.max, nil), localMethod: 8)
+        let sizeURL = folder.file("size.cbz")
+        try sizeWriter.write(to: sizeURL)
+        let sizeReader = try CentralDirectoryZipReader(source: LocalFileSource(url: sizeURL))
+        #expect(throws: (any Error).self) { try sizeReader.data(at: "001.jpg") }
+        #expect(try sizeReader.data(at: "000.jpg") == payload)
+
+        // ZIP64 の終わりのレコードが指す中央ディレクトリの位置が上限近く → 本は空(落ちない)。
+        var cdWriter = RawZipWriter()
+        cdWriter.add("000.jpg", payload)
+        let cdURL = folder.file("cd.cbz")
+        try cdWriter.write(to: cdURL, zip64EndRecord: true, zip64CentralOffset: UInt64.max - 5)
+        #expect(try CentralDirectoryZipReader(source: LocalFileSource(url: cdURL)).listFilePaths().isEmpty)
+    }
+
+    @Test("rar: 読み込み層の読みが途中で失敗したら、短い一覧ではなくエラーになる", arguments: ["rar/rar-flat.cbr", "rar/rar-solid.cbr"])
+    func rarReadFailureIsAnErrorNotAShorterList(path: String) throws {
+        // 2026-09-27 の監査: unrar は読み取りの失敗を「書庫がそこで終わった」として扱い、ページの少ない本として開いていた
+        // (「中身が差し替わった本」と判断されて読書位置・ブックマークが消え、短い一覧が構造キャッシュに残った)。
+        let url = Fixtures.url(path)
+        let full = try RarArchiveReader(source: LocalFileSource(url: url)).listFilePaths()
+        #expect(full.count > 1)
+        let failing = FailingSource(try LocalFileSource(url: url), failsFrom: try LocalFileSource(url: url).size / 2)
+        #expect(throws: ArchiveReaderError.readFailed) { _ = try RarArchiveReader(source: failing) }
+
+        // 一覧を取った後に失敗し始めた場合も、ページの読みは(途中までのデータではなく)エラーになる。
+        let later = FailingSource(try LocalFileSource(url: url), failsFrom: .max)
+        let reader = try RarArchiveReader(source: later)
+        #expect(try reader.listFilePaths().sorted() == full.sorted())
+        later.failsFrom = 0
+        #expect(throws: ArchiveReaderError.readFailed) { _ = try reader.data(at: full.sorted().last!) }
+    }
+
     /// 2 つの reader の答えをすべて突き合わせる。開けるかどうかも一致させる。
     private func expectSameAnswers(_ url: URL, sourceLocation: SourceLocation = #_sourceLocation) throws {
         let expected: ZipArchiveReader
@@ -245,6 +321,62 @@ struct NetworkVolumeReadingTests {
         #expect(!FileManager.default.fileExists(atPath: cacheURL.path), "一時ファイルが残った")
     }
 
+    @Test("読み込み層: 裏の取り寄せの頼み(StagedFillLease)を手放すと、裏は取り寄せない")
+    func releasedFillLeaseStopsTheBackgroundFill() async throws {
+        // 2026-09-27 の監査: 以前は一度始めた裏の取り寄せを止める人がおらず、表紙を 1 枚作るために開いた本も丸ごと取り寄せた。
+        let folder = try TemporaryDirectory("staged-lease")
+        let url = folder.file("book.bin")
+        try Data((0..<(2 * 1024 * 1024)).map { UInt8(truncatingIfNeeded: $0 &* 3) }).write(to: url)
+        let source = try StagedFileSource(url: url, blockSize: 4096, backgroundChunk: 16 * 1024)
+        // 裏は最初の前景の読みを待っている。その間に頼みを取り下げる。
+        var lease: StagedFillLease? = StagedFillLease(source)
+        _ = lease
+        lease = nil
+        _ = try source.read(at: 0, count: 100)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(source.backgroundFetchCount == 0)
+        #expect(!source.isComplete)
+
+        // 頼み直せば、また取り寄せる(スレッドを作り直す)。
+        let again = StagedFillLease(source)
+        for _ in 0..<300 where !source.isComplete { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.isComplete)
+        _ = again
+    }
+
+    @Test("読み込み層: 0 バイトのファイルで裏の取り寄せを頼んでも、読み込み層は残らない")
+    func emptyFileDoesNotPinTheSource() async throws {
+        // 2026-09-27 の監査: 以前は裏のスレッドが「最初の前景の読み」を永久に待ち、読み込み層(記述子)を握り続けた。
+        let folder = try TemporaryDirectory("staged-empty")
+        let url = folder.file("empty.cbz")
+        try Data().write(to: url)
+        weak var weakSource: StagedFileSource?
+        do {
+            let source = try StagedFileSource(url: url)
+            weakSource = source
+            let lease = StagedFillLease(source)
+            #expect(try lease.read(at: 0, count: 10).isEmpty)
+        }
+        for _ in 0..<100 where weakSource != nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(weakSource == nil)
+    }
+
+    @Test("読み込み層: 手元へ書けない(空きが無いなど)ときも、ネットワークから読んだバイト列を返す")
+    func cacheWriteFailureFallsBackToTheRemoteFile() throws {
+        let folder = try TemporaryDirectory("staged-nowrite")
+        let url = folder.file("book.bin")
+        let bytes = Data((0..<(300 * 1024)).map { UInt8(truncatingIfNeeded: $0 &* 17) })
+        try bytes.write(to: url)
+        // 書き込めない置き場所(一時ファイルを作れない)。
+        let readOnly = folder.url.appendingPathComponent("read-only", isDirectory: true)
+        try FileManager.default.createDirectory(at: readOnly, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnly.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnly.path) }
+        let source = try StagedFileSource(url: url, blockSize: 4096, cacheDirectory: readOnly)
+        #expect(try source.read(at: 1000, count: 50_000) == bytes.subdata(in: 1000..<51_000))
+        #expect(try source.read(at: 0, count: bytes.count) == bytes)
+    }
+
     @Test("読み込み層: 止めた後は、手元に無い部分の読みが失敗する(手元にある部分は読める)")
     func stoppedSourceFailsOnlyForMissingBlocks() throws {
         let folder = try TemporaryDirectory("staged-stop")
@@ -263,12 +395,12 @@ struct NetworkVolumeReadingTests {
         let url = folder.file("book.bin")
         try Data(repeating: 1, count: 10_000).write(to: url)
         let registry = StagedFileRegistry(gracePeriod: 60)
-        let first = try registry.source(for: url, startsBackgroundFill: false)
-        let second = try registry.source(for: url, startsBackgroundFill: false)
+        let first = try registry.source(for: url)
+        let second = try registry.source(for: url)
         #expect(first === second)
         // 大きさが変われば別の鍵(古い写しは使わない)。
         try Data(repeating: 2, count: 20_000).write(to: url)
-        let third = try registry.source(for: url, startsBackgroundFill: false)
+        let third = try registry.source(for: url)
         #expect(third !== first)
         #expect(try third.read(at: 0, count: 3) == Data([2, 2, 2]))
     }
@@ -283,8 +415,8 @@ struct NetworkVolumeReadingTests {
             try Data(repeating: UInt8(i), count: 1000).write(to: url)
             urls.append(url)
         }
-        let inUse = try registry.source(for: urls[0], startsBackgroundFill: false)
-        for url in urls.dropFirst() { _ = try registry.source(for: url, startsBackgroundFill: false) }
+        let inUse = try registry.source(for: urls[0])
+        for url in urls.dropFirst() { _ = try registry.source(for: url) }
         // 使っている 1 本 + 猶予の 2 本だけが生きている(ほかは手放された)。
         #expect(registry.liveCount == 3)
         #expect(try inUse.read(at: 0, count: 1) == Data([0]))
@@ -386,6 +518,33 @@ private nonisolated struct SplitMix64: RandomNumberGenerator {
     }
 }
 
+/// 頼まれた読みの量を数える出所(zip ではないファイルで、末尾の窓より多く読まないことを確かめる)。
+private nonisolated final class CountingSource: RandomAccessSource {
+    private let base: RandomAccessSource
+    private(set) var bytesRequested = 0
+    var size: UInt64 { base.size }
+    init(_ base: RandomAccessSource) { self.base = base }
+    func read(at offset: UInt64, count: Int) throws -> Data {
+        bytesRequested += count
+        return try base.read(at: offset, count: count)
+    }
+}
+
+/// `failsFrom` 以降を含む読みが失敗する出所(ネットワークの瞬断の見立て)。
+private nonisolated final class FailingSource: RandomAccessSource {
+    private let base: RandomAccessSource
+    var failsFrom: UInt64
+    var size: UInt64 { base.size }
+    init(_ base: RandomAccessSource, failsFrom: UInt64) {
+        self.base = base
+        self.failsFrom = failsFrom
+    }
+    func read(at offset: UInt64, count: Int) throws -> Data {
+        if count > 0, offset &+ UInt64(count) > failsFrom { throw RandomAccessSourceError.readFailed(EIO) }
+        return try base.read(at: offset, count: count)
+    }
+}
+
 /// スレッド安全なもの(読み込み層)を並行テストへ渡す箱。
 private nonisolated struct UncheckedSendableBox<T>: @unchecked Sendable {
     let value: T
@@ -400,14 +559,23 @@ private nonisolated struct RawZipWriter {
         let data: Data
         let zip64: Bool
         let encrypted: Bool
+        /// 中央ディレクトリの ZIP64 拡張欄に書く値(細工した書庫のため。nil の欄は実際の値)。
+        let centralZIP64: (uncompressed: UInt64?, compressed: UInt64?, offset: UInt64?)?
+        /// ローカルヘッダーの圧縮方式(中身は常に格納のまま)。
+        let localMethod: UInt16
     }
     private var entries: [Entry] = []
 
-    mutating func add(_ name: String, _ data: Data, zip64: Bool = false, encrypted: Bool = false) {
-        entries.append(Entry(name: Data(name.utf8), data: data, zip64: zip64, encrypted: encrypted))
+    mutating func add(
+        _ name: String, _ data: Data, zip64: Bool = false, encrypted: Bool = false,
+        centralZIP64: (uncompressed: UInt64?, compressed: UInt64?, offset: UInt64?)? = nil, localMethod: UInt16 = 0
+    ) {
+        entries.append(Entry(name: Data(name.utf8), data: data, zip64: zip64, encrypted: encrypted,
+                             centralZIP64: centralZIP64, localMethod: localMethod))
     }
 
-    func write(to url: URL, comment: Data = Data(), zip64EndRecord: Bool = false) throws {
+    /// - Parameter zip64CentralOffset: ZIP64 の終わりのレコードに書く中央ディレクトリの位置(細工した書庫のため)。
+    func write(to url: URL, comment: Data = Data(), zip64EndRecord: Bool = false, zip64CentralOffset: UInt64? = nil) throws {
         var out = Data()
         var central = Data()
         for entry in entries {
@@ -421,7 +589,7 @@ private nonisolated struct RawZipWriter {
                 localExtra.le(UInt16(1)); localExtra.le(UInt16(16))
                 localExtra.le(UInt64(entry.data.count)); localExtra.le(UInt64(entry.data.count))
             }
-            out.le(UInt32(0x0403_4b50)); out.le(version); out.le(flags); out.le(UInt16(0))
+            out.le(UInt32(0x0403_4b50)); out.le(version); out.le(flags); out.le(entry.localMethod)
             out.le(UInt16(0x6000)); out.le(UInt16(0x5A21)); out.le(crc); out.le(size32); out.le(size32)
             out.le(UInt16(entry.name.count)); out.le(UInt16(localExtra.count))
             out.append(entry.name); out.append(localExtra); out.append(entry.data)
@@ -429,7 +597,10 @@ private nonisolated struct RawZipWriter {
             var centralExtra = Data()
             if entry.zip64 {
                 centralExtra.le(UInt16(1)); centralExtra.le(UInt16(24))
-                centralExtra.le(UInt64(entry.data.count)); centralExtra.le(UInt64(entry.data.count)); centralExtra.le(offset)
+                let crafted = entry.centralZIP64
+                centralExtra.le(crafted?.uncompressed ?? UInt64(entry.data.count))
+                centralExtra.le(crafted?.compressed ?? UInt64(entry.data.count))
+                centralExtra.le(crafted?.offset ?? offset)
             }
             central.le(UInt32(0x0201_4b50)); central.le(UInt16(3 << 8 | 45)); central.le(version); central.le(flags)
             central.le(UInt16(0)); central.le(UInt16(0x6000)); central.le(UInt16(0x5A21)); central.le(crc)
@@ -445,7 +616,7 @@ private nonisolated struct RawZipWriter {
             let recordOffset = UInt64(out.count)
             out.le(UInt32(0x0606_4b50)); out.le(UInt64(44)); out.le(UInt16(45)); out.le(UInt16(45))
             out.le(UInt32(0)); out.le(UInt32(0)); out.le(UInt64(entries.count)); out.le(UInt64(entries.count))
-            out.le(UInt64(central.count)); out.le(centralOffset)
+            out.le(UInt64(central.count)); out.le(zip64CentralOffset ?? centralOffset)
             out.le(UInt32(0x0706_4b50)); out.le(UInt32(0)); out.le(recordOffset); out.le(UInt32(1))
         }
         out.le(UInt32(0x0605_4b50)); out.le(UInt16(0)); out.le(UInt16(0))

@@ -32,10 +32,14 @@ nonisolated enum NetworkVolumeReading {
     ///
     /// 作れないのは、一時ファイルを置く場所の空きが本の大きさに足りないとき(裏の取り寄せで本 1 冊ぶんを書くため)と、
     /// ファイルを開けないとき。
-    static func stagedSource(for url: URL, startsBackgroundFill: Bool) -> StagedFileSource? {
+    ///
+    /// - Parameter startsBackgroundFill: 残りを裏で取り寄せる(本をめくる画面だけ)。そのときは頼み(`StagedFillLease`)に
+    ///   包んで返す ―― 呼び出し側(reader・PDF の提供役)が手放すと、裏の取り寄せも止まる(2026-09-27 の監査)。
+    static func stagedSource(for url: URL, startsBackgroundFill: Bool) -> RandomAccessSource? {
         guard usesStagedReading(for: url) else { return nil }
         guard hasRoomForStaging(url) else { return nil }
-        return try? StagedFileRegistry.shared.source(for: url, startsBackgroundFill: startsBackgroundFill)
+        guard let source = try? StagedFileRegistry.shared.source(for: url) else { return nil }
+        return startsBackgroundFill ? StagedFillLease(source) : source
     }
 
     /// 一時ファイルの置き場所に、本の大きさ+余裕(1GB)の空きがあるか。分からなければ「ある」とみなす
@@ -91,14 +95,25 @@ nonisolated func openPDFDocument(at url: URL, stagesWholeFile: Bool = false) -> 
 }
 
 /// 読み込み層を `CGDataProvider`(位置を指定して読む直接読み出し)に包む。提供役が読み込み層を保持し、手放すときに解放する。
-private nonisolated func stagedDataProvider(_ source: StagedFileSource) -> CGDataProvider? {
+private nonisolated func stagedDataProvider(_ source: RandomAccessSource) -> CGDataProvider? {
+    stagedDataProvider(StagedProviderInfo(source))
+}
+
+/// `CGDataProvider` の info に渡す箱(出所は protocol なので、Unmanaged に載せられるクラスに包む)。
+private nonisolated final class StagedProviderInfo {
+    let source: RandomAccessSource
+    init(_ source: RandomAccessSource) { self.source = source }
+}
+
+private nonisolated func stagedDataProvider(_ box: StagedProviderInfo) -> CGDataProvider? {
+    let source = box.source
     var callbacks = CGDataProviderDirectCallbacks(
         version: 0,
         getBytePointer: nil,
         releaseBytePointer: nil,
         getBytesAtPosition: { info, buffer, position, count in
             guard let info else { return 0 }
-            let source = Unmanaged<StagedFileSource>.fromOpaque(info).takeUnretainedValue()
+            let source = Unmanaged<StagedProviderInfo>.fromOpaque(info).takeUnretainedValue().source
             // 読めなければ 0(CoreGraphics はその部分を読めなかったものとして扱う。ページが描けないだけで落ちない)。
             guard position >= 0, let data = try? source.read(at: UInt64(position), count: count) else { return 0 }
             data.copyBytes(to: buffer.assumingMemoryBound(to: UInt8.self), count: data.count)
@@ -106,12 +121,12 @@ private nonisolated func stagedDataProvider(_ source: StagedFileSource) -> CGDat
         },
         releaseInfo: { info in
             guard let info else { return }
-            Unmanaged<StagedFileSource>.fromOpaque(info).release()
+            Unmanaged<StagedProviderInfo>.fromOpaque(info).release()
         }
     )
-    let info = Unmanaged.passRetained(source).toOpaque()
+    let info = Unmanaged.passRetained(box).toOpaque()
     guard let provider = CGDataProvider(directInfo: info, size: off_t(source.size), callbacks: &callbacks) else {
-        Unmanaged<StagedFileSource>.fromOpaque(info).release()
+        Unmanaged<StagedProviderInfo>.fromOpaque(info).release()
         return nil
     }
     return provider

@@ -17,7 +17,7 @@ import ZIPFoundation
 /// 一覧のパス・種類・大きさ・日時、中身のバイト列は ZIPFoundation + ZipArchiveReader と**一致させる**:
 /// - パスの復号(UTF-8 フラグ → UTF-8、無ければ codepage437 → `EntryNameDecoder` で書庫単位の補正)
 /// - 種類の判定(`Entry.type` と同じ: 作成 OS が unix/osx なら外部属性の S_IFMT、msdos なら属性ビット、ほかは末尾の "/")
-/// - EOCD の探し方(末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名。上限なし)
+/// - EOCD の探し方(末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名。範囲は下の「違い」の 2 つ目)
 /// - ZIP64 の拾い方(locator は EOCD の直前 20 バイト、record はさらにその直前 56 バイトと決め打ち。拡張欄の値は 0 でなければ使う)
 /// - 暗号化されたエントリで一覧が**止まる**こと(ZIPFoundation の Entry の init が nil を返し、反復が終わる)
 /// - 補正後に同じパスになるエントリは先のものを採ること
@@ -26,10 +26,15 @@ import ZIPFoundation
 /// 2026-09-24 に、テストのフィクスチャ全件・境界ケース 22 本・実際の蔵書 8,266 本で突き合わせて一致を確かめた
 /// (CentralDirectoryZipReaderTests が常に見ている)。
 ///
-/// **違いは 1 つだけ(意図したもの)**: 中央ディレクトリは無事で、途中のローカルヘッダーだけが壊れた書庫。ZIPFoundation は
-/// 一覧の時点でそこで打ち切るが、こちらは一覧に含め、そのエントリを取り出すときに失敗する(ページが増え、壊れたページが
-/// 「読めないページ」になる)。ローカルヘッダーを一覧の時点で読まないことがこの reader の目的なので、揃えない。
-/// ただし読まなくても分かる失敗(ローカルヘッダーの位置がファイルの終わりより後ろ)では、同じく一覧を打ち切る。
+/// **違いは 2 つ(どちらも意図したもの)**:
+/// 1. 中央ディレクトリは無事で、途中のローカルヘッダーだけが壊れた書庫。ZIPFoundation は一覧の時点でそこで打ち切るが、
+///    こちらは一覧に含め、そのエントリを取り出すときに失敗する(ページが増え、壊れたページが「読めないページ」になる)。
+///    ローカルヘッダーを一覧の時点で読まないことがこの reader の目的なので、揃えない。ただし読まなくても分かる失敗
+///    (ローカルヘッダーの位置がファイルの終わりより後ろ)では、同じく一覧を打ち切る。
+/// 2. EOCD を探すのは末尾から 22+65535 バイト(EOCD+コメントの最大長)まで(2026-09-27 の監査)。ZIPFoundation はファイルの
+///    先頭まで探すので、**末尾に 64KB を超えるゴミが付いた zip** だけは、あちらが開けてこちらは開けない。上限なしで探すと、
+///    zip ではないファイル(中身が RAR の .cbz・途中までの zip)1 本ごとにファイル全体をネットワークから取り寄せることになる。
+/// 細工・破損した書庫の値(位置・大きさ)で落ちないことも、ZIPFoundation とは揃えない(あちらは同じ値で trap しうる)。
 ///
 /// スレッド安全ではない(ほかの reader と同じ。PageLoader の actor などの中で 1 つのスレッドから使う)。出所は共有してよい。
 nonisolated final class CentralDirectoryZipReader: ArchiveReading {
@@ -68,6 +73,10 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
     /// 型を決めた定数にしてある(`min(fileSize, 65_535 + 22 + …)` と書くと、Xcode 26.6 の型推論が時間切れで失敗した。CI、2026-09-25)。
     private static let tailWindow: UInt64 = 65_535 + 22 + 20 + 56 + 1024
 
+    /// EOCD の先頭がファイルの終わりから離れうる最大の距離(EOCD 22 バイト+コメント最大 65535 バイト)。これより前は探さない。
+    /// 末尾の窓(`tailWindow`)に収まる。
+    private static let maxEOCDDistance: UInt64 = 22 + 65_535
+
     /// 取り出しの 1 回の読みの上限。smbfs は 1 回の read を 256KB〜1MB の要求に分けて並べて送るので、1 回 ≒ 1 往復+転送。
     private static let readChunk = 4 * 1024 * 1024
 
@@ -87,32 +96,31 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
     private func readCentralDirectory() throws {
         // 末尾をまとめて読む(tailWindow)。
         let tailLength = Int(min(fileSize, Self.tailWindow))
-        var tailStart = fileSize - UInt64(tailLength)
-        var tail = try read(tailStart, tailLength)
+        let tailStart = fileSize - UInt64(tailLength)
+        let tail = try read(tailStart, tailLength)
 
-        // ZIPFoundation と同じく、末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名を採る(上限なし)。
+        // ZIPFoundation と同じく、末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名を採る。**ただし探すのは EOCD が
+        // 置かれうる範囲(末尾から 22+65535 バイト。コメントの最大長)まで**(2026-09-27 の監査。型コメントの「違いは 2 つ」)。
+        // 以前は ZIPFoundation と同じく上限なしで、窓の外は 1MB ずつ読んで前へ連結していた ―― 中身が RAR の .cbz や途中までしか
+        // コピーされていない zip では、ファイル全体をネットワークから取り寄せ、全体をメモリに載せ、連結のたびに全体を写していた
+        // (254MB のファイルで最大フットプリント約 15GB・数秒。フォルダをアイコン表示してサムネイルを作るだけで起きた)。
         var eocdOffset: UInt64?
+        let searchFloor = fileSize > Self.maxEOCDDistance ? fileSize - Self.maxEOCDDistance : 0
         var position = Int64(fileSize) - 22
-        while position >= 0 {
-            let p = UInt64(position)
-            if p < tailStart {
-                // 末尾の窓の外(zip ではないファイルでだけ起きる)。1MB ずつ前へ広げる。
-                let newStart = p >= 1 << 20 ? p - (1 << 20) + 1 : 0
-                tail = try read(newStart, Int(tailStart - newStart)) + tail
-                tailStart = newStart
-            }
-            let i = Int(p - tailStart)
+        while position >= Int64(searchFloor) {
+            let i = Int(UInt64(position) - tailStart)
             if i + 4 <= tail.count, tail.le32(i) == 0x0605_4b50 {
-                eocdOffset = p
+                eocdOffset = UInt64(position)
                 break
             }
             position -= 1
         }
         guard let eocdOffset else { throw ReaderError.missingEndOfCentralDirectory }
 
-        // 読んである末尾の窓の中ならそこから、外なら読む。
+        // 読んである末尾の窓の中ならそこから、外なら読む。位置は書庫の中の値(細工・破損しうる)なので、足し算があふれない形で比べる
+        // (`offset + count` は UInt64 の上限近くの値で trap した。2026-09-27 の監査)。
         func bytes(_ offset: UInt64, _ count: Int) throws -> Data {
-            if offset >= tailStart, offset + UInt64(count) <= tailStart + UInt64(tail.count) {
+            if offset >= tailStart, count <= tail.count, offset - tailStart <= UInt64(tail.count - count) {
                 let i = Int(offset - tailStart)
                 return tail.subdata(in: i..<(i + count))
             }
@@ -179,7 +187,8 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
             // ZIPFoundation はここでローカルヘッダーを読み、読めなければ一覧を打ち切る。こちらは読まないが、**読まなくても
             // 分かる失敗**(ファイルの終わりより後ろ)だけは同じく打ち切る。ZIP64 の拡張欄の位置が 0(=先頭のエントリ)だと
             // ZIPFoundation は 32 ビットの 0xFFFFFFFF の方を使うので、小さな書庫ではここに当たる(テストで見つけた、2026-09-24)。
-            guard localOffset + 30 <= fileSize else { break }
+            // 位置は ZIP64 の拡張欄から任意の 64 ビット値で来うるので、`localOffset + 30` とは書かない(あふれて trap した。2026-09-27 の監査)。
+            guard fileSize >= 30, localOffset <= fileSize - 30 else { break }
             let versionMadeBy = cd.le16(cursor + 4)
             let external = cd.le32(cursor + 38)
             // ZIPFoundation の Entry.path と同じ(Darwin では String(data:encoding:) ?? "")。
@@ -334,7 +343,9 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
                 position += UInt64(chunk.count)
             }
         } else {
-            _ = try Data.decompress(size: Int64(total), bufferSize: outputChunk, skipCRC32: true,
+            // 大きさは ZIP64 の拡張欄から Int64 の上限を超える値で来うる(`Int64(total)` は trap した。2026-09-27 の監査)。
+            // 丸めても、読めるのはファイルの終わりまで。
+            _ = try Data.decompress(size: Int64(clamping: total), bufferSize: outputChunk, skipCRC32: true,
                                     provider: provide, consumer: consumer)
         }
     }

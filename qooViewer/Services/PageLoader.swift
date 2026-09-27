@@ -220,6 +220,8 @@ actor PageLoader {
     /// (読むだけでも、ヒットしたファイルの更新日時を触るため)。メモリ上のキャッシュは本を閉じれば
     /// 消えるので、そちらは通常どおり使う。
     private let usesThumbnailDiskCache: Bool
+    /// ネットワークボリューム上の本の残りを裏で取り寄せるか(init のコメント)。
+    private let stagesWholeFile: Bool
 
     /// - Parameter imageCacheLimitBytes: ページ画像のメモリキャッシュ(imageCache)の上限。
     ///   画面から作る場合は環境設定「キャッシュ」の値を渡す(AppPreferences.pageImageCacheLimitBytes)。
@@ -230,15 +232,19 @@ actor PageLoader {
         contrastCorrectionEnabled: Bool = false,
         usesThumbnailDiskCache: Bool = true,
         imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024,
-        nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes
+        nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
+        stagesWholeFile: Bool = false
     ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
-        // ネットワークボリューム上の本は、開いたら残りを裏で手元へ取り寄せる(読み進めるうちにいずれ全部要る。
-        // NetworkVolumeReading / StagedFileSource 参照)。
+        self.stagesWholeFile = stagesWholeFile
+        // ネットワークボリューム上の本を、開いたら残りを裏で手元へ取り寄せるか(読み進めるうちにいずれ全部要る。
+        // NetworkVolumeReading / StagedFileSource 参照)。**本をめくる画面だけ**(ビューア・ブックマークとレイアウトの編集)。
+        // 以前は常に取り寄せていたので、コレクションの表紙・ファイルブラウザの表紙ページのサムネイルを 1 枚作るたびに、本を
+        // 丸ごとネットワークから取り寄せていた(2026-09-27 の監査)。書き出しは全ページを順に読むので、要るぶんの取り寄せで足りる。
         self.resolver = NestedArchiveResolver(
-            limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes), stagesWholeFile: true
+            limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes), stagesWholeFile: stagesWholeFile
         )
         imageCache.totalCostLimit = imageCacheLimitBytes
     }
@@ -1523,7 +1529,7 @@ actor PageLoader {
         switch container {
         case .file(let url):
             // ネットワークボリューム上なら読み込み層を通し、残りを裏で取り寄せる(openPDFDocument のコメント)。
-            document = openPDFDocument(at: url, stagesWholeFile: true)
+            document = openPDFDocument(at: url, stagesWholeFile: stagesWholeFile)
         case .entry(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }
             document = BookLoader.pdfDocument(atEntry: entryPath, in: reader)

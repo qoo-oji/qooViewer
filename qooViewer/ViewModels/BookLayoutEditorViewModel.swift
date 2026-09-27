@@ -266,7 +266,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // releaseResources()のコメント参照)。
         guard !hasReleasedResources else { return }
         book = loaded
-        pageLoader = PageLoader(book: loaded, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
+        // 本をめくる画面なので、ネットワークボリューム上の本は残りを裏で取り寄せる(PageLoader.init のコメント)。
+        pageLoader = PageLoader(book: loaded, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true)
         pageLoaderGeneration &+= 1
         isBookReady = true
 
@@ -299,7 +300,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         book = loaded
         pageLoader = PageLoader(
             book: loaded, usesThumbnailDiskCache: usesDiskCaches,
-            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes
+            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true
         )
         pageLoaderGeneration &+= 1
         isBookReady = true

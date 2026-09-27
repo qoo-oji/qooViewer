@@ -8,6 +8,9 @@ enum ArchiveReaderError: Error {
     case entryTooLarge
     /// 分割された書庫(rar の複数ボリューム)。ファイルブラウザの展開は扱わない(段階 6)。
     case multiVolume
+    /// 書庫の読み取りが途中で失敗した(ネットワークの瞬断など)。ライブラリが「そこで書庫が終わった」として短い結果を
+    /// 返しても、こちらで失敗に直す(RarArchiveReader.ReadFailureLog)。
+    case readFailed
 }
 
 /// 書庫の中の 1 項目(ファイルブラウザの展開で使う。改善要望7 段階 6、2026-09-14)。

@@ -57,6 +57,56 @@ enum WindowSheet {
         Task { @MainActor in work() }
     }
 
+    /// 出す先を決めたときに辿ったウインドウ(渡されたウインドウ、またはキーウインドウから、いちばん上のシートまで)。
+    private static func chain(from window: NSWindow?) -> [NSWindow] {
+        guard var current = window ?? NSApp.keyWindow else { return [] }
+        var windows = [current]
+        while let sheet = current.attachedSheet {
+            windows.append(sheet)
+            current = sheet
+        }
+        return windows
+    }
+
+    /// **シートを出したまま、その下のウインドウが閉じられたら、シートを Cancel で終わらせる**(2026-09-27 の監査)。
+    ///
+    /// シートの付いたウインドウに`close()`を呼ぶと、AppKit はシートの完了ハンドラを**呼ばない**(保存パネル・アラートとも、
+    /// 単体の AppKit で実測。macOS 27)。`run`の continuation が再開せず、待っている側 ―― ファイル操作の列(終了の確認に
+    /// 数える`RunningWorkRegistry`も)、書き出しの Task ―― が止まったままになっていた。`close()`はシートを確かめない経路から
+    /// 呼ばれる: タブ 1 枚のウインドウの赤い閉じるボタン(独自の target を付けているので、シートの間も押せる。
+    /// BookClosingWindowDelegate のコメント)、裏のタブも閉じる「ウインドウを閉じる」、スライドショーの終わりの「タブを閉じる」。
+    /// `willClose`の中で`endSheet`すれば完了ハンドラが Cancel で呼ばれることを実測した。閉じる経路ごとに断るより、ここで
+    /// 一度に塞ぐ(新しい閉じる経路が増えても漏れない)。見張るのは、出す先を決めるときに辿ったウインドウすべて(SwiftUI の
+    /// シートの上に重ねたときは、その下の本のウインドウが閉じても知らせはシートのウインドウには来ない)。
+    @MainActor
+    private final class CloseWatch {
+        private weak var sheet: NSWindow?
+        private var tokens: [NSObjectProtocol] = []
+
+        init(sheet: NSWindow, windows: [NSWindow]) {
+            self.sheet = sheet
+            tokens = windows.map { window in
+                // queue: nil ―― 閉じる処理の中で(ウインドウが消える前に)同期して受ける。
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.willCloseNotification, object: window, queue: nil
+                ) { [self] _ in
+                    MainActor.assumeIsolated { endSheet() }
+                }
+            }
+        }
+
+        private func endSheet() {
+            guard let sheet, let parent = sheet.sheetParent else { return }
+            parent.endSheet(sheet, returnCode: .cancel)
+        }
+
+        /// 完了ハンドラから呼ぶ(見張りを外す)。
+        func stop() {
+            for token in tokens { NotificationCenter.default.removeObserver(token) }
+            tokens = []
+        }
+    }
+
     // MARK: 保存パネル・開くパネル
 
     /// パネルを出し、閉じたら`completion`を呼ぶ。出す先は呼んだ時点で決める(同期の呼び出し元から使う)。
@@ -66,7 +116,11 @@ enum WindowSheet {
     ) {
         switch placement(for: window) {
         case .sheet(let host):
-            panel.beginSheetModal(for: host) { response in afterSheetIsGone { completion(response) } }
+            let watch = CloseWatch(sheet: panel, windows: chain(from: window))
+            panel.beginSheetModal(for: host) { response in
+                MainActor.assumeIsolated { watch.stop() }
+                afterSheetIsGone { completion(response) }
+            }
         case .appModal:
             completion(panel.runModal())
         case .busy:
@@ -94,8 +148,12 @@ enum WindowSheet {
         }
         let alertWindow = ObjectIdentifier(alert.window)
         presentedAlertWindows.insert(alertWindow)
+        let watch = CloseWatch(sheet: alert.window, windows: chain(from: window))
         alert.beginSheetModal(for: host) { response in
-            MainActor.assumeIsolated { _ = presentedAlertWindows.remove(alertWindow) }
+            MainActor.assumeIsolated {
+                watch.stop()
+                _ = presentedAlertWindows.remove(alertWindow)
+            }
             afterSheetIsGone { completion(response) }
         }
     }

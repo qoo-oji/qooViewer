@@ -91,7 +91,8 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | `GeneratedFixtureTests` | テストの中で作る本(フォルダ・zip・EPUB・PDF)を開く |
 | `ArchiveReaderTests` | `ArchiveReading` の適合(zip / 7z / rar × ファイル入力 / メモリ入力) |
 | `NestedArchiveResolverTests` | 入れ子の書庫の予算・行き先・一時ファイルの寿命・LRU |
-| `NetworkVolumeReadingTests` | ネットワークボリューム上の書庫の読み方 ―― `CentralDirectoryZipReader` が zip 系フィクスチャ全件と境界ケース(ZIP64・コメント・先頭のゴミ・同名・暗号化)で ZIPFoundation と同じ答えを返すこと(意図した違い 1 つを含む)、読み込み層(任意の位置・大きさ、並行、揃ったら元が消えても読める、解放で一時ファイルが消える、止めた後、登録簿の共有と上限)、ネットワーク上とみなした書庫の本と PDF がローカルと同じページ一覧・バイト列・描画になること |
+| `NetworkVolumeReadingTests` | ネットワークボリューム上の書庫の読み方 ―― `CentralDirectoryZipReader` が zip 系フィクスチャ全件と境界ケース(ZIP64・コメント・先頭のゴミ・同名・暗号化)で ZIPFoundation と同じ答えを返すこと(意図した違い 2 つを含む)、読み込み層(任意の位置・大きさ、並行、揃ったら元が消えても読める、解放で一時ファイルが消える、止めた後、登録簿の共有と上限、裏の取り寄せの頼みを手放すと止まる、0 バイトのファイルで残らない、手元へ書けないときはネットワークから返す)、zip でないファイルで末尾だけ読む・細工した ZIP64 の値で落ちない、rar の読み取りの失敗が短い一覧ではなくエラーになること、ネットワーク上とみなした書庫の本と PDF がローカルと同じページ一覧・バイト列・描画になること |
+| `WindowSheetTests` | シートを出したままウインドウが閉じられたら、`WindowSheet.run` が Cancel で終わること(待っている側が止まったままにならない。2026-09-27) |
 | `ZipEntryNameTests` | UTF-8 フラグ無しの zip のファイル名の補正(`EntryNameDecoder` の黒箱) |
 | `BookLoaderBehaviorTests` | 中止・進み具合・メモリ予算・`load(imageFiles:)` |
 | `BookInternalBrowsingTests` | 本の中身ブラウザの `matchKey` と並び |

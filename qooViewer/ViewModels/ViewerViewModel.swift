@@ -494,7 +494,9 @@ final class ViewerViewModel: ObservableObject {
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
             usesThumbnailDiskCache: usesDiskCaches ?? !skipsPersistence,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
-            nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes
+            nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes,
+            // ネットワークボリューム上の本は、残りを裏で手元へ取り寄せる(本をめくる画面。PageLoader.init のコメント)。
+            stagesWholeFile: true
         )
         Self.openBookCounter.withLock { $0 += 1 }
 
