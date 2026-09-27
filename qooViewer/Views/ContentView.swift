@@ -555,6 +555,8 @@ struct ContentView: View {
         // `@EnvironmentObject var appearance` で読む。シーン側(QooViewerApp.contentWindow)が渡すのはノーマルの揃いで、
         // ここで上書きする。
         windowBody.environmentObject(effectiveAppearance)
+            // 削除の取り消しの積み場所(DataUndoStack)。ホーム・ビューア・サイドパネルがここから受け取る。
+            .environment(\.dataUndoStack, appState.dataUndo)
     }
 
     private var windowBody: some View {
@@ -595,6 +597,7 @@ struct ContentView: View {
                 hideSidePanel: appState.hideSidePanel,
                 isSlideshowActive: appState.isSlideshowActive,
                 isLoupeActive: appState.isLoupeActive,
+                isPinchZoomed: appState.isPinchZoomed,
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
                 scalingMode: appState.currentScalingMode,
@@ -1535,8 +1538,8 @@ struct ContentView: View {
                 DispatchQueue.main.async { sidePanelRenameText = bookmark.name }
             },
             // ブックマークだけは確認を挟まずその場で消す(SidePanelView側のコメント参照)。
-            onDeleteBookmark: { bookmark in
-                bookmarkStore.delete(bookmark)
+            onDeleteBookmark: { [weak appState] bookmark in
+                DataUndoStack.deleteBookmarks([bookmark], in: bookmarkStore, recordingOn: appState?.dataUndo)
             },
             // ブックマークモード下段のライブラリのツリーは、このウインドウのウェルカム画面と
             // 同じ並び順で並べる(SidePanelLibraryTreeSectionの型コメント)。

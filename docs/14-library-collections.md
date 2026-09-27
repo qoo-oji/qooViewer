@@ -1008,6 +1008,11 @@ StackNest では画面の上にある絞り込み(フィルタのポップオー
 
 ## 環境設定・JSON・削除
 
+- **削除の取り消し**(2026-09-27): コレクション・ライブラリの削除とコレクションからの削除は ⌘Z で戻せる。仕組み・表紙のファイルを
+  後で消すこと・確認の有無は [09](09-ui-and-windows.md)「その他の小さな約束」。ストアの口は `CollectionStore` の「取り消せる削除」
+  (`deleteRecording` / `removeRecording` / `restore` / `reapply` / `finalizeDeletion` / `finalizeRemoval`)。戻した本は `insert` の後で
+  `item.collection` をつなぐ(作るときにつなぐと、外した本を同じコレクションへ戻したとき `collection.items` に載らなかった)。
+
 - **環境設定「外観」→「ホーム」**(`PanelSurfaceSettingsView.welcomeSections`):
   「ライブラリ」セクション(一覧の札のコレクション名の大きさ・**冊数バッジの大きさ**)と「コレクション」セクション
   (カバーの下の表示: 表示しない(既定)/ ファイル名 / タイトル、その文字の大きさ)。

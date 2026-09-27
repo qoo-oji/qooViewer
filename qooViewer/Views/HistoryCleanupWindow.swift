@@ -25,6 +25,8 @@ import AppKit
 /// ためである。
 struct HistoryCleanupWindow: View {
     @EnvironmentObject private var recentFiles: RecentFilesStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     /// 列幅の実測に使う表示言語(LibraryCleanupWindowと同じ理由・同じ書き方)。
     @Environment(\.locale) private var locale
 
@@ -122,10 +124,12 @@ struct HistoryCleanupWindow: View {
                         : "Remove “\(deletion.displayName ?? "")” from the history?"
                 ),
                 message: Text(
-                    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
+                    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
                 ),
                 primaryButton: .destructive(Text("Remove")) {
-                    recentFiles.remove(recentFiles.entries.filter { deletion.paths.contains($0.id) })
+                    DataUndoStack.removeHistory(
+                        recentFiles.entries.filter { deletion.paths.contains($0.id) }, in: recentFiles, recordingOn: dataUndo
+                    )
                 },
                 secondaryButton: .cancel()
             )

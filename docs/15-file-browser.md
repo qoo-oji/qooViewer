@@ -359,6 +359,16 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
   増減したら読み直す(そのフォルダの変更日と変更日順の並びが古いままだった。書き換えだけでは読み直さない)、イベントがあふれた知らせは
   表示中のフォルダの上でも下でも読み直す、初めて張るストリームは一覧を読み始める前のイベント ID から(`FolderChangeWatcher.watch(_:startingAt:)`)。
 
+## クイックルック(2026-09-27、監査 27)
+
+リスト・アイコン表示でスペースを押すと、選んでいる項目をクイックルックで見せる(もう一度スペース・Esc で閉じる)。
+`QLPreviewPanel` はアプリで 1 枚の共有のパネルで、中身を渡す役は responder chain で決まる: 一覧の NSView
+(`FileBrowserTableView` / `FileBrowserCollectionView`)が `acceptsPreviewPanelControl` に答え、受け渡しは一覧ごとの
+`FileBrowserQuickLook` が受け持つ。見せるのはいまの選択(`FileBrowserState.selection`)で、パネルを出している間に選択が
+変われば取り直す。パネルが受けたキーは一覧へ回すので、矢印で次の項目へ移る。書庫の本・PDF・フォルダの見え方は macOS の
+クイックルックに任せる(zip は中身の一覧など。利用者の判断)。スペースは頭文字での選択より先に受ける。読み取り専用モードでも使える。
+左のツリーでは出さない(Finder のサイドバーと同じ)。
+
 ## 選択・スクロール先は「パス」で持つ
 
 列挙はフォルダの URL を末尾 `/` 付きで返し、外から渡される URL には付いていないことが多いので、URL の `==` では

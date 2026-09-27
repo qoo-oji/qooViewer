@@ -17,6 +17,8 @@ import SwiftUI
 /// (ユーザー報告 2026-09-09)。
 struct CollectionGridView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
@@ -163,9 +165,9 @@ struct CollectionGridView: View {
             Button("Delete", role: .destructive) { confirmDeletion() }
         } message: {
             if deletingCollectionIDs.count == 1 {
-                Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+                Text("The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo.")
             } else {
-                Text("The books themselves are not deleted. Only these collections and their cover images are removed.")
+                Text("The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo.")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
@@ -223,7 +225,7 @@ struct CollectionGridView: View {
         let targets = deletingCollectionIDs.compactMap { collectionStore.collection(withID: $0) }
         deletingCollectionIDs = []
         guard !targets.isEmpty else { return }
-        collectionStore.delete(targets)
+        DataUndoStack.deleteCollections(targets, in: collectionStore, recordingOn: dataUndo)
         state.clearSelection()
     }
 

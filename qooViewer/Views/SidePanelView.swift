@@ -1663,6 +1663,8 @@ private struct SidePanelBookmarksSectionView: View {
 /// するのがこのモードの目的(ユーザー要望)。保持件数は環境設定「一般」タブの
 /// 「履歴の保存件数」で変更できる(既定30件)。
 private struct SidePanelHistorySectionView: View {
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var recentFiles: RecentFilesStore
@@ -1743,10 +1745,10 @@ private struct SidePanelHistorySectionView: View {
             Button("Cancel", role: .cancel) {}
             // 確定ボタンは題の動作と同じ語(2026-09-27、監査 37。英語では "Clear History?" に "Delete" だった。日本語は「履歴をすべて削除」)。
             Button("Clear History", role: .destructive) {
-                recentFiles.removeAll()
+                DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: dataUndo)
             }
         } message: {
-            Text("This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched.")
+            Text("This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo.")
         }
     }
 
@@ -1825,7 +1827,7 @@ private struct SidePanelHistorySectionView: View {
             // 「すべて消去」と違って確認のアラートは挟まない。対象が1件だけで、消えたことが
             // 一覧からすぐ分かり、もう一度開けば履歴に戻る(record(url:))ため。
             Button("Remove from History", role: .destructive) {
-                recentFiles.remove(entry)
+                DataUndoStack.removeHistory([entry], in: recentFiles, recordingOn: dataUndo)
             }
         }
     }

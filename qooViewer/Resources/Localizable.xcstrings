@@ -69,6 +69,118 @@
         }
       }
     },
+    "Bookmark Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークの削除"
+          }
+        }
+      }
+    },
+    "Collection Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの削除"
+          }
+        }
+      }
+    },
+    "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
+    "History Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "History Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の削除"
+          }
+        }
+      }
+    },
+    "Library Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリの削除"
+          }
+        }
+      }
+    },
+    "Removal from Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removal from Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションからの削除"
+          }
+        }
+      }
+    },
+    "Reset Zoom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Zoom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大を解除"
+          }
+        }
+      }
+    },
     "Show Progress Bar" : {
       "localizations" : {
         "en" : {
@@ -113,6 +225,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ツールバーを表示"
+          }
+        }
+      }
+    },
+    "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
+    "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
+    "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本のブックマークをすべて削除します。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
+    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の一覧と、ファイルメニューの「最近使った項目を開く」から、すべての項目を削除します。ファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
+    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }

@@ -140,3 +140,46 @@ final class Bookmark {
 extension Notification.Name {
     static let bookmarksDidChange = Notification.Name("qooViewer.bookmarksDidChange")
 }
+
+extension Bookmark {
+    /// 取り消しのための控え(2026-09-27、監査 34。`BookmarkStore.deleteRecording`)。id・日付・セキュリティスコープ付きの
+    /// ブックマークまで写すので、書き戻した行は元の行と見分けが付かない(id を鍵に引く所 ―― `resolveKeys` やサイドパネルの
+    /// 一覧 ―― も元どおりに働く)。
+    struct Snapshot: Equatable, Sendable {
+        let id: UUID
+        let bookID: String
+        let pageIndex: Int
+        let pageKey: String?
+        let name: String
+        let createdAt: Date
+        let updatedAt: Date
+        let bookmarkData: Data?
+        let isEpubDerived: Bool
+        let inodeNumber: Int64?
+        let volumeDeviceNumber: Int64?
+        let volumeUUID: String?
+
+        func makeBookmark() -> Bookmark {
+            let bookmark = Bookmark(
+                bookID: bookID, pageIndex: pageIndex, pageKey: pageKey, name: name,
+                bookmarkData: bookmarkData, isEpubDerived: isEpubDerived
+            )
+            bookmark.id = id
+            bookmark.createdAt = createdAt
+            bookmark.updatedAt = updatedAt
+            bookmark.inodeNumber = inodeNumber
+            bookmark.volumeDeviceNumber = volumeDeviceNumber
+            bookmark.volumeUUID = volumeUUID
+            return bookmark
+        }
+    }
+
+    var snapshot: Snapshot {
+        Snapshot(
+            id: id, bookID: bookID, pageIndex: pageIndex, pageKey: pageKey, name: name,
+            createdAt: createdAt, updatedAt: updatedAt, bookmarkData: bookmarkData,
+            isEpubDerived: isEpubDerived, inodeNumber: inodeNumber,
+            volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
+    }
+}

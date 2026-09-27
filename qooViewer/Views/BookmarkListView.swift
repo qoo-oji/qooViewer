@@ -177,6 +177,8 @@ private struct EditorBookRow: Identifiable {
 /// よって初期フィルタを変える(4.5節)。この値はlaunchCoordinator.pendingEditorInitialFocus
 /// 経由で伝わる(詳細はLaunchCoordinator.swiftのコメント参照)。
 struct BookmarkEditorView: View {
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @ObservedObject var bookmarkStore: BookmarkStore
     @ObservedObject var layoutStore: LayoutStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
@@ -866,7 +868,7 @@ struct BookmarkEditorView: View {
                 Button("Cancel", role: .cancel) { pendingDeleteBookmarksBookID = nil }
                 Button("Delete", role: .destructive) {
                     if let bookID = pendingDeleteBookmarksBookID {
-                        bookmarkStore.deleteAllBookmarks(forBookID: bookID)
+                        DataUndoStack.deleteAllBookmarks(forBookID: bookID, in: bookmarkStore, recordingOn: dataUndo)
                     }
                     pendingDeleteBookmarksBookID = nil
                     // 全削除の結果、左ペインの絞り込みが「ブックマークあり」「レイアウトあり」の
@@ -876,7 +878,8 @@ struct BookmarkEditorView: View {
                     bookFilter = .all
                 }
             } message: {
-                Text("This permanently deletes every bookmark in this book. This cannot be undone.")
+                // 取り消せるようになった(2026-09-27、監査 34)。「ブックマークとレイアウトをすべて削除」はレイアウトを戻せないので取り消せないまま。
+                Text("This deletes every bookmark in this book. You can undo this with Edit ▸ Undo.")
             }
             // 4.4節「レイアウトを全削除」の確認。
             .alert(
@@ -1276,6 +1279,8 @@ private struct ResizableColumnDivider: View {
 /// 担当する。bookIDが変わるたびに親(BookmarkEditorView)側で.id(bookID)を付けて
 /// このView自体を作り直しているため、@StateObjectも本を切り替えるたびに正しく再生成される。
 private struct BookmarkDetailPane: View {
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     let bookID: String
     @ObservedObject var bookmarkStore: BookmarkStore
     @ObservedObject var layoutStore: LayoutStore
@@ -1295,6 +1300,8 @@ private struct BookmarkDetailPane: View {
     // 既定値は無くしてある(initで必ずinitialPageFilterから明示的に初期化するため)。
     @State private var pageFilter: EditorPageFilter
     @State private var selectedPageKey: String?
+    /// いつ、どの行が選ばれたか(ブックマーク名のクリックで名前の変更を始めてよいかの判定。PageSelectionClock)。
+    @State private var pageSelectionClock = PageSelectionClock()
     /// カーソルキーの上下を受け取るために、この一覧自身がフォーカスを持っているかどうか。
     /// 行をクリックしたとき(List(selection:)のsetter)にも明示的にtrueにして、
     /// クリック→そのままキー操作、と続けられるようにする。
@@ -1678,6 +1685,9 @@ private struct BookmarkDetailPane: View {
                 // 余白のクリックなどで選択が外れた場合(nil)は、直前の選択を保持する
                 // (ページ一覧下部のボタンがselectedPageKey != nilを前提に有効化されるため)。
                 guard let newValue else { return }
+                if newValue != selectedPageKey {
+                    pageSelectionClock.note(selected: newValue)
+                }
                 selectedPageKey = newValue
                 isPageListFocused = true
             }
@@ -1693,6 +1703,7 @@ private struct BookmarkDetailPane: View {
                     isMoveEnabled: pageFilter == .all,
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex, pageKey: row.pageKey) },
+                    selectionClock: pageSelectionClock,
                     onRenameBookmark: { bookmark in
                         // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)
                         // 実装だったため、SwiftUIの@Stateが「代入する値が現在の値と同じ場合は
@@ -1707,7 +1718,9 @@ private struct BookmarkDetailPane: View {
                         renameText = bookmark.name
                         renamingBookmark = bookmark
                     },
-                    onDeleteBookmark: { bookmark in bookmarkStore.delete(bookmark) },
+                    onDeleteBookmark: { bookmark in
+                        DataUndoStack.deleteBookmarks([bookmark], in: bookmarkStore, recordingOn: dataUndo)
+                    },
                     onLayoutStateChange: { newState in
                         if let newState {
                             pendingLayoutChange = PendingPageLayoutChange(pageKey: row.pageKey, state: newState)
@@ -2328,6 +2341,8 @@ private struct PageRowView: View {
     let isMoveEnabled: Bool
     let onJump: () -> Void
     let onAddBookmark: () -> Void
+    /// この行がクリックの前から選ばれていたかを答える(ブックマーク名のクリックで名前の変更を始めるか)。
+    let selectionClock: PageSelectionClock
     let onRenameBookmark: (Bookmark) -> Void
     let onDeleteBookmark: (Bookmark) -> Void
     /// nilを渡すと「レイアウトなし」(=削除)、値を渡すと3.3節の伝播範囲ダイアログを呼び出す
@@ -2569,9 +2584,19 @@ private struct PageRowView: View {
                         // なお、Finderの「選択中のアイコン名を単独クリックするとリネームになる」
                         // 挙動も同様にダブルクリックと区別するための遅延を伴っており、これは
                         // 単純化のための妥協ではなく、この種の識別に本質的に伴う遅延。
+                        //
+                        // **選ばれていなかった行では名前の変更を始めない**(2026-09-27、監査 35)。以前は選ばれていない行でも
+                        // 1 回のクリックでシートが開き、行を選ぶつもりのクリックが名前の変更になった。Finder と同じく、
+                        // 1 回目のクリックは選ぶだけで、選ばれている行の名前をもう一度クリックしたときだけ始める。
                         .simultaneousGesture(
                             TapGesture().onEnded {
                                 let now = Date()
+                                guard selectionClock.wasSelectedBeforeThisClick(row.pageKey, now: now) else {
+                                    lastBookmarkNameTapDate = now
+                                    renameTask?.cancel()
+                                    renameTask = nil
+                                    return
+                                }
                                 if let lastBookmarkNameTapDate,
                                    now.timeIntervalSince(lastBookmarkNameTapDate) <= NSEvent.doubleClickInterval {
                                     self.lastBookmarkNameTapDate = nil
@@ -2716,5 +2741,31 @@ struct BookmarkEditorWindow: View {
 
     var body: some View {
         BookmarkEditorView(bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+    }
+}
+
+/// ブックマークの編集の右ペインで、いつどの行が選ばれたかの控え(2026-09-27、監査 35)。
+///
+/// ブックマーク名のクリックで名前の変更を始めるのは、その行が**クリックの前から**選ばれていたときだけにしたい。行の選択は
+/// List(NSTableView)がマウスの押し下げで済ませ、名前のタップはマウスを離したときに届くので、タップの時点ではどちらの
+/// 場合も「選ばれている」。そこで、選択がこの行へ移ったのが直前(このクリックの押し下げ)かどうかを時刻で見分ける。
+/// 参照型にしてあるのは、選択のたびに全行へ新しい値を配って描き直させないため(行は同じ箱を持つだけ)。
+/// プログラムから選択を変えた(矢印キー以外で setter を通らない)場合は控えが古いままだが、その行はクリックの前から
+/// 選ばれていたことになるので、それで正しい。
+@MainActor
+final class PageSelectionClock {
+    private var pageKey: String?
+    private var changedAt = Date.distantPast
+
+    /// 押し下げから離すまでの長さとして見込む上限。これより長く押していたクリックは「前から選ばれていた」扱いになる。
+    private static let clickDurationAllowance: TimeInterval = 1
+
+    func note(selected pageKey: String) {
+        self.pageKey = pageKey
+        changedAt = Date()
+    }
+
+    func wasSelectedBeforeThisClick(_ pageKey: String, now: Date) -> Bool {
+        !(self.pageKey == pageKey && now.timeIntervalSince(changedAt) < Self.clickDurationAllowance)
     }
 }

@@ -238,6 +238,11 @@ ComicInfo.xml だけは開いた後に非同期で読むので、読み終える
   `SpreadBookmarkTargetBehavior`(読み方向の既定側/毎回尋ねる)に従う。右クリックは
   クリックした側。
 - 削除・リネームは `BookmarkStore` が直接 SwiftData を操作する(本を開いていなくても使えるため)。
+  削除は ⌘Z で取り消せる(2026-09-27。`deleteRecording` → `restore`。同じページに今あるものは戻さない ―― 全部消した本を開くと
+  目次から取り込み直すため。[09](09-ui-and-windows.md)「その他の小さな約束」)。
+- 編集ウインドウの右ペインでブックマーク名をクリックして名前の変更を始めるのは、**その行がクリックの前から選ばれていたとき
+  だけ**(2026-09-27、監査 35。Finder と同じ)。選択は List(NSTableView)が押し下げで済ませ、名前のタップは離したときに届くので、
+  選択がその行へ移ったのが直前(1 秒以内)かを `PageSelectionClock` で見分ける。ダブルクリックは従来どおりジャンプ。
   `ViewerViewModel` からは削除経路を外してある。
 - **自動取り込み**: EPUB の nav.xhtml、PDF のアウトライン、ComicInfo.xml の `<Page Bookmark="">`
   から、その本にブックマークが1件も無いときだけ取り込む。`isEpubDerived = true` にして

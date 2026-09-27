@@ -54,7 +54,7 @@ final class RecentFilesStore: ObservableObject {
 
     /// UserDefaultsへ保存する形。旧形式(ブックマークデータの配列のみ)からの移行はloadStored()で
     /// 行う。Equatableなのは「再検証の結果が以前と同じなら書き戻さない」判定に使うため。
-    private struct StoredEntry: Codable, Equatable, Sendable {
+    fileprivate struct StoredEntry: Codable, Equatable, Sendable {
         let bookmark: Data
         /// 解決済みのパスのキャッシュ。旧形式からの移行直後だけ空文字列になりうる
         /// (直後のscheduleRefresh()が解決して埋める)。
@@ -290,6 +290,73 @@ final class RecentFilesStore: ObservableObject {
         guard stored.count != before else { return }
         save(stored)
         publish(stored)
+    }
+
+    // MARK: - 取り消せる削除(2026-09-27、監査 34。DataUndoStack)
+
+    /// 取り消しのための控え。**保存形式の行そのもの**と、消す前の位置を持つ(`remove` はパスでも照合するので、一覧に出ていない
+    /// 重複の行まで消える。一覧の項目だけを控えると、その行を戻せない)。
+    struct RemovalRecord {
+        fileprivate struct Removed {
+            let index: Int
+            let entry: StoredEntry
+        }
+
+        fileprivate let removed: [Removed]
+    }
+
+    /// `remove(_:)` と同じく消し、消した行を返す(何も消えなければ nil)。
+    func removeRecording(_ entries: [Entry]) -> RemovalRecord? {
+        guard !entries.isEmpty else { return nil }
+        let bookmarks = Set(entries.map(\.bookmark))
+        let paths = Set(entries.map(\.path).filter { !$0.isEmpty })
+        return removeRecording { bookmarks.contains($0.bookmark) || paths.contains($0.path) }
+    }
+
+    /// `removeAll()` と同じく全部消し、消した行を返す。旧形式のキーも消す(removeAll のコメント)。
+    func removeAllRecording() -> RemovalRecord? {
+        let record = removeRecording { _ in true }
+        defaults.removeObject(forKey: defaultsKey)
+        defaults.removeObject(forKey: legacyDefaultsKey)
+        publish([])
+        return record
+    }
+
+    private func removeRecording(where shouldRemove: (StoredEntry) -> Bool) -> RemovalRecord? {
+        var stored = loadStored()
+        let removed = stored.enumerated()
+            .filter { shouldRemove($0.element) }
+            .map { RemovalRecord.Removed(index: $0.offset, entry: $0.element) }
+        guard !removed.isEmpty else { return nil }
+        stored.removeAll(where: shouldRemove)
+        save(stored)
+        publish(stored)
+        return RemovalRecord(removed: removed)
+    }
+
+    /// 控えた行を元の位置へ戻す。**消した後に同じ本を開き直していれば(同じパスか同じブックマークの行が今ある)、その行は戻さない**
+    /// ―― 新しいほうが正しい位置(先頭)にある。戻した結果が保持件数を超えたら、`record(url:)` と同じく古いほうを落とす。
+    func restore(_ record: RemovalRecord) {
+        var stored = loadStored()
+        let presentPaths = Set(stored.map(\.path).filter { !$0.isEmpty })
+        let presentBookmarks = Set(stored.map(\.bookmark))
+        let toInsert = record.removed.filter {
+            !presentBookmarks.contains($0.entry.bookmark) && ($0.entry.path.isEmpty || !presentPaths.contains($0.entry.path))
+        }
+        guard !toInsert.isEmpty else { return }
+        for removed in toInsert.sorted(by: { $0.index < $1.index }) {
+            stored.insert(removed.entry, at: min(removed.index, stored.count))
+        }
+        if stored.count > maxCount { stored = Array(stored.prefix(maxCount)) }
+        save(stored)
+        publish(stored)
+    }
+
+    /// もう一度消す(やり直し)。
+    func reapply(_ record: RemovalRecord) {
+        let bookmarks = Set(record.removed.map(\.entry.bookmark))
+        let paths = Set(record.removed.map(\.entry.path).filter { !$0.isEmpty })
+        _ = removeRecording { bookmarks.contains($0.bookmark) || paths.contains($0.path) }
     }
 
     // MARK: - 永続化

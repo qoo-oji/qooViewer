@@ -374,6 +374,10 @@ struct ViewerView: View {
         appState.performViewerAction = { action in
             perform(action)
         }
+        // 表示メニューの「拡大」「縮小」「拡大を解除」(AppState.performViewerZoomのコメント参照)。
+        appState.performViewerZoom = { step in
+            performZoomStep(step)
+        }
         // メニューバーの「ブックマーク」メニュー下部に、現在の本のブックマーク一覧を
         // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
         appState.jumpToBookmark = { bookmark in
@@ -669,6 +673,13 @@ struct ViewerView: View {
                 // 別ウインドウとして開く場合は、上のevent.window === hostWindowのガードで
                 // 既に除外されている(ここで拾うのは同じウインドウ内の入力欄)。
                 if hostWindow.firstResponder is NSTextView { return event }
+                // ⌘= も「拡大」にする。表示メニューの「拡大」は ⌘+ で、US 配列の ⌘=(Shift 無し)はメニューに届かない
+                // (ホームの HomeZoomInEqualsKeyMonitor と同じ理由。JIS 配列の ⇧⌘- も "=" なので Shift は問わない)。
+                if event.modifierFlags.intersection([.command, .option, .control]) == .command,
+                   event.charactersIgnoringModifiers == "=" {
+                    performZoomStep(.zoomIn)
+                    return nil
+                }
                 // ESCキー(keyCode 53)は、RemappableKey/keyBindingStoreによる
                 // カスタマイズ可能なキー割り当ての対象には含めず、常に固定の「閉じる」操作
                 // という慣習に合わせて別枠で扱う。拡大鏡(ルーペ)表示中に押すと、
@@ -935,6 +946,7 @@ struct ViewerView: View {
     private func clearAppStateBridgesIfStillOwner() {
         guard appState.activeViewerToken == viewerToken else { return }
         appState.performViewerAction = nil
+        appState.performViewerZoom = nil
         appState.jumpToBookmark = nil
         appState.fetchResourceSnapshot = nil
         appState.jumpToPageIndex = nil
@@ -1555,6 +1567,8 @@ struct ViewerView: View {
             }
         }
         .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
+        // 拡大しているかどうかが変わったときだけ(ピンチの途中の倍率の変化では呼ばない)。
+        .onChange(of: viewModel.pinchZoomFactor > 1) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.isContrastCorrectionEnabled) { _, _ in syncMenuCheckmarkState() }
@@ -3242,6 +3256,26 @@ struct ViewerView: View {
         applyPinchZoom(to: 1, anchorInWindow: nil)
     }
 
+    /// 表示メニューの「拡大」「縮小」で 1 回に変える倍率(ホームの拡大と同じ約 1.25 倍)。
+    private static let menuZoomStep: CGFloat = 1.25
+
+    /// 表示メニューの「拡大」⌘+ /「縮小」⌘- /「拡大を解除」⌘0(2026-09-27、監査 31。Preview と同じキー)。
+    /// ピンチ拡大と同じ倍率を動かし、表示領域の中央を中心にする(ポインタの位置は使わない ―― メニューから選んだときは
+    /// ポインタがメニューの上にある)。下限は等倍、上限は環境設定(ViewerViewModel.setPinchZoomFactor)。
+    /// ⌘0 は「今の表示モードの大きさへ戻す」で、Preview の「実際のサイズ」ではない(実寸は実寸表示のウインドウがある)。
+    /// 拡大鏡の表示中はピンチと同じく何もしない。
+    private func performZoomStep(_ step: ViewerZoomStep) {
+        guard !viewModel.isLoupeActive else { return }
+        switch step {
+        case .zoomIn:
+            applyPinchZoom(to: viewModel.pinchZoomFactor * Self.menuZoomStep, anchorInWindow: nil)
+        case .zoomOut:
+            applyPinchZoom(to: viewModel.pinchZoomFactor / Self.menuZoomStep, anchorInWindow: nil)
+        case .reset:
+            resetPinchZoom()
+        }
+    }
+
     /// トラックパッドのピンチイン・ピンチアウト(NSEventの.magnify)。
     ///
     /// SwiftUIのMagnifyGestureではなくNSEventを直接扱うのは、ページ表示領域がScrollViewと
@@ -4076,6 +4110,7 @@ struct ViewerView: View {
         appState.updateMenuCheckmarkState(
             isSlideshowActive: viewModel.isSlideshowActive,
             isLoupeActive: viewModel.isLoupeActive,
+            isPinchZoomed: viewModel.pinchZoomFactor > 1,
             displayMode: viewModel.displayMode,
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
@@ -4315,9 +4350,8 @@ struct ViewerView: View {
 
         if !toDelete.isEmpty {
             let names = toDelete.map(\.name)
-            for bookmark in toDelete {
-                bookmarkStore.delete(bookmark)
-            }
+            // 取り消せる削除(⌘Z。DataUndoStack)。
+            DataUndoStack.deleteBookmarks(toDelete, in: bookmarkStore, recordingOn: appState.dataUndo)
             showToast(bookmarkRemovalToastMessage(for: names))
         } else if partnerPageIndex != nil, preferences.spreadBookmarkTargetBehavior == .askEachTime {
             // 見開き表示中(実際に2ページ組でペア表示されているとき)で、環境設定
@@ -4360,7 +4394,7 @@ struct ViewerView: View {
         guard let bookmarkStore = appState.bookmarkStore else { return }
         if let existing = bookmarkStore.bookmarks(forBookID: viewModel.book.id).first(where: { $0.pageIndex == index }) {
             let name = existing.name
-            bookmarkStore.delete(existing)
+            DataUndoStack.deleteBookmarks([existing], in: bookmarkStore, recordingOn: appState.dataUndo)
             showToast(bookmarkRemovalToastMessage(for: [name]))
         } else {
             addBookmarkWithToast(atIndex: index)

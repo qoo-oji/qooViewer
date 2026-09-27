@@ -20,6 +20,8 @@ import SwiftUI
 /// ブックマークを解決し、そこで見つからなければアラートを出す(お気に入りと同じ流れ)。
 struct CollectionDetailView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var layoutStore: LayoutStore
@@ -68,10 +70,6 @@ struct CollectionDetailView: View {
     @State private var missingBook: MissingBook?
     /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。同じ理由でidで持つ。
     @State private var metadataTarget: MetadataTarget?
-    /// コレクションから外す確認を出している本。空なら出していない。右クリックの
-    /// 「コレクションから削除」(1冊)とゴミ箱(選んだぶん)の両方がここへ集まる
-    /// (CollectionGridView.deletingCollectionIDsと同じ理由)。
-    @State private var removingItemIDs: [UUID] = []
 
     /// `.layoutDataDidChange` が届くたびに増やすだけの数。**この値自体は読まない。**
     ///
@@ -213,7 +211,7 @@ struct CollectionDetailView: View {
                 Button("Remove from Collection", role: .destructive) {
                     // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
                     if let item = missingBook.flatMap({ collectionStore.item(withID: $0.id) }) {
-                        collectionStore.remove(item)
+                        DataUndoStack.removeItems([item], in: collectionStore, recordingOn: dataUndo)
                     }
                     missingBook = nil
                 }
@@ -251,7 +249,7 @@ struct CollectionDetailView: View {
         case .deleteCollections where allowsEditing:
             isDeletingCollection = true
         case .removeItems(let ids) where allowsEditing:
-            removingItemIDs = ids
+            removeItems(ids)
         case .focusSearch:
             isSearchFocused = true
         case .showItemInFinder(let id):
@@ -297,7 +295,7 @@ struct CollectionDetailView: View {
                 onToggleSelectAll: { toggleSelectAll() },
                 deleteHelp: "Remove Selected Books",
                 canDelete: !state.selectedItemIDs.isEmpty,
-                onDelete: { removingItemIDs = Array(state.selectedItemIDs) },
+                onDelete: { removeItems(Array(state.selectedItemIDs)) },
                 isEditing: $state.isEditing,
                 sort: $state.itemSort,
                 // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
@@ -316,21 +314,8 @@ struct CollectionDetailView: View {
             )
         }
         .padding(.trailing, 16)
-        // 「本が見つかりません」のalertとは別の階層に付ける ―― 同じビューに`.alert`を2つ
-        // 重ねると片方しか出ないことがある(`.sheet`と同じSwiftUIの癖)。
-        .alert(
-            removalTitle,
-            isPresented: Binding(
-                get: { !removingItemIDs.isEmpty },
-                set: { if !$0 { removingItemIDs = [] } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { removingItemIDs = [] }
-            // 確定ボタンは題の動作と同じ語(2026-09-27、監査 37。英語では題が "Remove…" なのにボタンが "Delete" だった。日本語はどちらも「削除」)。
-            Button("Remove", role: .destructive) { confirmRemoval() }
-        } message: {
-            Text("The books themselves are not deleted. Only their entries in this collection and their cover images are removed.")
-        }
+        // 「コレクションから削除」は確認を出さない(2026-09-27、監査 34。⌘Z で取り消せるようになったので、Finder の「ゴミ箱に入れる」と
+        // 同じく確認なしでその場で外す。以前は 1 冊でも確認を出していた)。
     }
 
     /// 見出しの左側: 戻るボタン・コレクション名・冊数。
@@ -390,11 +375,11 @@ struct CollectionDetailView: View {
                 state.openedCollectionID = nil
                 // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
                 if let target = collectionStore.collection(withID: id) {
-                    collectionStore.delete([target])
+                    DataUndoStack.deleteCollections([target], in: collectionStore, recordingOn: dataUndo)
                 }
             }
         } message: {
-            Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+            Text("The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo.")
         }
     }
 
@@ -432,20 +417,12 @@ struct CollectionDetailView: View {
     /// 戻るボタンの当たり判定を外へ広げる量(一覧側の見出しの余白 横16・縦8 と同じ)。
     private static let backButtonHitSlop = CGSize(width: 16, height: 8)
 
-    /// 1冊のときと複数のときで鍵を分ける(英語で「1 books」にしないため。
-    /// CollectionGridView.deletionTitleと同じ判断)。
-    private var removalTitle: Text {
-        removingItemIDs.count == 1
-            ? Text("Remove this book from the collection?")
-            : Text("Remove \(removingItemIDs.count) books from the collection?")
-    }
-
-    private func confirmRemoval() {
-        // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
-        let targets = removingItemIDs.compactMap { collectionStore.item(withID: $0) }
-        removingItemIDs = []
+    /// 本をコレクションから外す(確認なし。⌘Z で取り消せる ―― DataUndoStack)。
+    private func removeItems(_ ids: [UUID]) {
+        // メニューからの要求は別のウインドウの操作の後に届くことがあるので、idから引き直す。
+        let targets = ids.compactMap { collectionStore.item(withID: $0) }
         guard !targets.isEmpty else { return }
-        collectionStore.remove(targets)
+        DataUndoStack.removeItems(targets, in: collectionStore, recordingOn: dataUndo)
         state.clearSelection()
     }
 
@@ -708,7 +685,7 @@ struct CollectionDetailView: View {
             // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は保存データを書かないので、
             // シークレットウインドウでも使える(カバーの選択は淡色、ページ一覧のディスクキャッシュも読み書きしない)。
             BookExportMenu(isEnabled: isSingle && exportRequest == nil) { format in startExport(item.id, format: format) }
-            // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
+            // コレクションから外す操作は、ゴミ箱と同じく編集モードの中に置く(2026-09-27 から ⌘Z で取り消せる)。
             //
             // **「別のコレクションへ移す」は置かない**(2026-09-09に一度入れて同日に撤回した)。
             // 自動登録フォルダを持つコレクションから本を移しても、次の走査でそのまま戻ってくる
@@ -717,9 +694,8 @@ struct CollectionDetailView: View {
             if allowsEditing && state.isEditing {
                 Divider()
                 Button("Remove from Collection", role: .destructive) {
-                    // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
-                    // 入り口によって確認の有無が変わらないようにする)。
-                    removingItemIDs = targets.map(\.id)
+                    // 確認は出さない(⌘Z で取り消せる。どの入り口も同じ扱い)。
+                    removeItems(targets.map(\.id))
                 }
             }
         }

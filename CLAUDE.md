@@ -510,6 +510,10 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in
   New Window…). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
   Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
+- **Deleting saved data the user made is undoable** (2026-09-27): bookmarks, history, collections/libraries and removal from a
+  collection go through `DataUndoStack` (per book window, `\.dataUndoStack`; tool windows use `ownsDataUndoStack()`), which snapshots
+  the values before deleting and re-creates identical rows on ⌘Z. New user-facing deletions of saved data should do the same; files
+  that cannot be rebuilt (collection covers) are removed only when the step leaves the stack (docs/09「その他の小さな約束」).
 - **Private windows record nothing; their write items are dimmed, never removed** (user decision 2026-09-23 — an item
   disappears only when the feature it uses is switched off). What a private window must not write is listed on
   `AppState.isPrivateWindow` (canonical; docs/06「シークレットウインドウとその場限りの本」); the guard is `skipsPersistence`

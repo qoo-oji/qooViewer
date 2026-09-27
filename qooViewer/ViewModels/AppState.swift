@@ -160,6 +160,15 @@ final class AppState: ObservableObject {
     /// 呼べるようにするためのもの。フルスクリーン時などメニューバー経由で操作したい場合に使う)
     var performViewerAction: ((ViewerAction) -> Void)?
 
+    /// 表示メニューの「拡大」「縮小」「拡大を解除」(⌘+ / ⌘- / ⌘0。2026-09-27、監査 31)を、表示中のビューアのピンチ拡大へ
+    /// 橋渡しする。performViewerActionと同じ、ViewerViewが表示されている間だけ登録する仕組み。ViewerAction に足さないのは、
+    /// あちらはキー・マウスの割り当て画面に並ぶ一覧でもあり、メニューのキーと同じ操作を割り当て先に増やす理由が無いため。
+    var performViewerZoom: ((ViewerZoomStep) -> Void)?
+
+    /// このウインドウの削除の取り消し(ブックマーク・履歴・コレクション。DataUndoStack の型コメント)。ホームとビューアで共有し、
+    /// 画面へは ContentView が環境値 `\.dataUndoStack` で配る。
+    let dataUndo = DataUndoStack()
+
     /// ウェルカム画面が表示されている**間だけ**登録される、ドロップの横取り口(改善要望5)。
     /// `true`を返したら「そのドロップはウェルカム画面が引き受けた」という意味で、本を開く
     /// 処理(`open(urls:)`)へは回さない。
@@ -500,6 +509,8 @@ final class AppState: ObservableObject {
     /// メニューバーの「Loupe」の左にチェックマークを表示するための、
     /// 現在ルーペを表示中かどうか。isSlideshowActiveと同じ仕組み。
     @Published private(set) var isLoupeActive = false
+    /// ピンチ拡大中か(表示メニューの「縮小」「拡大を解除」の淡色)。isLoupeActiveと同じ仕組み。
+    @Published private(set) var isPinchZoomed = false
     /// メニューバーの「見開き」の左にチェックマークを表示するための、現在見開き表示かどうか。
     @Published private(set) var isSpreadMode = false
     /// メニューバーの「右から左へ」の左にチェックマークを表示するための、
@@ -579,6 +590,7 @@ final class AppState: ObservableObject {
     func updateMenuCheckmarkState(
         isSlideshowActive: Bool,
         isLoupeActive: Bool,
+        isPinchZoomed: Bool,
         displayMode: DisplayMode,
         readingDirection: ReadingDirection,
         scalingMode: ScalingMode,
@@ -611,6 +623,7 @@ final class AppState: ObservableObject {
             guard let self else { return }
             self.setIfChanged(&self.isSlideshowActive, isSlideshowActive)
             self.setIfChanged(&self.isLoupeActive, isLoupeActive)
+            self.setIfChanged(&self.isPinchZoomed, isPinchZoomed)
             self.setIfChanged(&self.isSpreadMode, displayMode == .spread)
             self.setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
             self.setIfChanged(&self.currentScalingMode, scalingMode)
@@ -671,6 +684,7 @@ final class AppState: ObservableObject {
             guard let self else { return }
             self.setIfChanged(&self.isSlideshowActive, false)
             self.setIfChanged(&self.isLoupeActive, false)
+            self.setIfChanged(&self.isPinchZoomed, false)
             self.setIfChanged(&self.isSpreadMode, false)
             self.setIfChanged(&self.isRightToLeft, false)
             self.setIfChanged(&self.currentScalingMode, .fitToScreen)
@@ -1648,6 +1662,7 @@ struct MenuCheckmarkState: Equatable {
     var hideSidePanel = false
     var isSlideshowActive = false
     var isLoupeActive = false
+    var isPinchZoomed = false
     var isSpreadMode = false
     var isRightToLeft = false
     var scalingMode: ScalingMode = .fitToScreen
@@ -1703,6 +1718,13 @@ struct FileBrowserMenuSnapshot: Equatable {
 enum LayoutMenuTarget {
     case current
     case partner
+}
+
+/// 表示メニューの「拡大」「縮小」「拡大を解除」(AppState.performViewerZoom)。
+enum ViewerZoomStep {
+    case zoomIn
+    case zoomOut
+    case reset
 }
 
 private struct MenuCheckmarkStateFocusedValueKey: FocusedValueKey {

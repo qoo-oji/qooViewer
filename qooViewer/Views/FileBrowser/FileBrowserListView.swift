@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 
 /// ファイルブラウザのリスト表示(改善要望7 段階3、2026-09-13)。`NSTableView`を包む。
@@ -814,6 +815,11 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
 
     override func keyDown(with event: NSEvent) {
         onInteraction?()
+        // スペースでクイックルック(NSTableView の頭文字での選択より先に受ける)。
+        if FileBrowserQuickLook.isToggleKey(event) {
+            currentQuickLook().toggle()
+            return
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Return / Enter、⌘↓(Finderの「開く」)。
         if (event.keyCode == 36 || event.keyCode == 76) && flags.subtracting([.numericPad, .function]).isEmpty
@@ -851,6 +857,33 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
         _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
         fileBrowserDragSourceMask(allowsFileChanges: editResponder?.allowsFileChanges ?? false)
+    }
+
+
+    // MARK: クイックルック
+
+    /// スペースキーのクイックルック(FileBrowserQuickLook の型コメント)。選択の持ち主は `editResponder` と同じもの。
+    private lazy var quickLook: FileBrowserQuickLook = {
+        let quickLook = FileBrowserQuickLook()
+        quickLook.keyTarget = self
+        return quickLook
+    }()
+
+    private func currentQuickLook() -> FileBrowserQuickLook {
+        quickLook.actions = editResponder as? FileBrowserActions
+        return quickLook
+    }
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        currentQuickLook().acceptsControl
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        currentQuickLook().beginControl(panel)
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLook.endControl(panel)
     }
 
     @objc func copy(_ sender: Any?) { editResponder?.perform(.copy) }

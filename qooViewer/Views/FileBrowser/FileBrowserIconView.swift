@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 
 /// ファイルブラウザのアイコン表示(改善要望7 段階3、2026-09-13。**2026-09-15 に SwiftUI の `LazyVGrid` から `NSCollectionView` へ置き換えた**)。
@@ -897,6 +898,11 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
 
     override func keyDown(with event: NSEvent) {
         handler?.noteInteraction()
+        // スペースでクイックルック(頭文字での選択より先に受ける)。
+        if FileBrowserQuickLook.isToggleKey(event) {
+            currentQuickLook().toggle()
+            return
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Return / Enter、⌘↓(Finder の「開く」)。
         if (event.keyCode == 36 || event.keyCode == 76) && flags.subtracting([.numericPad, .function]).isEmpty
@@ -928,6 +934,32 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: クイックルック
+
+    /// スペースキーのクイックルック(FileBrowserQuickLook の型コメント)。選択の持ち主は `editResponder` と同じもの。
+    private lazy var quickLook: FileBrowserQuickLook = {
+        let quickLook = FileBrowserQuickLook()
+        quickLook.keyTarget = self
+        return quickLook
+    }()
+
+    private func currentQuickLook() -> FileBrowserQuickLook {
+        quickLook.actions = editResponder as? FileBrowserActions
+        return quickLook
+    }
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        currentQuickLook().acceptsControl
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        currentQuickLook().beginControl(panel)
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLook.endControl(panel)
     }
 
     /// type-select に使う文字。⌘・⌃・⌥ 付き、制御文字(Return / Tab / Esc / Delete)、矢印などの機能キー(U+F700〜U+F8FF)は受けない。

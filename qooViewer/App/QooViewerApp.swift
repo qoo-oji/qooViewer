@@ -351,6 +351,16 @@ struct QooViewerApp: App {
         return appState.homeMenu.singleSmartBookTarget
     }
 
+    /// 編集メニューの「取り消す」が相手にする、保存データの削除の積み場所(DataUndoStack)。メタデータの編集ウインドウが前に
+    /// あるときは使わない(呼ぶ側が先に見る)。
+    private var dataUndoTarget: DataUndoStack? {
+        guard MetadataEditorUndoRouter.shared.workspace == nil else { return nil }
+        if let stack = DataUndoRouter.shared.stack { return stack }
+        let home = menuCheckmarkState?.homeMenu
+        if home?.isShown == true, home?.mode == .browser { return nil }
+        return focusedAppState?.dataUndo
+    }
+
     /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
     static var isEditingText: Bool {
         (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
@@ -999,8 +1009,9 @@ struct QooViewerApp: App {
                     if showsEntries {
                         Divider()
                     }
-                    Button("Clear Menu") {
-                        recentFiles.removeAll()
+                    // ⌘Z で取り消せる(2026-09-27、監査 34)。積むのは手前のウインドウ。
+                    Button("Clear Menu") { [weak focusedAppState] in
+                        DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: focusedAppState?.dataUndo)
                     }
                     .disabled(recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true)
                 }
@@ -1230,6 +1241,22 @@ struct QooViewerApp: App {
                     }
                     .disabled(!hasBook)
 
+                    Divider()
+
+                    // ピンチ拡大をメニューとキーからも(2026-09-27、監査 31。Preview と同じ ⌘+ / ⌘- / ⌘0)。
+                    // 中身は ViewerView.performZoomStep。拡大鏡の表示中は、ピンチと同じく拡大を拡大鏡に任せる。
+                    let isLoupeActive = menuCheckmarkState?.isLoupeActive ?? false
+                    let isPinchZoomed = menuCheckmarkState?.isPinchZoomed ?? false
+                    Button("Zoom In") { [weak focusedAppState] in focusedAppState?.performViewerZoom?(.zoomIn) }
+                        .keyboardShortcut("+", modifiers: .command)
+                        .disabled(!hasBook || isLoupeActive)
+                    Button("Zoom Out") { [weak focusedAppState] in focusedAppState?.performViewerZoom?(.zoomOut) }
+                        .keyboardShortcut("-", modifiers: .command)
+                        .disabled(!hasBook || isLoupeActive || !isPinchZoomed)
+                    Button("Reset Zoom") { [weak focusedAppState] in focusedAppState?.performViewerZoom?(.reset) }
+                        .keyboardShortcut("0", modifiers: .command)
+                        .disabled(!hasBook || isLoupeActive || !isPinchZoomed)
+
                     // macOSが自動的に追加する「フルスクリーンにする」/「フルスクリーンを解除」は、
                     // 左にアイコンが付くため、区切り線を挟まず同じ並びにしてしまうと、
                     // 「見開き」「右から左へ」「表示モード切替」の文字列がアイコンの分だけ余分に
@@ -1293,19 +1320,27 @@ struct QooViewerApp: App {
             CommandGroup(replacing: .undoRedo) {
                 // メタデータの編集ウインドウが前にあれば、その窓の取り消し(2026-09-21。MetadataEditorUndoRouter)。
                 let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace
-                let undoTitle = metadataWorkspace.map { $0.undoName } ?? menuCheckmarkState?.fileBrowserUndoTitle
-                let redoTitle = metadataWorkspace.map { $0.redoName } ?? menuCheckmarkState?.fileBrowserRedoTitle
+                // 保存データの削除の取り消し(2026-09-27、監査 34。DataUndoStack): 道具のウインドウ(ブックマーク・レイアウトの編集、
+                // 履歴の削除)が前にあればその窓のもの、本のウインドウでは**ファイルブラウザが出ていないときだけ**そのウインドウのもの
+                // (出ていればファイル操作の取り消し ―― 見えている所の操作を戻す)。
+                let dataUndoStack = dataUndoTarget
+                let undoTitle = metadataWorkspace.map { $0.undoName }
+                    ?? dataUndoStack.map { $0.undoTitle } ?? menuCheckmarkState?.fileBrowserUndoTitle
+                let redoTitle = metadataWorkspace.map { $0.redoName }
+                    ?? dataUndoStack.map { $0.redoTitle } ?? menuCheckmarkState?.fileBrowserRedoTitle
                 let isEditingText = stores.textEditingMenuState.isEditingText
                 // 欄を編集中は欄の取り消しなので、題と可否は欄のもの(「タイプ入力を取り消す」。2026-09-27、監査 22 ――
                 // TextEditingMenuState の型コメント)。ファイル操作の名前は出さない。
                 let textUndo = stores.textEditingMenuState.textUndo
                 Button(isEditingText
                        ? textUndo.undoTitle ?? String(localized: "Undo")
-                       : undoTitle.map { String(format: String(localized: "Undo %@"), $0) } ?? String(localized: "Undo")) {
+                       : undoTitle.map { String(format: String(localized: "Undo %@"), $0) } ?? String(localized: "Undo")) { [weak dataUndoStack] in
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
                         metadataWorkspace.undo()
+                    } else if let dataUndoStack {
+                        dataUndoStack.undo()
                     } else {
                         focusedAppState?.fileBrowser?.operations.undo(shownTitle: undoTitle)
                     }
@@ -1314,11 +1349,13 @@ struct QooViewerApp: App {
                 .disabled(isEditingText ? !textUndo.canUndo : undoTitle == nil)
                 Button(isEditingText
                        ? textUndo.redoTitle ?? String(localized: "Redo")
-                       : redoTitle.map { String(format: String(localized: "Redo %@"), $0) } ?? String(localized: "Redo")) {
+                       : redoTitle.map { String(format: String(localized: "Redo %@"), $0) } ?? String(localized: "Redo")) { [weak dataUndoStack] in
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
                         metadataWorkspace.redo()
+                    } else if let dataUndoStack {
+                        dataUndoStack.redo()
                     } else {
                         focusedAppState?.fileBrowser?.operations.redo(shownTitle: redoTitle)
                     }
@@ -1734,6 +1771,7 @@ struct QooViewerApp: App {
         // (preferences.singlePageAspectRatioThreshold)を参照するために必要。
         Window(String(localized: "Edit Bookmarks & Layout", language: locale), id: "editBookmarks") {
             BookmarkEditorWindow()
+                .ownsDataUndoStack()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
@@ -1976,6 +2014,7 @@ struct QooViewerApp: App {
         // 履歴はSwiftDataではなくUserDefaultsに入っているため、必要なのはrecentFilesだけ。
         Window(String(localized: "Delete History", language: locale), id: "historyCleanup") {
             HistoryCleanupWindow()
+                .ownsDataUndoStack()
                 .environmentObject(recentFiles)
                 .environment(\.locale, locale)
         }

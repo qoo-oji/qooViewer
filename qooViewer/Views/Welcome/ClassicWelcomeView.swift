@@ -21,6 +21,8 @@ struct ClassicWelcomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var recentFiles: RecentFilesStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var favoritesStore: FavoritesStore
     /// アプリ内の表示言語(CLAUDE.md参照。OSのロケールとは独立)。一覧の見出しと形式バッジの
     /// 幅を実測するために、表示に使うのと同じ訳語を引く必要がある。
@@ -66,7 +68,9 @@ struct ClassicWelcomeView: View {
                         // ファイルの実体には触れない(サイドパネルの「履歴」モードの
                         // 同じ項目と対になる操作。RecentFilesStore.remove(_:)参照)。
                         destructiveActionTitleKey: "Remove from History",
-                        destructiveAction: { recentFiles.remove(entry) }
+                        destructiveAction: { [dataUndo] in
+                            DataUndoStack.removeHistory([entry], in: recentFiles, recordingOn: dataUndo)
+                        }
                     )
                 }
             ),

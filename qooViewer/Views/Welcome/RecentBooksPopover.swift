@@ -18,6 +18,8 @@ import SwiftUI
 struct RecentBooksPopover: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var recentFiles: RecentFilesStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
@@ -116,7 +118,7 @@ struct RecentBooksPopover: View {
             }
             Divider()
             Button("Remove from History", role: .destructive) {
-                recentFiles.remove(entry)
+                DataUndoStack.removeHistory([entry], in: recentFiles, recordingOn: dataUndo)
             }
         }
     }

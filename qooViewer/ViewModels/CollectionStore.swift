@@ -1573,6 +1573,340 @@ final class CollectionStore: ObservableObject {
         Task { await store.sweepOrphans(keeping: ids) }
     }
 
+    // MARK: - 取り消せる削除(2026-09-27、監査 34。DataUndoStack)
+    //
+    // 消す前に値を控え、取り消しで同じ id・日付・並びの行を作り直す(`@Attribute(.unique)` も `persistentModelID` を鍵にする所も
+    // 無いので、作り直した行は元の行と見分けが付かない)。**表紙のファイル(`CollectionCoverStore`)は消すときに消さず**、取り消せなく
+    // なった時点(`finalizeDeletion` / `finalizeRemoval`)で消す ―― 表紙はキャッシュではなく、作り直すには本から取り出し直すしかない
+    // (ボリュームが繋がっていなければ作れない)。ウインドウを閉じるなどで最後まで消されなかったものは、次の起動の
+    // `sweepOrphanedCovers` が消す。焼いた札の絵(`CollectionTileImageStore`)は作り直せるので、今までどおりその場で捨てる。
+
+    /// コレクション(とライブラリ)の削除の控え。
+    struct CollectionDeletionRecord {
+        /// ライブラリごと消したときだけ入る。
+        let library: LibrarySnapshot?
+        let collections: [CollectionSnapshot]
+        /// 消す前に外した「常に先頭/末尾」の指定(`clearPins(referencing:)`)。
+        let clearedPins: [ClearedPin]
+
+        var itemIDs: [UUID] { collections.flatMap { $0.items.map(\.id) } }
+        var collectionIDs: [UUID] { collections.map(\.id) }
+    }
+
+    struct ClearedPin {
+        let libraryID: UUID
+        let collectionID: UUID
+        let isFirst: Bool
+    }
+
+    struct LibrarySnapshot {
+        let id: UUID
+        let name: String
+        let sortOrder: Int
+        let createdAt: Date
+        let usesDefaultName: Bool
+        let coverAspectRatioRaw: String
+        let coverCropAnchorRaw: String
+        let coverFitRaw: String
+        let pinnedFirstCollectionID: UUID?
+        let pinnedLastCollectionID: UUID?
+        let coverBackgroundColorRaw: String?
+
+        init(_ library: BookLibrary) {
+            id = library.id
+            name = library.name
+            sortOrder = library.sortOrder
+            createdAt = library.createdAt
+            usesDefaultName = library.usesDefaultName
+            coverAspectRatioRaw = library.coverAspectRatioRaw
+            coverCropAnchorRaw = library.coverCropAnchorRaw
+            coverFitRaw = library.coverFitRaw
+            pinnedFirstCollectionID = library.pinnedFirstCollectionID
+            pinnedLastCollectionID = library.pinnedLastCollectionID
+            coverBackgroundColorRaw = library.coverBackgroundColorRaw
+        }
+    }
+
+    struct CollectionSnapshot {
+        let id: UUID
+        let name: String
+        let createdAt: Date
+        let updatedAt: Date
+        let libraryID: UUID?
+        let autoFolderPath: String?
+        let items: [ItemSnapshot]
+
+        init(_ collection: BookCollection) {
+            id = collection.id
+            name = collection.name
+            createdAt = collection.createdAt
+            updatedAt = collection.updatedAt
+            libraryID = collection.library?.id
+            autoFolderPath = collection.autoFolderPath
+            items = collection.items.map(ItemSnapshot.init)
+        }
+    }
+
+    struct ItemSnapshot {
+        let id: UUID
+        let bookID: String
+        let bookmarkData: Data
+        let title: String
+        let addedAt: Date
+        let sortOrder: Int
+        let coverStatus: Int
+        let coverAspect: Double
+        let collectionID: UUID?
+        let fileNodeIdentifier: FileNodeIdentifier?
+
+        init(_ item: CollectionItem) {
+            id = item.id
+            bookID = item.bookID
+            bookmarkData = item.bookmarkData
+            title = item.title
+            addedAt = item.addedAt
+            sortOrder = item.sortOrder
+            coverStatus = item.coverStatus
+            coverAspect = item.coverAspect
+            collectionID = item.collection?.id
+            fileNodeIdentifier = item.fileNodeIdentifier
+        }
+
+        /// 行を作る。**コレクションへはつながない** ―― `insert` した後に `item.collection` を入れる(`restoreItem`)。作る時点で
+        /// つないでおくと、コレクションから外した本を同じコレクションへ戻したときに `collection.items` へ現れなかった
+        /// (DataUndoTests で実測。行は保存されていて id でも引けたが、コレクションの側の一覧に載らなかった。原因は確かめていない)。
+        func makeItem() -> CollectionItem {
+            let item = CollectionItem(
+                bookID: bookID, bookmarkData: bookmarkData, title: title, collection: nil,
+                sortOrder: sortOrder, fileNodeIdentifier: fileNodeIdentifier
+            )
+            item.id = id
+            item.addedAt = addedAt
+            item.coverStatus = coverStatus
+            item.coverAspect = coverAspect
+            return item
+        }
+    }
+
+    /// コレクションからの削除の控え。
+    struct ItemRemovalRecord {
+        let items: [ItemSnapshot]
+        /// 削除で書き換えた `BookCollection.updatedAt` の元の値(「更新日」の並びを戻すため)。
+        let previousUpdatedAt: [UUID: Date]
+
+        var itemIDs: [UUID] { items.map(\.id) }
+    }
+
+    /// `delete(_ collections:)` と同じく消し、控えを返す(表紙のファイルは消さない)。
+    func deleteRecording(_ collections: [BookCollection]) -> CollectionDeletionRecord? {
+        guard !collections.isEmpty else { return nil }
+        let collectionIDs = Set(collections.map(\.id))
+        var clearedPins: [ClearedPin] = []
+        for library in allLibraries() {
+            if let id = library.pinnedFirstCollectionID, collectionIDs.contains(id) {
+                clearedPins.append(ClearedPin(libraryID: library.id, collectionID: id, isFirst: true))
+            }
+            if let id = library.pinnedLastCollectionID, collectionIDs.contains(id) {
+                clearedPins.append(ClearedPin(libraryID: library.id, collectionID: id, isFirst: false))
+            }
+        }
+        let record = CollectionDeletionRecord(
+            library: nil, collections: collections.map(CollectionSnapshot.init), clearedPins: clearedPins
+        )
+        performDeletion(of: collections)
+        return record
+    }
+
+    /// `delete(_ library:)` と同じく消し、控えを返す(ライブラリが 1 つしか無ければ何もしない)。
+    func deleteRecording(_ library: BookLibrary) -> CollectionDeletionRecord? {
+        guard allLibraries().count > 1 else { return nil }
+        let record = CollectionDeletionRecord(
+            library: LibrarySnapshot(library), collections: library.collections.map(CollectionSnapshot.init),
+            clearedPins: []
+        )
+        let collectionIDs = library.collections.map(\.id)
+        modelContext.delete(library)
+        invalidateLookupCaches()
+        saveAndNotify()
+        removeTileImages(collectionIDs)
+        for itemID in record.itemIDs { locationByItemID.removeValue(forKey: itemID) }
+        reload()
+        return record
+    }
+
+    /// 控えからライブラリ・コレクション・本を作り直す。**入れ先のライブラリが無くなっていたら戻せない**(false)。
+    /// 名前が今ある別のものとぶつかるときは番号を足す(同じ名前を許さない決まり ―― hasCollectionNamed / hasLibraryNamed)。
+    /// 同じ id のものが既にあれば(別のウインドウで戻した等)そのコレクションは飛ばす。
+    func restore(_ record: CollectionDeletionRecord) -> Bool {
+        var libraryByID: [UUID: BookLibrary] = [:]
+        for library in allLibraries() { libraryByID[library.id] = library }
+        if let snapshot = record.library, libraryByID[snapshot.id] == nil {
+            let library = BookLibrary(name: snapshot.name, sortOrder: snapshot.sortOrder, usesDefaultName: snapshot.usesDefaultName)
+            library.id = snapshot.id
+            library.createdAt = snapshot.createdAt
+            library.coverAspectRatioRaw = snapshot.coverAspectRatioRaw
+            library.coverCropAnchorRaw = snapshot.coverCropAnchorRaw
+            library.coverFitRaw = snapshot.coverFitRaw
+            library.pinnedFirstCollectionID = snapshot.pinnedFirstCollectionID
+            library.pinnedLastCollectionID = snapshot.pinnedLastCollectionID
+            library.coverBackgroundColorRaw = snapshot.coverBackgroundColorRaw
+            if hasLibraryNamed(snapshot.name) {
+                library.name = uniqueName(snapshot.name) { hasLibraryNamed($0) }
+                library.usesDefaultName = false
+            }
+            modelContext.insert(library)
+            libraryByID[snapshot.id] = library
+        }
+        var restoredAny = false
+        let existingCollectionIDs = Set(allCollections().map(\.id))
+        for snapshot in record.collections where !existingCollectionIDs.contains(snapshot.id) {
+            guard let libraryID = snapshot.libraryID, let library = libraryByID[libraryID] else { continue }
+            let collection = BookCollection(name: snapshot.name, library: library)
+            collection.id = snapshot.id
+            collection.createdAt = snapshot.createdAt
+            collection.updatedAt = snapshot.updatedAt
+            collection.autoFolderPath = snapshot.autoFolderPath
+            if hasCollectionNamed(snapshot.name, in: library) {
+                collection.name = uniqueName(snapshot.name) { hasCollectionNamed($0, in: library) }
+            }
+            modelContext.insert(collection)
+            for item in snapshot.items { restoreItem(item, into: collection) }
+            restoredAny = true
+        }
+        for pin in record.clearedPins {
+            guard let library = libraryByID[pin.libraryID] else { continue }
+            if pin.isFirst, library.pinnedFirstCollectionID == nil {
+                library.pinnedFirstCollectionID = pin.collectionID
+            } else if !pin.isFirst, library.pinnedLastCollectionID == nil {
+                library.pinnedLastCollectionID = pin.collectionID
+            }
+        }
+        guard restoredAny || record.library != nil else { return false }
+        invalidateLookupCaches()
+        saveAndNotify()
+        reload()
+        return true
+    }
+
+    /// もう一度消す(やり直し)。表紙のファイルは消さない。消す相手が 1 つも無ければ false。
+    func reapply(_ record: CollectionDeletionRecord) -> Bool {
+        if let snapshot = record.library {
+            guard let library = library(withID: snapshot.id), allLibraries().count > 1 else { return false }
+            let collectionIDs = library.collections.map(\.id)
+            modelContext.delete(library)
+            invalidateLookupCaches()
+            saveAndNotify()
+            removeTileImages(collectionIDs)
+            reload()
+            return true
+        }
+        let targets = record.collectionIDs.compactMap { collection(withID: $0) }
+        guard !targets.isEmpty else { return false }
+        performDeletion(of: targets)
+        return true
+    }
+
+    /// 取り消せなくなった削除の後片付け: 表紙のファイルを消す(その id の本が今あれば ―― 取り消しで戻っていれば ―― 消さない)。
+    func finalizeDeletion(_ record: CollectionDeletionRecord) {
+        removeCovers(record.itemIDs.filter { item(withID: $0) == nil })
+    }
+
+    /// `remove(_ items:)` と同じくコレクションから外し、控えを返す(表紙のファイルは消さない)。
+    func removeRecording(_ items: [CollectionItem]) -> ItemRemovalRecord? {
+        guard !items.isEmpty else { return nil }
+        var previousUpdatedAt: [UUID: Date] = [:]
+        for item in items {
+            if let collection = item.collection, previousUpdatedAt[collection.id] == nil {
+                previousUpdatedAt[collection.id] = collection.updatedAt
+            }
+        }
+        let record = ItemRemovalRecord(items: items.map(ItemSnapshot.init), previousUpdatedAt: previousUpdatedAt)
+        performRemoval(of: items)
+        return record
+    }
+
+    /// 外した本をコレクションへ戻す。**同じ本が今そのコレクションにあれば(自動登録フォルダが足し直した等)戻さない**。
+    /// コレクションが無くなっていれば、その本は戻せない。1 冊も戻せなければ false。
+    func restore(_ record: ItemRemovalRecord) -> Bool {
+        var restoredCollections: [UUID: BookCollection] = [:]
+        for snapshot in record.items {
+            guard let collectionID = snapshot.collectionID, let collection = collection(withID: collectionID),
+                  item(withID: snapshot.id) == nil
+            else { continue }
+            let present = collection.items.contains {
+                $0.bookID == snapshot.bookID
+                    || (snapshot.fileNodeIdentifier != nil && $0.fileNodeIdentifier == snapshot.fileNodeIdentifier)
+            }
+            guard !present else { continue }
+            restoreItem(snapshot, into: collection)
+            restoredCollections[collectionID] = collection
+            invalidateLookupCaches()
+        }
+        guard !restoredCollections.isEmpty else { return false }
+        for (id, collection) in restoredCollections {
+            if let previous = record.previousUpdatedAt[id] { collection.updatedAt = previous }
+        }
+        invalidateLookupCaches()
+        saveAndNotify()
+        return true
+    }
+
+    /// もう一度外す(やり直し)。表紙のファイルは消さない。
+    func reapply(_ record: ItemRemovalRecord) -> Bool {
+        let targets = record.itemIDs.compactMap { item(withID: $0) }
+        guard !targets.isEmpty else { return false }
+        performRemoval(of: targets)
+        return true
+    }
+
+    /// 取り消せなくなった「コレクションから削除」の後片付け: 表紙のファイルを消す(戻っている本の表紙は消さない)。
+    func finalizeRemoval(_ record: ItemRemovalRecord) {
+        removeCovers(record.itemIDs.filter { item(withID: $0) == nil })
+    }
+
+    /// `delete(_ collections:)` の中身から、表紙のファイルを消すところを除いたもの。
+    private func performDeletion(of collections: [BookCollection]) {
+        let itemIDs = collections.flatMap { $0.items.map(\.id) }
+        let collectionIDs = collections.map(\.id)
+        clearPins(referencing: Set(collectionIDs))
+        for collection in collections { modelContext.delete(collection) }
+        invalidateLookupCaches()
+        saveAndNotify()
+        removeTileImages(collectionIDs)
+        for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
+        reload()
+    }
+
+    /// `remove(_ items:)` の中身から、表紙のファイルを消すところを除いたもの。
+    private func performRemoval(of items: [CollectionItem]) {
+        let itemIDs = items.map(\.id)
+        let now = Date()
+        var touchedCollections: [ObjectIdentifier: BookCollection] = [:]
+        for item in items {
+            if let collection = item.collection {
+                touchedCollections[ObjectIdentifier(collection)] = collection
+            }
+            modelContext.delete(item)
+        }
+        for collection in touchedCollections.values { collection.updatedAt = now }
+        invalidateLookupCaches()
+        saveAndNotify()
+        for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
+    }
+
+    private func restoreItem(_ snapshot: ItemSnapshot, into collection: BookCollection) {
+        let item = snapshot.makeItem()
+        modelContext.insert(item)
+        item.collection = collection
+    }
+
+    /// 「名前 2」「名前 3」… のうち空いている最初のもの。
+    private func uniqueName(_ name: String, isTaken: (String) -> Bool) -> String {
+        var number = 2
+        while isTaken("\(name) \(number)") { number += 1 }
+        return "\(name) \(number)"
+    }
+
     // MARK: - 保存と通知
 
     private func removeCovers(_ itemIDs: [UUID]) {

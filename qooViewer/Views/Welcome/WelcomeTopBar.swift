@@ -29,6 +29,8 @@ import SwiftUI
 struct WelcomeTopBar: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var collectionStore: CollectionStore
+    /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
+    @Environment(\.dataUndoStack) private var dataUndo
     @Environment(\.locale) private var locale
     /// 選択中のチップ・ファイルブラウザの切り替えの色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
     @Environment(\.appearsActive) private var appearsActive
@@ -129,12 +131,12 @@ struct WelcomeTopBar: View {
             Button("Cancel", role: .cancel) { deletingLibraryID = nil }
             Button("Delete", role: .destructive) {
                 if let library = deletingLibraryID.flatMap({ collectionStore.library(withID: $0) }) {
-                    collectionStore.delete(library)
+                    DataUndoStack.deleteLibrary(library, in: collectionStore, recordingOn: dataUndo)
                 }
                 deletingLibraryID = nil
             }
         } message: {
-            Text("Every collection in this library is removed too. The books themselves are not deleted.")
+            Text("Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo.")
         }
         // メニューバーの「ホーム」メニューから(WelcomeLibraryState.menuRequestのコメント)。右クリックと同じ状態を立てる。
         .onChange(of: state.menuRequest) { _, _ in

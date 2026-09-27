@@ -755,6 +755,68 @@ final class BookmarkStore: ObservableObject {
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
+    // MARK: - 取り消せる削除(2026-09-27、監査 34。DataUndoStack)
+
+    /// ブックマークを消し、消す前の値を返す(取り消しで書き戻すため。**消した行はその後読まない** ―― SwiftData の消した行を
+    /// 読むと落ちうる)。本ごとに保存と通知を 1 回にまとめる。
+    @discardableResult
+    func deleteRecording(_ bookmarks: [Bookmark]) -> [Bookmark.Snapshot] {
+        guard !bookmarks.isEmpty else { return [] }
+        let snapshots = bookmarks.map(\.snapshot)
+        var byBookID: [String: [Bookmark]] = [:]
+        for bookmark in bookmarks { byBookID[bookmark.bookID, default: []].append(bookmark) }
+        for bookmark in bookmarks { modelContext.delete(bookmark) }
+        try? modelContext.save()
+        for (bookID, removed) in byBookID { cacheRemovedBookmarks(removed, forBookID: bookID) }
+        rebuildGroups()
+        for bookID in byBookID.keys {
+            NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        }
+        return snapshots
+    }
+
+    /// 1 冊分のブックマークをすべて消し、消す前の値を返す(`deleteAllBookmarks(forBookID:)` の取り消せる版)。
+    @discardableResult
+    func deleteAllBookmarksRecording(forBookID bookID: String) -> [Bookmark.Snapshot] {
+        deleteRecording(bookmarksByBookID()[bookID] ?? [])
+    }
+
+    /// 控えた値でブックマークを書き戻す。**同じページに今あるもの(消した後に足された・本を開いて目次から取り込み直された)は
+    /// 足さない**(`addBookmark` の重複防止と同じ。ページの鍵があれば鍵で、無ければ番号で比べる)。書き戻した id を返す。
+    @discardableResult
+    func restore(_ snapshots: [Bookmark.Snapshot]) -> [UUID] {
+        guard !snapshots.isEmpty else { return [] }
+        let current = bookmarksByBookID()
+        var restoredByBookID: [String: [Bookmark]] = [:]
+        for snapshot in snapshots {
+            let existing = current[snapshot.bookID] ?? []
+            let taken = existing.contains { bookmark in
+                bookmark.id == snapshot.id
+                    || (snapshot.pageKey != nil && bookmark.pageKey == snapshot.pageKey)
+                    || (snapshot.pageKey == nil && bookmark.pageIndex == snapshot.pageIndex)
+            } || (restoredByBookID[snapshot.bookID] ?? []).contains { $0.pageIndex == snapshot.pageIndex }
+            guard !taken else { continue }
+            let bookmark = snapshot.makeBookmark()
+            modelContext.insert(bookmark)
+            restoredByBookID[snapshot.bookID, default: []].append(bookmark)
+        }
+        guard !restoredByBookID.isEmpty else { return [] }
+        try? modelContext.save()
+        for (bookID, inserted) in restoredByBookID { cacheInsertedBookmarks(inserted, forBookID: bookID) }
+        rebuildGroups()
+        for bookID in restoredByBookID.keys {
+            NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        }
+        return restoredByBookID.values.flatMap { $0.map(\.id) }
+    }
+
+    /// id で引いてもう一度消す(やり直し)。もう無いものは飛ばす。
+    func delete(ids: Set<UUID>, bookIDs: Set<String>) {
+        let all = bookmarksByBookID()
+        let targets = bookIDs.flatMap { all[$0] ?? [] }.filter { ids.contains($0.id) }
+        deleteRecording(targets)
+    }
+
     /// 指定した1冊分のブックマークをすべて削除する。「ブックマーク・レイアウトの編集」
     /// ウインドウの4.4節「ブックマークを全削除」から呼ぶ(1冊分のみを対象にする点が
     /// deleteAllBookmarks()と異なる)。
