@@ -1514,8 +1514,7 @@ extension AppPreferences {
                 Keys.confirmBeforeClosingMultipleTabsWindow,
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
                 Keys.showRecentFavoritesOnWelcome,
-                Keys.offersRemovingMissingCollectionBooks,
-                Keys.homeOpensWithSingleClick,
+                // offersRemovingMissingCollectionBooks / homeOpensWithSingleClick は「ライブラリ」へ移した(2026-09-27。下の case .library)。
                 Keys.libraryFeatureEnabled,
                 Keys.fileBrowserFeatureEnabled,
                 Keys.smartLibraryFeatureEnabled,
@@ -1616,6 +1615,11 @@ extension AppPreferences {
                 Keys.fileBrowserReadOnly,
                 Keys.fileBrowserImageFolderOpenAction,
             ]
+        case .library:
+            return [
+                Keys.homeOpensWithSingleClick,
+                Keys.offersRemovingMissingCollectionBooks,
+            ]
         case .smartLibrary:
             return [
                 Keys.smartLibraryUsesFirstAuthorOnly,
@@ -1676,8 +1680,6 @@ extension AppPreferences {
             confirmBeforeClosingMultipleTabsWindow = source.confirmBeforeClosingMultipleTabsWindow
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
-            offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
-            homeOpensWithSingleClick = source.homeOpensWithSingleClick
             libraryFeatureEnabled = source.libraryFeatureEnabled
             fileBrowserFeatureEnabled = source.fileBrowserFeatureEnabled
             smartLibraryFeatureEnabled = source.smartLibraryFeatureEnabled
@@ -1744,6 +1746,9 @@ extension AppPreferences {
             fileBrowserRevealDestination = source.fileBrowserRevealDestination
             fileBrowserReadOnly = source.fileBrowserReadOnly
             fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
+        case .library:
+            homeOpensWithSingleClick = source.homeOpensWithSingleClick
+            offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
         case .smartLibrary:
             smartLibraryUsesFirstAuthorOnly = source.smartLibraryUsesFirstAuthorOnly
             smartLibraryCoverShape = source.smartLibraryCoverShape

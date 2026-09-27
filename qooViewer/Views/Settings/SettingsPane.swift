@@ -39,6 +39,11 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// 機能そのものの ON/OFF は、ライブラリ・ファイルブラウザと並べて「一般」に置いたまま(3 つの組でホームの形が
     /// 決まるので、1 か所で見比べられるように)。
     case smartLibrary
+    /// ホームのライブラリ(本棚。2026-09-27、利用者の指示)。「一般」の「ホーム」を大きな機能の ON/OFF だけにするため、そこに
+    /// あった「クリック 1 回で開く」と「見つからなくなった本の削除を尋ねる」を移した。ファイルブラウザ・スマートライブラリがそれぞれ
+    /// 画面を持っているのに揃えた(並びもホームの帯と同じ: ファイルブラウザ → スマートライブラリ → ライブラリ)。
+    /// 機能そのものの ON/OFF は、ほかの 2 つと同じく「一般」に置いたまま。
+    case library
     /// 本を開くときの挙動(初めて開く本の読み方向・見開き/単ページ・表示モード、再開時の開始ページ、Finder/お気に入りからの開き先)。
     /// 見開き表示でのブックマークの対象ページは「閲覧中の動作」へ移した(2026-09-27)。
     case opening
@@ -98,6 +103,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .appearance: "Appearance"
         case .fileBrowser: "File Browser"
         case .smartLibrary: "Smart Library"
+        case .library: "Libraries"
         case .opening: "Opening Books"
         case .rendering: "Image Display"
         case .reading: "While Reading"
@@ -130,6 +136,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .fileBrowser: "folder.fill"
         // ホームの帯のスマートライブラリのボタンと同じ図形(WelcomeTopBar.smartLibraryToggle)。
         case .smartLibrary: "line.3.horizontal.decrease.circle.fill"
+        // 本棚(ライブラリとコレクション)。
+        case .library: "books.vertical.fill"
         // 「閉じた本を開く」=これから開く本の設定。ページ(=閲覧中)の `reading` と対にしてある。
         case .opening: "book.closed.fill"
         case .rendering: "photo.fill"
@@ -191,6 +199,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .fileBrowser: Color(white: 0.36)
         // 先頭グループの4つ目も無彩色。いちばん暗い灰にして、「ファイルブラウザ」(0.36)の下に段を1つ足す。
         case .smartLibrary: Color(white: 0.2)
+        // 先頭グループの5つ目も無彩色。いちばん暗い「スマートライブラリ」(0.2)と「ファイルブラウザ」(0.36)の間ではなく、
+        // 「一般」(.gray)と「ファイルブラウザ」(0.36)の間に置いて、隣り合う「スマートライブラリ」との明度の差を大きく取る。
+        case .library: Color(white: 0.46)
         case .opening: .blue
         case .rendering: .cyan
         case .reading: .indigo
@@ -216,7 +227,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// この項目が属するサイドバーのグループ。
     var group: SettingsPaneGroup {
         switch self {
-        case .general, .appearance, .fileBrowser, .smartLibrary: .top
+        case .general, .appearance, .fileBrowser, .smartLibrary, .library: .top
         case .opening, .rendering, .reading, .layout: .books
         case .keyboard, .mouse, .modeInput: .controls
         case .cache, .access, .dataTransfer, .reset: .advanced
@@ -237,6 +248,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .appearance: AppearanceSettingsView()
         case .fileBrowser: FileBrowserSettingsView()
         case .smartLibrary: SmartLibrarySettingsView()
+        case .library: LibrarySettingsView()
         case .opening: OpeningSettingsView()
         case .rendering: RenderingSettingsView()
         case .reading: ReadingSettingsView()

@@ -460,7 +460,7 @@ Home / End・PageUp / PageDown・⌘A・頭文字(type-select。中では表紙�
 `GridSelection`(スマートライブラリの `SmartGridSelection` の識別子を型の引数にしたもの)と `HomeGridInteraction`。
 キーは動かないグリッドの外枠で受け、画面に出たときにそこへ焦点を置く。選んだ枠を見せるスクロールは帯の `MarqueeSelection` が
 控えるセルの矩形から行の高さを取る(`HomeGridReveal`。どのセルも同じ高さ)。札は絵も名前も 1 つの枠(以前は名前を押しても
-何も起きなかった)。環境設定「一般」▸ ホーム ▸「クリック 1 回で開く」(`AppPreferences.homeOpensWithSingleClick`、既定 OFF)を
+何も起きなかった)。環境設定「ライブラリ」▸「クリック 1 回で開く」(2026-09-27 までは「一般」▸ ホーム)(`AppPreferences.homeOpensWithSingleClick`、既定 OFF)を
 入れると、ふつうのクリックで開き、選ぶのは ⌘ / ⇧ クリック・帯・キーになる(スマートライブラリにも効く。ファイルブラウザには
 効かない)。そのとき、ダブルクリックの 2 回目は捨てる(1 回目で入ったコレクションの同じ位置の本を開いてしまうため)。
 右クリックした相手には枠を描く(サイドパネルと同じ `SidePanelContextMenuHighlight` の仕組み。選んだものを右クリックしたときは
@@ -741,7 +741,7 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 
 ## 見つからない本の掃除(起動時に尋ねる)
 
-環境設定 `offersRemovingMissingCollectionBooks`(**既定OFF**)がONのとき、起動時に1度だけ
+環境設定「ライブラリ」の `offersRemovingMissingCollectionBooks`(**既定OFF**)がONのとき、起動時に1度だけ
 `CollectionStore.missingBookSweep()` を数え、`MissingBooksCleanupSheet` で一覧を出して
 「削除」か「キャンセル」を尋ねる(`ContentView.offerRemovingMissingCollectionBooksIfNeeded`)。
 自動では消さない ―― **「実体が無い」と「別のボリュームへ移した」は区別できない**ので、

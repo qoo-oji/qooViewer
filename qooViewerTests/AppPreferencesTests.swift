@@ -281,8 +281,8 @@ struct AppPreferencesTests {
             "displayLanguage", "launchOpensLastBook", "launchFullScreen", "launchInPrivateMode",
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
             "showRecentFavoritesOnWelcome",
-            "offersRemovingMissingCollectionBooks", "libraryFeatureEnabled", "fileBrowserFeatureEnabled",
-            "smartLibraryFeatureEnabled", "homeOpensWithSingleClick",
+            "libraryFeatureEnabled", "fileBrowserFeatureEnabled",
+            "smartLibraryFeatureEnabled",
             "sidePanelFeatureEnabled",
             "sidePanelPosition", "sidePanelUsesDoubleClick",
             "sidePanelSortOrder",
@@ -321,6 +321,7 @@ struct AppPreferencesTests {
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
             "fileBrowserImageFolderOpenAction",
         ],
+        .library: ["homeOpensWithSingleClick", "offersRemovingMissingCollectionBooks"],
         .smartLibrary: ["smartLibraryUsesFirstAuthorOnly", "smartLibraryCoverShape", "smartLibraryCoverCropAnchor", "smartLibraryCoverFit"],
         // キー・マウスの割り当ては KeyBindingStore が持つ(各画面が自分で store 側を呼ぶ)。
         // 「フォルダのアクセス権」「リセット」には戻すべき設定が無い。

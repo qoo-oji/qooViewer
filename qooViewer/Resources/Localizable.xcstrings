@@ -7275,6 +7275,22 @@
         }
       }
     },
+    "Clicking" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clicking"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリック"
+          }
+        }
+      }
+    },
     "Close" : {
       "localizations" : {
         "en" : {
@@ -24405,6 +24421,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この画面のすべての設定を初期設定に戻します。\nよく使う項目とフォルダのアクセス権には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page. Your libraries and collections are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page. Your libraries and collections are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面の設定をすべて初期設定に戻します。ライブラリとコレクションには影響しません。"
           }
         }
       }
