@@ -12,8 +12,8 @@ struct GeneralSettingsView: View {
     var body: some View {
         SettingsPaneContainer {
             // 並び(2026-09-27、環境設定の点検で利用者と決めた): **より根本的なもの(他の設定・機能の前提になるもの)ほど上**。
-            // 言語(すべての表示の前提)→ 機能の有無(ホームの機能・サイドパネルの ON/OFF)→ 機能がある前提での動き方(起動時 →
-            // ウインドウとタブ)→ データの保持(保存データ → 履歴)。言語を「一度決めたら触らない」として末尾へ回したら、利用者に
+            // 言語(すべての表示の前提)→ ホームの機能の有無 → 起動時 → ウインドウとタブ → サイドパネル(ウインドウの中のパネルの
+            // 話なので、ウインドウとタブの下。利用者の指示)→ データの保持(保存データ → 履歴)。言語を「一度決めたら触らない」として末尾へ回したら、利用者に
             // 「最悪」と言われて戻した ―― 触る頻度は重要度ではない(根本度が同じくらいのものの間でだけ、触る頻度で並べる)。
             Section {
                 // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
@@ -80,45 +80,6 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                SettingsToggle(
-                    "Enable Side Panel",
-                    isOn: $preferences.sidePanelFeatureEnabled,
-                    help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
-                )
-                // サイドパネル機能がOFFの間、以下はどれも効かない設定になる。以前は淡色にしていたが、
-                // 2026-09-27 に**出さない**ようにした(利用者の指示)。機能そのものが無い間は、その機能の細かい設定は
-                // 並べる意味が無い。**この欄へ設定を足すときは、この if の中へ入れること。**
-                if preferences.sidePanelFeatureEnabled {
-                    SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
-                    // 「サイドパネルの」はSectionヘッダが言っているので落とし、
-                    // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
-                    SettingsToggle(
-                        "Require a Double-Click to Open or Move Into Folders",
-                        isOn: $preferences.sidePanelUsesDoubleClick,
-                        help: "Navigation buttons such as Back, Forward, and Up are unaffected."
-                    )
-                    // 上段のフォルダブラウザ専用。下段の本の中身の一覧は常に本のページ順
-                    // (理由はAppPreferences.sidePanelSortOrderのコメント参照)。
-                    SettingsPicker(
-                        "Sort Order",
-                        selection: $preferences.sidePanelSortOrder,
-                        help: "Applies to the folder browser at the top of the side panel. The book contents list below it always follows the book's page order."
-                    )
-                    // ユーザー要望: 次/前の本へ移動する順番を、フォルダブラウザの並べ替えに
-                    // 合わせたい。並べ替えの基準・向きを変える手段がパネル上部のメニューしか
-                    // 無いため、この設定はサイドパネル欄の一部として置き、パネル機能がOFFの
-                    // 間は上の3項目ともども無効になる(AppPreferences.siblingBookOrder参照)。
-                    SettingsToggle(
-                        "Move Between Books in the Browser's Sort Order",
-                        isOn: $preferences.siblingNavigationFollowsBrowserSort,
-                        help: "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order."
-                    )
-                }
-            } header: {
-                Text("Side Panel")
-            }
-
-            Section {
                 // 並び(2026-09-27): シークレットモードを先頭に ―― 記録を残すかどうかという、この欄のほかの項目の前提を決める設定で、
                 // 下の「前回読んでいた本を開き直す」を淡色にする側でもある。
                 // ユーザー要望: アプリの通常起動・Finderからのダブルクリック・Dockアイコンへの
@@ -156,6 +117,45 @@ struct GeneralSettingsView: View {
                 )
             } header: {
                 Text("Windows & Tabs")
+            }
+
+            Section {
+                SettingsToggle(
+                    "Enable Side Panel",
+                    isOn: $preferences.sidePanelFeatureEnabled,
+                    help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
+                )
+                // サイドパネル機能がOFFの間、以下はどれも効かない設定になる。以前は淡色にしていたが、
+                // 2026-09-27 に**出さない**ようにした(利用者の指示)。機能そのものが無い間は、その機能の細かい設定は
+                // 並べる意味が無い。**この欄へ設定を足すときは、この if の中へ入れること。**
+                if preferences.sidePanelFeatureEnabled {
+                    SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
+                    // 「サイドパネルの」はSectionヘッダが言っているので落とし、
+                    // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
+                    SettingsToggle(
+                        "Require a Double-Click to Open or Move Into Folders",
+                        isOn: $preferences.sidePanelUsesDoubleClick,
+                        help: "Navigation buttons such as Back, Forward, and Up are unaffected."
+                    )
+                    // 上段のフォルダブラウザ専用。下段の本の中身の一覧は常に本のページ順
+                    // (理由はAppPreferences.sidePanelSortOrderのコメント参照)。
+                    SettingsPicker(
+                        "Sort Order",
+                        selection: $preferences.sidePanelSortOrder,
+                        help: "Applies to the folder browser at the top of the side panel. The book contents list below it always follows the book's page order."
+                    )
+                    // ユーザー要望: 次/前の本へ移動する順番を、フォルダブラウザの並べ替えに
+                    // 合わせたい。並べ替えの基準・向きを変える手段がパネル上部のメニューしか
+                    // 無いため、この設定はサイドパネル欄の一部として置き、パネル機能がOFFの
+                    // 間は上の3項目ともども無効になる(AppPreferences.siblingBookOrder参照)。
+                    SettingsToggle(
+                        "Move Between Books in the Browser's Sort Order",
+                        isOn: $preferences.siblingNavigationFollowsBrowserSort,
+                        help: "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order."
+                    )
+                }
+            } header: {
+                Text("Side Panel")
             }
 
             Section {
