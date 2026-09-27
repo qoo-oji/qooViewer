@@ -262,36 +262,8 @@ struct ContentView: View {
                 if showsDockedSidePanel && panelPosition == .left {
                     sidePanelView(dismissesOnAction: false, isDocked: true)
                 }
-                Group {
-                    if let shown = viewerHandoff.shown {
-                        // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
-                        // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
-                        // 新しい本の状態にリセットされるようにしている。
-                        // ビューモデルは ViewerHandoff が先に作って最初の見開きを読ませたもの(makeViewerModel)。
-                        // それが揃うまでは、この分岐は前の本のまま(またはホームのまま)になる。
-                        ViewerView(
-                            book: shown.book, modelContext: modelContext, preferences: preferences,
-                            layoutStore: layoutStore, metadataStore: metadataStore,
-                            preparedModel: shown.model,
-                            // フルスクリーンのまま本を替えても、最初のフレームからフルスクリーンの配置で描く(ViewerView.isFullScreen)。
-                            startsInFullScreen: appState.hostWindow?.styleMask.contains(.fullScreen) ?? false
-                        )
-                            .id(shown.book.id)
-                    } else if awaitsInitialBook {
-                        // 本を開くために作ったウインドウの、最初の本が出るまで(awaitsInitialBook のコメント)。
-                        effectiveAppearance.effectiveBackgroundColor
-                    } else {
-                        WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser, smartLibrary: smartLibrary)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // 読み込み中の進捗と中止(BookLoadingOverlay参照)。サイドパネルの上には
-                // 被せたくないので、HStackの外ではなくこのGroupに重ねる。
-                .overlay {
-                    BookLoadingOverlay(progress: appState.loadingProgress) {
-                        appState.cancelOpen()
-                    }
-                }
+                // 本(ビューア)かホームか(bookOrHome。式を短くするため切り出してある ―― 下の型コメント)。
+                bookOrHome
                 if showsDockedSidePanel && panelPosition == .right {
                     sidePanelView(dismissesOnAction: false, isDocked: true)
                 }
@@ -654,18 +626,6 @@ struct ContentView: View {
         // NSApp.keyWindow(その時点でたまたまキーウインドウだったもの、必ずしも正しいとは
         // 限らない)に頼らず、本を開いている当のAppStateが持つウインドウへ確実に追加できる
         // ようにするため(詳細はAppState.hostWindowのコメント参照)。
-        // 最初の本の読み込みが終わった(開けた・開けなかった・中止した)ら、ホームを出してよい(awaitsInitialBook のコメント)。
-        // 本が開けたときは、その本がビューアに出た時点で下ろす(下の viewerHandoff.shown。それまでは地のまま)。
-        .onChange(of: appState.loadingProgress == nil) { _, isIdle in
-            if isIdle, appState.currentBook == nil { awaitsInitialBook = false }
-        }
-        .onChange(of: viewerHandoff.shown != nil) { _, isShown in
-            if isShown { awaitsInitialBook = false }
-        }
-        // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
-        .onChange(of: appState.currentBook?.id, initial: true) { _, _ in
-            viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
-        }
         .onChange(of: appState.currentBook?.id) { _, _ in
             // 本を開いたらウェルカム画面の編集モードは解除する(戻ってきたときに、
             // 出しっぱなしの編集モードで誤って棚を触らないため)。どのコレクションの中に
@@ -1283,6 +1243,56 @@ struct ContentView: View {
                 tokens.removeAll()
             }
         })
+    }
+
+    /// 本(ビューア)か、ホームか、最初の本を待つ間の地か(body から切り出したもの)。
+    ///
+    /// **body の式を短くするため切り出してある**(2026-09-27): 表示の切り替えの監査で body に `.onChange` を 3 つ足したところ、
+    /// CI の Xcode 26.6 のコンパイラが「式の型を妥当な時間で決められない」で止まった(手元の Xcode 27 では通っていた)。
+    /// 足した 3 つ(ViewerHandoff への受け渡しと awaitsInitialBook を下ろす所)も、ここに付ける。
+    private var bookOrHome: some View {
+        Group {
+            if let shown = viewerHandoff.shown {
+                // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
+                // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
+                // 新しい本の状態にリセットされるようにしている。
+                // ビューモデルは ViewerHandoff が先に作って最初の見開きを読ませたもの(makeViewerModel)。
+                // それが揃うまでは、この分岐は前の本のまま(またはホームのまま)になる。
+                ViewerView(
+                    book: shown.book, modelContext: modelContext, preferences: preferences,
+                    layoutStore: layoutStore, metadataStore: metadataStore,
+                    preparedModel: shown.model,
+                    // フルスクリーンのまま本を替えても、最初のフレームからフルスクリーンの配置で描く(ViewerView.isFullScreen)。
+                    startsInFullScreen: appState.hostWindow?.styleMask.contains(.fullScreen) ?? false
+                )
+                    .id(shown.book.id)
+            } else if awaitsInitialBook {
+                // 本を開くために作ったウインドウの、最初の本が出るまで(awaitsInitialBook のコメント)。
+                effectiveAppearance.effectiveBackgroundColor
+            } else {
+                WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser, smartLibrary: smartLibrary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 読み込み中の進捗と中止(BookLoadingOverlay参照)。サイドパネルの上には
+        // 被せたくないので、HStackの外ではなくこのGroupに重ねる。
+        .overlay {
+            BookLoadingOverlay(progress: appState.loadingProgress) {
+                appState.cancelOpen()
+            }
+        }
+        // 最初の本の読み込みが終わった(開けた・開けなかった・中止した)ら、ホームを出してよい(awaitsInitialBook のコメント)。
+        // 本が開けたときは、その本がビューアに出た時点で下ろす(下の viewerHandoff.shown。それまでは地のまま)。
+        .onChange(of: appState.loadingProgress == nil) { _, isIdle in
+            if isIdle, appState.currentBook == nil { awaitsInitialBook = false }
+        }
+        .onChange(of: viewerHandoff.shown != nil) { _, isShown in
+            if isShown { awaitsInitialBook = false }
+        }
+        // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
+        .onChange(of: appState.currentBook?.id, initial: true) { _, _ in
+            viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
+        }
     }
 
     /// ViewerHandoff が先に作る、本のビューモデル(以前は ViewerView の init が作っていた。引数はそのとき渡していたもの)。
