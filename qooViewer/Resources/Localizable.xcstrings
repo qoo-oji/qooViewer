@@ -20087,22 +20087,6 @@
         }
       }
     },
-    "Open in New Tab…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open in New Tab…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規タブで開く…"
-          }
-        }
-      }
-    },
     "Open in New Window…" : {
       "localizations" : {
         "en" : {

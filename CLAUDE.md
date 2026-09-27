@@ -397,6 +397,14 @@ kept each closed book window's AppState/ViewerViewModel/PageLoader/NSWindow aliv
 fixed 2026-09-13). Same rule for `NSViewRepresentable` callbacks (clear them in `dismantleNSView`) and
 `NSTrackingArea(owner: self)`. Leaks here are silent — verify with `heap`/`footprint` as in
 `docs/12-verification-and-debugging.md`. Details in `docs/09-ui-and-windows.md`.
+**Windows and tabs (2026-09-27)**: book windows' `tabbingIdentifier` is set by privacy, not by WindowGroup
+(`BookWindowGroup.tabbingIdentifier`), so main/normal/book windows merge and private ones never do. New windows get their
+final frame *before* they appear: the opener calls `BookWindowOpener.expectNewWindow` right before `openWindow`, and the
+book WindowGroups' `.defaultWindowPlacement` hands it to SwiftUI (content rect, top-left origin) — **new code that opens a
+book window must do the same**, or it shows at 900×640 for ~70 ms first. The File menu's close items are AppKit's own (with
+tabs it shows "Close Tab" ⌘W and "Close Window" ⇧⌘W itself; SwiftUI's `.saveItem` placement never reached them), and
+`TabbedWindowCloseMenuRouter` only re-targets AppKit's "Close Window" so the multi-tab confirmation applies. AX reports stale
+names for these rebuilt items — read `NSApp.mainMenu` in-process instead.
 
 **Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in
 `AppearanceSettings` (ViewModels/AppearanceSettings.swift), not `AppPreferences` — `preferences.appearance` (normal

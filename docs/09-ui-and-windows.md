@@ -76,12 +76,46 @@ ViewerView(本1冊)
   実測、2026-09-26)。それまで Cmd+W でもタブがすべて閉じ、確認が出ていた。今は差し替え先の
   `closeButtonClicked` が `NSApp.currentEvent` を見て、このウインドウの閉じるボタン上の左クリックなら
   `forceCloseWindow`、それ以外(キー入力・メニューのクリック・イベント無し)なら `closeTab()`(macOS 標準どおり
-  タブ1枚、確認なし)に分ける。「ウインドウを閉じる」メニューには ⇧⌘W(Safari と同じ)。本を一度も開いていないウインドウには
-  `BookClosingWindowDelegate` が付かないので、そのメニューは同じ確認(`confirmCloseIfMultipleTabs`、static)の後で
-  タブグループの全ウインドウへ `performClose` を送る(以前は `performClose` 1回 = タブ1枚だった)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
+  タブ1枚、確認なし)に分ける。「ウインドウを閉じる」⇧⌘W は AppKit の標準の項目を使う(下の「ファイルメニューの閉じる項目」)。
+  本を一度も開いていないウインドウには `BookClosingWindowDelegate` が付かないので、その項目は同じ確認(`confirmCloseIfMultipleTabs`、
+  static)の後でタブグループの全ウインドウへ `performClose` を送る(`BookClosingWindowDelegate.closeWindowWithAllTabs`。以前は
+  `performClose` 1回 = タブ1枚だった)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
   `AppState.deinit` 任せで、その deinit は SwiftUI の `focusedValues` に掴まれて来ない
   (→ [13](13-history-and-known-limitations.md#既知の制限))ため、赤いボタンで閉じるたびに
   アクセスが開いたままになっていた。
+- **ファイルメニューの閉じる項目は AppKit のものを使う**(2026-09-27、監査 [macos-conventions-audit](plans/macos-conventions-audit-2026-09-26.md) の 8・9)。
+  AppKit は、キーウインドウにタブがあるとメニューを開くたび・キーを押すたびに、⌘W を「タブを閉じる」にして(⌥ は「その他のタブを
+  閉じる」)、その上に「ウインドウを閉じる」⇧⌘W(`performCloseTabbedWindowGroup:`。⌥ は「すべてを閉じる」)を足す。タブが無ければ
+  ⌘W だけで、名前は「閉じる」(一度タブを使ったあとは「ウインドウを閉じる」)。アプリ内でメニューの項目を書き出して実測した ――
+  **AX で読む項目名は古いまま残ることがあり、判定に使えなかった**(この取り違えで、監査は ⌘W が「閉じる」のままだと書いていた)。
+  - 以前は自前の「ウインドウを閉じる」⇧⌘W を「ウインドウ」メニューに置いていた。ファイルメニューへ移すと、タブがある間は AppKit の
+    同名の項目と 2 つ並び、タブが無くなると ⌘W の「ウインドウを閉じる」と 2 つ並ぶ(実機で確認)ので、自前の項目はやめた。
+    タブが無いときに ⇧⌘W が無いのは macOS の標準どおり(⌘W がそのウインドウを閉じる)。
+  - AppKit の「ウインドウを閉じる」は確認を出さずにタブをすべて閉じる(実測)。そのままだと環境設定「複数のタブが開いている
+    ウインドウを閉じるときに確認する」が効かない(自前の項目があった頃も、メニューの並びで先に来る AppKit の項目が ⇧⌘W を
+    受けていたはず)。そこで AppKit がこの項目を足したとき(`NSMenu.didAddItemNotification`、同期)に送り先だけを
+    `TabbedWindowCloseMenuRouter` へ替え、`closeWindowWithAllTabs` を通す。action・名前・並び・⌥ の項目は AppKit のまま。
+    キー操作・メニューのクリックの両方で確認が出ることを実機で確かめた。
+  - SwiftUI の `CommandGroup(replacing: .saveItem)` / `after: .saveItem` に書いた項目はメニューに出なかった(標準の「閉じる」は
+    SwiftUI の置き場所のどれにも入っていない)。⌘W の名前を自分で書き換える案も、AppKit がメニューを開くたびに項目を作り直すので
+    成り立たない。
+- **「新規タブ」⌘T**(2026-09-27、監査の 6。「新規タブで開く…」は外した)。手前の本のウインドウ(無ければメインウインドウ)に、
+  同じ性質(シークレットかどうか)の"normal"/"private"のウインドウをホームで作ってタブへ入れる。本のウインドウが無ければ
+  新しいウインドウ。`newWindowForTab:`(タブバーの「＋」の action)を送る案は、別のウインドウが出るだけでタブに入らず、"main"の
+  ウインドウは迷子の判定で閉じられた(実測)ので使わない。「＋」は AppKit がタブへ入れるので従来どおり。
+- **本のウインドウのタブの識別子は、WindowGroup ではなく記録が残るかどうかで振る**(`BookWindowGroup.tabbingIdentifier`、
+  2026-09-27、監査の 7)。SwiftUI は WindowGroup ごとに別の `tabbingIdentifier` を付けるので、起動時のウインドウ("main")と ⌘N
+  ("normal")・「新規ウインドウで開く」("book")を「すべてのウインドウを結合」でもタブのドラッグでもまとめられなかった。
+  WindowAccessor で付け直す。結合できること、シークレットのウインドウは結合されないこと(キーウインドウがシークレットなら
+  「すべてのウインドウを結合」は淡色)を実機で確かめた。
+- **新しいウインドウは、画面に出る前に行き先を当てる**(2026-09-27、利用者の指摘「一瞬小さいウインドウが出る」)。以前は
+  `openWindow` のあと `newlyOpenedWindow` で見つけてから `place` で位置・大きさを決めていて、それまでの約 70ms、WindowGroup の既定の
+  大きさ(900×640)で画面の中ほどに出ていた(CGWindowList を 4ms おきに読んで実測)。今は開く側が `BookWindowOpener.expectNewWindow`
+  で行き先を控え、"book"/"normal"/"private" の `.defaultWindowPlacement`(macOS 15)がそれを最初の位置・大きさとして SwiftUI に渡す。
+  **`WindowPlacement` の位置・大きさは中身の領域(タイトルバーを除く)で、座標は主画面の左上が原点の下向き**(実測。フレームの
+  大きさを渡すとタイトルバーのぶん高くなった)。WindowAccessor は同じ値を当て直すだけ(`applyPendingPlacement`)。タブで開く
+  ウインドウは、SwiftUI が前に出したときのキーウインドウの知らせ(同期)で透明にし、タブへ入れてから戻す ―― WindowAccessor で
+  透明にしても、その前の約 20ms、ずれた位置に 1 枚のウインドウとして見えていた。
   ―― 直接呼ぶとクロージャが `ViewerView` のコピーを捕まえて循環参照が戻るため。
 
 ### マウス(MouseTrigger)

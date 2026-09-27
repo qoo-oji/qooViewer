@@ -774,20 +774,18 @@ struct QooViewerApp: App {
                     if let focusedAppState {
                         focusedAppState.openWithPanel()
                     } else {
-                        openPickedURLInNewWindow(asTab: false)
+                        openPickedURLInNewWindow()
                     }
                 }
                 .keyboardShortcut("o", modifiers: .command)
 
                 Divider()
 
-                // グループ2: 新しいウインドウ/タブとして開く
+                // グループ2: 新しいウインドウ/タブ
+                // 「新規タブで開く…」はここに無い(2026-09-27、利用者の指示。監査 docs/plans/macos-conventions-audit-2026-09-26.md の 6)。
+                // 代わりに Safari・Finder と同じ「新規タブ」⌘T を下に置く ―― 空のタブ(ホーム)を足し、本はそこで開く。
                 Button("Open in New Window…") {
-                    openPickedURLInNewWindow(asTab: false)
-                }
-
-                Button("Open in New Tab…") {
-                    openPickedURLInNewWindow(asTab: true)
+                    openPickedURLInNewWindow()
                 }
 
                 // ユーザー要望: Google Chromeのシークレットウインドウに倣った、「開いた本の情報を
@@ -818,6 +816,14 @@ struct QooViewerApp: App {
                     openNewWindow(isPrivate: true)
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
+
+                // 「新規タブ」⌘T(2026-09-27、利用者の指示。Safari・Finder と同じキー)。手前のウインドウにホームのタブを足す。
+                // シークレットかどうかはそのウインドウから引き継ぐ(記録の残るタブと残らないタブを同じタブバーに並べない。
+                // BookOpenDestination.newTab のコメント)。本のウインドウが手前に無ければ、新しいウインドウを開く(Safari と同じ)。
+                Button("New Tab") {
+                    openNewTab()
+                }
+                .keyboardShortcut("t", modifiers: .command)
 
                 // 環境設定「ファイルブラウザを有効にする」がOFFの間は、ファイルブラウザの項目を丸ごと省く(2026-09-21。
                 // 「サイドパネルを隠す」と同じ省き方。設定は環境設定ウインドウでしか変わらないので、メニューを開いている最中には変わらない)。
@@ -1257,33 +1263,6 @@ struct QooViewerApp: App {
                 }
             }
 
-            // 標準の「ウインドウ」(Window)メニューに「ウインドウを閉じる」を追加する。
-            // タブをすべて閉じ、複数タブの確認ダイアログを出すのは、赤い閉じるボタンとこの
-            // 「ウインドウを閉じる」メニュー項目だけ(forceCloseWindow(_:)。BookClosingWindowDelegate参照)。
-            // Cmd+W(File>閉じる)とタブバー自身の×ボタンは、macOSの標準どおりそのタブ1枚だけを確認なしで
-            // 閉じる(closeButtonClicked(_:)参照)。ショートカットはSafariと同じ⇧⌘W(2026-09-26、ユーザーの指示)。
-            CommandGroup(before: .windowArrangement) {
-                Button("Close Window") { [preferences] in
-                    guard let window = NSApp.keyWindow else { return }
-                    if let delegate = window.delegate as? BookClosingWindowDelegate {
-                        delegate.forceCloseWindow(nil)
-                    } else {
-                        // 本を一度も開いていないウインドウ(ホームだけのタブなど)には BookClosingWindowDelegate が
-                        // 付いていない。以前はここがperformClose(=タブ1枚)で、名前と動作が食い違っていた。
-                        // ここでも同じ確認のあとタブをすべて閉じる。各タブはperformCloseで、それぞれの
-                        // windowShouldCloseを通す(デリゲートの付いたタブはcloseButtonClicked → closeTab())。
-                        guard BookClosingWindowDelegate.confirmCloseIfMultipleTabs(
-                            for: window, preferences: preferences
-                        ) else { return }
-                        for tab in window.tabGroup?.windows ?? [window] {
-                            tab.performClose(nil)
-                        }
-                    }
-                }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
-                Divider()
-            }
-
             // 要望: 標準の「編集」(Edit)メニューのうち、取り消す/やり直す(undoRedo)は
             // このアプリにアンドゥ機能自体が無いため見せかけになってしまうので、空の内容で
             // 置き換えて取り除く。一方カット/コピー/ペースト/すべてを選択(pasteboard)は、
@@ -1564,6 +1543,11 @@ struct QooViewerApp: App {
             contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
         }
         .windowResizability(.contentSize)
+        // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
+        // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
+        .defaultWindowPlacement { _, context in
+            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
+        }
         // バグ修正(ユーザー報告): "main" WindowGroupと同じ理由で、こちらの状態復元も
         // 無効化する。当初は"main"だけに適用していたが、AppDelegate.application(_:open:)が
         // 再利用できるmainウインドウが無いときに、この"book" WindowGroupを主ウインドウの
@@ -1590,6 +1574,11 @@ struct QooViewerApp: App {
         // 復活してはならない。
         WindowGroup(id: "private", for: WindowContentRequest.self) { requestBinding in
             contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
+        }
+        // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
+        // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
+        .defaultWindowPlacement { _, context in
+            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
         }
         // ここだけ"book"の`.contentSize`ではなく"main"と同じ`.automatic` + `.defaultSize`に
         // している(ユーザー要望「サイズ・位置を通常の新規ウインドウと同様に」)。シークレット
@@ -1622,6 +1611,11 @@ struct QooViewerApp: App {
         // Sceneの指定も"private"に完全に揃えてある。
         WindowGroup(id: "normal", for: WindowContentRequest.self) { requestBinding in
             contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
+        }
+        // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
+        // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
+        .defaultWindowPlacement { _, context in
+            MainActor.assumeIsolated { BookWindowOpener.pendingWindowPlacement(display: context.defaultDisplay) } ?? WindowPlacement()
         }
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
@@ -1953,8 +1947,8 @@ struct QooViewerApp: App {
         autoRenameSettingsScene(locale: locale)
     }
 
-    /// 「新しいウインドウで開く」「新しいタブで開く」。ファイル/フォルダ選択パネルを表示し、
-    /// 選択したURLを新しく作成したウインドウ(またはタブ)で開く。
+    /// 「新規ウインドウで開く…」。ファイル/フォルダ選択パネルを表示し、選択したURLを新しく作成したウインドウで開く
+    /// (「新規タブで開く…」は 2026-09-27 に「新規タブ」⌘T へ置き換えた。ファイルメニューのコメント)。
     ///
     /// ウインドウ自体は`openWindow(id: "book", value: request)`でSwiftUIに作らせる
     /// (上の"book" WindowGroup参照)。以前は直接AppKitでNSWindow/NSHostingViewを
@@ -1963,7 +1957,7 @@ struct QooViewerApp: App {
     /// この方式に変更した。ウインドウのサイズを元のウインドウに合わせる処理・タブとして
     /// 追加する処理は、SwiftUIが実際にNSWindowを作り終えるのを少し待ってから、
     /// NSApp.windowsの差分で新しいウインドウを見つけて後処理する形で行う。
-    private func openPickedURLInNewWindow(asTab: Bool) {
+    private func openPickedURLInNewWindow() {
         let locale = currentLocale
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -1979,7 +1973,7 @@ struct QooViewerApp: App {
         )
         guard panel.runModal() == .OK,
               let request = BookOpenRequest(openingCandidates: panel.urls) else { return }
-        openInNewWindow(request, asTab: asTab, tabTarget: nil)
+        openInNewWindow(request, asTab: false, tabTarget: nil)
     }
 
     /// 「お気に入り」メニューの一覧から「新しいウインドウで開く」「新しいタブで開く」を
@@ -2044,6 +2038,14 @@ struct QooViewerApp: App {
         }
     }
 
+    /// いま記憶してある主ウインドウのフレーム(起動時に 1 度だけ読む`savedMainWindowFrame`と違い、読むたびに最新)。
+    /// キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント参照)。
+    private static var currentSavedMainWindowFrame: NSRect? {
+        guard let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") else { return nil }
+        let rect = NSRectFromString(saved)
+        return rect.width > 0 && rect.height > 0 ? rect : nil
+    }
+
     /// File › 「新規ノーマルウインドウ」/「新規シークレットウインドウ」、およびDockアイコンの
     /// 右クリックメニューの同名の項目。指定されたWindowGroupのインスタンスを、値(URL)なし=
     /// ウェルカム画面として開く(AppState.isPrivateWindowのコメント参照)。
@@ -2061,6 +2063,13 @@ struct QooViewerApp: App {
     /// openInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
     private func openNewWindow(isPrivate: Bool) {
         let previousKeyWindow = NSApp.keyWindow
+        // 画面に出る前に行き先を当てる(BookWindowOpener.expectNewWindow。以前は既定の大きさで一瞬出てから飛んでいた)。
+        BookWindowOpener.expectNewWindow(
+            frame: previousKeyWindow.map { BookWindowOpener.placedFrame(basedOn: $0, asTab: false) }
+                ?? Self.currentSavedMainWindowFrame,
+            basedOn: previousKeyWindow,
+            hidesUntilTabbed: false
+        )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: isPrivate ? "private" : "normal")
 
@@ -2069,20 +2078,49 @@ struct QooViewerApp: App {
 
             if let previousKeyWindow {
                 BookWindowOpener.place(newWindow, basedOn: previousKeyWindow, asTab: false)
-            } else if let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") {
+            } else if let rect = Self.currentSavedMainWindowFrame {
                 // 基準にできるウインドウが1つも無い場合(ウインドウをすべて閉じた状態で⌥⌘Nを
                 // 押した場合)は、起動時の主ウインドウと同じく、前回終了時に記憶しておいた
                 // フレームで開く。ここでも「通常の新規ウインドウと同じ」に見えるようにするため。
-                // キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント
-                // 参照)。なお、シークレットウインドウ自身はこのフレームを書き戻さない
+                // なお、シークレットウインドウ自身はこのフレームを書き戻さない
                 // (主ウインドウにはならないため。ContentView.onAppear /
                 // observeMainWindowFrameChanges参照)。
-                let rect = NSRectFromString(saved)
-                if rect.width > 0, rect.height > 0 {
-                    newWindow.setFrame(rect, display: true)
-                }
+                newWindow.setFrame(rect, display: true)
             }
 
+            newWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// File ›「新規タブ」⌘T(2026-09-27)。手前の本のウインドウに、ホームから始まる空のタブを足す。
+    ///
+    /// 足すタブは"normal"/"private"の WindowGroup(値なし=ホーム。openNewWindow と同じ)で、シークレットかどうかは手前のウインドウから
+    /// 引き継ぐ。タブバーの「＋」(SwiftUI が"main"の WindowGroup で作り、ContentView.resolveAmbiguousNewMainWindow が見分ける)とは
+    /// 別の経路で、こちらは自分で開いて自分でタブへ入れるので、見分けの推測を通らない。
+    /// 本のウインドウが手前に無い(ウインドウが 1 枚も無い・補助ウインドウや環境設定が手前)ときは、Safari と同じく新しいウインドウを
+    /// 開く。性質は環境設定「シークレットモードで起動」に従う(⌘N と違って性質を名前で選ぶ項目ではないので、起動時のウインドウと同じ)。
+    private func openNewTab() {
+        // 手前の本のウインドウ。FocusedValue はキーウインドウのものしか届かないので、補助ウインドウや環境設定が手前のときは
+        // メインウインドウ(本のウインドウのまま残る)から引く(Safari も、環境設定が手前でも ⌘T はブラウザのウインドウへタブを足す)。
+        let source = focusedAppState
+            ?? launchCoordinator.allOpenAppStates.first { $0.hostWindow != nil && $0.hostWindow === NSApp.mainWindow }
+        guard let source, let sourceWindow = source.hostWindow else {
+            openNewWindow(isPrivate: AppPreferences.isPrivateModeDefault)
+            return
+        }
+        // タブへ入れるまで透明にして、元のウインドウと同じ位置・大きさで作る(BookWindowOpener.expectNewWindow)。
+        BookWindowOpener.expectNewWindow(
+            frame: BookWindowOpener.placedFrame(basedOn: sourceWindow, asTab: true), basedOn: sourceWindow, hidesUntilTabbed: true
+        )
+        let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: source.isPrivateWindow ? "private" : "normal")
+
+        Task { @MainActor in
+            guard let newWindow = await BookWindowOpener.newlyOpenedWindow(excluding: existingWindowIDs) else { return }
+            BookWindowOpener.place(newWindow, basedOn: sourceWindow, asTab: true)
+            sourceWindow.addTabbedWindow(newWindow, ordered: .above)
+            BookWindowOpener.revealIfHiddenUntilTabbed(newWindow)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -2164,6 +2202,16 @@ struct QooViewerApp: App {
             SecurityScopedHandoff.begin(request.urls)
         }
 
+        // 画面に出る前に行き先を当てる(BookWindowOpener.expectNewWindow)。主ウインドウの代わりなら前回終了時のフレーム、
+        // それ以外は下の BookWindowOpener.place と同じ値。
+        let asTabIntoSource = asTab && previousKeyWindow != nil && !actsAsPrimaryWindow
+        BookWindowOpener.expectNewWindow(
+            frame: actsAsPrimaryWindow
+                ? Self.currentSavedMainWindowFrame
+                : previousKeyWindow.map { BookWindowOpener.placedFrame(basedOn: $0, asTab: asTab) },
+            basedOn: previousKeyWindow,
+            hidesUntilTabbed: asTabIntoSource
+        )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: windowGroupID, value: WindowContentRequest.book(request))
 
@@ -2325,6 +2373,7 @@ struct QooViewerApp: App {
             if asTab, let previousKeyWindow {
                 previousKeyWindow.addTabbedWindow(newWindow, ordered: .above)
             }
+            BookWindowOpener.revealIfHiddenUntilTabbed(newWindow)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -2461,6 +2510,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ホストのメニューを並べ替える理由が無いので付けない。
         if !RuntimeEnvironment.isRunningTests {
             _ = WindowsMenuGrouper.shared
+            // タブがあるときに AppKit が足す「ウインドウを閉じる」⇧⌘W を、複数タブの確認を通す閉じ方へつなぐ
+            // (TabbedWindowCloseMenuRouter の型コメント)。
+            _ = TabbedWindowCloseMenuRouter.shared
         }
     }
 
@@ -2927,7 +2979,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Cmd+W(File>閉じる。closeButtonClicked(_:)→closeTab()経由)・タブバー自身の×ボタンで
+    /// Cmd+W(File>閉じる/タブを閉じる。closeButtonClicked(_:)→closeTab()経由)・タブバー自身の×ボタンで
     /// タブ1枚を閉じるときに通る。複数タブの確認は行わない(タブ1枚しか閉じないため)。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // 本が開いている場合は、ウインドウを閉じる前に読書状態(最後に表示していたページなど)
@@ -2986,7 +3038,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     }
 
     /// 赤い閉じるボタン(closeButtonClicked(_:)経由)、および「ウインドウを閉じる」メニュー項目
-    /// (QooViewerApp.swiftのCommandGroup(before: .windowArrangement)参照)・ViewerAction.closeWindow
+    /// (AppKitがタブのあるときに足す項目。TabbedWindowCloseMenuRouter参照)・ViewerAction.closeWindow
     /// 専用のアクション。windowShouldCloseを経由せず、常にウインドウ自体を直接閉じる
     /// (複数タブの確認はここで行う)。
     ///
@@ -3011,6 +3063,23 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
                 closingAppState.closeBook()
             }
             windowToClose.close()
+        }
+    }
+
+    /// ファイルメニューの「ウインドウを閉じる」⇧⌘W(TabbedWindowCloseMenuRouter)の中身。`window`のタブをすべて閉じる。
+    ///
+    /// 本を一度でも開いたタブには BookClosingWindowDelegate が付いているので、赤い閉じるボタンと同じ forceCloseWindow(_:) を通す。
+    /// 本を一度も開いていないウインドウ(ホームだけのタブなど)には付いていない。そのときも同じ確認のあとタブをすべて閉じる。
+    /// 各タブはperformCloseで、それぞれのwindowShouldCloseを通す(デリゲートの付いたタブはcloseButtonClicked → closeTab())。
+    /// (2026-09-26 までは「ウインドウ」メニューの自前の項目の中身だった。)
+    static func closeWindowWithAllTabs(_ window: NSWindow, preferences: AppPreferences?) {
+        if let delegate = window.delegate as? BookClosingWindowDelegate {
+            delegate.forceCloseWindow(nil)
+            return
+        }
+        guard confirmCloseIfMultipleTabs(for: window, preferences: preferences) else { return }
+        for tab in window.tabGroup?.windows ?? [window] {
+            tab.performClose(nil)
         }
     }
 

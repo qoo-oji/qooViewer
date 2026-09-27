@@ -110,6 +110,9 @@ enum BookWindowOpener {
         let opensPrivately = (windowGroupID == "private")
         // タブとして開けるのは、追加先のウインドウが実在する場合だけ。
         let asTab = destination.isTab && sourceWindow != nil
+        expectNewWindow(
+            frame: sourceWindow.map { placedFrame(basedOn: $0, asTab: asTab) }, basedOn: sourceWindow, hidesUntilTabbed: asTab
+        )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: windowGroupID, value: value)
 
@@ -126,6 +129,7 @@ enum BookWindowOpener {
             if asTab, let sourceWindow {
                 sourceWindow.addTabbedWindow(newWindow, ordered: .above)
             }
+            revealIfHiddenUntilTabbed(newWindow)
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             onOpened?()
@@ -197,7 +201,16 @@ enum BookWindowOpener {
     /// どうか」を判定するよりも、この方法の方が中途半端なサイズのウインドウにも正しく対応できる)。
     static func place(_ newWindow: NSWindow, basedOn previousKeyWindow: NSWindow?, asTab: Bool) {
         guard let previousKeyWindow else { return }
-        var frame = newWindow.frame
+        let frame = placedFrame(basedOn: previousKeyWindow, asTab: asTab)
+        if newWindow.frame != frame {
+            newWindow.setFrame(frame, display: true)
+        }
+    }
+
+    /// `place(_:basedOn:asTab:)`が決める位置・大きさ。新しいウインドウ自身の値は使わないので、開く前にも求められる
+    /// (`expectNewWindow`)。
+    static func placedFrame(basedOn previousKeyWindow: NSWindow, asTab: Bool) -> NSRect {
+        var frame = NSRect.zero
         frame.size = previousKeyWindow.frame.size
         if asTab {
             frame.origin = previousKeyWindow.frame.origin
@@ -223,6 +236,114 @@ enum BookWindowOpener {
             }
             frame.origin = origin
         }
-        newWindow.setFrame(frame, display: true)
+        return frame
+    }
+
+    // MARK: - 開く前に決めた位置・大きさを、画面に出る前に当てる
+
+    /// これから`openWindow`で開くウインドウの位置・大きさ(2026-09-27、利用者の指摘)。
+    ///
+    /// ■ なぜ要るか
+    /// 位置・大きさは`newlyOpenedWindow`で新しいウインドウを見つけてから`place`で決めていたが、見つかるのは画面に出た後で、
+    /// それまでの約 70ms は WindowGroup の既定の大きさ(900×640)で画面の中ほどに出て、開くアニメーションのあと元のウインドウの
+    /// 大きさへ飛んでいた(CGWindowList を 4ms おきに読んで実測)。タブで開くときは、タブへ入る前の 1 枚のウインドウとしても見えていた。
+    /// そこで開く前に行き先を控え、SwiftUI がウインドウを作るときに`.defaultWindowPlacement`(`pendingWindowPlacement`)で最初の
+    /// 位置・大きさとして渡す。ContentView の WindowAccessor(画面に出てから約 20ms 後)は`applyPendingPlacement`で同じ値を当て直し、
+    /// `place`も後からもう一度同じ値を当てる(どこかで当て損ねても、以前と同じ結果に落ちる)。
+    ///
+    /// - Parameter frame: nil なら位置・大きさは SwiftUI に任せる(隠すだけ)。
+    /// - Parameter hidesUntilTabbed: タブで開くとき。タブへ入れるまで透明にしておく(`revealIfHiddenUntilTabbed`で戻す)。
+    static func expectNewWindow(frame: NSRect?, basedOn source: NSWindow? = nil, hidesUntilTabbed: Bool) {
+        guard frame != nil || hidesUntilTabbed else {
+            pendingPlacement = nil
+            return
+        }
+        pendingPlacement = PendingPlacement(
+            frame: frame,
+            styleMask: source?.styleMask ?? [.titled, .closable, .miniaturizable, .resizable],
+            hidesUntilTabbed: hidesUntilTabbed,
+            deadline: Date().addingTimeInterval(1)
+        )
+        if hidesUntilTabbed {
+            hideNextNewWindowOnceShown()
+        }
+    }
+
+    /// タブで開くウインドウを、画面に出たその場で透明にする。
+    ///
+    /// WindowAccessor が呼ばれるのは画面に出てから約 20ms 後で、その間、タブへ入る前の 1 枚のウインドウ(ホーム)が元のウインドウに
+    /// 少しずらして重なって見えていた(CGWindowList で実測)。SwiftUI がウインドウを前へ出すとキーウインドウの知らせが同期で届くので、
+    /// その場で透明にすれば最初の描画に間に合う。相手は「控えた時点で無かったウインドウ」だけ。1 秒で見張りをやめる。
+    private static func hideNextNewWindowOnceShown() {
+        let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let tokens = NotificationObserverTokens()
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+            tokens.add(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
+                MainActor.assumeIsolated {
+                    guard let window = notification.object as? NSWindow,
+                          !existing.contains(ObjectIdentifier(window)) else { return }
+                    window.alphaValue = 0
+                    tokens.removeAll()
+                    // タブへ入れる側が見つけ損ねたときに、透明のまま残さない(applyPendingPlacement と同じ保険)。
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
+                        MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
+                    }
+                }
+            })
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            MainActor.assumeIsolated { tokens.removeAll() }
+        }
+    }
+
+    struct PendingPlacement {
+        let frame: NSRect?
+        /// 大きさの基準にしたウインドウのスタイル(フレームから中身の領域を出すため)。
+        let styleMask: NSWindow.StyleMask
+        let hidesUntilTabbed: Bool
+        /// `newlyOpenedWindow`が探すのをやめるまで(約 0.5 秒)より少し長く。過ぎたら、あとから現れた別のウインドウに当てない。
+        let deadline: Date
+    }
+
+    private static var pendingPlacement: PendingPlacement?
+
+    /// 控えてある行き先を 1 回だけ渡す(期限を過ぎていれば nil)。
+    static func takePendingPlacement() -> PendingPlacement? {
+        defer { pendingPlacement = nil }
+        guard let pendingPlacement, pendingPlacement.deadline > Date() else { return nil }
+        return pendingPlacement
+    }
+
+    /// 本のウインドウの WindowGroup("book"/"normal"/"private")の`.defaultWindowPlacement`から、SwiftUI がウインドウを作るときに呼ばれる。
+    /// 控えてある行き先があれば、それをウインドウの最初の位置・大きさにする(控えは消さない ―― 透明にする指定と、当て損ねたときの
+    /// やり直しは WindowAccessor の`applyPendingPlacement`が受け取る)。無ければ nil(WindowGroup の既定のまま)。
+    static func pendingWindowPlacement(display: DisplayProxy) -> WindowPlacement? {
+        guard let pendingPlacement, pendingPlacement.deadline > Date(), let frame = pendingPlacement.frame else { return nil }
+        // WindowPlacement の位置と大きさは**中身の領域**(タイトルバーを除く)のもので、座標は左上が原点で下向き(主画面の左上が 0)。
+        // AppKit のフレームは左下が原点で上向きで、タイトルバーを含む。
+        let content = NSWindow.contentRect(forFrameRect: frame, styleMask: pendingPlacement.styleMask)
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? content.maxY
+        return WindowPlacement(CGPoint(x: content.minX, y: primaryHeight - content.maxY), size: content.size)
+    }
+
+    /// 新しく決まったウインドウに、控えてある行き先を当てる(ContentView の WindowAccessor から、ウインドウが決まった最初の 1 回)。
+    static func applyPendingPlacement(to window: NSWindow) {
+        guard let placement = takePendingPlacement() else { return }
+        if let frame = placement.frame {
+            window.setFrame(frame, display: false)
+        }
+        if placement.hidesUntilTabbed {
+            window.alphaValue = 0
+            // タブへ入れる側が見つけ損ねた(newlyOpenedWindow が nil を返した)ときに、透明のまま残さない。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
+                MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
+            }
+        }
+    }
+
+    /// `applyPendingPlacement`で透明にしたウインドウを見えるように戻す。
+    static func revealIfHiddenUntilTabbed(_ window: NSWindow) {
+        if window.alphaValue == 0 { window.alphaValue = 1 }
     }
 }
+

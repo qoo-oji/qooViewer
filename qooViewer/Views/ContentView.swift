@@ -753,6 +753,15 @@ struct ContentView: View {
             // (Appleのドキュメントどおり、このスタイルではタイトルバーが下の内容を透かす
             // 描画になる: https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/fullsizecontentview )
             window?.styleMask.remove(.fullSizeContentView)
+            // タブの結合の相手を WindowGroup ではなく「記録が残るかどうか」で決める(BookWindowGroup.tabbingIdentifier のコメント)。
+            // 起動時のウインドウ・⌘N・「新規ウインドウで開く」が別々の WindowGroup でも、「すべてのウインドウを結合」とタブのドラッグで
+            // まとめられるように。
+            window?.tabbingIdentifier = BookWindowGroup.tabbingIdentifier(isPrivate: isPrivateWindow)
+            // 「新規ウインドウ/タブ」で開いたウインドウなら、開く側が控えた位置・大きさを当て直す(最初の位置・大きさは
+            // `.defaultWindowPlacement` で渡してある。BookWindowOpener.expectNewWindow。以前は既定の大きさで一瞬出てから飛んでいた)。
+            if let window {
+                BookWindowOpener.applyPendingPlacement(to: window)
+            }
             // 環境設定「外観」の「タイトルバーの色」(WindowTitleBarColor参照)。ウインドウが決まった時点で一度塗り、
             // 以後の変更は windowChrome(window:) が塗り直す(ライト/ダークはそちらが SwiftUI に渡す)。
             if let window {

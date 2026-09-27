@@ -75,3 +75,16 @@ extension BookWindowGroup {
         }
     }
 }
+
+extension BookWindowGroup {
+    /// 本を表示するウインドウの`NSWindow.tabbingIdentifier`(2026-09-27、監査 docs/plans/macos-conventions-audit-2026-09-26.md の 7)。
+    ///
+    /// SwiftUIは WindowGroup ごとに別の`tabbingIdentifier`を振る。上の 4 つの WindowGroup は大きさの扱いの都合で分けてあるだけで
+    /// 中身は同じウインドウなのに、「ウインドウ ▸ すべてのウインドウを結合」もタブのドラッグも、同じ識別子のウインドウどうしでしか
+    /// 働かない(2026-09-26 の実機検証で、起動時のウインドウと ⌘N のウインドウを結合できなかった)。そこで識別子を WindowGroup ではなく
+    /// **記録が残るかどうか**で振り直す(ContentView の WindowAccessor)。シークレットとそうでないウインドウを分けておくのは意図
+    /// (同じタブバーに並ぶと、いま読んでいる本が記録されるのか見分けられない。BookOpenDestination.newTab のコメント)。
+    static func tabbingIdentifier(isPrivate: Bool) -> String {
+        isPrivate ? "qooViewer.bookWindow.private" : "qooViewer.bookWindow"
+    }
+}

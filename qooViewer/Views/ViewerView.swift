@@ -4214,7 +4214,7 @@ struct ViewerView: View {
         // ウインドウを閉じる: 赤い閉じるボタン・メニューバーの「ウインドウを閉じる」と
         // **同じ経路**を通す(複数タブの確認ダイアログもそちらの設定に従って出る)。
         // 差し替えた専用のデリゲートが見つからない場合だけ、素のperformCloseへ落とす
-        // (QooViewerApp.swiftのCommandGroup(before: .windowArrangement)と同じ書き方)。
+        // (BookClosingWindowDelegate.closeWindowWithAllTabsと同じ書き方)。
         case .closeWindow:
             guard let hostWindow else { return }
             if let delegate = hostWindow.delegate as? BookClosingWindowDelegate {
