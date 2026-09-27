@@ -69,246 +69,6 @@
         }
       }
     },
-    "Bookmark Deletion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bookmark Deletion"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ブックマークの削除"
-          }
-        }
-      }
-    },
-    "Collection Deletion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collection Deletion"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションの削除"
-          }
-        }
-      }
-    },
-    "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "History Deletion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "History Deletion"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の削除"
-          }
-        }
-      }
-    },
-    "Library Deletion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Library Deletion"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブラリの削除"
-          }
-        }
-      }
-    },
-    "Removal from Collection" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removal from Collection"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションからの削除"
-          }
-        }
-      }
-    },
-    "Reset Zoom" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset Zoom"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大を解除"
-          }
-        }
-      }
-    },
-    "Show Progress Bar" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Progress Bar"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プログレスバーを表示"
-          }
-        }
-      }
-    },
-    "Show Side Panel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Side Panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルを表示"
-          }
-        }
-      }
-    },
-    "Show Toolbar" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Toolbar"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ツールバーを表示"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のブックマークをすべて削除します。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の一覧と、ファイルメニューの「最近使った項目を開く」から、すべての項目を削除します。ファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
     "—" : {
       "comment" : "A placeholder text for a value that is not available.",
       "isCommentAutoGenerated" : true
@@ -502,6 +262,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」+ 名前"
+          }
+        }
+      }
+    },
+    "“%@” can’t be opened as a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be opened as a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は本として開けません。"
           }
         }
       }
@@ -1802,6 +1578,22 @@
         }
       }
     },
+    "%lld books were already in the collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books were already in the collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊はすでにコレクションに入っていました。"
+          }
+        }
+      }
+    },
     "%lld books were registered with only the author, title, series and volume, so their genre, event, source work and info are empty. Fill only the empty fields from the file names (the registered values stay locked), or unlock them and parse and extract them again from the file names (the locked values are thrown away)." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1911,6 +1703,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 項目がロックされています。名前を変更してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "%lld items weren’t added because they aren’t books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items weren’t added because they aren’t books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない %lld 件は登録しませんでした。"
+          }
+        }
+      }
+    },
+    "%lld items weren’t opened because they aren’t books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items weren’t opened because they aren’t books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない %lld 件は開きませんでした。"
           }
         }
       }
@@ -2243,6 +2067,22 @@
         }
       }
     },
+    "1 book was already in the collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 book was already in the collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 冊はすでにコレクションに入っていました。"
+          }
+        }
+      }
+    },
     "1 hour" : {
       "localizations" : {
         "en" : {
@@ -2255,6 +2095,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1時間"
+          }
+        }
+      }
+    },
+    "1 item wasn’t added because it isn’t a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 item wasn’t added because it isn’t a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない 1 件は登録しませんでした。"
+          }
+        }
+      }
+    },
+    "1 item wasn’t opened because it isn’t a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 item wasn’t opened because it isn’t a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ではない 1 件は開きませんでした。"
           }
         }
       }
@@ -4389,6 +4261,22 @@
         }
       }
     },
+    "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションとその中の本、スマートライブラリに効きます。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
+          }
+        }
+      }
+    },
     "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5371,6 +5259,22 @@
         }
       }
     },
+    "Bookmark Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークの削除"
+          }
+        }
+      }
+    },
     "Bookmark List" : {
       "localizations" : {
         "en" : {
@@ -5930,6 +5834,22 @@
         }
       }
     },
+    "By Orientation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By Orientation"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向きで切り替える"
+          }
+        }
+      }
+    },
     "Cache" : {
       "localizations" : {
         "en" : {
@@ -6054,22 +5974,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "サムネイルの下の表示"
-          }
-        }
-      }
-    },
-    "By Orientation" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "By Orientation"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "向きで切り替える"
           }
         }
       }
@@ -7432,6 +7336,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクション表紙"
+          }
+        }
+      }
+    },
+    "Collection Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの削除"
           }
         }
       }
@@ -11717,6 +11637,7 @@
       }
     },
     "Every collection in this library is removed too. The books themselves are not deleted." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11728,6 +11649,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。"
+          }
+        }
+      }
+    },
+    "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -13176,22 +13113,6 @@
         }
       }
     },
-    "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "環境設定「スマートライブラリ」の「形の合わせ方」が「余白を付ける」のとき、表紙の周りの余白を塗る色。"
-          }
-        }
-      }
-    },
     "Fills the space around a cover when a library’s Fit to Shape is set to Add Margins." : {
       "localizations" : {
         "en" : {
@@ -13204,6 +13125,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリの設定の「形の合わせ方」が「余白を付ける」のとき、表紙の周りの余白を塗る色。"
+          }
+        }
+      }
+    },
+    "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fills the space around a cover when Fit to Shape is set to Add Margins in the Smart Library settings."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定「スマートライブラリ」の「形の合わせ方」が「余白を付ける」のとき、表紙の周りの余白を塗る色。"
           }
         }
       }
@@ -13388,6 +13325,22 @@
         }
       }
     },
+    "Fit to Shape" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to Shape"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "形の合わせ方"
+          }
+        }
+      }
+    },
     "Fit Width" : {
       "localizations" : {
         "en" : {
@@ -13416,22 +13369,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "横幅に合わせる(単ページ)"
-          }
-        }
-      }
-    },
-    "Fit to Shape" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fit to Shape"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "形の合わせ方"
           }
         }
       }
@@ -14721,6 +14658,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴"
+          }
+        }
+      }
+    },
+    "History Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "History Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の削除"
           }
         }
       }
@@ -16820,6 +16773,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリ"
+          }
+        }
+      }
+    },
+    "Library Deletion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Deletion"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリの削除"
           }
         }
       }
@@ -19401,6 +19370,22 @@
         }
       }
     },
+    "None of the items can be opened as a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None of the items can be opened as a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として開けるものがありません。"
+          }
+        }
+      }
+    },
     "Normal Bookmark" : {
       "localizations" : {
         "en" : {
@@ -19675,6 +19660,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "まだ何もありません"
+          }
+        }
+      }
+    },
+    "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "何も登録しませんでした。書庫・PDF・EPUB のファイルと、画像のフォルダを本として登録できます。"
           }
         }
       }
@@ -20407,6 +20408,22 @@
         }
       }
     },
+    "Open Items with a Single Click" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Items with a Single Click"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリック 1 回で開く"
+          }
+        }
+      }
+    },
     "Open Recent" : {
       "localizations" : {
         "en" : {
@@ -20435,22 +20452,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このアプリケーションで開く"
-          }
-        }
-      }
-    },
-    "Opening a New Book" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opening a New Book"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "初めて開く本"
           }
         }
       }
@@ -20484,6 +20485,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "レイアウトの保存データが無い本を開いたとき"
+          }
+        }
+      }
+    },
+    "Opening a New Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening a New Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初めて開く本"
           }
         }
       }
@@ -23080,6 +23097,22 @@
         }
       }
     },
+    "Removal from Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removal from Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションからの削除"
+          }
+        }
+      }
+    },
     "Remove" : {
       "localizations" : {
         "en" : {
@@ -23113,6 +23146,7 @@
       }
     },
     "Remove %lld books from the collection?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -23339,6 +23373,7 @@
       }
     },
     "Remove this book from the collection?" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -24212,6 +24247,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "初期設定に戻す"
+          }
+        }
+      }
+    },
+    "Reset Zoom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Zoom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大を解除"
           }
         }
       }
@@ -26158,6 +26209,22 @@
         }
       }
     },
+    "Show Progress Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Progress Bar"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバーを表示"
+          }
+        }
+      }
+    },
     "Show Recent Favorites" : {
       "localizations" : {
         "en" : {
@@ -26186,6 +26253,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "右ページを実寸表示"
+          }
+        }
+      }
+    },
+    "Show Side Panel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルを表示"
+          }
+        }
+      }
+    },
+    "Show Toolbar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Toolbar"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツールバーを表示"
           }
         }
       }
@@ -27770,6 +27869,7 @@
       }
     },
     "The books themselves are not deleted. Only their entries in this collection and their cover images are removed." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -27786,6 +27886,7 @@
       }
     },
     "The books themselves are not deleted. Only these collections and their cover images are removed." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -27801,7 +27902,24 @@
         }
       }
     },
+    "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
     "The books themselves are not deleted. Only this collection and its cover images are removed." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -27813,6 +27931,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。"
+          }
+        }
+      }
+    },
+    "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -29686,6 +29820,22 @@
         }
       }
     },
+    "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本のブックマークをすべて削除します。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
     "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported." : {
       "localizations" : {
         "en" : {
@@ -30013,6 +30163,7 @@
       }
     },
     "This permanently deletes every bookmark in this book. This cannot be undone." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -30077,6 +30228,7 @@
       }
     },
     "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -30092,7 +30244,24 @@
         }
       }
     },
+    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の一覧と、ファイルメニューの「最近使った項目を開く」から、すべての項目を削除します。ファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
+          }
+        }
+      }
+    },
     "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -30104,6 +30273,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。"
+          }
+        }
+      }
+    },
+    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -33349,182 +33534,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "巻・話・号 …"
-          }
-        }
-      }
-    },
-    "Open Items with a Single Click" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Items with a Single Click"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クリック 1 回で開く"
-          }
-        }
-      }
-    },
-    "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションとその中の本、スマートライブラリに効きます。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
-          }
-        }
-      }
-    },
-    "“%@” can’t be opened as a book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” can’t be opened as a book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」は本として開けません。"
-          }
-        }
-      }
-    },
-    "None of the items can be opened as a book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "None of the items can be opened as a book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本として開けるものがありません。"
-          }
-        }
-      }
-    },
-    "1 item wasn’t opened because it isn’t a book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 item wasn’t opened because it isn’t a book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ではない 1 件は開きませんでした。"
-          }
-        }
-      }
-    },
-    "%lld items weren’t opened because they aren’t books." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld items weren’t opened because they aren’t books."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ではない %lld 件は開きませんでした。"
-          }
-        }
-      }
-    },
-    "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "何も登録しませんでした。書庫・PDF・EPUB のファイルと、画像のフォルダを本として登録できます。"
-          }
-        }
-      }
-    },
-    "1 item wasn’t added because it isn’t a book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 item wasn’t added because it isn’t a book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ではない 1 件は登録しませんでした。"
-          }
-        }
-      }
-    },
-    "%lld items weren’t added because they aren’t books." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld items weren’t added because they aren’t books."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ではない %lld 件は登録しませんでした。"
-          }
-        }
-      }
-    },
-    "1 book was already in the collection." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 book was already in the collection."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 冊はすでにコレクションに入っていました。"
-          }
-        }
-      }
-    },
-    "%lld books were already in the collection." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld books were already in the collection."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 冊はすでにコレクションに入っていました。"
           }
         }
       }
