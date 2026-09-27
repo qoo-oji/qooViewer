@@ -14,6 +14,13 @@ import SwiftUI
 /// 今までどおり三角を出す(`Node.hasSubfolders` が nil)。
 /// **起動時はボリュームもホームも閉じている**(要望)。展開の状態は保存しない。
 ///
+/// ■ 作り直しても開き具合と位置は残す(2026-09-27、利用者の指示)
+/// 本を開いてホームへ戻る・本棚やスマートライブラリから戻る・ファイルブラウザを出し直すたびに、ツリーは作り直される。以前は
+/// そのたびにすべての行がたたまれ、先頭から見せ直していた。捨てるときに開いている行(根 + パス。同じフォルダでも根が違えば
+/// 別の行)とスクロール位置を `FileBrowserState` に控え(ウインドウごと。アプリを終えれば消える)、作ったら上の行から順に開き直して
+/// (子は非同期で読むので 1 段ずつ待つ ―― 「現在のフォルダまで開く」と同じ `expandedChildren`)、開き終えたら位置を戻す。
+/// 途中で右ペインのフォルダが移ったら(世代番号)残りはやめる。開き終える前に利用者がスクロールしていたら位置は戻さない。
+///
 /// ■ クリック
 /// 行を選ぶと右ペインがそのフォルダへ移る。右ペインで移動したら、そのフォルダの行が見えていれば
 /// 選んだ状態にする(見えていなければ選択を外す ―― 違う行が選ばれたまま残らないように)。
@@ -116,6 +123,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         coordinator.outline = outline
+        coordinator.scrollView = scroll
+        // 前のツリーの開き具合と位置(型コメント「作り直しても開き具合と位置は残す」)。ボリュームの一覧を読み終えてから戻す。
+        coordinator.pendingRestore = state.takeSavedTreeState()
         coordinator.update(from: self)
         coordinator.start()
         return scroll
@@ -130,6 +140,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
+        coordinator.saveTreeState(scrollOrigin: scroll.contentView.bounds.origin)
         coordinator.stop()
         if let outline = coordinator.outline {
             outline.dataSource = nil
@@ -140,6 +151,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             outline.menu = nil
         }
         coordinator.outline = nil
+        coordinator.scrollView = nil
         coordinator.state = nil
         coordinator.actions = nil
     }
@@ -222,7 +234,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         weak var outline: FileBrowserOutlineView?
+        weak var scrollView: HomeWheelScrollView?
         var state: FileBrowserState?
+        /// 作り直す前のツリーの開き具合と位置(ボリュームの一覧を読み終えたら戻す。型コメント)。
+        var pendingRestore: FileBrowserState.SavedTreeState?
         var actions: FileBrowserActions?
         private weak var favoriteLocations: FavoriteLocationStore?
         private var outlineWidth: CGFloat = 0
@@ -422,6 +437,69 @@ struct FileBrowserTreeView: NSViewRepresentable {
             startPendingRevealIfReady()
         }
 
+        // MARK: 作り直しても開き具合と位置は残す
+
+        /// 行を指す控えの鍵: 根(ボリュームはパス、ホーム、よく使う項目は id)+ その行のパス。同じフォルダが別の根の下にも出るので、
+        /// 根まで含めて見分ける。グループの見出しは鍵を持たない(いつも開いている)。
+        private func restoreKey(for node: Node) -> String? {
+            guard let outline, let url = node.url else { return nil }
+            var root = node
+            while let parent = outline.parent(forItem: root) as? Node, !parent.isGroup { root = parent }
+            let rootKey: String
+            switch root.kind {
+            case .volume: rootKey = "volume:" + (root.url.map { FileBrowserState.id(for: $0) } ?? "")
+            case .home: rootKey = "home"
+            case .favorite(let id): rootKey = "favorite:" + id.uuidString
+            case .group, .folder: return nil
+            }
+            return rootKey + "|" + FileBrowserState.id(for: url)
+        }
+
+        /// 捨てるツリーの開いている行(上から。親が先に来る)と位置を控える(`dismantleNSView` から)。
+        func saveTreeState(scrollOrigin: CGPoint) {
+            guard let outline, let state else { return }
+            var expanded: [String] = []
+            for row in 0..<outline.numberOfRows {
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, outline.isItemExpanded(node),
+                      let key = restoreKey(for: node)
+                else { continue }
+                expanded.append(key)
+            }
+            // 開き直す途中で捨てられたら、まだ開いていない行の控えも引き継ぐ(次に作ったときに続きから)。
+            if let pending = pendingRestore {
+                for key in pending.expandedKeys where !expanded.contains(key) { expanded.append(key) }
+            }
+            state.saveTreeState(FileBrowserState.SavedTreeState(
+                expandedKeys: expanded, scrollOrigin: pendingRestore?.scrollOrigin ?? scrollOrigin
+            ))
+        }
+
+        /// 控えた行を上から順に開き直し、開き終えたら位置を戻す(ボリュームの一覧を読み終えた時点で呼ぶ)。
+        private func restorePendingTreeState() {
+            guard let saved = pendingRestore else { return }
+            let generation = revealGeneration
+            let startOrigin = scrollView?.contentView.bounds.origin
+            Task { [weak self] in
+                guard let self else { return }
+                for key in saved.expandedKeys {
+                    guard self.revealGeneration == generation, let outline = self.outline else { break }
+                    // 親は先に開いてあるので、見えている行から探せる。無ければ(消えた・たためない)飛ばす。
+                    guard let node = (0..<outline.numberOfRows).lazy
+                        .compactMap({ outline.item(atRow: $0) as? Node })
+                        .first(where: { $0.loadsChildren && self.restoreKey(for: $0) == key })
+                    else { continue }
+                    _ = await self.expandedChildren(of: node, generation: generation)
+                }
+                self.pendingRestore = nil
+                guard self.revealGeneration == generation, let outline = self.outline, let scroll = self.scrollView else { return }
+                self.applySelection(folderID: self.appliedFolderID ?? nil)
+                // 開き直している間に利用者がスクロールしたら、そのまま(位置を奪わない)。
+                if scroll.contentView.bounds.origin == startOrigin, outline.numberOfRows > 0 {
+                    scroll.restoreScrollOrigin(saved.scrollOrigin)
+                }
+            }
+        }
+
         // MARK: 子の並び
 
         /// 行の子を今の並びで並べる。読み込んだ値を持たない行が混じっていたら(来ないはず)名前順にする。
@@ -562,6 +640,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 self.scheduleWatchUpdate()
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
                 self.hasLoadedVolumes = true
+                self.restorePendingTreeState()
                 self.startPendingRevealIfReady()
             }
         }

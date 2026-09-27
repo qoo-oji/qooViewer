@@ -53,6 +53,9 @@ struct SmartLibraryListView: NSViewRepresentable {
     /// ホイール1ノッチで動かす行数(ファイルブラウザのリストと共通の設定。HomeWheelScroll参照)。
     /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
     let wheelScrollRows: Double
+    /// スクロール位置の控えと、いまの場面の鍵(本を開いて戻ってきたら同じ所から。HomeScrollMemory、2026-09-27)。
+    let scrollMemory: HomeScrollMemory
+    let scrollKey: String
     var onSelectionChange: (Set<String>, String?) -> Void
     var onSort: (SmartSortKey, Bool) -> Void
     /// 行を開く(本は開き、束は中へ)。
@@ -144,7 +147,10 @@ struct SmartLibraryListView: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         coordinator.outline = outline
-        coordinator.apply(self, initial: true)
+        // 離れたときの位置へ戻す(HomeScrollMemory)。戻すときは、選んでいる行へ寄せない。
+        let savedOrigin = scrollMemory.take(for: scrollKey)
+        coordinator.apply(self, initial: true, restoringScroll: savedOrigin != nil)
+        if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
     }
 
@@ -157,6 +163,10 @@ struct SmartLibraryListView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
+        // 捨てる表の位置を控える(HomeScrollMemory。いまの場面の鍵で)。
+        if let parent = coordinator.parent {
+            parent.scrollMemory.save(scroll.contentView.bounds.origin, for: parent.scrollKey)
+        }
         if let outline = coordinator.outline {
             outline.dataSource = nil
             outline.delegate = nil
@@ -282,7 +292,7 @@ struct SmartLibraryListView: NSViewRepresentable {
         private var lastScrollResetSerial: Int?
         private var dateFormatter = DateFormatter()
 
-        func apply(_ parent: SmartLibraryListView, initial: Bool) {
+        func apply(_ parent: SmartLibraryListView, initial: Bool, restoringScroll: Bool = false) {
             self.parent = parent
             guard let outline else { return }
             isApplying = true
@@ -319,9 +329,9 @@ struct SmartLibraryListView: NSViewRepresentable {
             }
             applySortDescriptor(parent, to: outline)
             applySelection(parent.selection, to: outline)
-            // 作ったとき(本を開いて戻ってきた・グリッドから切り替えた)は、選んでいる行が見える所から。作った直後の表はまだ
-            // 寸法が 0 なので、SwiftUI が大きさを決めた後(次の周回)で動かす。
-            if initial, !outline.selectedRowIndexes.isEmpty {
+            // 作ったとき(本を開いて戻ってきた・グリッドから切り替えた)は、離れたときの位置へ戻す(makeNSView)。控えが無ければ、
+            // 選んでいる行が見える所から。作った直後の表はまだ寸法が 0 なので、SwiftUI が大きさを決めた後(次の周回)で動かす。
+            if initial, !restoringScroll, !outline.selectedRowIndexes.isEmpty {
                 DispatchQueue.main.async { [weak outline] in
                     guard let outline, let row = outline.selectedRowIndexes.first else { return }
                     outline.scrollRowToVisible(row)
@@ -331,6 +341,9 @@ struct SmartLibraryListView: NSViewRepresentable {
                 outline.scrollRowToVisible(0)
             }
             lastScrollResetSerial = parent.scrollResetSerial
+            // 作る前に出ていた「見せて」は済んだものとする(前の表かグリッドが受けた。2026-09-27 ―― 以前は作り直すたびに古い依頼、
+            // たとえば最後に出てきた束の行へ動かしてから、選んでいる行へ動かしていた)。
+            if initial { lastRevealSerial = parent.revealRequest?.serial }
             if let request = parent.revealRequest, request.serial != lastRevealSerial {
                 lastRevealSerial = request.serial
                 if let node = nodeByID[request.id], case let row = outline.row(forItem: node), row >= 0 {
@@ -535,8 +548,15 @@ struct SmartLibraryListView: NSViewRepresentable {
             parent.onSort(key, descriptor.ascending)
         }
 
+        /// ダブルクリックした行を開く。**選んでいなければ、先に選ぶ**(2026-09-27。後ろにあるウインドウでは 1 回目のクリックが
+        /// ウインドウを前に出すのに使われ、表は選択を変えないままダブルクリックを送る。開くのは合っていたが、選択が前の行に
+        /// 残ったので、ホームへ戻ると前の行へ寄せていた ―― FileBrowserListView.handleDoubleClick と同じ事情)。
         @objc func doubleClicked(_ sender: Any?) {
             guard let outline, outline.clickedRow >= 0, let node = node(atRow: outline.clickedRow) else { return }
+            if !outline.selectedRowIndexes.contains(outline.clickedRow) {
+                // 選択の知らせ(outlineViewSelectionDidChange)で画面の選択も揃う。
+                outline.selectRowIndexes(IndexSet(integer: outline.clickedRow), byExtendingSelection: false)
+            }
             parent?.onActivate(node.item)
         }
 

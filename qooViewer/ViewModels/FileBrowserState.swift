@@ -87,6 +87,26 @@ final class FileBrowserState: ObservableObject {
     /// そこから見せる(`HomeWheelScrollView.restoreScrollOrigin`)。控えは一度使ったら捨てる。
     private var savedScrollOrigins: [FileBrowserViewMode: (folder: URL?, origin: CGPoint)] = [:]
 
+    /// 左のツリーの開き具合と位置の控え(ツリーを作り直しても残す。FileBrowserTreeView の型コメント)。publish しない。
+    struct SavedTreeState {
+        /// 開いていた行の鍵(上から。親が先)。
+        var expandedKeys: [String]
+        var scrollOrigin: CGPoint
+    }
+
+    private var savedTreeState: SavedTreeState?
+
+    /// 捨てるツリーの開き具合と位置を控える。
+    func saveTreeState(_ saved: SavedTreeState) {
+        savedTreeState = saved
+    }
+
+    /// 作ったツリーが戻す開き具合と位置(一度使ったら捨てる)。
+    func takeSavedTreeState() -> SavedTreeState? {
+        defer { savedTreeState = nil }
+        return savedTreeState
+    }
+
     /// 捨てる一覧のスクロール位置を控える(`dismantleNSView` から)。
     func saveScrollOrigin(_ origin: CGPoint, for mode: FileBrowserViewMode, folder: URL?) {
         savedScrollOrigins[mode] = (folder, origin)

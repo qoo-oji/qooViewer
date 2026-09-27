@@ -1689,6 +1689,16 @@ struct QooViewerApp: App {
         // Windowすべて同じ。
         favoritesOrganizerScene(locale: locale)
 
+        // ■ 以下の Window の並び = 「ウインドウ」メニューの並び(2026-09-27、利用者の指摘)
+        // `Window` シーンは宣言した順に「ウインドウ」メニューへ項目を足す(実機で確認)。以前は作った順に並んでいて、保存データの
+        // 書き出しと読み込みの間に表紙の項目が挟まり、EPUB の書き出しだけが PDF・CBZ から離れていた。**機能のまとまりごとに**並べる:
+        // 1. 本ごとの情報の編集 ―― ブックマーク・レイアウト → メタデータ → その規則(ファイル名の解析・シリーズと巻数の抽出)
+        // 2. 本の書き出し ―― EPUB → PDF → CBZ(ファイルメニューと同じ順)
+        // 3. 保存データの控えと戻し ―― 保存データの書き出し → 読み込み → コレクション表紙の書き出し → 読み込み
+        //    (保存データの JSON と表紙の zip の 2 つで環境が戻る。CLAUDE.md「The saved-data JSON is a backup」)
+        // 4. 削除 ―― 保存データの削除 → 履歴の削除
+        // 5. メニューに出さないもの(`.commandsRemoved()`)
+        // 新しい補助ウインドウを足すときは、宣言する位置で「ウインドウ」メニューのどこに並ぶかが決まることに気を付ける。
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
         // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを
         // 扱っていたが、「お気に入りの編集」ウインドウと見た目・操作感を完全に揃えるため、
@@ -1715,142 +1725,6 @@ struct QooViewerApp: App {
         // (右ペイン)をツールバーに載せているため、タイトルとツールバーを1行にまとめた
         // 純正アプリと同じ見た目にする(BookmarkListView参照)。
         .windowToolbarStyle(.unified)
-
-        // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
-        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
-        // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
-        Window(String(localized: "Export Saved Data", language: locale), id: "libraryExport") {
-            LibraryExportWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(collectionStore)
-                .environmentObject(smartLibraryStore)
-                .environmentObject(favoriteLocations)
-                .environmentObject(autoRenameStore)
-                .environmentObject(keyBindingStore)
-                .environment(metadataRulesStore)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-                // 読書位置(BookReadingState)を読む(2026-09-23 の 3 回目の監査の高 2)。これが無いと `@Environment(\.modelContext)` は
-                // 実体の無いメモリ内のコンテキストで、取得は黙って 0 件になり、書き出しから読書位置が消えていた。
-                .modelContext(QooViewerApp.modelContainer.mainContext)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-
-        // コレクション表紙をzipにまとめて書き出す(ユーザー要望 2026-09-11)。保存データの
-        // 書き出しとは別のウインドウにしてある(ShelfCoverExportWindowの型コメント参照)。
-        Window(
-            String(localized: "Export Collection Covers", language: locale), id: "shelfCoverExport"
-        ) {
-            ShelfCoverExportWindow()
-                .environmentObject(layoutStore)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        // 一覧ウインドウなので、対になる読み込みと同じくツールバーは統合スタイル。
-        .windowToolbarStyle(.unified)
-
-        // コレクション表紙をzipから読み込む(ユーザー要望 2026-09-11)。名前で本と結び付ける
-        // ので、母体になるストアを一式渡す(KnownBooks参照)。
-        Window(
-            String(localized: "Import Collection Covers", language: locale), id: "shelfCoverImport"
-        ) {
-            ShelfCoverImportWindow()
-                .environmentObject(metadataStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(favoritesStore)
-                .environmentObject(collectionStore)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-                .modelContext(QooViewerApp.modelContainer.mainContext)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowToolbarStyle(.unified)
-
-        Window(String(localized: "Import Saved Data", language: locale), id: "libraryImport") {
-            LibraryImportWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(collectionStore)
-                .environmentObject(collectionCoverExtractor)
-                .environmentObject(smartLibraryStore)
-                .environmentObject(favoriteLocations)
-                .environmentObject(autoRenameStore)
-                .environmentObject(keyBindingStore)
-                .environment(metadataRulesStore)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-                // 読書位置(BookReadingState)を書く(高 2。書き出しのウインドウと同じ)。無いと、取り込んだと報告して何も残さなかった。
-                .modelContext(QooViewerApp.modelContainer.mainContext)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-
-        // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
-        Window(String(localized: "Export as EPUB", language: locale), id: "epubExport") {
-            EpubExportWindow()
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(collectionStore)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-        // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
-        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
-        .windowToolbarStyle(.unified)
-
-        // 「本ごとの保存データの削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
-        // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
-        // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
-        Window(String(localized: "Delete Saved Data", language: locale), id: "libraryCleanup") {
-            LibraryCleanupWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(collectionStore)
-                .environmentObject(folderAccess)
-                .modelContainer(QooViewerApp.modelContainer)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-        // 絞り込み・すべて選択・削除・検索欄をツールバーに載せているため、タイトルと
-        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(メタデータの編集・
-        // 書き出し3種と同じ。LibraryCleanupWindow参照)。
-        .windowToolbarStyle(.unified)
-
-        // 「開いたファイルの履歴の削除」ウインドウ(独立ウインドウ)。上の「本ごとの保存データの
-        // 削除」と対になる画面で、立ち位置・操作感・見た目をすべて揃えてある(ユーザー指摘:
-        // 似た機能なのに名前も見た目もバラバラだった)。同じく環境設定「リセット」タブの
-        // ボタンからのみ開く。
-        // 履歴はSwiftDataではなくUserDefaultsに入っているため、必要なのはrecentFilesだけ。
-        Window(String(localized: "Delete History", language: locale), id: "historyCleanup") {
-            HistoryCleanupWindow()
-                .environmentObject(recentFiles)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-        .windowToolbarStyle(.unified)
-
-        // 「自動リネームの設定」ウインドウ(autoRenameSettingsScene 参照)。
-        autoRenameSettingsScene(locale: locale)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
         // 同じく、本を今開いているかどうかに関わらずいつでも開ける。
@@ -1908,6 +1782,23 @@ struct QooViewerApp: App {
         .handlesExternalEvents(matching: [])
         .defaultSize(width: 1080, height: 760)
 
+        // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
+        Window(String(localized: "Export as EPUB", language: locale), id: "epubExport") {
+            EpubExportWindow()
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
+                .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+        // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
+        .windowToolbarStyle(.unified)
+
         // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
         Window(String(localized: "Export as PDF", language: locale), id: "pdfExport") {
             PDFExportWindow()
@@ -1941,6 +1832,125 @@ struct QooViewerApp: App {
         // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
         // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
         .windowToolbarStyle(.unified)
+
+        // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
+        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
+        // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
+        Window(String(localized: "Export Saved Data", language: locale), id: "libraryExport") {
+            LibraryExportWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
+                .environmentObject(smartLibraryStore)
+                .environmentObject(favoriteLocations)
+                .environmentObject(autoRenameStore)
+                .environmentObject(keyBindingStore)
+                .environment(metadataRulesStore)
+                .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
+                .environment(\.locale, locale)
+                // 読書位置(BookReadingState)を読む(2026-09-23 の 3 回目の監査の高 2)。これが無いと `@Environment(\.modelContext)` は
+                // 実体の無いメモリ内のコンテキストで、取得は黙って 0 件になり、書き出しから読書位置が消えていた。
+                .modelContext(QooViewerApp.modelContainer.mainContext)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+
+        Window(String(localized: "Import Saved Data", language: locale), id: "libraryImport") {
+            LibraryImportWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
+                .environmentObject(collectionCoverExtractor)
+                .environmentObject(smartLibraryStore)
+                .environmentObject(favoriteLocations)
+                .environmentObject(autoRenameStore)
+                .environmentObject(keyBindingStore)
+                .environment(metadataRulesStore)
+                .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
+                .environment(\.locale, locale)
+                // 読書位置(BookReadingState)を書く(高 2。書き出しのウインドウと同じ)。無いと、取り込んだと報告して何も残さなかった。
+                .modelContext(QooViewerApp.modelContainer.mainContext)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+
+        // コレクション表紙をzipにまとめて書き出す(ユーザー要望 2026-09-11)。保存データの
+        // 書き出しとは別のウインドウにしてある(ShelfCoverExportWindowの型コメント参照)。
+        Window(
+            String(localized: "Export Collection Covers", language: locale), id: "shelfCoverExport"
+        ) {
+            ShelfCoverExportWindow()
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        // 一覧ウインドウなので、対になる読み込みと同じくツールバーは統合スタイル。
+        .windowToolbarStyle(.unified)
+
+        // コレクション表紙をzipから読み込む(ユーザー要望 2026-09-11)。名前で本と結び付ける
+        // ので、母体になるストアを一式渡す(KnownBooks参照)。
+        Window(
+            String(localized: "Import Collection Covers", language: locale), id: "shelfCoverImport"
+        ) {
+            ShelfCoverImportWindow()
+                .environmentObject(metadataStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(favoritesStore)
+                .environmentObject(collectionStore)
+                .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
+                .environment(\.locale, locale)
+                .modelContext(QooViewerApp.modelContainer.mainContext)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowToolbarStyle(.unified)
+
+        // 「本ごとの保存データの削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
+        // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
+        // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
+        Window(String(localized: "Delete Saved Data", language: locale), id: "libraryCleanup") {
+            LibraryCleanupWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
+                .environmentObject(folderAccess)
+                .modelContainer(QooViewerApp.modelContainer)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+        // 絞り込み・すべて選択・削除・検索欄をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(メタデータの編集・
+        // 書き出し3種と同じ。LibraryCleanupWindow参照)。
+        .windowToolbarStyle(.unified)
+
+        // 「開いたファイルの履歴の削除」ウインドウ(独立ウインドウ)。上の「本ごとの保存データの
+        // 削除」と対になる画面で、立ち位置・操作感・見た目をすべて揃えてある(ユーザー指摘:
+        // 似た機能なのに名前も見た目もバラバラだった)。同じく環境設定「リセット」タブの
+        // ボタンからのみ開く。
+        // 履歴はSwiftDataではなくUserDefaultsに入っているため、必要なのはrecentFilesだけ。
+        Window(String(localized: "Delete History", language: locale), id: "historyCleanup") {
+            HistoryCleanupWindow()
+                .environmentObject(recentFiles)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+        .windowToolbarStyle(.unified)
+
+        // 「自動リネームの設定」ウインドウ(autoRenameSettingsScene 参照)。
+        autoRenameSettingsScene(locale: locale)
     }
 
     /// 「新しいウインドウで開く」「新しいタブで開く」。ファイル/フォルダ選択パネルを表示し、

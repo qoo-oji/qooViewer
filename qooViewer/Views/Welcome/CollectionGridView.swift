@@ -292,6 +292,8 @@ struct CollectionGridView: View {
                 //   ここで作り直して失うものは無い。
                 .id(gridID)
             }
+            // 本を開いて戻ってきた・コレクションから一覧へ戻ったときは、離れたときの位置から(2026-09-27。HomeScrollMemory)。
+            .homeScrollRestoration(state.scrollMemory, key: WelcomeLibraryState.scrollKey(library: library.id))
         }
         // ピンチで札の大きさを変える(ユーザー要望 2026-09-13。ページ一覧パネルと同じ操作)。
         // 閉包はViewの値を捕まえない(welcomeGridPinchのコメント参照)。

@@ -872,6 +872,8 @@ struct SmartLibraryContent: View {
     @State private var scrollTracker = PanelListScrollTracker(verticalPadding: Self.gridPadding, rowSpacing: Self.spacing)
     /// 寸法を実測する前に頼まれた「見せる」相手(実測が届いたらやり直す)。
     @State private var pendingRevealID: String?
+    /// 本を開いて戻ってきたとき・リストから切り替えたときに、離れたときの位置へ戻す段取り(HomeScrollMemory)。
+    @State private var scrollRestorer = HomeScrollRestorer()
     @State private var metadataTarget: SmartMetadataTarget?
     /// 画面外の表紙を手放すための帳簿(型コメントは CollectionGridView「画面外のカバーを手放す」)。2026-09-22 の監査で指摘:
     /// ここだけ帳簿が無く、表紙の CGImage はセルの `@State` に残る ―― 絵は提供役の mmap 領域を共有するので、提供役の
@@ -1229,6 +1231,14 @@ struct SmartLibraryContent: View {
                     reveal(pendingRevealID)
                 }
             }
+            // 位置を控え、戻す途中なら届く高さになったところで戻す(HomeScrollRestorer)。
+            .onScrollGeometryChange(for: HomeScrollRestorer.Metrics.self) { geometry in
+                HomeScrollRestorer.Metrics(geometry)
+            } action: { [state] _, metrics in
+                if let y = scrollRestorer.observe(metrics, key: state.scrollKey(for: .grid), memory: state.scrollMemory) {
+                    scrollPosition.scrollTo(y: y)
+                }
+            }
         }
         // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(HomeWheelScroll)。
         .homeGridWheelScroll(
@@ -1260,8 +1270,15 @@ struct SmartLibraryContent: View {
             if let request { reveal(request.id) }
         }
         // 本を開いて戻ってきたとき(状態はウインドウが持つので、選んでいた本も開いていた束も残っている)・リストから切り替えたときは、
-        // 選んでいる枠が見える所から(2026-09-24。グリッドは作り直されて先頭から描かれるので、開いた本が画面の外に残っていた)。
+        // **離れたときの位置から**(2026-09-27。HomeScrollMemory)。控えが無ければ(初めて見る場面)、選んでいる枠が見える所から
+        // (2026-09-24。グリッドは作り直されて先頭から描かれるので、開いた本が画面の外に残っていた ―― 位置を控えるまでの手当て)。
         .onAppear {
+            let saved = state.scrollMemory.take(for: state.scrollKey(for: .grid)).map(\.y).flatMap { $0 > 0.5 ? $0 : nil }
+            scrollRestorer.begin(saved) { y in scrollPosition.scrollTo(y: y) }
+            if saved != nil {
+                pendingRevealID = nil
+                return
+            }
             if let id = state.selection.cursor.flatMap({ state.selection.contains($0) ? $0 : nil })
                 ?? state.gridItems.first(where: { state.selection.contains($0.id) })?.id {
                 reveal(id)
@@ -1270,6 +1287,7 @@ struct SmartLibraryContent: View {
         // 絞り込み・検索・並べ替え・棚・束ね方を変えたら先頭から(`SmartLibraryViewState.scrollResetSerial`)。
         .onChange(of: state.scrollResetSerial) { _, _ in
             pendingRevealID = nil
+            scrollRestorer.begin(nil) { _ in }
             scrollPosition.scrollTo(edge: .top)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
@@ -1712,6 +1730,8 @@ struct SmartLibraryContent: View {
             outlineWidth: outlineWidth,
             locale: locale,
             wheelScrollRows: appearance.homeListWheelScrollRows,
+            scrollMemory: state.scrollMemory,
+            scrollKey: state.scrollKey(for: .list),
             onSelectionChange: { [state] ids, cursor in state.setSelection(ids, cursor: cursor) },
             onSort: { [state] key, ascending in
                 state.sortKey = key

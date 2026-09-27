@@ -30,6 +30,18 @@ final class SmartLibraryViewState: ObservableObject {
         static let legacyGroupsBySeries = "qooViewer.smartLibrary.groupsBySeries"
     }
 
+    /// グリッドとリストのスクロール位置の控え(本を開いて戻ってきても同じ所から。HomeScrollMemory、2026-09-27)。
+    let scrollMemory = HomeScrollMemory()
+
+    /// いまの場面(棚と開いている束)の、グリッド / リストの位置の鍵。
+    func scrollKey(for mode: SmartLibraryViewMode) -> String {
+        Self.scrollKey(mode: mode, shelf: selectedShelfID, group: openedGroup)
+    }
+
+    private static func scrollKey(mode: SmartLibraryViewMode, shelf: UUID?, group: String?) -> String {
+        "\(mode.rawValue)|\(shelf?.uuidString ?? "all")|\(group ?? "")"
+    }
+
     static let coverSizeRange: ClosedRange<CGFloat> = 80...300
     static let defaultCoverSize: CGFloat = 130
     static let sidebarWidthRange: ClosedRange<CGFloat> = 200...460
@@ -44,6 +56,12 @@ final class SmartLibraryViewState: ObservableObject {
             defaults.set(selectedShelfID?.uuidString, forKey: Keys.selectedShelf)
             // 棚が変わったら、ブラウザで選んだ値は外す(前の棚に無い値で空になるため)。開いていたシリーズからも出る。
             facetSelection = SmartFacetSelection()
+            // 前の棚で開いていた束の控えも捨てる(下の `openedGroup = nil` の didSet は、もう新しい棚の鍵で捨てるため)。
+            if let group = openedGroup {
+                for mode in SmartLibraryViewMode.allCases {
+                    scrollMemory.forget(Self.scrollKey(mode: mode, shelf: oldValue, group: group))
+                }
+            }
             openedGroup = nil
             narrowingChanged()
         }
@@ -92,6 +110,12 @@ final class SmartLibraryViewState: ObservableObject {
     @Published var openedGroup: String? {
         didSet {
             guard openedGroup != oldValue else { return }
+            // 出た束の位置の控えは捨てる(入り直したら先頭から ―― 今までどおり。HomeScrollMemory)。
+            if let oldValue {
+                for mode in SmartLibraryViewMode.allCases {
+                    scrollMemory.forget(Self.scrollKey(mode: mode, shelf: selectedShelfID, group: oldValue))
+                }
+            }
             // 束から出たら、出てきた束を選んでおく(Finder で上のフォルダへ戻ったときと同じ。矢印キーの続きがそこから)。
             if let oldValue, openedGroup == nil {
                 pendingSelectionID = SmartGridItem.groupID(grouping, name: oldValue)

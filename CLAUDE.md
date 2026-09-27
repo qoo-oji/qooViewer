@@ -362,6 +362,12 @@ outside `.id(gridID)`); scrolling a selection into view computes the row from me
 **every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view
 (`SmartLibraryListView`) is an AppKit `NSOutlineView` built from the file browser's parts, with groups as folder-like
 expandable rows; it shares the grid's selection/sort state. Design in docs/14「スマートライブラリ」.
+**Home is torn down while a book is open** (`ContentView` swaps `WelcomeView` for `ViewerView`), so every Home list is rebuilt on
+return: state that must survive lives on the per-window states, including scroll positions (2026-09-27) — `HomeScrollMemory` keyed by
+scene (`WelcomeLibraryState` / `SmartLibraryViewState.scrollMemory`, `.homeScrollRestoration` for SwiftUI grids, save on
+`dismantleNSView` + `HomeWheelScrollView.restoreScrollOrigin` for AppKit lists; the file browser keeps its own in `FileBrowserState`,
+tree expansion included). A new Home list must do the same, and a SwiftUI one must not save before restoring starts (the first
+geometry report, offset 0, can arrive before `onAppear`).
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
 books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).

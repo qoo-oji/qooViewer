@@ -18,6 +18,14 @@ import SwiftUI
 /// ドメインごと消すため、そちらでは一緒に消える。
 @MainActor
 final class WelcomeLibraryState: ObservableObject {
+    /// コレクションの一覧と中身のスクロール位置の控え(本を開いて戻ってきても同じ所から。HomeScrollMemory)。
+    let scrollMemory = HomeScrollMemory()
+
+    /// ライブラリのコレクションの一覧の位置の鍵。
+    static func scrollKey(library: UUID) -> String { "library|\(library.uuidString)" }
+    /// コレクションの中身の位置の鍵。
+    static func scrollKey(collection: UUID) -> String { "collection|\(collection.uuidString)" }
+
     private enum Keys {
         static let selectedLibraryID = "qooViewer.welcome.selectedLibraryID"
         static let collectionSort = "qooViewer.welcome.collectionSort"
@@ -149,6 +157,8 @@ final class WelcomeLibraryState: ObservableObject {
     @Published var openedCollectionID: UUID? {
         didSet {
             guard openedCollectionID != oldValue else { return }
+            // 出たコレクションの位置の控えは捨てる(入り直したら先頭から。一覧へ戻ったときは一覧の控えから ―― HomeScrollMemory)。
+            if let oldValue { scrollMemory.forget(Self.scrollKey(collection: oldValue)) }
             // 画面が移ったら編集モードから出る(isEditingのコメント参照)。didSetの中で
             // clearSelection()も走るので、選択を捨てるのはここに書かなくてよい。
             isEditing = false

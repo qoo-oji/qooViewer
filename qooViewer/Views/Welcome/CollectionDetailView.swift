@@ -500,6 +500,8 @@ struct CollectionDetailView: View {
                 // (CollectionGridViewの同じ`.id`のコメント参照)。
                 .id(gridID)
             }
+            // 本を開いて戻ってきたときは、離れたときの位置から(2026-09-27。HomeScrollMemory)。
+            .homeScrollRestoration(state.scrollMemory, key: WelcomeLibraryState.scrollKey(collection: collection.id))
         }
         // ピンチでカバーの大きさを変える(ユーザー要望 2026-09-13。welcomeGridPinch参照)。
         .welcomeGridPinch(scrollBox: marquee.scrollBox) { [weak state] magnification in
