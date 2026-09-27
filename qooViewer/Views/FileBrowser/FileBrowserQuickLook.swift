@@ -84,6 +84,18 @@ extension FileBrowserQuickLook: @preconcurrency QLPreviewPanelDataSource, @preco
 }
 
 extension FileBrowserQuickLook {
+    /// 一覧のビューを捨てるとき(`dismantleNSView`)に呼ぶ。パネルがこのビューから中身を受け取っていれば閉じる。
+    ///
+    /// パネルは今の受け手(`currentController`)を**保持し続ける**(単体の AppKit で実測、2026-09-27)。受け手が変わるのはキー
+    /// ウインドウが変わったときだけなので、パネルを出したまま本を開く(パネルの Return は一覧へ回る)・表示を切り替えると、外れた
+    /// 一覧がパネルに残り、パネルで押したキー(⌘⌫ など)が見えない一覧の選択へ届いた。閉じれば受け手を手放す。
+    static func closePanel(ifControlledBy view: NSView) {
+        guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(),
+              panel.currentController as AnyObject? === view
+        else { return }
+        panel.orderOut(nil)
+    }
+
     /// スペースキー(修飾キー無し)か。
     static func isToggleKey(_ event: NSEvent) -> Bool {
         event.keyCode == 49 && event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift])

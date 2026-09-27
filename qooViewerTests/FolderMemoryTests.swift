@@ -33,6 +33,14 @@ struct FolderMemoryTests {
         LastUsedFolderMemory(defaultsKey: key, defaults: fixture.suite.defaults)
     }
 
+    @Test("同じフォルダかの比較は文字列だけで行う(末尾の / と先頭の /private を揃える。実在しないパスでも同じ答え)")
+    func samePathComparesStringsOnly() {
+        // 2026-09-27 の監査: 以前は standardizedFileURL でパスを stat していた(応答しない共有の上だとメインが止まりえた)。
+        #expect(LastUsedFolderMemory.samePath("/nonexistent-root/exports", "/nonexistent-root/exports/"))
+        #expect(LastUsedFolderMemory.samePath("/private/var/folders/x", "/var/folders/x"))
+        #expect(!LastUsedFolderMemory.samePath("/nonexistent-root/exports", "/nonexistent-root/export"))
+    }
+
     @Test("何も覚えていなければ nil(初回はパネルが OS の既定の場所から始まる)")
     func afreshMemoryIsEmpty() throws {
         let fixture = try Fixture("folder-memory-empty")

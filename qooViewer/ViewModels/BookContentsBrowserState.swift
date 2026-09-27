@@ -144,9 +144,10 @@ final class BookContentsBrowserState: ObservableObject {
     /// 階層を 1 段ずつ辿る以後の操作は、型コメントのとおりメインのまま(最上位の一覧に比べて軽い)。
     static func make(book: MangaBook) async -> BookContentsBrowserState? {
         if book.origin == .imageFiles { return BookContentsBrowserState(book: book) }
-        let prepared = await Task.detached(priority: .userInitiated) {
+        // FileIO で(DirectoryBrowser.listingAsync のコメント。書庫を開いて一覧を取るのはブロッキングする I/O)。
+        let prepared = await FileIO.perform {
             prepareRoot(of: book).map(PreparedRootHandoff.init)
-        }.value
+        }
         guard let prepared else { return nil }
         return BookContentsBrowserState(book: book, root: prepared.root)
     }

@@ -130,10 +130,14 @@ nonisolated enum DirectoryBrowser {
         return Listing(entries: sortedEntries(entries, sort: sort), containsImageFile: containsImageFile)
     }
 
+    /// 一覧を読む。**`Task.detached` ではなく FileIO で**(2026-09-27 の監査): 読むのはブロッキングする I/O で、応答しない共有の
+    /// フォルダでは 30 秒(NFS の hard マウントでは無限に)戻らない。協調スレッドプールのスレッドを塞ぐと、アプリをアクティブにする
+    /// たび・ボリュームを着脱するたびの読み直しが 1 本ずつ積み上がり、ページのデコードを含むすべての async 処理が止まりうる
+    /// (FileIO の型コメント)。
     static func listingAsync(in directory: URL, sort: FolderBrowserSort) async throws -> Listing {
-        try await Task.detached(priority: .utility) {
+        try await FileIO.perform {
             try listing(in: directory, sort: sort)
-        }.value
+        }
     }
 
     /// 1件ぶんのEntryを組み立てる。開けない形式のファイルはここでnilを返して一覧から落とす
@@ -287,9 +291,10 @@ nonisolated enum DirectoryBrowser {
     }
 
     static func mountedVolumeEntriesAsync(sort: FolderBrowserSort) async -> [Entry] {
-        await Task.detached(priority: .utility) {
+        // FileIO で(listingAsync のコメント。ボリュームの属性の読みも、応答しない共有では戻らない)。
+        await FileIO.perform(qos: .utility) {
             mountedVolumeEntries(sort: sort)
-        }.value
+        }
     }
 
     /// マウント中のボリュームのURL一覧。isVolumeRootからも使うため、Entryの組み立て

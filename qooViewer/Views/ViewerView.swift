@@ -1444,10 +1444,16 @@ struct ViewerView: View {
                     ThumbnailGridView(
                         viewModel: viewModel,
                         isPresented: $showThumbnailGrid,
-                        onExportPage: { exportImage(.singlePage(index: $0)) },
+                        // この 2 つは右クリックメニューの項目(NSMenuItem)へ渡るので、ViewerView を捕まえない
+                        // (ViewerActionRelay の型コメント。2026-09-27 の監査)。
+                        onExportPage: { [relay = actionRelay] index in
+                            relay.send { $0.exportImage(.singlePage(index: index)) }
+                        },
                         // 右クリックの「このページをブックマークに追加/削除」(ユーザー要望)。
                         // ビューアの右クリックと同じ、クリックした1ページだけを対象にするトグル。
-                        onToggleBookmark: { toggleBookmark(atIndex: $0) },
+                        onToggleBookmark: { [relay = actionRelay] index in
+                            relay.send { $0.toggleBookmark(atIndex: index) }
+                        },
                         onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 },
                         onColumnCountChange: { thumbnailGridColumns = $0 },
                         eventMonitor: $thumbnailGridEventMonitor
@@ -1719,25 +1725,31 @@ struct ViewerView: View {
         // ネイティブNSMenu(FavoritesNSMenuBridge)へ置き換えた。ボタンのクリック・ショートカット
         // のどちらもshowFavoritesListMenu()を呼ぶだけでよく、SwiftUI側の状態(.popoverのbinding)
         // は不要になったため、ここには何も無い(showFavoritesListMenu()のコメント参照)。
+        // 以下のアラート・確認ダイアログのボタンと Binding の閉包は、ViewerView を捕まえない(ViewerActionRelay の型コメント。
+        // 2026-09-27 の監査で、このグループがまだ直接捕まえていたのを直した)。@State の値は body を作るたびに読んだ値を渡し、
+        // ビューモデルは weak で読み、書き換えと操作は relay 経由。
+        let relay = actionRelay
+        let hasPendingLayoutStateChange = pendingLayoutStateChange != nil
+        let hasImageExportError = imageExportErrorMessage != nil
         // 環境設定「本を開く」の「開始ページ」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
         content
         .alert(
             "Resume from where you left off?",
             isPresented: Binding(
-                get: { viewModel.needsResumeConfirmation },
+                get: { [weak viewModel] in viewModel?.needsResumeConfirmation ?? false },
                 set: { isPresented in
                     if !isPresented {
-                        viewModel.confirmResumeFromLastPage(true)
+                        relay.send { $0.viewModel.confirmResumeFromLastPage(true) }
                     }
                 }
             )
         ) {
             Button("Start from Beginning") {
-                viewModel.confirmResumeFromLastPage(false)
+                relay.send { $0.viewModel.confirmResumeFromLastPage(false) }
             }
             Button("Resume") {
-                viewModel.confirmResumeFromLastPage(true)
+                relay.send { $0.viewModel.confirmResumeFromLastPage(true) }
             }
         }
         // レイアウト操作(3.2節。「レイアウト情報を削除する」を除く)の後に表示する、
@@ -1747,9 +1759,9 @@ struct ViewerView: View {
         .confirmationDialog(
             "Apply Layout Change To…",
             isPresented: Binding(
-                get: { pendingLayoutStateChange != nil },
+                get: { hasPendingLayoutStateChange },
                 set: { isPresented in
-                    if !isPresented { pendingLayoutStateChange = nil }
+                    if !isPresented { relay.send { $0.pendingLayoutStateChange = nil } }
                 }
             ),
             titleVisibility: .visible
@@ -1757,16 +1769,18 @@ struct ViewerView: View {
             if let pending = pendingLayoutStateChange {
                 ForEach(availableScopes(forPageIndex: pending.pageIndex)) { scope in
                     Button(scope.titleKey) {
-                        pendingLayoutStateChange = nil
-                        Task {
-                            await viewModel.setPageLayout(atIndex: pending.pageIndex, to: pending.state, scope: scope)
-                            syncMenuCheckmarkState()
+                        relay.send { view in
+                            view.pendingLayoutStateChange = nil
+                            Task {
+                                await view.viewModel.setPageLayout(atIndex: pending.pageIndex, to: pending.state, scope: scope)
+                                view.syncMenuCheckmarkState()
+                            }
                         }
                     }
                 }
             }
             Button("Cancel", role: .cancel) {
-                pendingLayoutStateChange = nil
+                relay.send { $0.pendingLayoutStateChange = nil }
             }
         } message: {
             Text("Choose how far this layout change should apply.")
@@ -1782,10 +1796,10 @@ struct ViewerView: View {
             titleVisibility: .visible
         ) {
             Button("Left Page") {
-                addBookmarkWithToast(atIndex: spreadLeftPageIndex)
+                relay.send { $0.addBookmarkWithToast(atIndex: $0.spreadLeftPageIndex) }
             }
             Button("Right Page") {
-                addBookmarkWithToast(atIndex: spreadRightPageIndex)
+                relay.send { $0.addBookmarkWithToast(atIndex: $0.spreadRightPageIndex) }
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -1797,7 +1811,7 @@ struct ViewerView: View {
         .alert(
             "This Book's Contents May Have Changed",
             isPresented: Binding(
-                get: { viewModel.pendingLayoutReplacementStatus != nil },
+                get: { [weak viewModel] in viewModel?.pendingLayoutReplacementStatus != nil },
                 set: { _ in }
             )
         ) {
@@ -1806,12 +1820,16 @@ struct ViewerView: View {
             // 来るが、上のBindingは捨てるので何も決まらず、Escでは閉じられなかった。そのまま使うは何も
             // 失わない側なので、Escで選ばれてよい。破棄のほうはReturnの既定にしない(破壊的な操作のため)。
             Button("Keep Existing Settings", role: .cancel) {
-                viewModel.resolveLayoutReplacement(applyExisting: true)
-                syncMenuCheckmarkState()
+                relay.send { view in
+                    view.viewModel.resolveLayoutReplacement(applyExisting: true)
+                    view.syncMenuCheckmarkState()
+                }
             }
             Button("Discard Settings", role: .destructive) {
-                viewModel.resolveLayoutReplacement(applyExisting: false)
-                syncMenuCheckmarkState()
+                relay.send { view in
+                    view.viewModel.resolveLayoutReplacement(applyExisting: false)
+                    view.syncMenuCheckmarkState()
+                }
             }
         } message: {
             Text(
@@ -1828,9 +1846,11 @@ struct ViewerView: View {
         ) {
             Button("Cancel", role: .cancel) {}
             Button("Auto-Layout") {
-                Task {
-                    await viewModel.autoLayoutFromCurrentView()
-                    syncMenuCheckmarkState()
+                relay.send { view in
+                    Task {
+                        await view.viewModel.autoLayoutFromCurrentView()
+                        view.syncMenuCheckmarkState()
+                    }
                 }
             }
         } message: {
@@ -1843,9 +1863,9 @@ struct ViewerView: View {
         .alert(
             "Couldn't Export Image",
             isPresented: Binding(
-                get: { imageExportErrorMessage != nil },
+                get: { hasImageExportError },
                 set: { isPresented in
-                    if !isPresented { imageExportErrorMessage = nil }
+                    if !isPresented { relay.send { $0.imageExportErrorMessage = nil } }
                 }
             )
         ) {
@@ -2519,16 +2539,18 @@ struct ViewerView: View {
         Toggle(
             "Loupe",
             isOn: Binding(
-                get: { viewModel.isLoupeActive },
-                set: { _ in perform(.toggleLoupe) }
+                get: { [weak viewModel] in viewModel?.isLoupeActive ?? false },
+                set: { _ in relay.send { $0.perform(.toggleLoupe) } }
             )
         )
 
+        // 右クリックメニューは開くたびに作り直すので、今の値を渡せばよい(@State を閉包で読むと ViewerView を捕まえる)。
+        let fullScreen = isFullScreen
         Toggle(
             "Full Screen",
             isOn: Binding(
-                get: { isFullScreen },
-                set: { _ in hostWindow?.toggleFullScreen(nil) }
+                get: { fullScreen },
+                set: { _ in relay.send { $0.hostWindow?.toggleFullScreen(nil) } }
             )
         )
 

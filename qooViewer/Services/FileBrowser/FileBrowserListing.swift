@@ -115,6 +115,18 @@ nonisolated enum FileBrowserListing {
     /// 列挙の入口で失敗したことは例外ではなくエラーハンドラで知らされるので、ここで拾って投げ直す。
     /// - Parameter includesHidden: 隠しファイルも出す(表示メニュー「隠しファイルを表示」⇧⌘.。2026-09-27)。そのときも
     ///   `.DS_Store`だけは出さない ―― Finder も隠しファイルを表示しているときに出さない、Finder 自身の控えのファイル。
+    ///   **このアプリ自身の作業中のもの(`.qooViewer-` で始まる名前)も出さない**(2026-09-27 の監査): コピーの途中の写し・圧縮と
+    ///   展開の途中・書き出しの途中の一時ファイル、「置き換え」で退避した元の項目(`ReplaceBackupJournal` が起動時に戻す)。
+    ///   一覧に出すと、別のウインドウから動かす・消す・開くことができ、置き換えの取り消しや起動時の復旧が戻し先を失った。
+    /// 隠しファイルを表示していても出さない名前(`entries(in:includesHidden:)` のコメント)。
+    static func isHiddenEvenWhenShowingHidden(_ name: String) -> Bool {
+        name == ".DS_Store" || name.hasPrefix(appWorkingItemPrefix)
+    }
+
+    /// このアプリの作業中の項目の名前の頭(FileCopyEngine.stagingPrefix・ZipCompressor.temporaryFilePrefix・
+    /// ArchiveExtractor.temporaryFolderPrefix・FileOperationService.replaceHolderPrefix・書き出しの一時ファイルに共通)。
+    static let appWorkingItemPrefix = ".qooViewer-"
+
     static func entries(in folder: URL, includesHidden: Bool = false) throws -> [FileBrowserEntry] {
         var rootError: Error?
         let folderPath = MountTable.normalized(folder.path)
@@ -138,7 +150,7 @@ nonisolated enum FileBrowserListing {
         while let url = enumerator.nextObject() as? URL {
             count += 1
             if count % 256 == 0, Cancellation.isRequestedInCurrentScope { throw CancellationError() }
-            if includesHidden, url.lastPathComponent == ".DS_Store" { continue }
+            if includesHidden, Self.isHiddenEvenWhenShowingHidden(url.lastPathComponent) { continue }
             result.append(makeEntry(url, kindCache: &kindCache))
         }
         if let rootError { throw rootError }

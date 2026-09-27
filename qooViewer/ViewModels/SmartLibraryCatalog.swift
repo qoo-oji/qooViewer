@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import QooMetaKit
 import SwiftData
 
@@ -73,7 +74,18 @@ final class SmartLibraryCatalog: ObservableObject {
     private var pending: Task<Void, Never>?
     private var building: Task<Void, Never>?
     /// 最後にフォルダを探した結果(探す場所ごと)。探す場所が同じなら使い回す。
+    ///
+    /// 捨てる(探し直しを頼む)ときは `invalidateScan()` を通す。**探し終えた結果は、その集め直しが後の集め直しに取り消されても
+    /// 覚える**(2026-09-27 の監査): 以前は取り消された集め直しが探し終えた結果を捨て、後の集め直しがもう一度探していた。探すのは
+    /// ネットワーク上のフォルダでは数十秒かかり、メタデータの更新の知らせ(400ms ごとにまとめる)が続く間は、探し終えることが無かった。
     private var scanned: (roots: [String], result: SmartLibraryScanner.Result)?
+    /// `scanned` を捨てるたびに進める番号。探している間に探し直しを頼まれたら、その探した結果は覚えない(古い)。
+    private var scanEpoch = 0
+
+    private func invalidateScan() {
+        scanned = nil
+        scanEpoch &+= 1
+    }
     private var generation = 0
     /// 保存した前回の一覧の読み込みが古くなったかの番号(`restoreCacheIfNeeded`)。機能を OFF にしたときだけ進める。
     ///
@@ -111,7 +123,7 @@ final class SmartLibraryCatalog: ObservableObject {
 
     private func handleVolumeChange() {
         guard isFeatureEnabled else { return }
-        scanned = nil
+        invalidateScan()
         if activeCount > 0 { scheduleRebuild(rescan: true, delay: .milliseconds(400)) }
     }
 
@@ -150,7 +162,7 @@ final class SmartLibraryCatalog: ObservableObject {
         pending = nil
         building?.cancel()
         building = nil
-        scanned = nil
+        invalidateScan()
         lastSavedCache = nil
         books = []
         isTruncated = false
@@ -206,7 +218,7 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// 「読み直す」(フォルダの中も探し直す)。
     func reload() {
-        scanned = nil
+        invalidateScan()
         scheduleRebuild(rescan: true, delay: .zero)
     }
 
@@ -218,7 +230,7 @@ final class SmartLibraryCatalog: ObservableObject {
             roots.contains { MountTable.path(folder, isAtOrUnder: $0) }
         }
         guard touched else { return }
-        scanned = nil
+        invalidateScan()
         if activeCount > 0 { scheduleRebuild(rescan: true, delay: .milliseconds(300)) }
     }
 
@@ -235,7 +247,7 @@ final class SmartLibraryCatalog: ObservableObject {
 
     private func scheduleRebuild(rescan: Bool, delay: Duration) {
         guard isFeatureEnabled else { return }
-        if rescan { scanned = nil }
+        if rescan { invalidateScan() }
         pending?.cancel()
         pending = Task { [weak self] in
             if delay > .zero { try? await Task.sleep(for: delay) }
@@ -263,14 +275,17 @@ final class SmartLibraryCatalog: ObservableObject {
         isLoading = true
         let snapshot = gatherOnMain()
         let roots = scanRoots()
-        let cachedScan = scanned.flatMap { $0.roots == roots ? $0.result : nil }
         building = Task { [weak self] in
             await previous?.value
-            guard !Task.isCancelled else { return }
+            // 前の集め直しが探し終えていれば、その結果を使う(前の集め直しを待ってから読む。scanned のコメント)。
+            guard !Task.isCancelled, let epoch = self?.scanEpoch else { return }
+            let cachedScan = self?.scanned.flatMap { $0.roots == roots ? $0.result : nil }
             // 1. フォルダの中の本(同じ場所なら前の結果を使う)。
             var scan = cachedScan ?? SmartLibraryScanner.Result()
             if cachedScan == nil, !roots.isEmpty {
                 scan = await FileIO.perform { SmartLibraryScanner.scan(roots: roots) }
+                // 取り消されていても覚える(探している間に探し直しを頼まれていなければ)。
+                if let self, epoch == self.scanEpoch, roots == self.scanRoots() { self.scanned = (roots, scan) }
             }
             guard let self, !Task.isCancelled, generation == self.generation else { return }
             // 2. 探した本の一覧を記録する(メタデータを作るのはメタデータ生成。記録の残るウインドウが出ている間だけ ――
@@ -285,7 +300,8 @@ final class SmartLibraryCatalog: ObservableObject {
                 Self.assemble(snapshot: snapshot, scan: scan, proposals: proposals)
             }.value
             guard !Task.isCancelled, generation == self.generation else { return }
-            self.scanned = (roots, scan)
+            // 組み立てている間に探し直しを頼まれていたら、古い結果で上書きしない(頼まれた探し直しが前の結果を使ってしまう)。
+            if epoch == self.scanEpoch { self.scanned = (roots, scan) }
             // 集め直した一覧が今出しているものと同じなら、差し替えも `revision` も進めない(2026-09-25 の監査)。`revision` は
             // ペインを出している全ウインドウの絞り込み・並べ替え・棚ごとの冊数の数え直し(SmartLibraryViewState.update)を呼ぶ。
             // メタデータの行が変わるたび(対象フォルダの外の本でも)・メタデータ生成が読み終えるたび・ホームへ戻るたびに
@@ -366,6 +382,11 @@ final class SmartLibraryCatalog: ObservableObject {
     ///
     /// **中身が前に保存したものと同じなら書かない**(2026-09-22 の監査)。集め直しは、メタデータの編集中なら 400 ms 待つごとに
     /// 走り、そのたびに全冊ぶんの JSON(数千冊で数 MB)を書き直していた。
+    /// 保存の順番(`saveCache`)。最後に頼まれた保存の番号。
+    private nonisolated let saveSequence = OSAllocatedUnfairLock(initialState: 0)
+    /// 最後に頼まれた保存(次の保存はこれの後に始める)。
+    private var saving: Task<Void, Never>?
+
     private func saveCache(roots: [String], books: [SmartBook], isTruncated: Bool) {
         guard let cacheURL else { return }
         let cached = CachedCatalog(roots: roots, books: books, isTruncated: isTruncated)
@@ -375,7 +396,19 @@ final class SmartLibraryCatalog: ObservableObject {
         // (2026-09-26。読むのは起動後の最初の 1 回だけで、同じなら数 MB の書き込みを省ける)。
         let comparesWithFile = lastSavedCache == nil
         lastSavedCache = cached
-        Task.detached(priority: .utility) {
+        // **保存は 1 本ずつ、頼まれた順に。後から頼まれた保存があれば、前のものは書かない**(2026-09-27 の監査)。以前はそれぞれが
+        // 独立した Task で、最初の保存(ファイルを読んで比べる分だけ遅い)が後の保存より後に終わり、古い一覧で上書きしていた
+        // (`lastSavedCache` は新しい一覧なので、一覧が次に変わるまで直らず、次の起動で古い一覧が先に出た)。メタデータを続けて
+        // 直している間は、数 MB の符号化が直した回数だけ並んでいた。
+        let sequence = saveSequence.withLock { value -> Int in
+            value &+= 1
+            return value
+        }
+        let latest = saveSequence
+        let previous = saving
+        saving = Task.detached(priority: .utility) {
+            await previous?.value
+            guard latest.withLock({ $0 == sequence }) else { return }
             if roots.isEmpty {
                 try? FileManager.default.removeItem(at: cacheURL)
                 return

@@ -264,6 +264,9 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
   ことも「無い」と覚え、ファイルが変わるまで取り込みが試されなくなった)。そのために読み手が「無い」と「読めなかった」を分けて
   答える: `ComicInfoResolver.Lookup`、`EpubStructureResolver.resolveMetadataIfReadable` / `resolveTableOfContentsIfReadable`、
   `PDFStructureResolver.resolveMetadataIfReadable` / `resolveOutlineIfReadable`(nil = 読めなかった)。
+- ComicInfo.xml は、本そのものが zip・rar なら PageLoader が開いている reader で読む(一覧を取り直さない)。**7z だけは actor の外で
+  別の reader で読む**(2026-09-27 の監査): ソリッドなので、表示用の reader で名前順の後ろ(ブロックの末尾)にある ComicInfo.xml を
+  読むと、actor の上でブロックを丸ごと伸長してページの読みを止め、伸長器が末尾へ進んで次のページが後方読みになった。
 
 開くたびの `store` は、前と同じ中身なら書き直さない(鍵を並べて書く `.sortedKeys` なのでバイト列が揃う。更新日時は
 刈り込みに使うので、古いときだけ触る ―― `DiskCacheAccessStamp`)。

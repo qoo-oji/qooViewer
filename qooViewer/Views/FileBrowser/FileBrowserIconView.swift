@@ -123,6 +123,10 @@ struct FileBrowserIconView: NSViewRepresentable {
         coordinator.saveScrollOrigin(of: scroll)
         coordinator.nameClickRename.cancel()
         if let collection = coordinator.collection {
+            // クイックルックのパネルがこの一覧から中身を受け取っていれば閉じ、パネルのキーが外れた一覧へ届かないようにする
+            // (FileBrowserQuickLook.closePanel のコメント。2026-09-27 の監査)。
+            FileBrowserQuickLook.closePanel(ifControlledBy: collection)
+            collection.editResponder = nil
             // **見えているセルの絵の依頼を取り消す**(2026-09-15 の 3 回目の監査)。表示の切り替え・ウインドウを閉じるときのアイテムは
             // `prepareForReuse` を通らずに捨てられ、Task は取り消されないので、提供役に待ちが残って本の展開・QuickLook を走らせ続けた。
             for case let item as FileBrowserIconItem in collection.visibleItems() { item.cancelThumbnailRequest() }

@@ -39,6 +39,8 @@ nonisolated enum DirectoryProbe {
             }
             if name == "." || name == ".." { continue }
             if !includesHidden, name.hasPrefix(".") { continue }
+            // 隠しファイルを表示していても一覧に出さないもの(このアプリの作業中の項目)は数えない(一覧と揃える)。
+            if includesHidden, FileBrowserListing.isHiddenEvenWhenShowingHidden(name) { continue }
             let type = Int32(value.d_type)
             let child = url.appendingPathComponent(name)
             var status = stat()

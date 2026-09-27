@@ -75,8 +75,17 @@ struct LastUsedFolderMemory {
         return (current ?? lastFolder())?.deletingLastPathComponent()
     }
 
-    private static func samePath(_ lhs: String, _ rhs: String) -> Bool {
-        URL(fileURLWithPath: lhs).standardizedFileURL.path == URL(fileURLWithPath: rhs).standardizedFileURL.path
+    /// 同じフォルダを指すパスか。**文字列だけで比べる**(2026-09-27 の監査): 以前の `URL(fileURLWithPath:).standardizedFileURL` は
+    /// パスを stat する(末尾の / を決める・先頭の /private を外すかを実在で決める)ので、覚えた保存先が応答しない共有の上だと、
+    /// 保存先のパネルを出す前にメインが止まりえた。/private は両側で同じように外す(docs/13、standardizedFileURL の件)。
+    static func samePath(_ lhs: String, _ rhs: String) -> Bool {
+        comparable(lhs) == comparable(rhs)
+    }
+
+    private static func comparable(_ path: String) -> String {
+        var standardized = MountTable.normalized(path)
+        if standardized.hasPrefix("/private/") { standardized.removeFirst("/private".count) }
+        return standardized
     }
 
     /// 記憶しているフォルダのパス(**表示専用**)。

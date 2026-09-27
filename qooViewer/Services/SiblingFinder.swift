@@ -60,9 +60,10 @@ nonisolated enum SiblingFinder {
     }
 
     private static func url(steppingBy offset: Int, from current: URL, order: SiblingBookOrder) async -> URL? {
-        let all = await Task.detached(priority: .utility) {
+        // FileIO で(DirectoryBrowser.listingAsync のコメント。隣のフォルダの一覧はブロッキングする I/O)。
+        let all = await FileIO.perform(qos: .utility) {
             siblingBooks(of: current, order: order)
-        }.value
+        }
 
         let currentPath = identityPath(of: current)
         guard let currentEntry = all.first(where: { identityPath(of: $0.url) == currentPath }) else { return nil }

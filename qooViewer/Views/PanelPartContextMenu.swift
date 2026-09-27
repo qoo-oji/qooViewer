@@ -96,8 +96,10 @@ private struct PanelPartContextMenu: ViewModifier {
                 // ユーザー要望: 右クリックしたその部品の見た目を、その場から調整しに行けるように
                 // する。飛び先は環境設定「外観」画面の対応する面の子ページ(panelSurface参照)。
                 // 行き先を先に預けてからウインドウを開く(順序の理由はprepareAppearance参照)。
-                Button("Adjust…") {
-                    SettingsNavigator.shared.prepareAppearance(opening: part.panelSurface)
+                // 閉包は値だけを捕まえる(このモディファイアごと ―― @EnvironmentObject の AppState を含む ―― を捕まえると、
+                // メニュー項目が閉じたウインドウの AppState を残しうる。ViewerActionRelay と同じ理由。2026-09-27 の監査)。
+                Button("Adjust…") { [openSettings, surface = part.panelSurface] in
+                    SettingsNavigator.shared.prepareAppearance(opening: surface)
                     openSettings()
                 }
             }

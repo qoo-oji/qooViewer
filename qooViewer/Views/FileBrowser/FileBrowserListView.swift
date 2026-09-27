@@ -150,6 +150,8 @@ struct FileBrowserListView: NSViewRepresentable {
             table.onInteraction = nil
             table.onNameClick = nil
             table.editResponder = nil
+            // クイックルックのパネルがこの一覧から中身を受け取っていれば閉じる(FileBrowserQuickLook.closePanel のコメント)。
+            FileBrowserQuickLook.closePanel(ifControlledBy: table)
             // 閉包を先に切る(SwiftUI の更新の最中に @State を書かない)。
             table.onWholeTableDropTargetChange = nil
             table.isWholeTableDropTarget = false

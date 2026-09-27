@@ -142,7 +142,9 @@ nonisolated enum PDFStructureResolver {
     /// nil は「確かめられなかった」 ―― ViewerViewModel は前者だけを覚えて次から読まない(BookPageListCache.Entry.sourceProbe)。
     static func resolveMetadataIfReadable(url: URL) -> SourceBookMetadata? {
         var metadata = SourceBookMetadata()
-        if let document = CGPDFDocument(url as CFURL), let packet = PDFXMPMetadata.readPacket(from: document) {
+        // ネットワーク上の PDF は読み込み層を通す(openPDFDocument。mmap しない。2026-09-27 の監査)。下の PDFKit の
+        // `PDFDocument(url:)` はファイルから開くほかに手が無い(データから開くと全体をメモリに載せる)ので、そのまま。
+        if let document = openPDFDocument(at: url), let packet = PDFXMPMetadata.readPacket(from: document) {
             metadata = PDFXMPMetadata.parse(packet)
         }
 

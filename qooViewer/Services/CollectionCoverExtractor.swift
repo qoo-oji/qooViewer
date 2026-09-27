@@ -125,6 +125,9 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 「いまは積まない」とし、アクティブ化(利用者が何かをしに戻ってきた)で解く。
     private var deferredItemIDs: Set<UUID> = []
 
+    /// 本の場所の確かめ(ブックマークの解決と存在確認)を待つ上限(`extract(itemID:)`)。
+    static let resolutionLimit: Duration = .seconds(15)
+
     /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は**何も抽出せず、待ち行列にも
     /// 積まない**。起動時の下ごしらえ(移行・登録済みの全冊の控え取り ―― 全件フェッチを伴う)も、最初にONになるまで先送りする
     /// (`prepareIfNeeded`)。
@@ -505,10 +508,26 @@ final class CollectionCoverExtractor: ObservableObject {
         let generationBeforeResolving = runGeneration
         // 解決を待つ間も「抽出の最中」として積み直させない(`resolvingItemIDs` のコメント)。
         resolvingItemIDs.insert(itemID)
-        let url = await FileIO.perform { CollectionStore.existingURL(fromBookmark: bookmarkData) }
+        // **期限つきで待つ**(2026-09-27 の監査): 抽出は 1 冊ずつなので、応答しない共有(止まった NFS・答えなくなった SMB)の本の
+        // 確かめが戻らないと、アプリ全体の表紙の抽出がそこで止まった。期限を過ぎたら、その本はアクティブ化まで見送って次へ進む
+        // (確かめ自体は止まらないが、結果は捨てる。FileIO.withDeadline)。
+        let url: URL?
+        var timedOut = false
+        do {
+            url = try await FileIO.withDeadline(Self.resolutionLimit) {
+                await FileIO.perform { CollectionStore.existingURL(fromBookmark: bookmarkData) }
+            }
+        } catch {
+            url = nil
+            timedOut = true
+        }
         if runGeneration == generationBeforeResolving { resolvingItemIDs.remove(itemID) }
         // 解決を待つ間に取り消された(ライブラリ機能を OFF にした・`cancelAll()`)なら、何もせずに戻る(下の読み込み後の確認と同じ)。
         guard !Task.isCancelled, runGeneration == generationBeforeResolving, isLibraryFeatureEnabled else { return }
+        if timedOut {
+            deferredItemIDs.insert(itemID)
+            return
+        }
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
         //

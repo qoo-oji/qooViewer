@@ -131,7 +131,9 @@ boundary: archive/PDF handles must stay actor-confined, but decoding must not bl
 so any type/function not explicitly marked is implicitly main-actor-only. Code that must run off the main
 actor (used from `PageLoader`, an actor, or from `BookLoader`'s detached tasks) is explicitly marked
 `nonisolated` — see the top of Services/ArchiveReading.swift. Keep this in mind when adding new
-free functions/types touched from those code paths.
+free functions/types touched from those code paths. **Blocking file I/O goes through `FileIO`, never `Task.detached`**: a hung
+share (SMB 30 s, hard NFS forever) parks cooperative-pool threads until every async task in the app stalls (FileIO's type comment;
+the side panel listing, next/previous book and the book-contents root moved over 2026-09-27).
 
 **SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
 `CollectionStore` (ViewModels/) all share a

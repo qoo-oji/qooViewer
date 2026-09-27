@@ -199,7 +199,8 @@ nonisolated enum PDFExporter {
                 if sourcePDFDocuments[key] == nil {
                     switch container {
                     case .file(let url):
-                        sourcePDFDocuments[key] = CGPDFDocument(url as CFURL)
+                        // ネットワーク上の PDF は読み込み層を通す(mmap しない。openPDFDocument のコメント。2026-09-27 の監査)。
+                        sourcePDFDocuments[key] = openPDFDocument(at: url)
                     case .entry:
                         sourcePDFDocuments[key] = await pageLoader.rawPDFFileData(at: originalIndex)
                             .flatMap { CGDataProvider(data: $0 as CFData) }

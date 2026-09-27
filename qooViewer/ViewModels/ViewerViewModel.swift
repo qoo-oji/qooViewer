@@ -1967,8 +1967,13 @@ final class ViewerViewModel: ObservableObject {
         let sourceURL = book.sourceURL
         // 本そのものが書庫なら、PageLoader が開いている書庫の reader で読む(同じ書庫の一覧を取り直さない。
         // PageLoader.bookArchiveComicInfo のコメント)。フォルダの本は従来どおり actor の外で探す。
+        //
+        // **7z は例外**(2026-09-27 の監査): 7z はソリッドなので、表示に使っている reader で ComicInfo.xml(名前順ではページの後ろ、
+        // つまりブロックの末尾に来やすい)を読むと、PageLoader の actor の上でブロックを丸ごと伸長してページの読みを止め、しかも
+        // 伸長器が末尾へ進むので次のページが「後方読み」になってブロックの先頭からやり直す。7z だけは従来どおり、actor の外で
+        // 別の reader(書庫順に読む)で読む。一覧の読み直しは、ネットワーク上なら読み込み層の共有で手元から済む。
         let lookup: ComicInfoResolver.Lookup
-        if isArchiveFile(sourceURL.lastPathComponent) {
+        if isArchiveFile(sourceURL.lastPathComponent), archiveKind(forFileName: sourceURL.lastPathComponent) != .sevenZip {
             lookup = await pageLoader.bookArchiveComicInfo()
         } else {
             lookup = await Task.detached(priority: .utility, operation: { () -> ComicInfoResolver.Lookup in
@@ -2610,7 +2615,8 @@ final class ViewerViewModel: ObservableObject {
         // 触らない ―― 「いつも最初から」で開いた最初の画面は保存した位置と違うので、ここで位置ごと書くと、残しておくはずの
         // 読書位置を先頭で上書きしてしまう(ViewerViewModelTests「いつも最初から」が捕まえた。2026-09-22)。
         let isAtLastPage = !book.pages.isEmpty && targetIndex + images.count >= book.pages.count
-        if readingState.lastPageIndex == targetIndex, readingState.isAtLastPage != isAtLastPage, !readingStateDiscarded {
+        // 削除済みの行は読まない(readingStateDiscarded を先に見る。SwiftData の消した行を読むと落ちうる。2026-09-27 の監査)。
+        if !readingStateDiscarded, readingState.lastPageIndex == targetIndex, readingState.isAtLastPage != isAtLastPage {
             readingState.isAtLastPage = isAtLastPage
             scheduleSave()
         }

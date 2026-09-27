@@ -2779,7 +2779,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let group = ExternalOpenGroup(
             urls: (merging ? externalOpenGroup?.urls ?? [] : []) + urls,
             startedAt: merging ? externalOpenGroup?.startedAt ?? now : now,
-            openedIn: merging ? externalOpenGroup?.openedIn : nil
+            openedIn: merging ? externalOpenGroup?.openedIn : nil,
+            openedInNewWindowBookURL: merging ? externalOpenGroup?.openedInNewWindowBookURL : nil
         )
         externalOpenGroup = group
         externalOpenTask?.cancel()
@@ -2817,6 +2818,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
                 return
             }
+            // 先の回が新しいタブ・ウインドウで開いた(環境設定「Finder から開いたとき」)なら、そのウインドウは開いた時点では
+            // 手元に無い(SwiftUI が後から作る)。その本を読み込んだウインドウを少し待って探し、そこで開き直す(2026-09-27 の監査。
+            // 以前はもう 1 枚タブ・ウインドウを開いて先の本が 2 つになるか、先の本と同じ本なら後の回の本が並びから落ちていた)。
+            if let firstBookURL = self.externalOpenGroup?.openedInNewWindowBookURL {
+                let isPrivate = AppPreferences.isPrivateModeDefault
+                for _ in 0..<30 {
+                    if let target = self.launchCoordinator?.openAppState(forBookAt: firstBookURL, isPrivate: isPrivate),
+                       target.hostWindow != nil {
+                        target.open(request: request)
+                        if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard !Task.isCancelled else { return }
+                }
+            }
             self.runExternalOpen(request, skipped: prepared.skipped, locale: locale)
         }
     }
@@ -2830,6 +2847,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var startedAt: Date
         /// 先の回を開いたウインドウ(まとめ直したものはここで開き直す)。
         weak var openedIn: AppState?
+        /// 先の回を新しいタブ・ウインドウで開いたときの、その本(`openedIn` は取れない。まとめ直したものは、この本を読み込んだ
+        /// ウインドウを探して開き直す)。
+        var openedInNewWindowBookURL: URL?
     }
     private var externalOpenGroup: ExternalOpenGroup?
     private var externalOpenTask: Task<Void, Never>?
@@ -2918,6 +2938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let target = self.performExternalOpen(request: request)
             // まとめ直しの回が同じウインドウで開き直せるように控える。
             self.externalOpenGroup?.openedIn = target
+            if target == nil, request.urls.count == 1 { self.externalOpenGroup?.openedInNewWindowBookURL = request.urls[0] }
             if skipped > 0 { target?.postViewerNotice(AppState.skippedNotice(skipped, locale: locale)) }
         }
     }
@@ -3005,14 +3026,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に表示中の
         // ウインドウが実在することを確認する。
         // 本を渡されての起動なら、この主ウインドウは透明にしてある(hideLaunchWindowWhenShown)ので、閉じるまで見えない。
+        //
+        // **閉じてよいのは、本を渡されての起動で透明にしてある主ウインドウ(hiddenLaunchWindow)だけ**(2026-09-27 の監査)。
+        // 以前は「空のまま残っている主ウインドウ」なら何でも閉じたので、使い回せなかった理由が「シークレットモードで起動」の
+        // 設定を後から切り替えたこと(主ウインドウの性質と合わない)だったときに、利用者がホームとして使っていたウインドウまで
+        // 閉じていた。
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard let suspect = suspectBeforeOpen,
                   suspect.currentBook == nil,
-                  let suspectWindow = suspect.hostWindow else { return }
+                  let suspectWindow = suspect.hostWindow,
+                  let self, self.hiddenLaunchWindow === suspectWindow else { return }
             guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
             suspectWindow.close()
-            if self?.hiddenLaunchWindow === suspectWindow { self?.hiddenLaunchWindow = nil }
+            self.hiddenLaunchWindow = nil
         }
         return nil
     }

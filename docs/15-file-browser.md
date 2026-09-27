@@ -373,6 +373,12 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
 クイックルックに任せる(zip は中身の一覧など。利用者の判断)。スペースは頭文字での選択より先に受ける。読み取り専用モードでも使える。
 左のツリーでは出さない(Finder のサイドバーと同じ)。
 
+**一覧を捨てるときは、パネルがその一覧から中身を受け取っていれば閉じる**(`FileBrowserQuickLook.closePanel(ifControlledBy:)`、
+2026-09-27 の監査)。パネルは今の受け手(`currentController`)を保持し続け、受け手が変わるのはキーウインドウが変わったときだけ
+(単体の AppKit で実測: 受け手のビューを外して手放しても、パネルを閉じるまで解放されず、閉じたときに `endPreviewPanelControl` が
+来る)。パネルを出したまま本を開く(パネルの Return は一覧へ回る)・表示を切り替えると、外れた一覧がパネルに残り、パネルで押した
+⌘⌫ などが見えない一覧の選択へ届いた。アイコン表示の片付けでは `editResponder` も外す(リスト表示は外していた)。
+
 ## 隠しファイル(2026-09-27、利用者の指示)
 
 表示メニュー「隠しファイルを表示」**⇧⌘.**(Finder と同じキー。Finder はメニューに項目を出さずキーだけだが、ここではキーの在りかが
@@ -382,8 +388,11 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
   に書き、次に作る状態が引き継ぐ(Finder の ⇧⌘. はアプリ全体に効くが、このアプリの表示の状態はウインドウごとに揃えた)。変えたら今の
   フォルダを読み直す。メニューは `HomeMenuState.showsHiddenFiles` の写しでチェックを付け、キーはファイルブラウザの間だけ付ける
   (`homeMenuShortcut`)。
-- 一覧は `FileBrowserListing.entries(in:includesHidden:)`。出すときも **`.DS_Store` だけは出さない**(Finder も隠しファイルを表示している
-  ときに出さない、Finder 自身の控え)。行には `FileBrowserEntry.isHidden`(`.isHiddenKey`)を持たせ、リスト・アイコン・ツリーで
+- 一覧は `FileBrowserListing.entries(in:includesHidden:)`。出すときも **`.DS_Store` は出さない**(Finder も隠しファイルを表示している
+  ときに出さない、Finder 自身の控え)。**このアプリ自身の作業中の項目(`.qooViewer-` で始まる名前)も出さない**(2026-09-27 の監査):
+  コピーの途中の写し・圧縮と展開の途中・書き出しの途中の一時ファイル、「置き換え」で退避した元の項目。出すと別のウインドウから
+  動かす・消す・開くことができ、置き換えの取り消しや起動時の復旧(`ReplaceBackupJournal`)が戻し先を失った。ツリーの三角の判定
+  (`DirectoryProbe`)も同じ名前を数えない。行には `FileBrowserEntry.isHidden`(`.isHiddenKey`)を持たせ、リスト・アイコン・ツリーで
   **カットした項目と同じく淡く**描く(Finder と同じ)。
 - ツリーは `Coordinator.includesHidden` に写し、切り替えたら `reloadExpandedRows(in: nil)` で開いている行の子を読み直し、閉じている行の
   三角を調べ直す(`DirectoryProbe.hasSubdirectory(at:includesHidden:)`)。
