@@ -105,7 +105,8 @@ struct FileBrowserThumbnailTests {
 
     // MARK: - 記号リンク・エイリアス(2026-09-29)
 
-    private static let localOnly = MountTable(entries: [
+    // 既定引数(nonisolated な文脈)から参照するので nonisolated(CI の Xcode 26.6 はエラー、2026-09-29)。
+    private nonisolated static let localOnly = MountTable(entries: [
         .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
     ])
 
