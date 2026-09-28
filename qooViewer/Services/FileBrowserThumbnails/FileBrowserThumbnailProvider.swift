@@ -46,7 +46,8 @@ import UniformTypeIdentifiers
 ///
 /// ■ アプリケーション(2026-09-14、ユーザー要望)
 /// `.app` は中の絵ではなく**アプリのアイコン**を `FileBrowserSystemIcon` で段の大きさに描く。ディスクキャッシュには入れない。記号リンク・
-/// エイリアスは先の項目のアイコンに矢印のバッジを重ねたもの(`FileBrowserSystemIcon.renderAlias`。2026-09-29)、同じくディスクには入れない。
+/// エイリアスは**先の項目そのものと同じ絵**(`aliasThumbnail`。本なら本棚の表紙か 1 ページ目、アプリなどは先のアイコン。2026-09-29)、
+/// 矢印のバッジはセルが重ねる。
 /// 読む場所の判断(ネットワーク・TCC)はフォルダと同じ。
 ///
 /// ■ シークレットウインドウ(2026-09-14、ユーザー判断)
@@ -80,6 +81,10 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     private let memory: PagePixelCache
     private let diskCache: FileBrowserThumbnailDiskCache
+    /// 記号リンク・エイリアスの先を読んでよいかの規則に使う保護下の場所(`DirectoryProbe`)。**テストは空を渡す**(テストホストの一時
+    /// フォルダはサンドボックスのコンテナ = `~/Library/Containers` の中で、既定の一覧では保護下)。
+    private let protectedPrefixes: [String]
+    private let categoryPrefixes: Set<String>
     private let videoLoader: any VideoThumbnailLoading
     private weak var collectionStore: CollectionStore?
     private let coverStore: CollectionCoverStore?
@@ -165,15 +170,20 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     ///   - collectionStore / coverStore: 表紙を探す相手。nil なら表紙を見ない(テスト)。
     ///   - layoutStore: コレクション表紙の指定を探す相手。nil なら指定を見ない(テスト)。
     ///   - videoLoader: 動画の絵の作り方。**テストは作り物を渡す**(実物は入っている QuickLook 拡張しだい)。
+    ///   - protectedPrefixes / categoryPrefixes: 記号リンク・エイリアスの先の規則(`protectedPrefixes` のコメント)。
     init(
         diskCache: FileBrowserThumbnailDiskCache = .shared,
         collectionStore: CollectionStore? = nil,
         coverStore: CollectionCoverStore? = nil,
         layoutStore: LayoutStore? = nil,
         videoLoader: any VideoThumbnailLoading = CompositeVideoThumbnailLoader(),
-        memoryLimitBytes: Int = FileBrowserThumbnailProvider.memoryLimitBytes
+        memoryLimitBytes: Int = FileBrowserThumbnailProvider.memoryLimitBytes,
+        protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
+        categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) {
         self.diskCache = diskCache
+        self.protectedPrefixes = protectedPrefixes
+        self.categoryPrefixes = categoryPrefixes
         self.videoLoader = videoLoader
         self.collectionStore = collectionStore
         self.coverStore = coverStore
@@ -285,7 +295,21 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat, savesToDisk: Bool = true,
         knownKey: FileBrowserThumbnailKey? = nil, currentFolder: URL? = nil
     ) async -> PagePixelBuffer? {
+        if kind == .alias {
+            return await aliasThumbnail(for: entry, pixelSize: pixelSize, savesToDisk: savesToDisk, currentFolder: currentFolder)
+        }
         let (baseKey, source) = resolveSource(for: entry, kind: kind)
+        return await pixels(
+            baseKey: baseKey, source: source, itemURL: entry.url, pixelSize: pixelSize, savesToDisk: savesToDisk,
+            knownKey: knownKey, currentFolder: currentFolder
+        )
+    }
+
+    /// 出どころが決まった絵を、メモリ → 仕事(同じ絵を待つセルを束ねる)の順で返す(`thumbnail(for:...)` の後半)。
+    private func pixels(
+        baseKey: String, source: Source, itemURL: URL, pixelSize: CGFloat, savesToDisk: Bool,
+        knownKey: FileBrowserThumbnailKey?, currentFolder: URL?
+    ) async -> PagePixelBuffer? {
         guard !failedKeys.contains(baseKey) else { return nil }
         let memoryKey = "\(baseKey)|\(Int(pixelSize))"
         if let cached = memory.object(forKey: memoryKey as NSString) { return cached }
@@ -298,7 +322,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             let isRemote: Bool
             switch source {
             case .cover: isRemote = false
-            case .shelfPage, .item: isRemote = MountTable.current().isRemote(entry.url)
+            case .shelfPage, .item: isRemote = MountTable.current().isRemote(itemURL)
             }
             job = Job(baseKey: baseKey, memoryKey: memoryKey, source: source, pixelSize: pixelSize, isRemote: isRemote)
             jobs[memoryKey] = job
@@ -323,6 +347,93 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         }
     }
 
+    // MARK: 記号リンク・エイリアス(2026-09-29)
+
+    /// 記号リンク・エイリアスの先(絵にしたときのもの)。`aliasThumbnail` が先を解くたびに書き、`cachedThumbnail` / `sourceKey` /
+    /// セルの描き方(`aliasTargetKind`)が読む。鍵はリンク自身の項目の鍵(`itemKey`)。上限を超えたら丸ごと忘れる。
+    private struct AliasTarget {
+        let entry: FileBrowserEntry
+        /// 先の種類(`kind(for:)`)。nil は絵にしない先(ふつうのファイル・無い先)。
+        let kind: BookThumbnailer.Kind?
+        /// 先のアイコン(LaunchServices)で出す: 絵にしない種類か、中の絵が作れなかった(画像の無いフォルダ・壊れた本)。
+        /// 直接置かれたフォルダは絵が無ければ種類のアイコンで済むが、リンクは自分の名前の種類が白紙なので先のアイコンを出す。
+        let drawsIcon: Bool
+        /// 中の絵(先の項目と共有)を出す先の種類。
+        var pictureKind: BookThumbnailer.Kind? { drawsIcon ? nil : kind }
+    }
+    private var aliasTargets: [String: AliasTarget] = [:]
+    private static let aliasTargetsLimit = 2000
+
+    /// 先の絵が「中の絵」(本・画像・画像フォルダ・動画)か。それ以外(アプリ・その他・無い先・エイリアスのエイリアス)は先のアイコン。
+    private static func drawsTargetPicture(_ kind: BookThumbnailer.Kind?) -> Bool {
+        guard let kind else { return false }
+        return kind != .application && kind != .alias
+    }
+
+    /// 記号リンク・エイリアスの先の絵。**先の項目そのものと同じ経路**で作る(ユーザーの要望 2026-09-29: 登録済みの本なら本棚と同じ表紙、
+    /// 未登録なら 1 ページ目、画像・画像フォルダ・動画も直接置かれたときと同じ)。
+    ///
+    /// 1. 先を決める(`FileBrowserSystemIcon.aliasTargetInfo`。触ってよい場所か段ごとに確かめる。FileIO の上、仕事の枠の外 ―― 枠の中で
+    ///    先の仕事を待つと、枠がリンクの仕事で埋まったとき先の仕事が始まれず止まる)。断られたら nil で、失敗とは覚えない。
+    /// 2. 先の種類を、先の項目が直接並んでいるときと同じ規則で決める(`kind(for:)`。先がデスクトップの中なら見ているフォルダ次第)。
+    /// 3. 中の絵になる種類なら、先の項目として `thumbnail(for:)` を頼む ―― 出どころ(コレクションの表紙・表紙の指定・1 ページ目)、
+    ///    メモリとディスクのキャッシュ、失敗の記憶、同じ絵の束ねが**先の項目と共有**される(同じ本が直接並ぶ場所と作り直さない)。
+    ///    それ以外はリンク自身の鍵で先のアイコン(LaunchServices。アプリと同じ `.item(_, .application)`)。
+    /// 矢印のバッジはどちらも**セルが重ねる**(`FileBrowserIconCellView`。絵に焼き込むと先と共有できない)。
+    private func aliasThumbnail(
+        for entry: FileBrowserEntry, pixelSize: CGFloat, savesToDisk: Bool, currentFolder: URL?
+    ) async -> PagePixelBuffer? {
+        let key = Self.itemKey(for: entry)
+        let mountTable = MountTable.current()
+        let url = entry.url
+        let (protectedPrefixes, categoryPrefixes) = (protectedPrefixes, categoryPrefixes)
+        guard let info = await FileIO.perform({
+            FileBrowserSystemIcon.aliasTargetInfo(
+                of: url, currentFolder: currentFolder, mountTable: mountTable,
+                protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+            )
+        }) else { return nil }
+        let targetEntry = info.entry
+        let targetKind = info.exists
+            ? Self.kind(
+                for: targetEntry, currentFolder: currentFolder, mountTable: mountTable, includesVideo: includesVideo,
+                protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+            )
+            : nil
+        func remember(drawsIcon: Bool) {
+            if aliasTargets.count >= Self.aliasTargetsLimit { aliasTargets.removeAll() }
+            aliasTargets[key] = AliasTarget(entry: targetEntry, kind: targetKind, drawsIcon: drawsIcon)
+        }
+        if let targetKind, Self.drawsTargetPicture(targetKind) {
+            remember(drawsIcon: false)
+            if let picture = await thumbnail(
+                for: targetEntry, kind: targetKind, pixelSize: pixelSize, savesToDisk: savesToDisk, currentFolder: currentFolder
+            ) {
+                return picture
+            }
+            // 中の絵が無い(画像の無いフォルダ・壊れた本 ―― 先の項目の失敗として覚えられている)。先のアイコンで出す。
+        }
+        remember(drawsIcon: true)
+        // 先のアイコン。ディスクには入れない(アプリのアイコンと同じ)ので savesToDisk は要らない。
+        return await pixels(
+            baseKey: key, source: .item(info.url, .application), itemURL: entry.url, pixelSize: pixelSize, savesToDisk: false,
+            knownKey: nil, currentFolder: currentFolder
+        )
+    }
+
+    /// 記号リンク・エイリアスの先の種類(絵にしたときのもの。セルが絵の描き方 ―― ページの影・フォルダの上に重ねる ―― を決める)。
+    /// まだ解いていなければ nil。先のアイコンで出すもの(アプリ・その他)は `.application`。
+    func aliasTargetKind(for entry: FileBrowserEntry) -> BookThumbnailer.Kind? {
+        guard let target = aliasTargets[Self.itemKey(for: entry)] else { return nil }
+        return target.pictureKind ?? .application
+    }
+
+    /// 項目そのものの鍵(パス・更新日時・大きさ)。
+    private static func itemKey(for entry: FileBrowserEntry) -> String {
+        let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
+        return "item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)"
+    }
+
     /// `thumbnail(for:kind:pixelSize:...)` の**メモリだけを見る**同期版。無ければ nil(作らない・ディスクもネットワークも読まない)。
     ///
     /// 2026-09-27、表示の切り替えの監査: ホームは本を開いている間は捨てられ、戻るとスマートライブラリのセル・アイコン表示の
@@ -331,6 +442,15 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 出どころの判定(`resolveSource`)はセルが body で読む `sourceKey` と同じ仕事(メモリ上の索引を引くだけ)で、
     /// キャッシュはロック 1 回の辞書引きなので、メインから呼んでよい。
     func cachedThumbnail(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat) -> PagePixelBuffer? {
+        if kind == .alias {
+            // 先を解いたことがあれば、先の項目の絵(共有)か、リンク自身の鍵の先のアイコン。
+            let key = Self.itemKey(for: entry)
+            guard let target = aliasTargets[key] else { return nil }
+            if let pictureKind = target.pictureKind {
+                return cachedThumbnail(for: target.entry, kind: pictureKind, pixelSize: pixelSize)
+            }
+            return memory.object(forKey: "\(key)|\(Int(pixelSize))" as NSString)
+        }
         let (baseKey, _) = resolveSource(for: entry, kind: kind)
         guard !failedKeys.contains(baseKey) else { return nil }
         return memory.object(forKey: "\(baseKey)|\(Int(pixelSize))" as NSString)
@@ -344,13 +464,17 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 変わったときだけ鍵が変わる。キャッシュを消した(`purgeMemory`)ときも変わる(`purgeGeneration`)。
     /// `revision` は今までどおり進む ―― セルはそれで描き直され、そのときこの鍵を読み直す。
     func sourceKey(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> String {
-        "\(resolveSource(for: entry, kind: kind).0)|\(purgeGeneration)"
+        // 記号リンク・エイリアスは先の出どころ(先の表紙ができた・変わったら頼み直す)。まだ解いていなければ自分の鍵。
+        if kind == .alias, let target = aliasTargets[Self.itemKey(for: entry)], let pictureKind = target.pictureKind {
+            return "alias|" + sourceKey(for: target.entry, kind: pictureKind)
+        }
+        return "\(resolveSource(for: entry, kind: kind).0)|\(purgeGeneration)"
     }
 
     /// 出どころと、段を含まない鍵(型コメント「どこから」)。表紙は項目の更新日時と無関係に、表紙の差し替え回数で鍵を変える。
     private func resolveSource(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> (String, Source) {
         let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
-        let itemKey = "item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)"
+        let itemKey = Self.itemKey(for: entry)
         guard kind != .image, kind != .video, kind != .application, kind != .alias else { return (itemKey, .item(entry.url, kind)) }
         let items = isLibraryFeatureEnabled ? (collectionStore?.items(forBookID: entry.id) ?? []) : []
         if let collectionStore, let coverStore, let item = items.first(where: { $0.coverState == .ready }) {
@@ -478,29 +602,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             if pixels == nil { remember(failure: baseKey) }
             return pixels
 
-        case .item(let url, .alias):
-            // 記号リンク・エイリアスの先のアイコン+バッジ(FileBrowserSystemIcon.renderAlias)。アプリと同じくディスクには入れない
-            // (先を差し替えたら古い絵が残る)。先を読んでよいかは、`kind(for:)` がフォルダに使うのと同じ「見ているフォルダ」で判断する
-            // (セルが `currentFolder:` で渡す。リンクのあるフォルダで代用すると、「最近の項目」でデスクトップの中のリンクの先を、
-            // デスクトップに入っていないのに読んだ ―― レビュー 2026-09-29)。
-            generatedCount += 1
-            let size = Int(pixelSize)
-            let mountTable = MountTable.current()
-            let folder = job.currentFolder
-            let outcome = await FileIO.perform {
-                FileBrowserSystemIcon.renderAlias(at: url, currentFolder: folder, mountTable: mountTable, pixelSize: size)
-            }
-            switch outcome {
-            case .made(let pixels):
-                return pixels
-            case .unavailable:
-                remember(failure: baseKey)
-                return nil
-            case .refused:
-                // 場所の規則で先を読まなかった。失敗とは覚えない(後で共有が繋がる・その場所に入ることがある。先には触っていないので
-                // 頼み直しは安い)。
-                return nil
-            }
+        case .item(_, .alias):
+            // ここには来ない: 記号リンク・エイリアスは `aliasThumbnail` が先を解き、先の項目の出どころか `.item(先, .application)` で頼む。
+            return nil
 
         case .item(let url, .video):
             let mountTable = MountTable.current()
@@ -620,6 +724,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     func purgeMemory() {
         memory.removeAll()
         failedKeys.removeAll()
+        aliasTargets.removeAll()
         purgeGeneration &+= 1
         revision &+= 1
     }
@@ -629,6 +734,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 最大 96MB を抱えたままだった)。
     func releaseMemory() {
         memory.removeAll()
+        aliasTargets.removeAll()
     }
 
     /// 仕事がすべて終わるまで待つ(**テストのための口**)。

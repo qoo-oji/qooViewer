@@ -76,6 +76,53 @@ nonisolated enum FileBrowserSystemIcon {
         return pixels.map { .made($0) } ?? .unavailable
     }
 
+    /// 記号リンク・エイリアスの先と、絵作りに要る属性(`FileBrowserThumbnailProvider` がアイコン表示の絵を「先の項目そのもの」と
+    /// 同じ経路で作るための、先の `FileBrowserEntry` の材料。2026-09-29)。
+    struct AliasTargetInfo: Sendable {
+        let url: URL
+        /// 先が在るか(無ければ種類も絵も無く、LaunchServices の白紙のアイコン)。
+        let exists: Bool
+        let isDirectory: Bool
+        let isPackage: Bool
+        /// 先がさらにエイリアスのファイル(記号リンクは辿り済み)。追わずにアイコンで出す。
+        let isAliasFile: Bool
+        let fileSize: Int64?
+        let modificationDate: Date?
+
+        /// 先の項目の行(一覧の `FileBrowserListing.makeEntry` と同じ形。種類の説明は要らないので nil)。
+        var entry: FileBrowserEntry {
+            FileBrowserEntry(
+                url: url, displayName: url.lastPathComponent, isDirectory: isDirectory, isPackage: isPackage,
+                isSymbolicLink: false, isVolume: false, fileSize: fileSize, typeDescription: nil, creationDate: nil,
+                modificationDate: modificationDate, isHidden: false, isAliasFile: isAliasFile
+            )
+        }
+    }
+
+    /// `aliasTarget` に、先の stat 1 回(在るか・フォルダか・パッケージか・大きさ・更新日時)を足したもの。先が決まらなければ nil。
+    /// **FileIO の上で呼ぶ**。
+    static func aliasTargetInfo(
+        of url: URL, currentFolder: URL?, mountTable: MountTable,
+        protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
+        categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    ) -> AliasTargetInfo? {
+        guard let target = aliasTarget(
+            of: url, currentFolder: currentFolder, mountTable: mountTable,
+            protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+        ) else { return nil }
+        let values = try? target.resourceValues(forKeys: [
+            .isDirectoryKey, .isPackageKey, .isAliasFileKey, .totalFileSizeKey, .fileSizeKey, .contentModificationDateKey,
+        ])
+        let isDirectory = values?.isDirectory ?? false
+        let isPackage = values?.isPackage ?? false
+        return AliasTargetInfo(
+            url: target, exists: values != nil, isDirectory: isDirectory, isPackage: isPackage,
+            isAliasFile: values?.isAliasFile ?? false,
+            fileSize: isDirectory && !isPackage ? nil : (values?.totalFileSize ?? values?.fileSize).map(Int64.init),
+            modificationDate: values?.contentModificationDate
+        )
+    }
+
     /// 記号リンク・エイリアス `url` の先。触ってよい場所(型コメントの gate)を段ごとに確かめながら記号リンクを追い、
     /// 途中で断れば nil。エイリアスは、記録されたパスに何も無いときだけブックマークを解く(同じボリュームの中でファイル ID で探す。
     /// マウントもダイアログも無し ―― `BookmarkResolution` は使わない: あれはアプリが保存したセキュリティスコープ付きの
@@ -85,6 +132,28 @@ nonisolated enum FileBrowserSystemIcon {
         of url: URL, currentFolder: URL?, mountTable: MountTable,
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    ) -> URL? {
+        // 先がさらにエイリアスのファイルなら追う(記号リンクは `followingSymbolicLinks` が解く。エイリアス → エイリアス → 本、など。
+        // レビュー 2026-09-29)。輪は `maxAliasHops` で諦める。
+        var current = url
+        for _ in 0..<maxAliasHops {
+            guard let target = aliasTargetOnce(
+                of: current, currentFolder: currentFolder, mountTable: mountTable,
+                protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+            ) else { return nil }
+            // 触ってよい先(gate 済み)の stat 1 回。
+            let values = try? target.resourceValues(forKeys: [.isAliasFileKey, .isSymbolicLinkKey])
+            guard values?.isAliasFile == true, values?.isSymbolicLink != true else { return target }
+            current = target
+        }
+        return nil
+    }
+
+    static let maxAliasHops = 8
+
+    private static func aliasTargetOnce(
+        of url: URL, currentFolder: URL?, mountTable: MountTable,
+        protectedPrefixes: [String], categoryPrefixes: Set<String>
     ) -> URL? {
         // 触ってよい場所か。ネットワーク越し・繋がっていないボリューム(`/Volumes/<名前>` が表に無い。触ると自動マウントや
         // 30 秒の待ちになりうる)・TCC の保護下(見ている場所と同じデスクトップ等の中を除く)は断る。**触らずに**決める。

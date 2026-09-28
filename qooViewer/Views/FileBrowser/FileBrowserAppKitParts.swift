@@ -237,6 +237,9 @@ enum FileBrowserIconProvider {
 
     private static let aliasBadge: NSImage? = FileBrowserSystemIcon.aliasBadge()
 
+    /// アイコン表示のセルが、記号リンク・エイリアスの**先の絵**(本のページ・表紙など)の上に重ねる矢印のバッジ(アイコンと同じ枠に描く)。
+    static var aliasBadgeImage: NSImage? { aliasBadge }
+
     static var folderIcon: NSImage {
         if let cached = cache["folder"] { return cached }
         let image = NSWorkspace.shared.icon(for: .folder)

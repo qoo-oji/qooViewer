@@ -210,6 +210,21 @@ struct FileBrowserThumbnailTests {
         let moved = try temporary.directory("moved").appendingPathComponent("book.cbz")
         try FileManager.default.moveItem(at: target, to: moved)
         #expect(resolved()?.path == moved.path)
+
+        // 記号リンク → エイリアス → 本、も先まで追う(レビュー 2026-09-29)。輪は諦める。
+        let linkToAlias = folder.appendingPathComponent("link-to-alias")
+        try FileManager.default.createSymbolicLink(at: linkToAlias, withDestinationURL: alias)
+        #expect(FileBrowserSystemIcon.aliasTarget(
+            of: linkToAlias, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: []
+        )?.path == moved.path)
+        let loopA = folder.appendingPathComponent("alias-a")
+        let loopB = folder.appendingPathComponent("alias-b")
+        try Data("placeholder".utf8).write(to: loopA)
+        try URL.writeBookmarkData(try loopA.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil), to: loopB)
+        try URL.writeBookmarkData(try loopB.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil), to: loopA)
+        #expect(FileBrowserSystemIcon.aliasTarget(
+            of: loopA, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: []
+        ) == nil)
     }
 
     @Test("記号リンク・エイリアスのアイコンは先のアイコンを頼んだ画素数の正方形に描く。ネットワーク越しのリンクは種類のまま")
@@ -251,6 +266,9 @@ struct FileBrowserThumbnailTests {
         let provider = FileBrowserThumbnailProvider(diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")))
         let viaProvider = try #require(await provider.thumbnail(for: entry, kind: .alias, pixelSize: 128, currentFolder: folder))
         #expect(viaProvider.width == 128)
+        // 先がアプリなら、セルは影無しのアイコンとして描く。
+        #expect(provider.aliasTargetKind(for: entry) == .application)
+        #expect(provider.cachedThumbnail(for: entry, kind: .alias, pixelSize: 128) != nil)
 
         let remote = MountTable(entries: [
             .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
@@ -261,6 +279,89 @@ struct FileBrowserThumbnailTests {
             isSymbolicLink: true, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
         )
         #expect(FileBrowserThumbnailProvider.kind(for: remoteLink, currentFolder: nil, mountTable: remote) == nil)
+    }
+
+    @Test("記号リンクの先が本なら、先の項目と同じ絵(1 ページ目)を同じキャッシュで出す。先のアイコンではない")
+    func aliasToBookSharesTheTargetThumbnail() async throws {
+        let temporary = try TemporaryDirectory("thumb-alias-book")
+        let shelf = try temporary.directory("shelf")
+        let links = try temporary.directory("links")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        let book = shelf.appendingPathComponent("book.cbz")
+        try zip.write(to: book)
+        let link = links.appendingPathComponent("to-book")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: book)
+        let bookEntry = try entry(book, in: shelf)
+        let linkEntry = try entry(link, in: links)
+        #expect(FileBrowserThumbnailProvider.kind(for: linkEntry, currentFolder: links, mountTable: Self.localOnly) == .alias)
+
+        // 一時フォルダはコンテナ(`~/Library/Containers`)の中で既定では保護下なので、規則の一覧は空にする。
+        let provider = FileBrowserThumbnailProvider(
+            diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")), protectedPrefixes: [], categoryPrefixes: []
+        )
+        // まだ解いていない: 同期の当たりは無く、出どころの鍵は自分のもの。
+        #expect(provider.cachedThumbnail(for: linkEntry, kind: .alias, pixelSize: 128) == nil)
+        #expect(provider.aliasTargetKind(for: linkEntry) == nil)
+        let viaLink = try #require(await provider.thumbnail(for: linkEntry, kind: .alias, pixelSize: 128, currentFolder: links))
+        #expect(PageColorReader.number(in: try #require(viaLink.makeImage())) == 1)
+        #expect(provider.generatedCount == 1)
+        #expect(provider.aliasTargetKind(for: linkEntry) == .archive)
+        // 先の項目そのものを頼んでも作り直さない(同じ鍵)。逆も同じ。
+        _ = try #require(await provider.thumbnail(for: bookEntry, kind: .archive, pixelSize: 128))
+        #expect(provider.generatedCount == 1)
+        // 解いた後は同期の当たりがあり(ホームへ戻った最初のフレーム)、出どころの鍵は先の鍵になる。
+        #expect(provider.cachedThumbnail(for: linkEntry, kind: .alias, pixelSize: 128) != nil)
+        #expect(provider.sourceKey(for: linkEntry, kind: .alias) == "alias|" + provider.sourceKey(for: bookEntry, kind: .archive))
+
+        // 先が画像の無いフォルダ: 中の絵は無いので先のアイコン(フォルダ)で出し、セルは影無しのアイコンとして描く。
+        let empty = try temporary.directory("shelf/empty")
+        let toEmpty = links.appendingPathComponent("to-empty")
+        try FileManager.default.createSymbolicLink(at: toEmpty, withDestinationURL: empty)
+        let emptyEntry = try entry(toEmpty, in: links)
+        let folderIcon = try #require(await provider.thumbnail(for: emptyEntry, kind: .alias, pixelSize: 128, currentFolder: links))
+        #expect(folderIcon.width == 128)
+        #expect(provider.aliasTargetKind(for: emptyEntry) == .application)
+        #expect(provider.cachedThumbnail(for: emptyEntry, kind: .alias, pixelSize: 128) != nil)
+    }
+
+    @Test("記号リンクの先の本に表紙の指定があれば、先と同じ表紙になり、指定を変えたら鍵が変わる(本棚と同じ表紙)")
+    func aliasToBookFollowsShelfCover() async throws {
+        let library = try InMemoryLibrary(label: "thumb-alias-cover")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("thumb-alias-cover")
+        let shelf = try temporary.directory("shelf")
+        let book = try temporary.directory("shelf/book")
+        for (index, number) in [UInt8(10), 40, 80].enumerated() {
+            try PageImageFactory.png(number: number).write(to: book.appendingPathComponent(String(format: "%03d.png", index + 1)))
+        }
+        let links = try temporary.directory("links")
+        let link = links.appendingPathComponent("to-book")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: book)
+        let bookEntry = try entry(book, in: shelf)
+        let linkEntry = try entry(link, in: links)
+        let provider = FileBrowserThumbnailProvider(
+            diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")), layoutStore: library.layouts,
+            protectedPrefixes: [], categoryPrefixes: []
+        )
+        func number() async throws -> Int? {
+            let buffer = try #require(await provider.thumbnail(
+                for: linkEntry, kind: .alias, pixelSize: 128, savesToDisk: false, currentFolder: links
+            ))
+            return PageColorReader.number(in: try #require(buffer.makeImage()))
+        }
+        #expect(try await number() == 10)
+        #expect(provider.aliasTargetKind(for: linkEntry) == .folder)
+        let keyBefore = provider.sourceKey(for: linkEntry, kind: .alias)
+
+        let loaded = try await FixtureBook.load(bookEntry.url)
+        let third = try #require(loaded.pages.count == 3 ? loaded.pages[2] : nil)
+        library.layouts.setShelfCoverPageKey(
+            forBookID: bookEntry.id, sourceURL: bookEntry.url, pageKey: third.sortKey, displayName: "003.png"
+        )
+        let shelfPage = try await number()
+        #expect(abs((shelfPage ?? 0) - 80) <= 2, "表紙に指定したページの絵になっていない: \(String(describing: shelfPage))")
+        #expect(provider.sourceKey(for: linkEntry, kind: .alias) != keyBefore)
     }
 
     // MARK: - 先頭の絵の選び方

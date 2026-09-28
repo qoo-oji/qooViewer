@@ -489,7 +489,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             item.requestThumbnail(
                 entry: entry, kind: kind, iconSize: iconSize,
                 sourceKey: kind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? "",
-                provider: thumbnails, savesToDisk: !isPrivate, currentFolder: displayedFolder
+                provider: thumbnails, savesToDisk: !isPrivate, currentFolder: displayedFolder, listingRevision: revision
             )
         }
 
@@ -1185,7 +1185,7 @@ final class FileBrowserIconItem: NSCollectionViewItem {
     /// 絵を頼む。持っている絵は新しい絵が届くまで手放さない(別の項目になったときだけ捨てる)。小さくする方向では読み直さない。
     func requestThumbnail(
         entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, sourceKey: String,
-        provider: FileBrowserThumbnailProvider, savesToDisk: Bool, currentFolder: URL?
+        provider: FileBrowserThumbnailProvider, savesToDisk: Bool, currentFolder: URL?, listingRevision: Int
     ) {
         if loadedEntryID != entry.id {
             thumbnailTask?.cancel()
@@ -1207,7 +1207,10 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
         // 出どころの鍵(`sourceKey`)で頼み直すかを決める。提供役の `revision` は表紙が 1 冊できるたびに進むので鍵にしない
         // (`FileBrowserThumbnailProvider.sourceKey` のコメント)。
+        // 記号リンク・エイリアスは一覧を読み直すたびに頼み直す(先が入れ替わってもリンク自身の更新日時は変わらない。提供役は先を
+        // 解き直し、変わっていなければメモリの絵を返すだけ ―― レビュー 2026-09-29)。
         let contentKey = "\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(sourceKey)|\(kind)"
+            + (kind == .alias ? "|listing\(listingRevision)" : "")
         let tier = FileBrowserThumbnailProvider.pixelTier(
             forDisplaySize: kind == .folder ? iconSize * FileBrowserIconCellView.folderImageScale : iconSize
         )
@@ -1222,6 +1225,7 @@ final class FileBrowserIconItem: NSCollectionViewItem {
             thumbnailTask?.cancel()
             thumbnailTask = nil
             requestedKey = ""
+            cell.thumbnailKind = kind == .alias ? provider.aliasTargetKind(for: entry) : kind
             cell.thumbnail = image
             loadedContentKey = contentKey
             loadedTier = tier
@@ -1241,6 +1245,7 @@ final class FileBrowserIconItem: NSCollectionViewItem {
                 if self.loadedContentKey != contentKey { self.cell.thumbnail = nil }
                 return
             }
+            self.cell.thumbnailKind = kind == .alias ? provider.aliasTargetKind(for: entry) : kind
             self.cell.thumbnail = image
             self.loadedContentKey = contentKey
             self.loadedTier = tier
@@ -1266,6 +1271,12 @@ final class FileBrowserIconCellView: NSView {
 
     var thumbnail: CGImage? {
         didSet { if thumbnail !== oldValue { needsDisplay = true } }
+    }
+
+    /// `thumbnail` の描き方を決める種類。ふつうは `kind` と同じ。記号リンク・エイリアス(`kind == .alias`)では**先の種類**
+    /// (`FileBrowserThumbnailProvider.aliasTargetKind`): 本ならページの影、画像フォルダならフォルダの上、アプリなら影無し。
+    var thumbnailKind: BookThumbnailer.Kind? {
+        didSet { if thumbnailKind != oldValue { needsDisplay = true } }
     }
 
     var isSelected = false {
@@ -1402,16 +1413,27 @@ final class FileBrowserIconCellView: NSView {
         }
 
         let iconRect = box.insetBy(dx: 4, dy: 4)
-        if let thumbnail, let kind, kind != .folder {
-            drawThumbnail(thumbnail, in: iconRect, withShadow: kind != .application && kind != .alias)
+        // 記号リンク・エイリアスの絵は先の種類で描く(先がまだ分からなければアイコン扱い)。矢印のバッジは最後に重ねる。
+        let pictureKind = kind == .alias ? (thumbnailKind ?? .application) : kind
+        if let thumbnail, let pictureKind, pictureKind != .folder {
+            drawThumbnail(thumbnail, in: iconRect, withShadow: pictureKind != .application)
+            if kind == .alias, let badge = FileBrowserIconProvider.aliasBadgeImage {
+                badge.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
         } else {
-            let icon = FileBrowserIconProvider.icon(for: entry)
+            // 種類のアイコン(記号リンク・エイリアスはバッジ込み)。画像フォルダへのリンクの絵は、リンク自身の種類(白紙)ではなく
+            // **フォルダのアイコン**の上に重ね、バッジを足す(レビュー 2026-09-29)。
+            let drawsLinkedFolder = kind == .alias && pictureKind == .folder && thumbnail != nil
+            let icon = drawsLinkedFolder ? FileBrowserIconProvider.folderIcon : FileBrowserIconProvider.icon(for: entry)
             icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
-            if let thumbnail, kind == .folder {
+            if let thumbnail, pictureKind == .folder {
                 let side = iconSize * Self.folderImageScale
                 // フォルダのアイコンの胴(上の耳を除いた部分)の中ほどへ。
                 let rect = NSRect(x: iconRect.midX - side / 2, y: iconRect.midY - side / 2 + iconSize * 0.06, width: side, height: side)
                 drawThumbnail(thumbnail, in: rect, withShadow: true)
+            }
+            if drawsLinkedFolder, let badge = FileBrowserIconProvider.aliasBadgeImage {
+                badge.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
         }
 
