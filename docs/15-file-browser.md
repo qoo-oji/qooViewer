@@ -385,6 +385,13 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
 クイックルックに任せる(zip は中身の一覧など。利用者の判断)。スペースは頭文字での選択より先に受ける。読み取り専用モードでも使える。
 左のツリーでは出さない(Finder のサイドバーと同じ)。
 
+**記号リンク・エイリアスは先を見せる**(2026-09-29)。`QLPreviewPanel` にリンクの URL をそのまま渡すと、Finder と違ってリンクの
+ファイル自体(「エイリアス、14 バイト」)が出た(実測)。Finder は先をプレビューし、題を「名前 (エイリアス)」にする。そこでまず選択の
+項目そのもので見せ、記号リンク・エイリアスがあれば先をアイコンと同じ規則(`FileBrowserSystemIcon.aliasTarget`: ネットワーク越し・
+繋がっていないボリューム・保護下は断る)で **FileIO の上で**解き、解けたものを `FileBrowserQuickLook.Item`(先の URL と
+「名前 (種類の説明)」の題)に差し替えて `reloadData`(`previewItems(for:currentFolder:mountTable:)`。解いている間に選択が変われば捨てる)。
+断られた先はリンク自身のまま(Finder と違ってリンクのファイルが出る)。`FileBrowserQuickLookTests`。
+
 **一覧を捨てるときは、パネルがその一覧から中身を受け取っていれば閉じる**(`FileBrowserQuickLook.closePanel(ifControlledBy:)`、
 2026-09-27 の監査)。パネルは今の受け手(`currentController`)を保持し続け、受け手が変わるのはキーウインドウが変わったときだけ
 (単体の AppKit で実測: 受け手のビューを外して手放しても、パネルを閉じるまで解放されず、閉じたときに `endPreviewPanelControl` が

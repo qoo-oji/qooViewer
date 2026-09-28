@@ -14,6 +14,10 @@ import Quartz
 /// - パネルが受けたキーは一覧へ回す(`previewPanel(_:handle:)`)。矢印で選択が動き、スペースでパネルが閉じる。Esc はパネル自身が閉じる。
 /// - 書庫の本・PDF・フォルダの見え方は macOS のクイックルックに任せる(zip は中身の一覧など。2026-09-27、利用者の判断)。
 /// - 読み取り専用モードでも使える(何も書き換えない)。
+/// - **記号リンク・エイリアスは先を見せる**(2026-09-29 実測: `QLPreviewPanel` にリンクの URL をそのまま渡すと、Finder と違って
+///   リンクのファイル自体 ―― 「エイリアス、14 バイト」 ―― が出た。Finder は先をプレビューし、題を「名前 (エイリアス)」にする)。
+///   先はアイコンと同じ規則(`FileBrowserSystemIcon.aliasTarget`: 触ってよい場所だけ)で FileIO の上で解き、解けたら差し替えて
+///   `reloadData`。断られた先(共有・未接続・保護下)はリンク自身のまま。
 @MainActor
 final class FileBrowserQuickLook: NSObject {
     /// 選択の持ち主(一覧の `editResponder` と同じもの)。
@@ -21,8 +25,42 @@ final class FileBrowserQuickLook: NSObject {
     /// パネルが受けたキーを回す先(この一覧)。
     weak var keyTarget: NSView?
 
-    private var urls: [URL] = []
+    /// パネルに渡す項目(選択の順)。
+    private var items: [Item] = []
     private var selectionObserver: AnyCancellable?
+    /// 先を解いている最中の選択(解き終わったときに選択が同じなら差し替える)。
+    private var resolvingSelection: [URL] = []
+
+    /// パネルに渡す 1 項目。記号リンク・エイリアスは先の URL と「名前 (エイリアス)」の題(Finder と同じ)。
+    final class Item: NSObject, QLPreviewItem {
+        let previewItemURL: URL!
+        let previewItemTitle: String!
+
+        init(url: URL, title: String) {
+            previewItemURL = url
+            previewItemTitle = title
+        }
+    }
+
+    /// 選択の項目からパネルの項目を作る。記号リンク・エイリアスは先を解く(`FileBrowserSystemIcon.aliasTarget`。解けなければ
+    /// リンク自身)。**FileIO の上で呼ぶ**(先を解くのはリンクと先の各段の lstat)。
+    nonisolated static func previewItems(
+        for entries: [FileBrowserEntry], currentFolder: URL?, mountTable: MountTable,
+        protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
+        categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    ) -> [(url: URL, title: String)] {
+        entries.map { entry in
+            guard entry.isSymbolicLink || entry.isAliasFile,
+                  let target = FileBrowserSystemIcon.aliasTarget(
+                    of: entry.url, currentFolder: currentFolder, mountTable: mountTable,
+                    protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+                  )
+            else { return (entry.url, entry.displayName) }
+            // 種類の説明は Finder の「エイリアス」(OS の言語)。無ければ名前だけ。
+            let title = entry.typeDescription.map { "\(entry.displayName) (\($0))" } ?? entry.displayName
+            return (target, title)
+        }
+    }
 
     /// スペースキー: 出ていれば閉じ、出ていなければ出す(何も選んでいなければ何もしない)。
     func toggle() {
@@ -38,7 +76,7 @@ final class FileBrowserQuickLook: NSObject {
     var acceptsControl: Bool { !selectedURLs().isEmpty }
 
     func beginControl(_ panel: QLPreviewPanel) {
-        urls = selectedURLs()
+        showSelection(in: panel)
         panel.dataSource = self
         panel.delegate = self
         // `@Published` は値が入る前に知らせるので、読み直しは次の回へ回す。
@@ -47,8 +85,9 @@ final class FileBrowserQuickLook: NSObject {
                 MainActor.assumeIsolated {
                     guard let self, let panel, panel.dataSource === self else { return }
                     let current = self.selectedURLs()
-                    guard current != self.urls, !current.isEmpty else { return }
-                    self.urls = current
+                    guard current != self.items.map(\.previewItemURL), current != self.resolvingSelection, !current.isEmpty
+                    else { return }
+                    self.showSelection(in: panel)
                     panel.reloadData()
                 }
             }
@@ -59,21 +98,43 @@ final class FileBrowserQuickLook: NSObject {
         selectionObserver = nil
         if panel.dataSource === self { panel.dataSource = nil }
         if panel.delegate === self { panel.delegate = nil }
-        urls = []
+        items = []
+        resolvingSelection = []
     }
 
     private func selectedURLs() -> [URL] {
         actions?.state?.selectedEntries.map(\.url) ?? []
     }
+
+    /// いまの選択をまず項目そのもので見せ、記号リンク・エイリアスがあれば先を FileIO で解いて差し替える(型コメント)。
+    private func showSelection(in panel: QLPreviewPanel) {
+        let entries = actions?.state?.selectedEntries ?? []
+        items = entries.map { Item(url: $0.url, title: $0.displayName) }
+        let selection = entries.map(\.url)
+        resolvingSelection = selection
+        guard entries.contains(where: { $0.isSymbolicLink || $0.isAliasFile }) else { return }
+        let currentFolder = actions?.state?.currentFolder
+        let mountTable = MountTable.current()
+        Task { [weak self, weak panel] in
+            let resolved = await FileIO.perform {
+                Self.previewItems(for: entries, currentFolder: currentFolder, mountTable: mountTable)
+            }
+            guard let self, let panel, panel.dataSource === self, self.resolvingSelection == selection,
+                  self.selectedURLs() == selection
+            else { return }
+            self.items = resolved.map { Item(url: $0.url, title: $0.title) }
+            panel.reloadData()
+        }
+    }
 }
 
 extension FileBrowserQuickLook: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        urls.count
+        items.count
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        urls.indices.contains(index) ? urls[index] as NSURL : nil
+        items.indices.contains(index) ? items[index] : nil
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
