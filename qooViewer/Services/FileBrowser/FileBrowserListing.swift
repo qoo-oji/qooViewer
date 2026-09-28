@@ -173,6 +173,15 @@ nonisolated enum FileBrowserListing {
     }
 
     /// 1行ぶんを組み立てる。先読み済みの値だけを読む。
+    /// 「最近の項目」の一覧(FileBrowserLocation の型コメント)。履歴の並び(新しい順)のまま、項目の属性だけ読む。
+    /// 読めない場所(許可の無いフォルダの中)の項目は、履歴が覚えている「フォルダか」だけで作る(URL の `hasDirectoryPath`)。
+    /// URL はパスと「フォルダか」から組む(`Entry.displayURL` と同じ形。あちらはメインアクター限定なのでここでは呼べない)。
+    /// **FileIO の上で呼ぶ。**
+    static func recentEntries(from entries: [RecentFilesStore.Entry]) -> [FileBrowserEntry] {
+        var kindCache: [String: String] = [:]
+        return entries.map { makeEntry(URL(fileURLWithPath: $0.path, isDirectory: $0.isDirectory), kindCache: &kindCache) }
+    }
+
     static func makeEntry(_ url: URL, kindCache: inout [String: String]) -> FileBrowserEntry {
         let values = try? url.resourceValues(forKeys: Set(resourceKeys))
         let isDirectory = values?.isDirectory ?? url.hasDirectoryPath

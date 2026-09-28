@@ -232,9 +232,10 @@ struct ContentView: View {
             ? welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) } : nil
         return WindowTitle.welcome(
             mode: welcomeLibrary.mode,
-            folderName: WindowTitle.folderName(
-                fileBrowser.currentFolder,
-                computerTitle: String(localized: "Computer", language: preferences.effectiveLocale)
+            folderName: WindowTitle.locationName(
+                fileBrowser.location,
+                computerTitle: String(localized: "Computer", language: preferences.effectiveLocale),
+                recentsTitle: String(localized: "Recents", language: preferences.effectiveLocale)
             ),
             libraryName: library?.name,
             collectionName: collection?.name
@@ -1065,6 +1066,7 @@ struct ContentView: View {
         // 環境設定は最後に渡す: 先にペインが出ていれば、渡した時点で動き始める(FileBrowserState.activate)ので、
         // よく使う項目(起動時のフォルダ)はそれより前に要る。シークレットかどうかは作るときに渡してある(init)。
         fileBrowser.favoriteLocations = favoriteLocations
+        fileBrowser.recentFiles = recentFiles
         fileBrowser.isPrivate = isPrivateWindow
         fileBrowser.preferences = preferences
         appState.fileBrowser = fileBrowser

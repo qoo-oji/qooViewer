@@ -76,6 +76,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
     let expandsToCurrentFolder: Bool
     /// 開いた行の子を並べる順(型コメント「子の並び」)。
     let childSort: FolderBrowserSort
+    /// 先頭に「最近の項目」の行を出すか(環境設定「ツリーの先頭に「最近の項目」を表示」。シークレットウインドウでは false。
+    /// FileBrowserLocation の型コメント)。
+    let showsRecents: Bool
 
     /// ホイール1ノッチで動かす行数(リスト表示と共通の設定。HomeWheelScroll参照)。
     /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
@@ -163,6 +166,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
     final class Node: NSObject {
         enum Kind: Equatable {
             case group(Group)
+            /// 先頭の「最近の項目」(グループの外の根。url は無く、子も無い。選ぶと `FileBrowserState.showRecents`)。
+            case recents
             case volume
             case home
             case favorite(UUID)
@@ -218,7 +223,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         /// 読み込んで子を出す行か(グループは自前で持つ)。
-        var loadsChildren: Bool { !isGroup }
+        var loadsChildren: Bool { !isGroup && kind != .recents }
+
+        /// 右ペインの場所と突き合わせる鍵(`FileBrowserLocation.selectionKey` と同じ規則)。
+        var selectionKey: String? {
+            if kind == .recents { return FileBrowserLocation.recentsSelectionKey }
+            return url.map { FileBrowserState.id(for: $0) }
+        }
 
         var entry: FileBrowserEntry? {
             guard let url else { return nil }
@@ -278,6 +289,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }()
         private let favoritesGroup = Node(kind: .group(.favorites), url: nil, name: "", children: [])
         private var groups: [Node] { [volumesGroup, homeGroup, favoritesGroup] }
+        /// 先頭の「最近の項目」(三角なし・子なし)。出すかどうかは `showsRecents`。
+        private let recentsNode = Node(kind: .recents, url: nil, name: "", hasSubfolders: false)
+        private var showsRecents = false
+        /// ツリーの根: 「最近の項目」(出すとき)と 3 つのグループ。
+        private var roots: [Node] { (showsRecents ? [recentsNode] : []) + groups }
 
         func start() {
             guard let outline else { return }
@@ -389,10 +405,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 reloadExpandedRows(in: nil)
             }
             if view.outlineWidth != outlineWidth || view.locale != locale
-                || view.allowsEditingFavorites != allowsEditingFavorites {
+                || view.allowsEditingFavorites != allowsEditingFavorites || view.showsRecents != showsRecents {
                 outlineWidth = view.outlineWidth
                 locale = view.locale
                 allowsEditingFavorites = view.allowsEditingFavorites
+                showsRecents = view.showsRecents
                 outline.outlineWidth = outlineWidth
                 needsRedraw = true
             }
@@ -428,7 +445,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 appliedChange = change
                 reloadExpandedRows(in: change.isUnknownScope ? nil : change.folderIDs)
             }
-            let folderID = FileBrowserState.id(of: view.state.currentFolder)
+            // 右ペインの場所の鍵(フォルダはパス、最近の項目は固定の文字、コンピュータは nil)。
+            let folderID = view.state.location.selectionKey
             if view.expandsToCurrentFolder != expandsToCurrentFolder {
                 // ON にしたら、いまのフォルダまで開く。OFF にしたら走っている展開をやめる。
                 expandsToCurrentFolder = view.expandsToCurrentFolder
@@ -459,7 +477,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case .volume: rootKey = "volume:" + (root.url.map { FileBrowserState.id(for: $0) } ?? "")
             case .home: rootKey = "home"
             case .favorite(let id): rootKey = "favorite:" + id.uuidString
-            case .group, .folder: return nil
+            case .group, .folder, .recents: return nil
             }
             return rootKey + "|" + FileBrowserState.id(for: url)
         }
@@ -645,8 +663,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             var target = -1
             if let folderID {
                 for row in 0..<outline.numberOfRows {
-                    if let node = outline.item(atRow: row) as? Node, let url = node.url,
-                       FileBrowserState.id(for: url) == folderID {
+                    if let node = outline.item(atRow: row) as? Node, node.selectionKey == folderID {
                         target = row
                         break
                     }
@@ -816,12 +833,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
         // MARK: データ
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            guard let node = item as? Node else { return groups.count }
+            guard let node = item as? Node else { return roots.count }
             return node.children?.count ?? 0
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            guard let node = item as? Node else { return groups[index] }
+            guard let node = item as? Node else { return roots[index] }
             return node.children?[index] ?? Node(kind: .folder, url: nil, name: "")
         }
 
@@ -895,8 +912,18 @@ struct FileBrowserTreeView: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("tree.row")
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? FileBrowserCellView)
                 ?? FileBrowserCellView(identifier: identifier, showsIcon: true)
-            cell.icon?.image = node.kind == .volume ? FileBrowserIconProvider.volumeIcon : FileBrowserIconProvider.folderIcon
-            cell.configure(text: node.name, outlineWidth: outlineWidth)
+            switch node.kind {
+            case .recents:
+                // Finder のサイドバーの「最近の項目」と同じ時計。名前は言語に合わせてここで引く(Node は名前を持たない)。
+                cell.icon?.image = FileBrowserIconProvider.recentsIcon
+                cell.configure(text: String(localized: "Recents", language: locale), outlineWidth: outlineWidth)
+            case .volume:
+                cell.icon?.image = FileBrowserIconProvider.volumeIcon
+                cell.configure(text: node.name, outlineWidth: outlineWidth)
+            default:
+                cell.icon?.image = FileBrowserIconProvider.folderIcon
+                cell.configure(text: node.name, outlineWidth: outlineWidth)
+            }
             cell.alphaValue = isDimmed(node) ? 0.5 : 1
             return cell
         }
@@ -936,8 +963,17 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isApplyingSelection, let outline, outline.selectedRow >= 0,
-                  let node = outline.item(atRow: outline.selectedRow) as? Node, let url = node.url
+                  let node = outline.item(atRow: outline.selectedRow) as? Node
             else { return }
+            if node.kind == .recents {
+                // 「最近の項目」(FileBrowserLocation の型コメント)。フォルダの行と同じく、走っている展開はやめる。
+                appliedFolderID = FileBrowserLocation.recentsSelectionKey
+                revealGeneration += 1
+                pendingRevealFolderID = nil
+                state?.showRecents()
+                return
+            }
+            guard let url = node.url else { return }
             let id = FileBrowserState.id(for: url)
             appliedFolderID = id
             // 行をクリックして移ったときは開かない(型コメント)。走っている展開もやめる。

@@ -488,6 +488,81 @@ struct FileBrowserStateTests {
         #expect(next.startupFolder()?.path == fixture.aFolder.path)
     }
 
+    @Test("「最近の項目」は設定が ON のときだけ出せ、履歴の本を新しい順に並べ、履歴が変われば読み直し、書き込めない場所として振る舞う")
+    func recentsListsHistoryNewestFirst() async throws {
+        let fixture = try Fixture("fb-recents")
+        let state = fixture.state
+        let recent = RecentFilesStore(defaults: fixture.suite.defaults)
+        state.recentFiles = recent
+        state.makeVisibleWithoutWatching()
+        state.navigate(to: fixture.root)
+        await state.settle()
+
+        // 既定 OFF: 何も起きない。
+        #expect(!state.canShowRecents)
+        state.showRecents()
+        await state.settle()
+        #expect(!state.isShowingRecents)
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+
+        fixture.preferences.fileBrowserShowsRecents = true
+        recent.record(url: fixture.root.appendingPathComponent("B.cbz"))
+        recent.record(url: fixture.aFolder)
+        state.showRecents()
+        await state.settle()
+        #expect(state.isShowingRecents)
+        #expect(state.location == .recents)
+        #expect(state.currentFolder == nil)  // 実フォルダは無い(書き込めない・上へ行けない)
+        #expect(!state.canGoUp)
+        #expect(state.canGoBack)
+        #expect(fixture.names() == ["a-folder", "B.cbz"])  // 新しい順のまま(フォルダを上にしない)
+        #expect(state.entries.map(\.isDirectory) == [true, false])
+
+        // 履歴が変われば読み直す。
+        recent.record(url: fixture.bFolder)
+        try await Task.sleep(for: .milliseconds(100))
+        await state.settle()
+        #expect(fixture.names() == ["b-folder", "a-folder", "B.cbz"])
+
+        // 戻ると元のフォルダへ。進むと最近の項目へ。
+        state.goBack()
+        await state.settle()
+        #expect(!state.isShowingRecents)
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+        state.goForward()
+        await state.settle()
+        #expect(state.isShowingRecents)
+
+        // 「最後に表示したフォルダ」として覚え、次の状態は最近の項目から始まる。OFF ならホームへ読み替える。
+        fixture.preferences.fileBrowserStartupLocation = .lastFolder
+        let next = FileBrowserState(defaults: fixture.suite.defaults)
+        next.preferences = fixture.preferences
+        #expect(next.startupLocation() == .recents)
+        #expect(next.startupFolder() == nil)
+
+        // OFF にされたら、表示していた最近の項目から離れてホームへ。
+        fixture.preferences.fileBrowserShowsRecents = false
+        try await Task.sleep(for: .milliseconds(100))
+        await state.settle()
+        #expect(!state.isShowingRecents)
+        #expect(state.currentFolder?.path == FileBrowserListing.realHomeDirectory().path)
+        #expect(next.startupLocation() == .folder(FileBrowserListing.realHomeDirectory()))
+    }
+
+    @Test("シークレットウインドウでは「最近の項目」を出さない")
+    func privateWindowNeverShowsRecents() async throws {
+        let fixture = try Fixture("fb-recents-private")
+        let state = fixture.state
+        state.isPrivate = true
+        fixture.preferences.fileBrowserShowsRecents = true
+        state.navigate(to: fixture.root)
+        await state.settle()
+        #expect(!state.canShowRecents)
+        state.showRecents()
+        await state.settle()
+        #expect(!state.isShowingRecents)
+    }
+
     @Test("シークレットウインドウでは最後に表示したフォルダを書かない")
     func privateWindowDoesNotRememberTheFolder() async throws {
         let fixture = try Fixture("fb-private")

@@ -227,6 +227,15 @@ enum FileBrowserIconProvider {
         cache["volume"] = image
         return image
     }
+
+    /// ツリーの「最近の項目」の時計(Finder のサイドバーと同じ記号。テンプレート画像なので文字色で描かれる)。
+    static var recentsIcon: NSImage? {
+        if let cached = cache["recents"] { return cached }
+        let image = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
+        if let image { cache["recents"] = image }
+        return image
+    }
 }
 
 /// 線画のアイコン(テンプレート画像)だけのボタン。**アイコンに輪郭を掛ける**(ツリーの「＋」)。

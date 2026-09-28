@@ -49,8 +49,16 @@ final class FileBrowserState: ObservableObject {
     /// 戻る/進むの履歴の上限。古いものから捨てる。
     static let historyDepth = 100
 
-    /// いま表示しているフォルダ。nil は「コンピュータ」(ボリュームの一覧)。
+    /// いま表示しているフォルダ。nil は「コンピュータ」(ボリュームの一覧)**または「最近の項目」**(`isShowingRecents`。
+    /// FileBrowserLocation の型コメント ―― 実フォルダが無いことに頼る判断は、どちらにも同じに効く)。
     @Published private(set) var currentFolder: URL?
+    /// 「最近の項目」(最近開いた本の一覧)を表示しているか(2026-09-28)。この間 `currentFolder` は nil。
+    @Published private(set) var isShowingRecents = false
+    /// 表示している場所(`currentFolder` と `isShowingRecents` を 1 つの値にしたもの)。
+    var location: FileBrowserLocation {
+        if isShowingRecents { return .recents }
+        return currentFolder.map { .folder($0) } ?? .computer
+    }
     /// 並べ替え・絞り込み後の一覧。
     @Published private(set) var entries: [FileBrowserEntry] = []
     /// `entries`を差し替えるたびに進む番号。AppKitの一覧(NSTableView)が`reloadData`の要否を
@@ -270,6 +278,17 @@ final class FileBrowserState: ObservableObject {
     }
     /// 起動時のフォルダが「よく使う項目」のときに引く。
     weak var favoriteLocations: FavoriteLocationStore?
+    /// 「最近の項目」の中身(FileBrowserLocation の型コメント)。ContentView がつなぐ。履歴が変われば読み直す。
+    weak var recentFiles: RecentFilesStore? {
+        didSet {
+            guard recentFiles !== oldValue else { return }
+            observeRecentFiles()
+        }
+    }
+    private var recentFilesObservation: AnyCancellable?
+    /// 「最近の項目」を出せるか: 環境設定「ツリーの先頭に「最近の項目」を表示」が ON で、シークレットウインドウでない
+    /// (履歴を見せない約束。AppState.isPrivateWindow)。
+    var canShowRecents: Bool { (preferences?.fileBrowserShowsRecents ?? false) && !isPrivate }
     /// シークレットウインドウか(最後に表示したフォルダ・一括リネームの前回の入力を書かない。アイコン表示の絵をディスクへ書かない)。
     /// **ContentView が `@StateObject` を作る時点で渡す**(2026-09-23 の監査): ContentView が店や環境設定をつなぐより先に
     /// ペインが出て動き始めることがあり(タブバーの「＋」のタブは、つなぐのが正当なタブと分かった後)、つないだ時点で
@@ -287,7 +306,7 @@ final class FileBrowserState: ObservableObject {
 
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
-    /// 「コンピュータ」より上は無い。
+    /// 「コンピュータ」「最近の項目」より上は無い。
     var canGoUp: Bool { currentFolder != nil }
 
     /// 読み込みの待ち合わせ口。**テストのための口**で、アプリ側は触らない(SidePanelBrowserState.
@@ -308,8 +327,8 @@ final class FileBrowserState: ObservableObject {
         normalizedNamesCache = names
         return FileBrowserListing.filtered(allEntries, normalizedNames: names, by: filterText)
     }
-    private var backStack: [URL?] = []
-    private var forwardStack: [URL?] = []
+    private var backStack: [FileBrowserLocation] = []
+    private var forwardStack: [FileBrowserLocation] = []
     private var generation = 0
     private var hasStarted = false
     /// 次に画面に出たときの行き先(prepare / show)。
@@ -341,6 +360,8 @@ final class FileBrowserState: ObservableObject {
     /// 読み込みの最中に FSEvents が変更を知らせた。読み終えたらもう一度読む(`handleChangedPaths` のコメント)。
     private var needsReloadAfterLoad = false
     private var preferenceObservation: AnyCancellable?
+    /// 環境設定「ツリーの先頭に「最近の項目」を表示」の購読(OFF にされたら最近の項目から離れる)。
+    private var recentsPreferenceObservation: AnyCancellable?
     /// 読み取り専用モード・ファイルブラウザ機能の切り替えの購読(`nameEditingCancelSerial`)。
     private var fileChangePermissionObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
@@ -422,7 +443,7 @@ final class FileBrowserState: ObservableObject {
             go(to: pending)
         } else if !hasStarted {
             hasStarted = true
-            move(to: startupFolder(), selecting: nil)
+            move(to: startupLocation(), selecting: nil)
         } else {
             reload()
             updateWatcher()
@@ -511,6 +532,8 @@ final class FileBrowserState: ObservableObject {
         cutObservation = nil
         preferenceObservation = nil
         fileChangePermissionObservation = nil
+        recentsPreferenceObservation = nil
+        recentFilesObservation = nil
         stackObservation = nil
         // 走っている操作の報告は捨てない(確認は断る側で答える。FileBrowserOperations.detachFromWindow)。
         operations.detachFromWindow()
@@ -541,30 +564,42 @@ final class FileBrowserState: ObservableObject {
 
     /// フォルダへ移動する(nil はコンピュータ)。戻るの履歴に積む。
     func navigate(to folder: URL?) {
-        let target = folder.map(Self.folderURL(_:))
-        if Self.id(of: target) != Self.id(of: currentFolder) {
-            pushBack(currentFolder)
+        navigate(to: Self.location(of: folder))
+    }
+
+    /// 場所へ移動する。戻るの履歴に積む。
+    func navigate(to location: FileBrowserLocation) {
+        let target = Self.normalized(location)
+        if target.selectionKey != self.location.selectionKey {
+            pushBack(self.location)
             forwardStack.removeAll()
         }
         move(to: target, selecting: nil)
+    }
+
+    /// 「最近の項目」へ(ツリーの先頭の行。FileBrowserLocation の型コメント)。出せない設定・シークレットウインドウでは何もしない。
+    func showRecents() {
+        guard canShowRecents else { return }
+        navigate(to: .recents)
     }
 
     /// 1階層上へ。ボリュームのルートならコンピュータへ。元いたフォルダを選んで見える位置へ
     /// スクロールする(サイドパネルのgoUpと同じ)。
     func goUp() {
         guard let leaving = currentFolder else { return }
-        pushBack(currentFolder)
+        pushBack(location)
         forwardStack.removeAll()
-        move(to: Self.parent(of: leaving), selecting: Self.id(for: leaving))
+        move(to: Self.location(of: Self.parent(of: leaving)), selecting: Self.id(for: leaving))
     }
 
     /// 戻る。**戻り先が直前のフォルダの親なら、そのフォルダを選ぶ**(上へ移動したのと同じ見え方にする)。
     func goBack() {
         guard let previous = backStack.popLast() else { return }
         let leaving = currentFolder
-        forwardStack.append(leaving)
+        forwardStack.append(location)
         var highlight: String?
-        if let leaving, Self.id(of: Self.parent(of: leaving)) == Self.id(of: previous) {
+        if let leaving, Self.id(of: Self.parent(of: leaving)) == previous.folder.map(Self.id(for:)),
+           !previous.isRecents {
             highlight = Self.id(for: leaving)
         }
         move(to: previous, selecting: highlight)
@@ -572,18 +607,29 @@ final class FileBrowserState: ObservableObject {
 
     func goForward() {
         guard let next = forwardStack.popLast() else { return }
-        pushBack(currentFolder)
+        pushBack(location)
         move(to: next, selecting: nil)
     }
 
     /// 項目の入っているフォルダへ移動して、その項目を選んでスクロールする。
     func reveal(_ url: URL) {
-        let parent = Self.parent(of: url)
-        if Self.id(of: parent) != Self.id(of: currentFolder) {
-            pushBack(currentFolder)
+        let parent = Self.location(of: Self.parent(of: url))
+        if parent.selectionKey != location.selectionKey {
+            pushBack(location)
             forwardStack.removeAll()
         }
         move(to: parent, selecting: Self.id(for: url))
+    }
+
+    /// `URL?`(nil はコンピュータ)を場所へ。
+    nonisolated static func location(of folder: URL?) -> FileBrowserLocation {
+        folder.map { .folder(folderURL($0)) } ?? .computer
+    }
+
+    /// フォルダの綴りをそろえる(`folderURL`)。
+    nonisolated static func normalized(_ location: FileBrowserLocation) -> FileBrowserLocation {
+        if case .folder(let url) = location { return .folder(folderURL(url)) }
+        return location
     }
 
     /// 今のフォルダを読み直し、読み終わったら `ids` を選んで最初の1件を見える位置へ(自分の操作で作ったもの)。
@@ -595,7 +641,7 @@ final class FileBrowserState: ObservableObject {
         reload()
     }
 
-    /// 読み込み中のフォルダの id(`.some(nil)` はコンピュータ)。読んでいなければ nil。
+    /// 読み込み中の場所の鍵(`FileBrowserLocation.selectionKey`。`.some(nil)` はコンピュータ)。読んでいなければ nil。
     private var inFlightFolderID: String??
 
     /// 今のフォルダを読み直す(選択は、残っている項目のぶんだけ保つ)。
@@ -604,7 +650,7 @@ final class FileBrowserState: ObservableObject {
     /// `loadTask?.cancel()` は FileIO の上の列挙を止められないので、以前はアクティブ化・ボリュームの着脱のたびに、応答しない共有の
     /// 列挙で塞がったスレッドが 1 本ずつ積もった。
     func reload() {
-        if let inFlight = inFlightFolderID, inFlight == Self.id(of: currentFolder) {
+        if let inFlight = inFlightFolderID, inFlight == location.selectionKey {
             needsReloadAfterLoad = true
             return
         }
@@ -612,6 +658,8 @@ final class FileBrowserState: ObservableObject {
         let mine = generation
         loadTask?.cancel()
         let folder = currentFolder
+        // 「最近の項目」の中身は履歴の写し(新しい順のまま。FileBrowserLocation の型コメント)。項目の属性はここで読む(FileIO の上)。
+        let recentEntries: [RecentFilesStore.Entry]? = isShowingRecents ? (recentFiles?.entries ?? []) : nil
         // 並べ替えも読み込みと一緒に FileIO の上で(2026-09-25 の監査)。`localizedStandardCompare` の比較は数万件で数百ミリ秒に
         // なり、以前はメインで、アクティブ化・ホームへ戻る・FSEvents のたびに走っていた。読んでいる間に並びの設定が変わっていたら、
         // `apply` がメインで並べ直す。
@@ -619,7 +667,7 @@ final class FileBrowserState: ObservableObject {
         let includesHidden = showsHiddenFiles
         isLoading = true
         needsReloadAfterLoad = false
-        inFlightFolderID = .some(Self.id(of: folder))
+        inFlightFolderID = .some(location.selectionKey)
         loadTask = Task { [weak self] in
             defer {
                 if let self, self.generation == mine { self.inFlightFolderID = nil }
@@ -631,7 +679,9 @@ final class FileBrowserState: ObservableObject {
                 }
             }
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
-            if let folder {
+            if let recentEntries {
+                outcome = .success(await FileIO.perform { FileBrowserListing.recentEntries(from: recentEntries) })
+            } else if let folder {
                 do {
                     outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden)) })
                 } catch is CancellationError {
@@ -652,7 +702,7 @@ final class FileBrowserState: ObservableObject {
                 guard let folder else { return }
                 let ancestor = await FileIO.perform { FileBrowserListing.nearestExistingAncestor(of: folder) }
                 guard self.generation == mine else { return }
-                self.move(to: ancestor, selecting: nil)
+                self.move(to: Self.location(of: ancestor), selecting: nil)
             case .failure(let error):
                 self.isLoading = false
                 self.allEntries = []
@@ -890,8 +940,9 @@ final class FileBrowserState: ObservableObject {
     }
 
     /// 並べ直す。**並びが変わらなければ一覧を差し替えない**(同じ変更を、自分で書いたときと購読の両方から受けるため)。
+    /// 「最近の項目」は新しい順のまま(FileBrowserLocation の型コメント)。
     private func resort() {
-        guard !allEntries.isEmpty else { return }
+        guard !allEntries.isEmpty, !isShowingRecents else { return }
         let sorted = sort.sorted(allEntries)
         guard sorted.map(\.id) != allEntries.map(\.id) else { return }
         allEntries = sorted
@@ -912,11 +963,12 @@ final class FileBrowserState: ObservableObject {
         if kept != selection { selection = kept }
     }
 
-    /// 表示するフォルダを差し替えて読み込む。履歴は触らない(呼び出し側が積む)。
-    private func move(to folder: URL?, selecting reveal: String?) {
-        let target = folder.map(Self.folderURL(_:))
-        if Self.id(of: target) != Self.id(of: currentFolder) {
-            currentFolder = target
+    /// 表示する場所を差し替えて読み込む。履歴は触らない(呼び出し側が積む)。
+    private func move(to location: FileBrowserLocation, selecting reveal: String?) {
+        let target = Self.normalized(location)
+        if target.selectionKey != self.location.selectionKey {
+            isShowingRecents = target.isRecents
+            currentFolder = target.folder
             // 前のフォルダの中身を新しい場所の中身として見せない。
             allEntries = []
             filterText = ""
@@ -937,28 +989,37 @@ final class FileBrowserState: ObservableObject {
         updateWatcher()
     }
 
-    private func pushBack(_ folder: URL?) {
-        backStack.append(folder)
+    private func pushBack(_ location: FileBrowserLocation) {
+        backStack.append(location)
         if backStack.count > Self.historyDepth { backStack.removeFirst() }
     }
 
     // MARK: - 起動時のフォルダ
 
-    /// 環境設定「起動時に表示するフォルダ」を解決する。見つからない指定はホームへ読み替える。
+    /// 環境設定「起動時に表示するフォルダ」を解決する(実フォルダ。コンピュータ・最近の項目は nil)。`startupLocation` の
+    /// 読み替え。
     func startupFolder() -> URL? {
+        startupLocation().folder
+    }
+
+    /// 環境設定「起動時に表示するフォルダ」を解決する。見つからない指定はホームへ読み替える。「最後に表示したフォルダ」が
+    /// 最近の項目で、いまは出せない(設定 OFF・シークレット)ならホーム。
+    func startupLocation() -> FileBrowserLocation {
         let home = FileBrowserListing.realHomeDirectory()
         switch preferences?.fileBrowserStartupLocation ?? .home {
         case .home:
-            return home
+            return .folder(home)
         case .favorite:
             guard let id = UUID(uuidString: preferences?.fileBrowserStartupFavoriteID ?? ""),
                   let item = favoriteLocations?.item(withID: id)
-            else { return home }
-            return item.url
+            else { return .folder(home) }
+            return .folder(item.url)
         case .lastFolder:
-            guard let path = defaults.string(forKey: Keys.lastFolderPath) else { return home }
+            guard let path = defaults.string(forKey: Keys.lastFolderPath) else { return .folder(home) }
             // 空文字はコンピュータにいた、の記録。
-            return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+            if path.isEmpty { return .computer }
+            if path == FileBrowserLocation.recentsSelectionKey { return canShowRecents ? .recents : .folder(home) }
+            return .folder(URL(fileURLWithPath: path, isDirectory: true))
         }
     }
 
@@ -983,7 +1044,8 @@ final class FileBrowserState: ObservableObject {
 
     private func rememberLastFolder() {
         guard !isPrivate else { return }
-        defaults.set(currentFolder?.path ?? "", forKey: Keys.lastFolderPath)
+        // 空文字はコンピュータ、`<recents>` は最近の項目(FileBrowserLocation.recentsSelectionKey)。
+        defaults.set(isShowingRecents ? FileBrowserLocation.recentsSelectionKey : currentFolder?.path ?? "", forKey: Keys.lastFolderPath)
     }
 
     // MARK: - 変更の追従
@@ -995,9 +1057,9 @@ final class FileBrowserState: ObservableObject {
     /// 2. 表示中のフォルダの中身が変わっていたら読み直し、ツリーにも知らせる。**ネットワーク上のフォルダはこれが唯一の知らせ**。
     ///    このウインドウの操作が走っている最中は読み直さない(操作が済んだ時点で `didChangeFileSystem` が読み直す)。
     func handleFileSystemChange(_ change: FileSystemChange) {
-        func relocated(_ folder: URL?) -> URL? {
-            guard let folder, let path = change.relocatedPath(for: folder.path) else { return folder }
-            return Self.folderURL(URL(fileURLWithPath: path, isDirectory: true))
+        func relocated(_ location: FileBrowserLocation) -> FileBrowserLocation {
+            guard let folder = location.folder, let path = change.relocatedPath(for: folder.path) else { return location }
+            return .folder(Self.folderURL(URL(fileURLWithPath: path, isDirectory: true)))
         }
         backStack = backStack.map(relocated)
         forwardStack = forwardStack.map(relocated)
@@ -1008,7 +1070,7 @@ final class FileBrowserState: ObservableObject {
 
         if let folder = currentFolder, let path = change.relocatedPath(for: folder.path) {
             let kept = selection
-            move(to: URL(fileURLWithPath: path, isDirectory: true), selecting: nil)
+            move(to: .folder(URL(fileURLWithPath: path, isDirectory: true)), selecting: nil)
             selection = kept
         } else if let folder = currentFolder, change.requiresReload(ofFolderAt: folder.path), isVisible, !operations.isBusy {
             reload()
@@ -1139,13 +1201,42 @@ final class FileBrowserState: ObservableObject {
         refreshPasteboardState()
     }
 
+    /// 履歴が変わったら「最近の項目」を読み直す(表示している間だけ。FileBrowserLocation の型コメント)。
+    private func observeRecentFiles() {
+        guard let recentFiles else {
+            recentFilesObservation = nil
+            return
+        }
+        recentFilesObservation = recentFiles.$entries
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.isShowingRecents, self.isVisible else { return }
+                    self.reload()
+                }
+            }
+    }
+
     /// 「フォルダを上に」と、並べ替えの基準・向き(サイドパネルや他のウインドウで変わる。`sortKey`のコメント)を購読する。
     private func observePreferences() {
         guard let preferences else {
             preferenceObservation = nil
             fileChangePermissionObservation = nil
+            recentsPreferenceObservation = nil
             return
         }
+        // 「最近の項目」を OFF にされたら、表示していた場合はホームフォルダへ(出せない場所に居続けない)。
+        recentsPreferenceObservation = preferences.$fileBrowserShowsRecents
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                MainActor.assumeIsolated {
+                    guard let self, !enabled, self.isShowingRecents else { return }
+                    self.navigate(to: FileBrowserListing.realHomeDirectory())
+                }
+            }
         // ファイルを変えられなくなった瞬間(`FileBrowserOperations.isReadOnly` と同じ条件)に、名前の編集を取りやめてもらう。
         fileChangePermissionObservation = Publishers.CombineLatest(
             preferences.$fileBrowserReadOnly, preferences.$fileBrowserFeatureEnabled

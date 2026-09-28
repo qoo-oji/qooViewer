@@ -3,9 +3,15 @@ import SwiftUI
 /// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、そのすぐ右にライブラリを増やす「＋」
 /// (2026-09-27 までは帯の右端に置いていた。`newLibraryButton`)。
 ///
-/// ■ いちばん左の「直前の本へ戻る」(2026-09-28)
-/// このタブで直前に開いていた本へ戻る(`HomeLastBookButton`。控えは `AppState.lastOpenedBook`、メモリの上だけ)。
-/// すぐ右のボタン(ファイルブラウザ、または「本を開く…」)とは区切り線で分ける。帯が無いホームでの扱いは
+/// ■ いちばん左の「直前の本へ戻る」と、その右の「履歴から開く」(2026-09-28)
+/// 左端はこのタブで直前に開いていた本へ戻る三角(`HomeLastBookButton`。控えは `AppState.lastOpenedBook`、メモリの上だけ)。
+/// そのすぐ右に、**履歴の記号(`clock.arrow.circlepath`。Safari の履歴と同じ、時計に反時計回りの矢印)の細いボタン**を並べ、
+/// 押すと履歴の一覧(`RecentBooksPopover`)がぶら下がる(Safari の「戻る」を長押しした履歴と同じ位置付け)。最初は下向きの
+/// 三角(ドロップダウンの印)だったが、履歴だと読めないので同じ日に替えた(利用者の選択。候補 4 つを描いて比べた)。
+/// 2 つは隙間 2pt で組にして描く。
+/// 履歴のボタンはここ 1 つに集約した ―― ファイルブラウザ OFF の帯にあった「履歴から開く」の文字ボタン(下記)は同じ日に外し、
+/// 残るのは「本を開く…」だけ。シークレットウインドウでは履歴を見せないので淡色(`AppState.isPrivateWindow`)。
+/// ファイルブラウザや「本を開く…」とは区切り線で分ける。帯が無いホームでの扱いは
 /// `WelcomeLibraryState.revealsLastBookInFileBrowser` と `ClassicWelcomeView`。
 ///
 /// ■ 左端の「ファイルブラウザ」(改善要望7 段階3、2026-09-13)
@@ -13,16 +19,16 @@ import SwiftUI
 /// 戻っていた。2026-09-23、利用者の指示)。ファイルブラウザの間はどのライブラリのチップも選ばれていない見た目にし、
 /// チップを押すと本棚へ戻る。
 ///
-/// ■ 左端の2つのボタン「本を開く…」「履歴から開く」(v1.50〜v1.56 の形)
-/// 2026-09-13 に撤去した(改善要望7 ―― 左端をファイルブラウザへの切り替えに譲った。本を開くのはファイルメニューの
-/// 「開く…」(⌘O)、履歴はファイルメニューの「最近使った項目を開く」とサイドパネルの「履歴」モードに残る)。
-/// 2026-09-21 から、**環境設定「ファイルブラウザを有効にする」がOFFの間だけ**戻している(ユーザー要望: ファイルブラウザを
-/// 使わないなら、ホームはファイルブラウザが入る前の形に戻る)。ONの間は今までどおり、左端は切り替えのボタン。
+/// ■ 「本を開く…」(ファイルブラウザ OFF の間。v1.50〜v1.56 の形の名残)
+/// 2026-09-13 に「本を開く…」「履歴から開く」の 2 つを撤去した(改善要望7 ―― 左端をファイルブラウザへの切り替えに譲った。
+/// 本を開くのはファイルメニューの「開く…」(⌘O)、履歴はファイルメニューの「最近使った項目を開く」とサイドパネルの「履歴」
+/// モードに残る)。2026-09-21 から、**環境設定「ファイルブラウザを有効にする」がOFFの間だけ**戻した(ユーザー要望:
+/// ファイルブラウザを使わないなら、ホームはファイルブラウザが入る前の形に戻る)。2026-09-28 に「履歴から開く」のほうは
+/// 左端の下三角のボタン(上記)へ集約して外したので、OFF の間に出るのは「本を開く…」だけ。ONの間は切り替えのボタン。
 ///
-/// 2つのボタンにはAppKitのベゼルが面に溶けて消える問題があり、`.panelControlWell()`で溝を敷く
+/// ボタンにはAppKitのベゼルが面に溶けて消える問題があり、`.panelControlWell()`で溝を敷く
 /// (重ね色を文字色そのもの ―― ダーク+白100% ―― にするとベゼルも文字も跡形もなく消えた。実測)。溝だけでは**文字**が
 /// 薄いままなので、ラベルには併せて`.panelOutlinedContent()`も掛ける(溝は形を、輪郭は文字を救う)。
-/// 当時との違い: 「履歴から開く」を出すかどうかの設定(showRecentFilesOnWelcome)は同じ日に撤去したので常に出す。
 /// 「本を開く…」に ⌘O は付けない(ファイルメニューの「開く…」が持っている)。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
@@ -62,8 +68,9 @@ struct WelcomeTopBar: View {
     /// ライブラリ名の幅。**名前の長さでは変えない**(ユーザー指摘 2026-09-09 ―― 幅が名前ごとに
     /// 変わるチップが並ぶのは落ち着かない)。
     ///
-    /// 見積もりの材料は、左端の2つのボタン(型コメント)のラベル。ボタンが出ていない(ファイルブラウザ機能がONの)間も
-    /// **チップの幅を変えないために同じ2つの文字列を測る**。ボタンのラベルの幅にもこの値を使う(帯の中の刻みを1つに保つ)。
+    /// 見積もりの材料は、かつて左端に並んでいた 2 つのボタン(型コメント)のラベル。「履歴から開く」の文字ボタンが無くなった
+    /// 今も、ボタンが出ていない(ファイルブラウザ機能がONの)間も、**チップの幅を変えないために同じ2つの文字列を測る**。
+    /// 「本を開く…」のラベルの幅にもこの値を使う(帯の中の刻みを1つに保つ)。
     private var chipLabelWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
             for: [
@@ -78,7 +85,7 @@ struct WelcomeTopBar: View {
     /// 出しているライブラリの名前入力。**2つの`.sheet`を同じビューに付けない**ため、作成と
     /// リネームを1つの状態にまとめている(SwiftUIでは同じビューに複数のシートを付けると
     /// 後から付けたほうだけが効く)。
-    /// 「履歴から開く」のポップオーバー(ファイルブラウザ機能がOFFの間の帯。型コメント)。
+    /// 「履歴から開く」のポップオーバー(左端の下三角のボタン。型コメント)。
     @State private var isShowingRecentBooks = false
     @State private var librarySheet: LibrarySheet?
     @State private var deletingLibraryID: UUID?
@@ -95,15 +102,19 @@ struct WelcomeTopBar: View {
     var body: some View {
         HStack(spacing: 8) {
             // いちばん左は「直前の本へ戻る」(2026-09-28、利用者の要望。このタブで直前に開いていた本へ戻る。一度も開いていなければ
-            // 淡色)。すぐ右のボタン(既定ではファイルブラウザ)とは役割が違うので区切る。
-            HomeLastBookButton()
+            // 淡色)と、そのすぐ右の「履歴から開く」(型コメント)。組に見えるよう隙間は 2pt。
+            // 右のボタン(既定ではファイルブラウザ)とは役割が違うので区切る。
+            HStack(spacing: 2) {
+                HomeLastBookButton()
+                historyDropdownButton
+            }
             WelcomeSeparator(axis: .vertical, length: 20)
-            // 環境設定「ファイルブラウザを有効にする」がOFFの間は、切り替えのボタンと区切りを出さない
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は、切り替えのボタンの代わりに「本を開く…」
             // (ファイルブラウザを足す前の帯の形。2026-09-21、ユーザー要望)。
             if state.isFileBrowserFeatureEnabled {
                 fileBrowserToggle
             } else {
-                openButtons
+                openButton
             }
             // スマートライブラリ(2026-09-21、利用者の指示: ファイルブラウザとライブラリの間)。ファイルブラウザ(または本を開く
             // 2 つの入り口)とも役割が違うので区切る(2026-09-22、利用者の指示)。環境設定で OFF なら出さない(2026-09-22)。
@@ -227,13 +238,42 @@ struct WelcomeTopBar: View {
         .accessibilityAddTraits(isShowing ? .isSelected : [])
     }
 
-    /// 「本を開く…」「履歴から開く」(型コメント「左端の2つのボタン」)。
+    /// 「履歴から開く」(型コメント)。「直前の本へ戻る」と同じチップの地で、幅は記号ぶんだけの細いボタン。
+    /// 記号は `Text` に埋め込んで左の三角と高さを揃える(`newLibraryButton` と同じ理由)。地がほぼ無いので輪郭を掛ける
+    /// (すりガラス面の決まりごと)。淡色は左の三角と同じく自分で薄くする。
+    private var historyDropdownButton: some View {
+        // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
+        let isEnabled = !appState.isPrivateWindow
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        return Button {
+            isShowingRecentBooks = true
+        } label: {
+            Text(Image(systemName: "clock.arrow.circlepath"))
+                .font(.callout)
+                .panelOutlinedContent()
+                .padding(.horizontal, 5)
+                // 縦は左の三角(本文の行の高さ)に合わせる。
+                .frame(height: 20)
+                .background(shape.fill(Color.primary.opacity(0.07)))
+                .foregroundStyle(Color.primary)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
+        .help("Open from History")
+        .accessibilityLabel(Text("Open from History"))
+        .popover(isPresented: $isShowingRecentBooks, arrowEdge: .bottom) {
+            RecentBooksPopover()
+        }
+    }
+
+    /// 「本を開く…」(型コメント。ファイルブラウザ OFF の間だけ)。
     ///
     /// **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`だと、与えた幅はレイアウト上の枠にしか効かず、
     /// 実際に描かれるベゼルは文字列の長さのまま枠の中央に置かれる(実測: 「本を開く…」82pt / 「履歴から開く」96pt)。
-    /// ラベル側を同じ幅にすれば、ベゼルもその幅+左右のインセットで揃う(同じ役割の並びなので幅を揃える)。
-    @ViewBuilder
-    private var openButtons: some View {
+    /// ラベル側に幅を与えれば、ベゼルもその幅+左右のインセットになる(チップと同じ刻み)。
+    private var openButton: some View {
         Button {
             appState.openWithPanel()
         } label: {
@@ -241,18 +281,6 @@ struct WelcomeTopBar: View {
         }
         .panelControlWell()
         .accessibilityLabel(Text("Open Book…"))
-        Button {
-            isShowingRecentBooks = true
-        } label: {
-            Text("Open from History").panelOutlinedContent().frame(width: chipLabelWidth)
-        }
-        .panelControlWell()
-        .accessibilityLabel(Text("Open from History"))
-        // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
-        .disabled(appState.isPrivateWindow)
-        .popover(isPresented: $isShowingRecentBooks, arrowEdge: .bottom) {
-            RecentBooksPopover()
-        }
     }
 
     @ViewBuilder

@@ -108,6 +108,12 @@ struct FileBrowserSettingsView: View {
                     isOn: $preferences.fileBrowserTreeFollowsListSort,
                     help: "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home Folder and your favorite locations keep their order. When this is off, subfolders are sorted by name."
                 )
+                // Finder のサイドバーの「最近の項目」(2026-09-28、利用者の要望。既定 OFF)。
+                SettingsToggle(
+                    "Show Recents at the Top of the Tree",
+                    isOn: $preferences.fileBrowserShowsRecents,
+                    help: "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows."
+                )
             } header: {
                 Text("Tree")
             }

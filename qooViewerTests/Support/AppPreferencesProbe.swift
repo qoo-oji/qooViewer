@@ -83,6 +83,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserExternalDropAction = otherCase(p.fileBrowserExternalDropAction)
     p.fileBrowserExpandsTreeToCurrentFolder.toggle()
     p.fileBrowserTreeFollowsListSort.toggle()
+    p.fileBrowserShowsRecents.toggle()
     p.fileBrowserCompressionFormat = otherCase(p.fileBrowserCompressionFormat)
     p.fileBrowserRevealDestination = otherCase(p.fileBrowserRevealDestination)
     p.fileBrowserVideoThumbnailsEnabled.toggle()

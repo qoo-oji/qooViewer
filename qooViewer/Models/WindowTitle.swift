@@ -24,6 +24,15 @@ nonisolated enum WindowTitle {
         return folder.path == "/" ? startupVolumeName : folder.lastPathComponent
     }
 
+    /// ファイルブラウザのいまの場所の名前(`folderName` に「最近の項目」を足したもの。FileBrowserLocation)。
+    static func locationName(
+        _ location: FileBrowserLocation, computerTitle: String, recentsTitle: String,
+        startupVolumeName: String = startupVolumeName
+    ) -> String {
+        if location.isRecents { return recentsTitle }
+        return folderName(location.folder, computerTitle: computerTitle, startupVolumeName: startupVolumeName)
+    }
+
     /// 本を開いていないウインドウのタイトル。名前が引けない(ライブラリがまだ無い一瞬など)ときはアプリ名。
     static func welcome(
         mode: WelcomeMode, folderName: String, libraryName: String?, collectionName: String?,

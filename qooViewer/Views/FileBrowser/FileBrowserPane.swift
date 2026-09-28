@@ -69,6 +69,8 @@ struct FileBrowserPane: View {
                 allowsEditingFavorites: !appState.isPrivateWindow,
                 expandsToCurrentFolder: preferences.fileBrowserExpandsTreeToCurrentFolder,
                 childSort: preferences.fileBrowserTreeFollowsListSort ? state.sort : FileBrowserTreeView.nameSort,
+                // シークレットウインドウでは履歴を見せない(AppState.isPrivateWindow)ので、最近の項目も出さない。
+                showsRecents: preferences.fileBrowserShowsRecents && !appState.isPrivateWindow,
                 wheelScrollRows: appearance.homeListWheelScrollRows
             )
             .frame(width: treeWidth)
@@ -101,6 +103,8 @@ struct FileBrowserPane: View {
                 FileBrowserPathBar(
                     folder: state.currentFolder,
                     computerTitle: String(localized: "Computer", language: locale),
+                    isRecents: state.isShowingRecents,
+                    recentsTitle: String(localized: "Recents", language: locale),
                     actions: actions,
                     onNavigate: { [weak state] folder in state?.navigate(to: folder) }
                 )
@@ -250,10 +254,13 @@ struct FileBrowserPane: View {
         .padding(.vertical, 8)
     }
 
-    /// いまのフォルダの名前(コンピュータなら「コンピュータ」)。すりガラス面に直に置く文字なので輪郭を掛ける。
+    /// いまの場所の名前(コンピュータなら「コンピュータ」、最近の項目なら「最近の項目」)。すりガラス面に直に置く文字なので輪郭を掛ける。
     private var folderTitle: some View {
-        // 名前の決め方はウインドウのタイトルと共有する(WindowTitle.folderName)。
-        Text(WindowTitle.folderName(state.currentFolder, computerTitle: String(localized: "Computer", language: locale)))
+        // 名前の決め方はウインドウのタイトルと共有する(WindowTitle.locationName)。
+        Text(WindowTitle.locationName(
+            state.location, computerTitle: String(localized: "Computer", language: locale),
+            recentsTitle: String(localized: "Recents", language: locale)
+        ))
             .font(.system(size: 13, weight: .semibold))
             .lineLimit(1)
             .truncationMode(.middle)
@@ -323,6 +330,8 @@ struct FileBrowserPane: View {
                     Group {
                         if !state.filterText.isEmpty {
                             WelcomeNoMatchesMessage(textKey: "No items match your search.")
+                        } else if state.isShowingRecents {
+                            FileBrowserMessage(systemImage: "clock", textKey: "No books have been opened yet.")
                         } else {
                             FileBrowserMessage(systemImage: "folder", textKey: "This folder is empty.")
                         }

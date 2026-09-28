@@ -193,10 +193,13 @@ smart library, never in the file browser). Edit mode no longer changes clicks: i
 create/add — and a drop on a tile adds to that collection), shows the select-all/trash buttons and the delete items, and the
 header rename; creating/adding/renaming are not gated on it (the user kept edit mode on purpose: without it, people who drop
 to open would lose drop-to-create). **「直前の本へ戻る」** (2026-09-28): the leftmost item of every Home top bar (and the top-left of the classic screen) reopens the book this
-tab last opened, from `AppState.lastOpenedBook` — a per-window, in-memory record (never written to disk, so private windows have it too);
+tab last opened, and a narrow `clock.arrow.circlepath` button right next to it drops down the history (`RecentBooksPopover`; the only history button on the bar since 2026-09-28), from `AppState.lastOpenedBook` — a per-window, in-memory record (never written to disk, so private windows have it too);
 with no top bar and only the file browser, `WelcomeView`'s onAppear instead makes the browser select that book, but only after `closeBook`
 (`AppState.takeLastBookForHomeSelection`), never after a failed load. The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
-`FileBrowserState` one-per-window — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list, tree and icons are AppKit (`NSTableView`/`NSOutlineView`/`NSCollectionView` — the icon view was moved off SwiftUI on 2026-09-15 so all three share the same drop, menu, key and rename paths), listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
+`FileBrowserState` one-per-window — its place is a `FileBrowserLocation` (computer / recents / folder; `currentFolder` stays nil for the
+first two, so everything that refuses writes for "no real folder" covers both); the tree's optional first row **「最近の項目」**
+(`fileBrowserShowsRecents`, default OFF, hidden in private windows) lists `RecentFilesStore.entries` newest-first and ignores the sort,
+2026-09-28 — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list, tree and icons are AppKit (`NSTableView`/`NSOutlineView`/`NSCollectionView` — the icon view was moved off SwiftUI on 2026-09-15 so all three share the same drop, menu, key and rename paths), listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
 `FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on — or the file browser feature is off —
@@ -309,8 +312,8 @@ together pick the Home layout in one place, `WelcomeLibraryState.constrained(_:l
 feature's mode is never shown (fallback order shelf → browser → smart), all three off = `WelcomeMode.classic`, the
 pre-bookshelf welcome screen restored as `ClassicWelcomeView` (and no Home menu; the side panel is shown there without a
 book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`). The top bar shows only with the library or the smart
-library on (`showsTopBar`); with the file browser off its left end is Open Book… / Open from History (v1.50–v1.56), with the
-library off the chips and ＋ go. Top-bar buttons and Home-menu toggles go through `selectMode` (pressing the current mode's
+library on (`showsTopBar`); with the file browser off, the toggle's place is taken by Open Book… alone (the v1.50–v1.56 Open from History
+button was folded into the history button next to 「直前の本へ戻る」 on 2026-09-28), with the library off the chips and ＋ go. Top-bar buttons and Home-menu toggles go through `selectMode` (pressing the current mode's
 button keeps it — until 2026-09-23 it went to another enabled mode, which the user found wrong; the shelf is reached by a library chip). `.classic` is never a user choice; a mode forced by a flag change is not saved, one
 the user picks is (even while some feature is off). The 8 combinations are tabled in docs/plans/feature-toggle-audit.md and
 run by `LibraryFeatureToggleTests.everyCombinationOfTheThreeFlags`. New file

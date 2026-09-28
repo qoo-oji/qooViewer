@@ -62,6 +62,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
         static let fileBrowserTreeFollowsListSort = "qooViewer.pref.fileBrowser.treeFollowsListSort"
+        static let fileBrowserShowsRecents = "qooViewer.pref.fileBrowser.showsRecents"
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
@@ -534,6 +535,13 @@ final class AppPreferences: ObservableObject {
     /// 型コメント「子の並び」。
     @Published var fileBrowserTreeFollowsListSort: Bool {
         didSet { defaults.set(fileBrowserTreeFollowsListSort, forKey: Keys.fileBrowserTreeFollowsListSort) }
+    }
+    /// 左のツリーの先頭に Finder の「最近の項目」にあたる行を出すか(既定 OFF。2026-09-28、利用者の要望)。選ぶと右ペインに
+    /// このアプリで最近開いた本(ファイルメニューの「最近使った項目を開く」と同じ一覧)が新しい順に並ぶ。帯の無い
+    /// ファイルブラウザだけのホームには履歴のボタンが無いので、そこから履歴を見る手段として置く。シークレットウインドウでは
+    /// 設定に関わらず出さない(履歴を見せない約束)。`FileBrowserLocation.recents`。
+    @Published var fileBrowserShowsRecents: Bool {
+        didSet { defaults.set(fileBrowserShowsRecents, forKey: Keys.fileBrowserShowsRecents) }
     }
     /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
     @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
@@ -1359,6 +1367,7 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.fileBrowserExpandsTreeToCurrentFolder) as? Bool ?? false
         self.fileBrowserTreeFollowsListSort =
             defaults.object(forKey: Keys.fileBrowserTreeFollowsListSort) as? Bool ?? false
+        self.fileBrowserShowsRecents = defaults.object(forKey: Keys.fileBrowserShowsRecents) as? Bool ?? false
         self.fileBrowserVideoThumbnailsEnabled =
             defaults.object(forKey: Keys.fileBrowserVideoThumbnailsEnabled) as? Bool ?? true
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
@@ -1621,6 +1630,7 @@ extension AppPreferences {
                 Keys.fileBrowserExternalDropAction,
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
                 Keys.fileBrowserTreeFollowsListSort,
+                Keys.fileBrowserShowsRecents,
                 Keys.fileBrowserCompressionFormat,
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
@@ -1754,6 +1764,7 @@ extension AppPreferences {
             fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
             fileBrowserTreeFollowsListSort = source.fileBrowserTreeFollowsListSort
+            fileBrowserShowsRecents = source.fileBrowserShowsRecents
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination

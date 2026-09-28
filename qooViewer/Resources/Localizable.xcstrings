@@ -19118,6 +19118,22 @@
         }
       }
     },
+    "No books have been opened yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No books have been opened yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだ本を開いていません。"
+          }
+        }
+      }
+    },
     "No items match your search." : {
       "localizations" : {
         "en" : {
@@ -22875,6 +22891,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴の保存件数"
+          }
+        }
+      }
+    },
+    "Recents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recents"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近の項目"
           }
         }
       }
@@ -26868,6 +26900,22 @@
         }
       }
     },
+    "Show Recents at the Top of the Tree" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Recents at the Top of the Tree"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツリーの先頭に「最近の項目」を表示"
+          }
+        }
+      }
+    },
     "Sort Subfolders Like the List" : {
       "localizations" : {
         "en" : {
@@ -27454,6 +27502,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "計測を停止"
+          }
+        }
+      }
+    },
+    "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左のツリーの「ボリューム」の上に「最近の項目」を加えます。qooViewer で開いた本が新しい順に並びます(メニューバー「ファイル」の「最近使った項目を開く」と同じ一覧)。履歴のボタンが無いホームからも、開いた本へ戻れます。シークレットウインドウでは表示しません。"
           }
         }
       }

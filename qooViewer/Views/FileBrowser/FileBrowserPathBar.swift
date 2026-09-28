@@ -16,9 +16,12 @@ import SwiftUI
 /// 「コンピュータ」の上は断る。`NSPathControl`の delegate のドロップは**コントロール全体**に対するもの
 /// (編集できるパスバーの「パスを差し替える」)なので使わず、`FileBrowserPathControl`が自分で受ける。
 struct FileBrowserPathBar: NSViewRepresentable {
-    /// 表示しているフォルダ。nil はコンピュータ。
+    /// 表示しているフォルダ。nil はコンピュータ(または、`isRecents` のとき最近の項目)。
     let folder: URL?
     let computerTitle: String
+    /// 「最近の項目」を表示している(FileBrowserLocation の型コメント)。成分は「最近の項目」の 1 つだけで、押しても何もしない。
+    var isRecents = false
+    var recentsTitle = ""
     let actions: FileBrowserActions
     /// 成分をクリックした(nil はコンピュータ)。
     let onNavigate: (URL?) -> Void
@@ -38,7 +41,7 @@ struct FileBrowserPathBar: NSViewRepresentable {
         control.action = #selector(Coordinator.handleClick(_:))
         control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         context.coordinator.onNavigate = onNavigate
-        context.coordinator.apply(folder: folder, computerTitle: computerTitle, to: control)
+        context.coordinator.apply(folder: folder, computerTitle: computerTitle, isRecents: isRecents, recentsTitle: recentsTitle, to: control)
         control.registerForDraggedTypes([.fileURL])
         control.dropCoordinator = context.coordinator
         context.coordinator.actions = actions
@@ -48,7 +51,7 @@ struct FileBrowserPathBar: NSViewRepresentable {
     func updateNSView(_ control: NSPathControl, context: Context) {
         context.coordinator.onNavigate = onNavigate
         context.coordinator.actions = actions
-        context.coordinator.apply(folder: folder, computerTitle: computerTitle, to: control)
+        context.coordinator.apply(folder: folder, computerTitle: computerTitle, isRecents: isRecents, recentsTitle: recentsTitle, to: control)
     }
 
     static func dismantleNSView(_ control: NSPathControl, coordinator: Coordinator) {
@@ -67,10 +70,19 @@ struct FileBrowserPathBar: NSViewRepresentable {
         private var destinations: [URL?] = []
         private var appliedKey: String?
 
-        func apply(folder: URL?, computerTitle: String, to control: NSPathControl) {
-            let key = (folder?.path ?? "") + "\u{0}" + computerTitle
+        func apply(folder: URL?, computerTitle: String, isRecents: Bool = false, recentsTitle: String = "", to control: NSPathControl) {
+            let key = (isRecents ? FileBrowserLocation.recentsSelectionKey : folder?.path ?? "") + "\u{0}" + computerTitle + "\u{0}" + recentsTitle
             guard key != appliedKey else { return }
             appliedKey = key
+            if isRecents {
+                // 最近の項目は実フォルダではないので、パスの成分は無い。押す先も落とす先も無い(destinations を空にする)。
+                destinations = []
+                let recents = NSPathControlItem()
+                recents.title = recentsTitle
+                recents.image = FileBrowserIconProvider.recentsIcon
+                control.pathItems = [recents]
+                return
+            }
             let components = Self.components(of: folder)
             destinations = [nil] + components.map(\.url)
             var items: [NSPathControlItem] = []
