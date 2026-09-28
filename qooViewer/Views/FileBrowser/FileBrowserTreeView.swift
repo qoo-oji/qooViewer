@@ -54,8 +54,11 @@ import SwiftUI
 /// **読み直さずに**読み込み済みの子を並べ直す(同じ Node を使い回すので、開いている孫の行は閉じない)。
 ///
 /// ■ ドラッグ&ドロップ(段階4b)
-/// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。行の間へ落とそうとしたら、
-/// その行の親のフォルダの上へ落とす形に直す(グループの見出しの中なら断る)。掴んで運べるのは
+/// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。`NSOutlineView` が「行の間」と判定したとき
+/// (行の境目の数ポイント)は、**カーソルの真下にある行の上へ落とす形に直す**(グループの見出しなら断る)。
+/// 2026-09-28 までは「その行の親のフォルダの上」に直していたので、サブフォルダの行の境目を通るたびに強調が親へ
+/// 飛び、狙った行に落としたつもりが親へ入った(ユーザー報告)。Finder のサイドバーと同じく、行の間という状態は無い。
+/// 掴んで運べるのは
 /// **ふつうのフォルダの行だけ** ―― ボリューム・ホーム・よく使う項目の行を動かすと、ツリーの根そのものが
 /// 消える(よく使う項目は登録したパスを失う)。
 ///
@@ -1025,11 +1028,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outlineView.setDropItem(favoritesGroup, dropChildIndex: destination)
                 return .move
             }
-            guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return [] }
+            guard let actions else { return [] }
+            var target = item as? Node
             if index != NSOutlineViewDropOnItemIndex {
-                // 行の間 → その親の行の上へ(型コメント)。
+                // 行の間 → カーソルの真下の行の上へ(型コメント)。提案された item は境目の「親」なので使わない。
+                guard let node = rowNode(under: info, in: outlineView) else { return [] }
+                target = node
                 outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
             }
+            guard let node = target, !node.isGroup, let url = node.url else { return [] }
             let (decision, _) = actions.dropDecision(for: info, into: url)
             // 「ビューアで開く」の設定では、その行のフォルダへは入れない(開く)ので行を強調しない(2026-09-27。一覧と同じ)。
             if case .openInViewer = decision {
@@ -1051,6 +1058,20 @@ struct FileBrowserTreeView: NSViewRepresentable {
             let (decision, urls) = actions.dropDecision(for: info, into: url)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted
+        }
+
+        /// ドラッグのカーソルの真下にある行のノード。行の間(`intercellSpacing` の隙間)なら上の行。どの行の上でもなければ nil。
+        /// `NSOutlineView` の「行の間」の提案(`proposedChildIndex != NSOutlineViewDropOnItemIndex`)は境目の数ポイントで出るので、
+        /// 提案された親の代わりにこれを受け口にする(型コメント「ドラッグ&ドロップ」)。
+        private func rowNode(under info: NSDraggingInfo, in outlineView: NSOutlineView) -> Node? {
+            let point = outlineView.convert(info.draggingLocation, from: nil)
+            var row = outlineView.row(at: point)
+            if row < 0 {
+                // 行と行の隙間(座標は上から下へ増える)。すぐ上の行にする。
+                row = outlineView.row(at: NSPoint(x: point.x, y: point.y - outlineView.intercellSpacing.height))
+            }
+            guard row >= 0 else { return nil }
+            return outlineView.item(atRow: row) as? Node
         }
 
         /// このツリーから始まった、よく使う項目の並べ替えのドラッグなら、その項目の id(型コメント)。
