@@ -549,20 +549,23 @@ struct FileBrowserListView: NSViewRepresentable {
             return cell
         }
 
-        /// 名前の列のアイコン。アプリケーションは、読めていればそのアプリのアイコン、まだなら種類のアイコンを出して
-        /// 読み終わったら差し替える(FileBrowserApplicationIcon。2026-09-14、ユーザー要望)。読む場所の判断はアイコン表示と同じ。
+        /// 名前の列のアイコン。アプリケーション(と記号リンク・エイリアス)は、読めていればそのアプリ(先の項目)のアイコン、まだなら
+        /// 種類のアイコンを出して読み終わったら差し替える(FileBrowserSystemIcon。2026-09-14、ユーザー要望。リンクは 2026-09-29)。
+        /// 読む場所の判断はアイコン表示と同じ。
         private func icon(for entry: FileBrowserEntry) -> NSImage {
             let typeIcon = FileBrowserIconProvider.icon(for: entry)
-            guard FileBrowserApplicationIcon.isApplication(
-                name: entry.url.lastPathComponent, isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink
-            ) else { return typeIcon }
-            let icons = FileBrowserListApplicationIcons.shared
+            // 名前だけの判定を先に(マウント表を取るのはアプリ・リンクの行だけ)。
+            guard let kind = BookThumbnailer.kind(
+                forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder, isPackage: entry.isPackage,
+                isSymbolicLink: entry.isSymbolicLink, isAliasFile: entry.isAliasFile
+            ), kind == .application || kind == .alias else { return typeIcon }
+            let icons = FileBrowserListSystemIcons.shared
             if let cached = icons.cachedIcon(for: entry) { return cached }
             guard FileBrowserThumbnailProvider.kind(
                 for: entry, currentFolder: displayedFolder, mountTable: .current()
-            ) == .application else { return typeIcon }
+            ) == kind else { return typeIcon }
             let id = entry.id
-            icons.load(entry) { [weak self] image in
+            icons.load(entry, currentFolder: displayedFolder) { [weak self] image in
                 // 読んでいる間に一覧が変わっていてもよいように、行はパスで引き直す。見えていない行は作らない。
                 guard let self, let table = self.table, let row = self.entries.firstIndex(where: { $0.id == id }) else { return }
                 let column = table.column(withIdentifier: Column.name.identifier)

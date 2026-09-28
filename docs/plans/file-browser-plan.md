@@ -1678,7 +1678,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 - 環境設定「ファイルブラウザ」の「よく使う項目」のポップアップが右端に揃わなかった: macOS 26 の `.menuStyle(.button)` は枠を広げてもボタンが内容幅のまま
   枠の中央に置かれていた(検証アプリで実測)。`SettingsControls.PopUpWidth` の固定幅を右寄せに(全画面の `SettingsPickerRow(controlWidth:)` に効く)。
 - 日本語の文言: 「圧縮ファイルの形式」「動画のサムネイルを生成」「現在のフォルダまでツリーを自動で展開」(キーは英語のまま、`ja` だけ)。コードのコメントと docs/15 も追従。
-- アプリケーションのアイコン(リスト・アイコン表示): `FileBrowserApplicationIcon`、`BookThumbnailer.Kind.application`、`FileBrowserListApplicationIcons`(docs/15「アプリケーションのアイコン」)。
+- アプリケーションのアイコン(リスト・アイコン表示): `FileBrowserSystemIcon`(2026-09-29 に `FileBrowserApplicationIcon` から改名。記号リンク・エイリアスの先のアイコンも担う)、`BookThumbnailer.Kind.application` / `.alias`、`FileBrowserListSystemIcons`(docs/15「アプリケーションのアイコン」「記号リンクとエイリアスのアイコン」)。
 - よく使う項目のドラッグでの並べ替え: `FavoriteLocationStore.move(id:to:)`、`FileBrowserActions.moveFavoriteLocation`、ツリーの出し口・受け口(docs/15「ドラッグ&ドロップ」)。
 - 表紙: ユーザーは「登録済みの本で表紙を使う」実装を把握していなかっただけ(不具合ではない)。そのうえで**ファイルブラウザのメタデータの編集シートにカバーの面を出す**
   (ユーザーの選択「全ての本で出す」)。登録済みならコレクションと同じ面、未登録なら切らない面。提供役はコレクション表紙の指定(画像・ページ)を未登録の本にも使う

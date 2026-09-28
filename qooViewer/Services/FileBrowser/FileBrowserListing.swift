@@ -33,6 +33,9 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     /// 隠しファイル(名前が`.`で始まる・`UF_HIDDEN`)。「隠しファイルを表示」(⇧⌘.)にしているときだけ一覧に入り、
     /// Finder と同じく淡く描く(2026-09-27)。
     var isHidden = false
+    /// Finder のエイリアス(`isAliasFileKey`。OS は記号リンクにも true を返す)。記号リンクと同じく、アイコンは先の項目のもの
+    /// (`BookThumbnailer.Kind.alias`。2026-09-29)。ふつうのファイルとして扱う(コピー・削除・名前の変更は Finder と同じくファイル自身)。
+    var isAliasFile = false
 
     /// 選択・スクロール先の鍵。**末尾の`/`を持たないパス**(FileBrowserState.id(for:))。
     /// 列挙はフォルダのURLを末尾`/`付きで返し、外から渡されるURLは付いていないことが多いので、
@@ -105,7 +108,7 @@ nonisolated enum FileBrowserListing {
     /// 列挙と一緒に先読みさせるキー。**ここに無いキーを後から読むと、1件ごとの往復になる**
     /// (qooLibrary 実測)。種類(`localizedTypeDescription`)だけは拡張子ごとに1回で済むので含めない。
     static let resourceKeys: [URLResourceKey] = [
-        .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .localizedNameKey,
+        .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isAliasFileKey, .localizedNameKey,
         .totalFileSizeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isHiddenKey,
     ]
 
@@ -201,7 +204,8 @@ nonisolated enum FileBrowserListing {
             typeDescription: typeDescription(for: url, isDirectory: isDirectory, isPackage: isPackage, cache: &kindCache),
             creationDate: values?.creationDate,
             modificationDate: values?.contentModificationDate,
-            isHidden: values?.isHidden ?? url.lastPathComponent.hasPrefix(".")
+            isHidden: values?.isHidden ?? url.lastPathComponent.hasPrefix("."),
+            isAliasFile: values?.isAliasFile ?? false
         )
     }
 

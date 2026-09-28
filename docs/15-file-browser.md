@@ -1215,13 +1215,45 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 
 アプリケーションフォルダを開いてもアプリがすべて同じ汎用のアイコンで、見分けがつかなかった。`.app`(パッケージで記号リンクでないもの。名前だけで決める。
 `BookThumbnailer.Kind.application`)は、そのアプリのアイコンを `NSWorkspace.icon(forFile:)` で取り、**FileIO の上で**決まった画素数へ描き写してから
-(`FileBrowserApplicationIcon.render`。`NSImage` は描くときに遅れて中を読むので、画素にしてから持ち帰る)出す。
+(`FileBrowserSystemIcon.render`。`NSImage` は描くときに遅れて中を読むので、画素にしてから持ち帰る)出す。
 
 - アイコン表示: 提供役の段(128 / 256 / 512px)で作り、メモリの LRU に入れる。ディスクキャッシュには入れない(LaunchServices が覚えていて速く、
   アプリを入れ替えたときに古い絵を残さない)。ページ用の影は付けない。
-- リスト表示: 行の 16pt(32px)を `FileBrowserListApplicationIcons` が覚え、まず種類のアイコンを出して、読み終わったら見えている行だけ差し替える。
-- 読む場所: バンドルの中を読むので、フォルダの絵と同じくネットワーク越しと TCC の保護下の場所では読まない(`FileBrowserThumbnailProvider.kind(for:...)`)。
-  ツリーはフォルダだけなので関係しない。
+- リスト表示: 行の 16pt(32px)を `FileBrowserListSystemIcons` が覚え、まず種類のアイコンを出して、読み終わったら見えている行だけ差し替える。
+- 読む場所: バンドルの中を読むので、フォルダの絵と同じくネットワーク越しと TCC の保護下の場所では読まない(`FileBrowserThumbnailProvider.kind(for:...)` →
+  `DirectoryProbe.mayReadUnentered`)。ツリーはフォルダだけなので関係しない。
+
+### 記号リンクとエイリアスのアイコン(2026-09-29、ユーザー要望)
+
+記号リンクと Finder のエイリアスは自分の名前に拡張子が無いことが多く、種類だけで引くアイコンでは**白紙の書類**だった。Finder の「情報を見る」と
+同じく、**先の項目のアイコンに矢印のバッジを重ねたもの**を出す(`BookThumbnailer.Kind.alias`。一覧は `isAliasFileKey` も先読みして
+`FileBrowserEntry.isAliasFile` に持つ。OS は記号リンクにも true を返す)。アプリのアイコンと同じ経路(アイコン表示は提供役の段、リストは
+`FileBrowserListSystemIcons`、どちらもディスクキャッシュには入れない・影は付けない)。
+
+- **先の決め方**(`FileBrowserSystemIcon.aliasTarget`。FileIO の上)。2026-09-29 の実測: `NSWorkspace.icon(forFile:)` に記号リンクのパスを渡すと
+  先のアイコン+バッジになるが、Finder が作ったエイリアスは先がフォルダ・アプリのときしか解かれず、先がファイルなら白紙+バッジのまま
+  (エイリアス自身の名前で種類を引く)。そこでどちらも先のパスを**自分で、先に触らずに**決める ―― 記号リンクは `readlink` の値を字面で
+  絶対パスにする(`symbolicLinkTarget`。`standardizingPath` は `..` を実体で解こうとして先に触る)、エイリアスはブックマークデータに
+  記録されたパスを読む(`URL.resourceValues(forKeys:fromBookmarkData:)`)。記録されたパスに何も無いときだけブックマークを解く
+  (`.withoutUI` + `.withoutMounting`。同じボリュームの中をファイル ID で追う)。
+- **先を読んでよいか**は、フォルダの絵・アプリのアイコンと同じ規則 `DirectoryProbe.mayReadUnentered`(ネットワーク越し・TCC の保護下は
+  読まない。デスクトップ・書類・ダウンロードの中は、同じ場所の中を見ているときだけ)に、**繋がっていないボリューム**(`/Volumes/<名前>` が
+  マウント表に無い。触ると自動マウントや 30 秒の待ちになりうる)を足したもの。「見ているフォルダ」はセルが `kind(for:)` に渡したのと同じ
+  `displayedFolder`(提供役へ `currentFolder:` で渡す。「最近の項目」「コンピュータ」では nil なので保護下の先は読まない)。リンク自身が
+  ネットワーク越しなら `readlink` もしない(`kind(for:)` が nil)。
+- **途中の記号リンクも追う**(`followingSymbolicLinks`。レビュー 2026-09-29): 先のパスを段ごとに、上の規則で確かめてから lstat し、
+  記号リンクなら先(字面)に差し替えて先頭からやり直す(32 段まで。ループは諦める)。字面だけで見ると `~/nas → /Volumes/NAS` のような
+  ローカルのリンクを経由する先を「ローカル」と読み違え、`icon(forFile:)` が応答しない共有で待った。確かめる前に触る段は無い。
+  無い段に着いたら残りは字面のまま(先が無いだけ。`icon(forFile:)` は白紙を返す)。
+- **断ったものは失敗として覚えない**(`AliasIconOutcome.refused` と `.unavailable` の区別): 提供役の `failedKeys` にもリストの `failed` にも
+  入れない。後で共有が繋がる・利用者がその場所に入ることがあり、先には触っていないので頼み直しは安い(readlink と字面の判定だけ)。
+- **バッジ**は公開 API に無いので CoreTypes の `AliasBadgeIcon.icns`(システムのバンドルの中の 1 ファイル)を読む
+  (`FileBrowserSystemIcon.aliasBadge`。Icon Services の `kAliasBadgeIcon` を `icon(forFileType:)` で引くと、バッジではなく矢印だけの
+  大きな絵が返った)。無ければ先のアイコンだけ。
+- **読み終わるまで・先を読まない場所**では、種類のアイコン(リンク自身の名前の拡張子。無ければ白紙)にバッジを重ねたものを出す
+  (`FileBrowserIconProvider.aliasIcon`。バッジは起動中 1 回だけ読む)。「種類だけで引く」約束の唯一の例外で、触るのはシステムの絵 1 枚。
+- 先が無い(壊れたリンク)ときは LaunchServices が返す白紙+バッジ(Finder と同じ)。記号リンクの `.app` も `.alias`(先のアプリのアイコン+バッジ)。
+  リンクの中の絵(先が本でも)は作らない ―― 先の場所の読み取りの許可を持っているとは限らない。
 
 ### 動画(段階 7b、2026-09-14)
 
@@ -1326,7 +1358,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | 一覧は子フォルダの中を見ない。パッケージの中へは降りない(写真ライブラリの確認も出ない) | `FileBrowserListing`(→「一覧の読み込み」) |
 | 自分から中を読む部品は、TCC の保護下の場所を**パスの文字列だけで**除外し、ネットワーク越しの場所を**マウント表で**除外する | 三角 `DirectoryProbe.protectedPrefixes`、絵 `FileBrowserThumbnailProvider`(同じ保護下の場所の中を見ているときだけ `categoryProtectedPrefixes` を読む)、動画の先回り `FileBrowserVideoThumbnailWarmer`(よく使う項目そのものがその中にあるときだけ辿る) |
 | 画像フォルダかどうか(右クリックの「開く」・新しいタブで開く・メタデータの編集・ダブルクリックで開く)は、直下と子フォルダの直下の名前だけを見て、保護下の子フォルダは同じ保護下の場所の中から見ているときだけ読む。`DirectoryBrowser` の一覧(コレクションの作成・本棚へのドロップ・サイドパネル)も同じ規則で子フォルダの中を読む。比べるパスは `/System/Volumes/Data` の頭を外して揃える(2 回目の監査 15・23。以前は `ShelfFolderResolver.role` がホームで「書類」などの中まで読んだ) | `ShelfFolderResolver.isSingleBookFolder` / `DirectoryProbe.mayReadChild` |
-| アイコンは種類だけで引く。`NSWorkspace.icon(forFile:)` と `NSPathControl.url` を使わない | `FileBrowserIconProvider` / `FileBrowserPathBar`(→「AppKit とすりガラス面」) |
+| アイコンは種類だけで引く。`NSWorkspace.icon(forFile:)` と `NSPathControl.url` を使わない。例外はアプリと記号リンク・エイリアスの先で、FileIO の上で、読んでよい場所だけ(→「アプリケーションのアイコン」「記号リンクとエイリアスのアイコン」) | `FileBrowserIconProvider` / `FileBrowserPathBar`(→「AppKit とすりガラス面」)/ `FileBrowserSystemIcon` |
 | 追い出されたファイル(`SF_DATALESS`)は絵を作らず、読み取りはスレッド単位で実体化を切る | `DatalessFiles.withoutDownloading`(→「サムネイル」) |
 | 「このアプリケーションで開く」の候補はファイルに触らず種類(`UTType`)で引く | `OpenWithApplications` |
 | FSEvents は許可なしで届くが、ネットワーク上の場所は見張らない | `FileBrowserState` / `FileBrowserTreeView`(→「一覧の読み込み」「ツリーの三角」) |
@@ -1408,7 +1440,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | `ReplaceBackupJournalTests`(FileOperations) | 起動時の復旧(戻す・上書きしない・再試行・片付いていた・壊れた記録)、置き換えの最中は記録があり成功・中止で消えること、ロックされた宛先を置き換えないこと、知らせる内容 |
 | `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
 | `FileBrowserTreePathTests` | ツリーを現在のフォルダまで開く道筋(いちばん深い根、`/` の直下、根そのもの、名前の途中までの一致を祖先にしない、同じ深さの根、1 段の探し方)。同じファイルの `FileBrowserTreeAndIconHitTests` は FSEvents のパスの頭の揃え方とアイコン表示の名前のクリックの範囲、リスト・ツリーの当たり先の確かめ直し(`resolvedHit`) |
-| `FileBrowserThumbnailTests` | 絵の種類の判定(パッケージ・記号リンク・保護下の場所・ネットワーク越しのフォルダ)、台帳の全書庫で選ぶエントリが 1 ページ目と一致、zip の除外と正準順、画像の無い・壊れた書庫、フォルダの直下だけ・隠しファイル、EPUB の spine の先頭と PDF の 1 ページ目、画像の縮小、透明な地の白、鍵(名前を変えても同じ・中身が変われば別)、ディスクキャッシュの往復と OFF で消えること、提供役のメモリ・ディスクの当たり・シークレットウインドウの頼みはディスクへ書かず読むだけ・作れなかった絵を覚える・同時の要求をまとめる・取り消し、段 |
+| `FileBrowserThumbnailTests` | 絵の種類の判定(パッケージ・記号リンクとエイリアスは先のアイコン・保護下の場所・ネットワーク越しのフォルダ)、記号リンクの先の字面の解決、先を読んでよい場所の規則(ネットワーク越し・繋がっていないボリューム・保護下・同じ保護下の中)、エイリアスの記録されたパスと動いた先の追跡、一覧のエイリアスの印、先のアイコン+バッジの描画と提供役の段、台帳の全書庫で選ぶエントリが 1 ページ目と一致、zip の除外と正準順、画像の無い・壊れた書庫、フォルダの直下だけ・隠しファイル、EPUB の spine の先頭と PDF の 1 ページ目、画像の縮小、透明な地の白、鍵(名前を変えても同じ・中身が変われば別)、ディスクキャッシュの往復と OFF で消えること、提供役のメモリ・ディスクの当たり・シークレットウインドウの頼みはディスクへ書かず読むだけ・作れなかった絵を覚える・同時の要求をまとめる・取り消し、段 |
 | `FileBrowserVideoThumbnailTests` | 動画(段階 7b): コンテナの見分け方(qooLibrary の実機の先頭バイト列)・宣言し直す型と `dyn.` の型を弾くこと、Matroska の寸法と壊れた・巨大な大きさの細工で落ちないこと、作り方の並び(QuickLook → 再タグ付け)、動画の種類と環境設定、提供役(作ってディスクへ・別の提供役はディスクから・作れなければ覚える・環境設定を写す)、先に作る役(サブフォルダまで・作り済みを飛ばす・3 回失敗した拡張子を諦める/1 度でも成功したら諦めない・ネットワーク越しと途中のマウント・実体の無いファイル・隠しフォルダ・保護下の場所・入れ子の重複・OFF・止めたら残りへ進まない)。QuickLook と VideoToolbox の実物は使わない(入っている拡張と実物の動画しだい) |
 | `FileBrowserIntegrationTests` | ⌥ で入れ替わる項目(元の項目のすぐ後ろ・並びの定義に載せない)、パス名をコピー、常にこのアプリケーションで開く(書けた項目だけ開く・知らせる・読み取り専用)。段階 8: ウインドウのタイトルの決め方、画像フォルダをダブルクリック / 右クリックの「開く」で開くときの設定との対応、AppKit のメニューに組んだ項目の action が NSObject のメソッドを指さないこと、「本ではありません」の説明の出し分け、「ファイルブラウザで表示」の出す場所と見せるもの、新しいウインドウへ選ぶ項目を渡す往復、出ていないときの予約と出たときの選択、本を開いていないウインドウのモード切替、右クリック 5 項目の淡色(シークレット・画像ファイル・複数選択)、サブメニューの中身、コレクションの作成(振り分けと本が無いときの報告)・登録(棚の展開と重複)、シークレットで書かないこと、メタデータの画像フォルダの判定、「このアプリケーションで開く」の候補の並べ方と覚え方の鍵、読み取り専用モードで淡色になる右クリックの項目とキーの操作 |
 | `AutoRenameTests` | 自動リネームの名前の決め方(置き換えの大文字小文字・拡張子に掛けない・拡張子の丸ごとの置き換え・テキストの追加と既に付いているとき・順番・変え続ける規則・衝突と避けた名前・使えない名前)、対象の範囲、確認の印、JSON の往復、書き終わりの判定と Finder のコピー中の印 |

@@ -189,6 +189,11 @@ final class FileBrowserCellView: NSTableCellView {
 /// フォルダのカスタムアイコンを読みにデスクトップ・書類の中へ触れると**TCCのダイアログが出る**
 /// (検討メモ §3.3 の「勝手に出さない」)。種類のアイコンなら I/O が無い。フォルダのカスタムアイコンと
 /// アプリ固有のアイコンは出ない ―― 本と画像の中身の絵は段階7のサムネイルで出す。
+///
+/// 記号リンク・エイリアスは、自分の名前の種類のアイコンに矢印のバッジを重ねる(2026-09-29。それまでは拡張子の無い名前なので
+/// 白紙の書類だった)。先の項目のアイコンは `FileBrowserSystemIcon.renderAlias` が FileIO の上で作って差し替える ――
+/// ここに出るのは読み終わるまでの間と、先を読まない場所(ネットワーク越し・保護下)のもの。バッジは CoreTypes の絵
+/// (システムのバンドルの中の 1 ファイル。利用者の場所にもネットワークにも触らない)を 1 回だけ読む。
 @MainActor
 enum FileBrowserIconProvider {
     private static var cache: [String: NSImage] = [:]
@@ -208,11 +213,29 @@ enum FileBrowserIconProvider {
             type = UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 }
                 ?? (entry.isPackage ? .package : .data)
         }
+        if entry.isSymbolicLink || entry.isAliasFile { return aliasIcon(key: key, type: type) }
         if let cached = cache[key] { return cached }
         let image = NSWorkspace.shared.icon(for: type)
         cache[key] = image
         return image
     }
+
+    /// 種類のアイコンに矢印のバッジを重ねたもの(型コメント)。バッジが読めなければ種類のアイコンのまま。
+    private static func aliasIcon(key: String, type: UTType) -> NSImage {
+        let aliasKey = "alias." + key
+        if let cached = cache[aliasKey] { return cached }
+        let base = NSWorkspace.shared.icon(for: type)
+        let badge = aliasBadge
+        let image = NSImage(size: base.size, flipped: false) { rect in
+            base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            badge?.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        cache[aliasKey] = image
+        return image
+    }
+
+    private static let aliasBadge: NSImage? = FileBrowserSystemIcon.aliasBadge()
 
     static var folderIcon: NSImage {
         if let cached = cache["folder"] { return cached }

@@ -45,7 +45,8 @@ import UniformTypeIdentifiers
 /// `FileBrowserVideoThumbnailWarmer`(作ったものは同じディスクキャッシュに入り、ここはそれを読むだけ)。
 ///
 /// ■ アプリケーション(2026-09-14、ユーザー要望)
-/// `.app` は中の絵ではなく**アプリのアイコン**を `FileBrowserApplicationIcon` で段の大きさに描く。ディスクキャッシュには入れない。
+/// `.app` は中の絵ではなく**アプリのアイコン**を `FileBrowserSystemIcon` で段の大きさに描く。ディスクキャッシュには入れない。記号リンク・
+/// エイリアスは先の項目のアイコンに矢印のバッジを重ねたもの(`FileBrowserSystemIcon.renderAlias`。2026-09-29)、同じくディスクには入れない。
 /// 読む場所の判断(ネットワーク・TCC)はフォルダと同じ。
 ///
 /// ■ シークレットウインドウ(2026-09-14、ユーザー判断)
@@ -119,6 +120,8 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         /// 呼び出し側が知っている、項目のディスクキャッシュの鍵(`thumbnail(for:...knownKey:)`)。あれば項目の今の状態を
         /// 読みに行かない。
         var knownKey: FileBrowserThumbnailKey?
+        /// 利用者が見ているフォルダ(`thumbnail(for:...currentFolder:)`)。記号リンク・エイリアスの先を読んでよいかの判断に使う。
+        var currentFolder: URL?
 
         init(baseKey: String, memoryKey: String, source: Source, pixelSize: CGFloat, isRemote: Bool) {
             self.baseKey = baseKey
@@ -247,16 +250,22 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         guard !entry.isVolume,
               let kind = BookThumbnailer.kind(
                 forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
-                isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, includesVideo: includesVideo
+                isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, isAliasFile: entry.isAliasFile,
+                includesVideo: includesVideo
               )
         else { return nil }
-        // フォルダは中を、アプリケーションはバンドルの中(アイコン)を読むので、同じ場所の判断をする。
-        if kind == .folder || kind == .application {
+        switch kind {
+        case .folder, .application:
+            // フォルダは中を、アプリケーションはバンドルの中(アイコン)を読むので、同じ場所の判断をする。
+            guard DirectoryProbe.mayReadUnentered(
+                entry.url, from: currentFolder, mountTable: mountTable, prefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+            ) else { return nil }
+        case .alias:
+            // リンク自身を読む(readlink・エイリアスのファイル)ので、ネットワーク越しなら読まない。**先**を読んでよいかは、先を
+            // 決めた後に描く側が同じ規則で見る(`FileBrowserSystemIcon.renderAlias`)。
             if mountTable.isRemote(entry.url) { return nil }
-            if let prefix = DirectoryProbe.protectedPrefix(containing: entry.url, prefixes: protectedPrefixes) {
-                let current = currentFolder.flatMap { DirectoryProbe.protectedPrefix(containing: $0, prefixes: protectedPrefixes) }
-                guard categoryPrefixes.contains(prefix), current == prefix else { return nil }
-            }
+        default:
+            break
         }
         return kind
     }
@@ -270,9 +279,11 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     ///     記録した鍵 ―― 2026-09-22)。渡せば、キャッシュを引く前に項目を lstat しない。**ネットワークの本では 1 冊ごとに
     ///     サーバーとの往復だった**ので、保存した一覧を出した直後に表紙が 1 枚ずつ遅れて出た(つながっていなければ出なかった)。
     ///     古い鍵なら古い絵が出るだけで、呼び出し側が探し直して鍵を新しくすれば描き直される。
+    ///   - currentFolder: 利用者が見ているフォルダ(`kind(for:currentFolder:...)` に渡したもの)。記号リンク・エイリアスの先が
+    ///     デスクトップ等の中なら、同じ場所の中を見ているときだけ読む。nil(「最近の項目」「コンピュータ」)なら保護下の先は読まない。
     func thumbnail(
         for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat, savesToDisk: Bool = true,
-        knownKey: FileBrowserThumbnailKey? = nil
+        knownKey: FileBrowserThumbnailKey? = nil, currentFolder: URL? = nil
     ) async -> PagePixelBuffer? {
         let (baseKey, source) = resolveSource(for: entry, kind: kind)
         guard !failedKeys.contains(baseKey) else { return nil }
@@ -295,6 +306,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         }
         if savesToDisk { job.savesToDisk = true }
         if let knownKey, job.knownKey == nil { job.knownKey = knownKey }
+        if let currentFolder, job.currentFolder == nil { job.currentFolder = currentFolder }
         let waiterID = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<PagePixelBuffer?, Never>) in
@@ -339,7 +351,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private func resolveSource(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> (String, Source) {
         let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
         let itemKey = "item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)"
-        guard kind != .image, kind != .video, kind != .application else { return (itemKey, .item(entry.url, kind)) }
+        guard kind != .image, kind != .video, kind != .application, kind != .alias else { return (itemKey, .item(entry.url, kind)) }
         let items = isLibraryFeatureEnabled ? (collectionStore?.items(forBookID: entry.id) ?? []) : []
         if let collectionStore, let coverStore, let item = items.first(where: { $0.coverState == .ready }) {
             let revision = collectionStore.coverRevision(for: item)
@@ -458,13 +470,37 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             return made.1
 
         case .item(let url, .application):
-            // アプリのアイコン(FileBrowserApplicationIcon)。LaunchServices がアイコンを覚えているので速く、
+            // アプリのアイコン(FileBrowserSystemIcon)。LaunchServices がアイコンを覚えているので速く、
             // ディスクキャッシュには入れない(アプリを入れ替えたときに古い絵が残らないように)。
             generatedCount += 1
             let size = Int(pixelSize)
-            let pixels = await FileIO.perform { FileBrowserApplicationIcon.render(at: url, pixelSize: size) }
+            let pixels = await FileIO.perform { FileBrowserSystemIcon.render(at: url, pixelSize: size) }
             if pixels == nil { remember(failure: baseKey) }
             return pixels
+
+        case .item(let url, .alias):
+            // 記号リンク・エイリアスの先のアイコン+バッジ(FileBrowserSystemIcon.renderAlias)。アプリと同じくディスクには入れない
+            // (先を差し替えたら古い絵が残る)。先を読んでよいかは、`kind(for:)` がフォルダに使うのと同じ「見ているフォルダ」で判断する
+            // (セルが `currentFolder:` で渡す。リンクのあるフォルダで代用すると、「最近の項目」でデスクトップの中のリンクの先を、
+            // デスクトップに入っていないのに読んだ ―― レビュー 2026-09-29)。
+            generatedCount += 1
+            let size = Int(pixelSize)
+            let mountTable = MountTable.current()
+            let folder = job.currentFolder
+            let outcome = await FileIO.perform {
+                FileBrowserSystemIcon.renderAlias(at: url, currentFolder: folder, mountTable: mountTable, pixelSize: size)
+            }
+            switch outcome {
+            case .made(let pixels):
+                return pixels
+            case .unavailable:
+                remember(failure: baseKey)
+                return nil
+            case .refused:
+                // 場所の規則で先を読まなかった。失敗とは覚えない(後で共有が繋がる・その場所に入ることがある。先には触っていないので
+                // 頼み直しは安い)。
+                return nil
+            }
 
         case .item(let url, .video):
             let mountTable = MountTable.current()

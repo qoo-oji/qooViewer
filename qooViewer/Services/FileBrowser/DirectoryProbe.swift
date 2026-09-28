@@ -86,6 +86,24 @@ nonisolated enum DirectoryProbe {
         return protectedPrefix(containing: parent, prefixes: prefixes) == prefix
     }
 
+    /// 利用者が入っていないのに `url` の中(フォルダ・バンドル・リンクの先)を自分から読んでよいか。ファイルブラウザの絵・アプリの
+    /// アイコン・記号リンクとエイリアスの先の、共通の規則(段階 7a。2026-09-29 に `FileBrowserThumbnailProvider.kind(for:)` から
+    /// ここへ出した)。**ファイルシステムには触れない**(マウント表は先に取ってあるもの)。
+    /// - ネットワーク越しのボリューム(セルの数だけ往復する。ツリーの三角と同じ判断)は読まない。繋がっていないボリュームの
+    ///   判定はここではしない(一覧にある項目は繋がっている。リンクの先だけが問題で、`FileBrowserSystemIcon.aliasTarget` が見る)
+    /// - TCC の保護下の場所は読まない(ホームを開いただけで「デスクトップ」の中を読むと許可のダイアログが出る)。ただし
+    ///   デスクトップ・書類・ダウンロードの**中を見ている**ときの、同じ場所の中は読む(許可は場所ごとに済んでいる。
+    ///   `categoryProtectedPrefixes`)
+    static func mayReadUnentered(
+        _ url: URL, from currentFolder: URL?, mountTable: MountTable,
+        prefixes: [String] = protectedPrefixes, categoryPrefixes: Set<String> = categoryProtectedPrefixes
+    ) -> Bool {
+        if mountTable.isRemote(url) { return false }
+        guard let prefix = protectedPrefix(containing: url, prefixes: prefixes) else { return true }
+        let current = currentFolder.flatMap { protectedPrefix(containing: $0, prefixes: prefixes) }
+        return categoryPrefixes.contains(prefix) && current == prefix
+    }
+
     /// 比べる形のパス。**起動ボリュームのデータ側の書き方(`FileBrowserState.dataVolumePrefix` を頭に付けたホーム)も頭を外して揃える**
     /// (2026-09-14 の 2 回目の監査 23。以前はその書き方のホームが保護下の一覧を素通りし、`/` をよく使う項目に登録すると
     /// 動画の先読み役が保護下へ入った)。

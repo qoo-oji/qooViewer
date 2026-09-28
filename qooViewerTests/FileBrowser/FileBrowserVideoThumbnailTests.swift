@@ -143,7 +143,8 @@ struct FileBrowserVideoThumbnailTests {
         #expect(BookThumbnailer.kind(
             forName: "clip.mp4", isNavigableFolder: false, isPackage: false, isSymbolicLink: false, includesVideo: false
         ) == nil)
-        #expect(BookThumbnailer.kind(forName: "clip.mp4", isNavigableFolder: false, isPackage: false, isSymbolicLink: true) == nil)
+        // 記号リンクは動画でも先のアイコン(2026-09-29)。
+        #expect(BookThumbnailer.kind(forName: "clip.mp4", isNavigableFolder: false, isPackage: false, isSymbolicLink: true) == .alias)
         #expect(VideoThumbnailer.isVideoFile("song.mp3") == false)
         #expect(VideoThumbnailer.isVideoFile("noextension") == false)
         #expect(BookThumbnailer.thumbnail(of: URL(fileURLWithPath: "/nonexistent/clip.mp4"), kind: .video, maxPixelSize: 64) == nil)

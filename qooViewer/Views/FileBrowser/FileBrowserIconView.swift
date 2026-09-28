@@ -489,7 +489,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             item.requestThumbnail(
                 entry: entry, kind: kind, iconSize: iconSize,
                 sourceKey: kind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? "",
-                provider: thumbnails, savesToDisk: !isPrivate
+                provider: thumbnails, savesToDisk: !isPrivate, currentFolder: displayedFolder
             )
         }
 
@@ -1185,7 +1185,7 @@ final class FileBrowserIconItem: NSCollectionViewItem {
     /// 絵を頼む。持っている絵は新しい絵が届くまで手放さない(別の項目になったときだけ捨てる)。小さくする方向では読み直さない。
     func requestThumbnail(
         entry: FileBrowserEntry, kind: BookThumbnailer.Kind?, iconSize: CGFloat, sourceKey: String,
-        provider: FileBrowserThumbnailProvider, savesToDisk: Bool
+        provider: FileBrowserThumbnailProvider, savesToDisk: Bool, currentFolder: URL?
     ) {
         if loadedEntryID != entry.id {
             thumbnailTask?.cancel()
@@ -1230,7 +1230,9 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         requestedKey = request
         thumbnailTask?.cancel()
         thumbnailTask = Task { [weak self] in
-            let buffer = await provider.thumbnail(for: entry, kind: kind, pixelSize: tier, savesToDisk: savesToDisk)
+            let buffer = await provider.thumbnail(
+                for: entry, kind: kind, pixelSize: tier, savesToDisk: savesToDisk, currentFolder: currentFolder
+            )
             guard !Task.isCancelled, let self, self.requestedKey == request else { return }
             self.thumbnailTask = nil
             self.requestedKey = ""
@@ -1401,7 +1403,7 @@ final class FileBrowserIconCellView: NSView {
 
         let iconRect = box.insetBy(dx: 4, dy: 4)
         if let thumbnail, let kind, kind != .folder {
-            drawThumbnail(thumbnail, in: iconRect, withShadow: kind != .application)
+            drawThumbnail(thumbnail, in: iconRect, withShadow: kind != .application && kind != .alias)
         } else {
             let icon = FileBrowserIconProvider.icon(for: entry)
             icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])

@@ -12,10 +12,10 @@ import Testing
 struct FileBrowserThumbnailTests {
     // MARK: - 種類
 
-    @Test("名前で種類を決める。パッケージ・記号リンクは作らない(アプリケーションだけはアイコンを描く)")
+    @Test("名前で種類を決める。パッケージは作らない(アプリケーションだけはアイコンを描く)。記号リンク・エイリアスは先のアイコン")
     func kindByName() {
-        func kind(_ name: String, folder: Bool = false, package: Bool = false, link: Bool = false) -> BookThumbnailer.Kind? {
-            BookThumbnailer.kind(forName: name, isNavigableFolder: folder, isPackage: package, isSymbolicLink: link)
+        func kind(_ name: String, folder: Bool = false, package: Bool = false, link: Bool = false, alias: Bool = false) -> BookThumbnailer.Kind? {
+            BookThumbnailer.kind(forName: name, isNavigableFolder: folder, isPackage: package, isSymbolicLink: link, isAliasFile: alias)
         }
         #expect(kind("a.JPG") == .image)
         #expect(kind("a.cbz") == .archive)
@@ -27,11 +27,16 @@ struct FileBrowserThumbnailTests {
         #expect(kind("a.txt") == nil)
         #expect(kind("Some.app", package: true) == .application)
         #expect(kind("Some.APP", package: true) == .application)
-        #expect(kind("Some.app", package: true, link: true) == nil)
+        // 記号リンクの .app は先のアプリのアイコン(バッジ付き)。
+        #expect(kind("Some.app", package: true, link: true) == .alias)
         #expect(kind("Some.bundle", package: true) == nil)
         // パッケージでない「.app」という名前のフォルダは、ふつうのフォルダ。
         #expect(kind("Some.app", folder: true) == .folder)
-        #expect(kind("a.jpg", link: true) == nil)
+        // 記号リンク・エイリアスは中の絵ではなく先のアイコン(名前に関わらず)。
+        #expect(kind("a.jpg", link: true) == .alias)
+        #expect(kind("no-extension", link: true) == .alias)
+        #expect(kind("book.cbz alias", alias: true) == .alias)
+        #expect(kind("folder", folder: true, link: true) == .alias)
     }
 
     @Test("フォルダはネットワーク越しと保護下の場所では作らない。デスクトップ等の中を見ているときの同じ場所の中は作る")
@@ -74,7 +79,7 @@ struct FileBrowserThumbnailTests {
     func applicationIcon() async throws {
         // 実在するアプリ(システムに必ずある Finder)。**描くだけで、何も書かない。**
         let finder = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app", isDirectory: true)
-        let pixels = try #require(await FileIO.perform { FileBrowserApplicationIcon.render(at: finder, pixelSize: 64) })
+        let pixels = try #require(await FileIO.perform { FileBrowserSystemIcon.render(at: finder, pixelSize: 64) })
         #expect(pixels.width == 64 && pixels.height == 64)
         let appEntry = FileBrowserEntry(
             url: finder, displayName: "Finder", isDirectory: true, isPackage: true, isSymbolicLink: false, isVolume: false,
@@ -96,6 +101,165 @@ struct FileBrowserThumbnailTests {
         )
         #expect(FileBrowserThumbnailProvider.kind(for: remoteApp, currentFolder: nil, mountTable: remote) == nil)
         #expect(FileBrowserThumbnailProvider.kind(for: appEntry, currentFolder: nil, mountTable: remote) == .application)
+    }
+
+    // MARK: - 記号リンク・エイリアス(2026-09-29)
+
+    private static let localOnly = MountTable(entries: [
+        .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+    ])
+
+    @Test("記号リンクの先は readlink の字面で決める(相対・絶対・..)。先には触らない")
+    func symbolicLinkTargetIsLexical() {
+        let link = URL(fileURLWithPath: "/opt/books/link")
+        #expect(FileBrowserSystemIcon.symbolicLinkTarget("book.cbz", linkAt: link).path == "/opt/books/book.cbz")
+        #expect(FileBrowserSystemIcon.symbolicLinkTarget("../other/./book.cbz", linkAt: link).path == "/opt/other/book.cbz")
+        #expect(FileBrowserSystemIcon.symbolicLinkTarget("/Applications/Some.app", linkAt: link).path == "/Applications/Some.app")
+        #expect(FileBrowserSystemIcon.symbolicLinkTarget("../../../..", linkAt: link).path == "/")
+    }
+
+    @Test("先を読んでよい場所の規則: ネットワーク越し・繋がっていないボリューム・保護下は読まない。同じ保護下の中を見ているときだけ読む")
+    func aliasTargetRespectsUnenteredPlaces() throws {
+        let temporary = try TemporaryDirectory("thumb-alias-rule")
+        let folder = try temporary.directory("root")
+        let target = try temporary.directory("elsewhere/Book")
+        let link = folder.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let desktop = "/Users/someone/Desktop"
+        let support = "/Users/someone/Library/Application Support"
+        let prefixes = [desktop, support]
+        let categories: Set<String> = [desktop]
+        func resolved(_ url: URL, from current: URL?, mountTable: MountTable = Self.localOnly) -> URL? {
+            FileBrowserSystemIcon.aliasTarget(
+                of: url, currentFolder: current, mountTable: mountTable, protectedPrefixes: prefixes, categoryPrefixes: categories
+            )
+        }
+        // 保護下でない場所の先。
+        #expect(resolved(link, from: folder)?.path == target.path)
+        let remote = MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/Share", mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        let toShare = folder.appendingPathComponent("to-share")
+        // (パスの検査が `/Volumes/<名前>/<名前>` を蔵書の置き場として止めるので、共有の根そのものを指す。)
+        try FileManager.default.createSymbolicLink(atPath: toShare.path, withDestinationPath: "/Volumes/Share")
+        #expect(resolved(toShare, from: folder, mountTable: remote) == nil)
+        // 繋がっていないボリュームの先(readlink は通るが、その先を stat すると自動マウントや 30 秒の待ちになりうる)。
+        let toGone = folder.appendingPathComponent("to-gone")
+        try FileManager.default.createSymbolicLink(atPath: toGone.path, withDestinationPath: "/Volumes/Gone")
+        #expect(resolved(toGone, from: folder) == nil)
+        // デスクトップの中の先は、デスクトップの中を見ているときだけ。Application Support の中は見ていても読まない。
+        let toDesktop = folder.appendingPathComponent("to-desktop")
+        try FileManager.default.createSymbolicLink(atPath: toDesktop.path, withDestinationPath: desktop + "/Book")
+        #expect(resolved(toDesktop, from: folder) == nil)
+        #expect(resolved(toDesktop, from: URL(fileURLWithPath: desktop, isDirectory: true))?.path == desktop + "/Book")
+        let toSupport = folder.appendingPathComponent("to-support")
+        try FileManager.default.createSymbolicLink(atPath: toSupport.path, withDestinationPath: support + "/Book")
+        #expect(resolved(toSupport, from: URL(fileURLWithPath: support, isDirectory: true)) == nil)
+        // 記号リンクでもエイリアスでもないファイル。
+        let plain = folder.appendingPathComponent("plain.txt")
+        try Data("x".utf8).write(to: plain)
+        #expect(resolved(plain, from: folder) == nil)
+
+        // 途中の記号リンクも追う(レビュー 2026-09-29): ローカルのリンクを経由して共有へ向く先は、字面はローカルでも断る。
+        let hop = folder.appendingPathComponent("hop")
+        try FileManager.default.createSymbolicLink(atPath: hop.path, withDestinationPath: "/Volumes/Share")
+        let viaHop = folder.appendingPathComponent("via-hop")
+        try FileManager.default.createSymbolicLink(atPath: viaHop.path, withDestinationPath: "hop/Book")
+        #expect(resolved(viaHop, from: folder, mountTable: remote) == nil)
+        // 途中のリンクがローカルのフォルダへ向くなら、解いた先(記号リンクの無い絶対パス)になる。
+        let hopLocal = folder.appendingPathComponent("hop-local")
+        try FileManager.default.createSymbolicLink(at: hopLocal, withDestinationURL: temporary.file("elsewhere"))
+        let viaLocal = folder.appendingPathComponent("via-local")
+        try FileManager.default.createSymbolicLink(atPath: viaLocal.path, withDestinationPath: "hop-local/Book")
+        #expect(resolved(viaLocal, from: folder)?.path == target.path)
+        // ループは諦める。無い先は字面のまま(先が無いだけ)。
+        let loopA = folder.appendingPathComponent("loop-a")
+        let loopB = folder.appendingPathComponent("loop-b")
+        try FileManager.default.createSymbolicLink(atPath: loopA.path, withDestinationPath: "loop-b")
+        try FileManager.default.createSymbolicLink(atPath: loopB.path, withDestinationPath: "loop-a")
+        #expect(resolved(loopA, from: folder) == nil)
+        let dangling = folder.appendingPathComponent("dangling")
+        try FileManager.default.createSymbolicLink(atPath: dangling.path, withDestinationPath: "/opt/nothing/here")
+        #expect(resolved(dangling, from: folder)?.path == "/opt/nothing/here")
+    }
+
+    @Test("エイリアスの先は記録されたパス。先が動いていたらブックマークを解いて追う。一覧はエイリアスに印を付ける")
+    func aliasFileTarget() throws {
+        let temporary = try TemporaryDirectory("thumb-alias-file")
+        let folder = try temporary.directory("root")
+        let target = folder.appendingPathComponent("book.cbz")
+        try Data("zip".utf8).write(to: target)
+        let alias = folder.appendingPathComponent("book alias")
+        let data = try target.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil)
+        try URL.writeBookmarkData(data, to: alias)
+
+        let entries = try FileBrowserListing.entries(in: folder)
+        let aliasEntry = try #require(entries.first { $0.url.lastPathComponent == "book alias" })
+        #expect(aliasEntry.isAliasFile && !aliasEntry.isSymbolicLink)
+        let bookEntry = try #require(entries.first { $0.url.lastPathComponent == "book.cbz" })
+        #expect(!bookEntry.isAliasFile)
+        #expect(FileBrowserThumbnailProvider.kind(for: aliasEntry, currentFolder: folder, mountTable: Self.localOnly) == .alias)
+
+        func resolved() -> URL? {
+            FileBrowserSystemIcon.aliasTarget(of: alias, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: [])
+        }
+        #expect(resolved()?.path == target.path)
+        // 先を同じボリュームの中で動かす → 記録されたパスには無いので、ブックマークで追う。
+        let moved = try temporary.directory("moved").appendingPathComponent("book.cbz")
+        try FileManager.default.moveItem(at: target, to: moved)
+        #expect(resolved()?.path == moved.path)
+    }
+
+    @Test("記号リンク・エイリアスのアイコンは先のアイコンを頼んだ画素数の正方形に描く。ネットワーク越しのリンクは種類のまま")
+    func aliasIcon() async throws {
+        let temporary = try TemporaryDirectory("thumb-alias-icon")
+        let folder = try temporary.directory("root")
+        let link = folder.appendingPathComponent("finder")
+        try FileManager.default.createSymbolicLink(
+            at: link, withDestinationURL: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app", isDirectory: true)
+        )
+        let mountTable = MountTable.current()
+        let outcome = await FileIO.perform {
+            FileBrowserSystemIcon.renderAlias(at: link, currentFolder: folder, mountTable: mountTable, pixelSize: 64, protectedPrefixes: [])
+        }
+        guard case .made(let pixels) = outcome else {
+            Issue.record("先のアイコンが描けなかった: \(outcome)")
+            return
+        }
+        #expect(pixels.width == 64 && pixels.height == 64)
+        // 場所の規則で断ったものは「作れなかった」とは別(失敗として覚えない)。
+        let toShare = folder.appendingPathComponent("to-share")
+        try FileManager.default.createSymbolicLink(atPath: toShare.path, withDestinationPath: "/Volumes/Share")
+        let remoteTable = MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/Share", mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        let refused = await FileIO.perform {
+            FileBrowserSystemIcon.renderAlias(at: toShare, currentFolder: folder, mountTable: remoteTable, pixelSize: 64, protectedPrefixes: [])
+        }
+        guard case .refused = refused else {
+            Issue.record("共有の先を断らなかった: \(refused)")
+            return
+        }
+        // バッジの絵(システムのバンドルの中)が読める。
+        #expect(FileBrowserSystemIcon.aliasBadge() != nil)
+
+        let entry = try #require(try FileBrowserListing.entries(in: folder).first { $0.url.lastPathComponent == "finder" })
+        #expect(entry.isSymbolicLink)
+        let provider = FileBrowserThumbnailProvider(diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")))
+        let viaProvider = try #require(await provider.thumbnail(for: entry, kind: .alias, pixelSize: 128, currentFolder: folder))
+        #expect(viaProvider.width == 128)
+
+        let remote = MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/net/share", mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        let remoteLink = FileBrowserEntry(
+            url: URL(fileURLWithPath: "/net/share/link"), displayName: "link", isDirectory: false, isPackage: false,
+            isSymbolicLink: true, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        #expect(FileBrowserThumbnailProvider.kind(for: remoteLink, currentFolder: nil, mountTable: remote) == nil)
     }
 
     // MARK: - 先頭の絵の選び方
