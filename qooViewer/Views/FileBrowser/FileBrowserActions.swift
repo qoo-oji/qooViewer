@@ -285,9 +285,18 @@ final class FileBrowserActions {
         canCompress(entries) && entries.allSatisfy { effective($0).isExtractableArchive }
     }
 
+    /// 圧縮。**Finder のエイリアスは先の実体を入れる**(ユーザーの判断 2026-09-29: Finder はエイリアスのファイル自体を入れるが、このアプリは
+    /// 拡張属性を運ばないので展開するとエイリアスでなくなる ―― それより先の実体を入れる方が役に立つ。Finder と違うことは許容)。
+    /// 記号リンクは Finder と同じく記号リンクのまま(`ZipCompressor`)。解けていないエイリアス(読まない場所の先・無い先)はファイル自体。
+    /// 同じ実体を指すエイリアスが複数あれば 1 つにまとめる(同じ名前を 2 度入れない)。
     func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool) {
         guard canCompress(entries) else { return }
-        state?.operations.compress(entries, choosingDestination: choosingDestination)
+        var seen: Set<String> = []
+        let items = entries.filter { !$0.isVolume }.compactMap { entry -> URL? in
+            let url = entry.isFinderAlias ? effective(entry).url : entry.url
+            return seen.insert(FileBrowserState.id(for: url)).inserted ? url : nil
+        }
+        state?.operations.compress(entries, items: items, choosingDestination: choosingDestination)
     }
 
     func extract(_ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool) {

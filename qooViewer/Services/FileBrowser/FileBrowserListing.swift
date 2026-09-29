@@ -40,6 +40,9 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     /// 記号リンクか Finder のエイリアス。先の項目として扱う操作は `FileBrowserState.effective(_:)`(docs/15「記号リンクとエイリアスの先」)。
     var isLink: Bool { isSymbolicLink || isAliasFile }
 
+    /// Finder のエイリアスのファイル(記号リンクではない)。圧縮では先の実体を入れる(ユーザーの判断 2026-09-29。docs/15「記号リンクとエイリアスの先」)。
+    var isFinderAlias: Bool { isAliasFile && !isSymbolicLink }
+
     /// 選択・スクロール先の鍵。**末尾の`/`を持たないパス**(FileBrowserState.id(for:))。
     /// 列挙はフォルダのURLを末尾`/`付きで返し、外から渡されるURLは付いていないことが多いので、
     /// URLの`==`で突き合わせると同じ項目が別物になる。

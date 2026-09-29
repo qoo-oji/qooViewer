@@ -583,15 +583,18 @@ final class FileBrowserOperations: ObservableObject {
     /// 「ここに圧縮」(`choosingDestination` なら「保存先を選んで圧縮…」)。同じフォルダの項目を 1 つの zip に固める。
     /// 拡張子は環境設定(zip / cbz)。名前は 1 件ならその名前、複数ならフォルダの名前(ZipCompressor.archiveBaseName)。
     @discardableResult
-    func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool = false) -> Task<Void, Never> {
+    /// - Parameter items: 実際に入れるもの(エイリアスを先の実体に置き換えたもの。`FileBrowserActions.compress`)。nil なら `entries` そのもの。
+    ///   zip の置き場所と「同じフォルダ」の検査は**選んだ項目**(`entries`)で行い、zip の名前は入れるものから付ける。
+    func compress(_ entries: [FileBrowserEntry], items: [URL]? = nil, choosingDestination: Bool = false) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
-        let urls = entries.filter { !$0.isVolume }.map(\.url)
+        let selected = entries.filter { !$0.isVolume }.map(\.url)
+        let urls = items ?? selected
         let fileExtension = state?.preferences?.fileBrowserCompressionFormat.fileExtension ?? "zip"
         return enqueue { [weak self] in
-            guard let self, let first = urls.first else { return }
-            let parent = first.deletingLastPathComponent()
+            guard let self, let first = urls.first, let anchor = selected.first else { return }
+            let parent = anchor.deletingLastPathComponent()
             let parentID = FileBrowserState.id(for: parent)
-            guard urls.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == parentID }) else { return }
+            guard selected.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == parentID }) else { return }
             var destination = parent
             if choosingDestination {
                 guard let chosen = await self.asking({ await $0.chooseDestinationFolder(for: .compress(count: urls.count), startingAt: parent) }) ?? nil
@@ -599,8 +602,9 @@ final class FileBrowserOperations: ObservableObject {
                 destination = chosen
             }
             let cancellation = Cancellation()
+            // 名前: 1 つなら入れるものの名前(エイリアスなら先の実体の名前)、複数なら選んだ項目のフォルダの名前。
             let command = CompressFilesCommand(
-                items: urls, destination: destination, baseName: ZipCompressor.archiveBaseName(for: urls),
+                items: urls, destination: destination, baseName: ZipCompressor.archiveBaseName(for: urls.count == 1 ? urls : selected),
                 fileExtension: fileExtension, progress: self.progressSink(), cancellation: cancellation, fileOps: self.fileOps
             )
             let locale = AppLanguage.currentLocale

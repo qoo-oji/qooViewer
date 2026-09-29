@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 import UniformTypeIdentifiers
+import ZIPFoundation
 
 @testable import qooViewer
 
@@ -145,6 +146,23 @@ struct FileBrowserIntegrationTests {
         // 種類の列: リンクは「エイリアス」で、同じ拡張子の実体とは別(先に出た方の種類が付いていた)。
         #expect(toBook.typeDescription != nil && toBook.typeDescription == alias.typeDescription)
         #expect(real.typeDescription != toBook.typeDescription)
+
+        // 圧縮: エイリアスは先の実体を入れる(zip の名前も先の名前。ユーザーの判断)。記号リンクは Finder と同じく記号リンクのまま。
+        fixture.actions.compress([alias], choosingDestination: false)
+        fixture.actions.compress([toBook], choosingDestination: false)
+        await fixture.state.operations.settle()
+        let aliasZip = root.appendingPathComponent("book.cbz.zip")
+        let linkZip = root.appendingPathComponent("to-book.zip")
+        #expect(FileManager.default.fileExists(atPath: aliasZip.path))
+        #expect(FileManager.default.fileExists(atPath: linkZip.path))
+        let aliasReader = try makeArchiveReader(kind: .zip, url: aliasZip)
+        #expect(try aliasReader.listFilePaths() == ["book.cbz"])
+        #expect(try aliasReader.data(at: "book.cbz") == Data(contentsOf: book))
+        // 記号リンクのエントリ(reader の一覧はファイルだけなので ZIPFoundation で見る)。中身はリンク先のパスで、実体ではない。
+        let linkArchive = try Archive(url: linkZip, accessMode: .read)
+        let linkEntry = try #require(linkArchive["to-book"])
+        #expect(linkEntry.type == .symlink)
+        #expect(linkArchive["book.cbz"] == nil)
 
         // 開く: フォルダへのリンクは先へ移動する。
         let task = fixture.actions.open([toPlain])

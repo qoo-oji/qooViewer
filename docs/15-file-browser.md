@@ -1304,7 +1304,18 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
   ―― 開くとき先を渡すので、先に無いと効かない)、ドロップ先(リストの `dropFolder` / アイコン表示の `dropFolderURL(of:)`: フォルダへの
   リンクの上に落とすと先のフォルダへ)。
 - **先で見ない**もの(Finder と同じ): コピー・カット・ペースト・ドラッグ(リンクを運ぶ)、ゴミ箱・すぐに削除・名前の変更・一括リネーム・
-  パス名をコピー・Finder で表示・情報を見る・圧縮(zip の中でも記号リンク)、一覧の日付・サイズ・隠し属性、「フォルダを上に」(ファイルの側)。
+  パス名をコピー・Finder で表示・情報を見る、一覧の日付・サイズ・隠し属性、「フォルダを上に」(ファイルの側)。記号リンクの圧縮も同じ
+  (下記)。
+- **圧縮**(2026-09-29 の実測と決定): Finder の「ファイル ▸ 圧縮」を AX で押して `zipinfo` で見ると、Finder は記号リンクを(ファイルへの
+  ものもフォルダへのものも)**記号リンクのまま**入れる ―― `ZipCompressor` と同じで差異なし。エイリアスは Finder ではエイリアスのファイル自体+
+  `__MACOSX/._名前`(AppleDouble: FinderInfo)で入り、展開で戻す。エイリアスであることは FinderInfo の旗(`kIsAlias`)で決まり、`._` を
+  捨てて展開すると `isAliasFile` が false になって「ComicBook Zip」に見える壊れたファイルになる(実測)。`ZipCompressor` は拡張属性を入れず
+  `ArchiveExtractor` は `__MACOSX` を捨てる(展開側は意図した設計、圧縮側は未対応)ので、Finder と同じにしても展開後は壊れる。
+  **そこでこのアプリは、選んだ Finder のエイリアスを圧縮するとき先の実体を入れる**(ユーザーの判断: Finder と違うことは許容)。
+  `FileBrowserActions.compress` が `isFinderAlias` の項目を `effective` の先に置き換え(同じ実体を指す複数のエイリアスは 1 つに)、
+  `FileBrowserOperations.compress(_:items:)` へ渡す。zip の置き場所と「同じフォルダ」の検査は選んだ項目で、zip の名前は 1 つなら入れる
+  ものの名前(= 先の名前)、複数なら選んだ項目のフォルダの名前。解けていないエイリアス(読まない場所の先・無い先)はファイル自体。
+  フォルダの中のエイリアス(選んだフォルダを圧縮したときの中身)はファイルのまま(拡張属性を運ばない性質はそのまま)。
 - **種類の列**は「エイリアス」(`FileBrowserListing.typeDescription` の鍵にリンクかどうかを含める)。
 - `FileBrowserIntegrationTests.linksActAsTheirTargets` / `FileBrowserListingTests.kindOfLinksIsNotSharedWithRealFiles`。
 
