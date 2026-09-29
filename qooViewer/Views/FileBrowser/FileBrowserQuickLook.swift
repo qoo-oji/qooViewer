@@ -16,7 +16,7 @@ import Quartz
 /// - 読み取り専用モードでも使える(何も書き換えない)。
 /// - **記号リンク・エイリアスは先を見せる**(2026-09-29 実測: `QLPreviewPanel` にリンクの URL をそのまま渡すと、Finder と違って
 ///   リンクのファイル自体 ―― 「エイリアス、14 バイト」 ―― が出た。Finder は先をプレビューし、題を「名前 (エイリアス)」にする)。
-///   先はアイコンと同じ規則(`FileBrowserSystemIcon.aliasTarget`: 触ってよい場所だけ)で FileIO の上で解き、解けたら差し替えて
+///   先はアイコンと同じ規則(`FileBrowserLinkResolver.backgroundTarget`: 触ってよい場所だけ)で FileIO の上で解き、解けたら差し替えて
 ///   `reloadData`。断られた先(共有・未接続・保護下)はリンク自身のまま。
 @MainActor
 final class FileBrowserQuickLook: NSObject {
@@ -42,7 +42,7 @@ final class FileBrowserQuickLook: NSObject {
         }
     }
 
-    /// 選択の項目からパネルの項目を作る。記号リンク・エイリアスは先を解く(`FileBrowserSystemIcon.aliasTarget`。解けなければ
+    /// 選択の項目からパネルの項目を作る。記号リンク・エイリアスは先を解く(`FileBrowserLinkResolver.backgroundTarget`。解けなければ
     /// リンク自身)。**FileIO の上で呼ぶ**(先を解くのはリンクと先の各段の lstat)。
     nonisolated static func previewItems(
         for entries: [FileBrowserEntry], currentFolder: URL?, mountTable: MountTable,
@@ -50,8 +50,8 @@ final class FileBrowserQuickLook: NSObject {
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) -> [(url: URL, title: String)] {
         entries.map { entry in
-            guard entry.isSymbolicLink || entry.isAliasFile,
-                  let target = FileBrowserSystemIcon.aliasTarget(
+            guard entry.isLink,
+                  let target = FileBrowserLinkResolver.backgroundTarget(
                     of: entry.url, currentFolder: currentFolder, mountTable: mountTable,
                     protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
                   )
@@ -112,7 +112,7 @@ final class FileBrowserQuickLook: NSObject {
         items = entries.map { Item(url: $0.url, title: $0.displayName) }
         let selection = entries.map(\.url)
         resolvingSelection = selection
-        guard entries.contains(where: { $0.isSymbolicLink || $0.isAliasFile }) else { return }
+        guard entries.contains(where: \.isLink) else { return }
         let currentFolder = actions?.state?.currentFolder
         let mountTable = MountTable.current()
         Task { [weak self, weak panel] in

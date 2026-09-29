@@ -373,7 +373,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 記号リンク・エイリアスの先の絵。**先の項目そのものと同じ経路**で作る(ユーザーの要望 2026-09-29: 登録済みの本なら本棚と同じ表紙、
     /// 未登録なら 1 ページ目、画像・画像フォルダ・動画も直接置かれたときと同じ)。
     ///
-    /// 1. 先を決める(`FileBrowserSystemIcon.aliasTargetInfo`。触ってよい場所か段ごとに確かめる。FileIO の上、仕事の枠の外 ―― 枠の中で
+    /// 1. 先を決める(`FileBrowserLinkResolver.backgroundTargetInfo`。触ってよい場所か段ごとに確かめる。FileIO の上、仕事の枠の外 ―― 枠の中で
     ///    先の仕事を待つと、枠がリンクの仕事で埋まったとき先の仕事が始まれず止まる)。断られたら nil で、失敗とは覚えない。
     /// 2. 先の種類を、先の項目が直接並んでいるときと同じ規則で決める(`kind(for:)`。先がデスクトップの中なら見ているフォルダ次第)。
     /// 3. 中の絵になる種類なら、先の項目として `thumbnail(for:)` を頼む ―― 出どころ(コレクションの表紙・表紙の指定・1 ページ目)、
@@ -388,7 +388,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         let url = entry.url
         let (protectedPrefixes, categoryPrefixes) = (protectedPrefixes, categoryPrefixes)
         guard let info = await FileIO.perform({
-            FileBrowserSystemIcon.aliasTargetInfo(
+            FileBrowserLinkResolver.backgroundTargetInfo(
                 of: url, currentFolder: currentFolder, mountTable: mountTable,
                 protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
             )

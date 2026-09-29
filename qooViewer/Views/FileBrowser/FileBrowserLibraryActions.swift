@@ -20,8 +20,12 @@ extension FileBrowserActions {
 
     /// コレクション・メタデータ・書き出しの対象になりうるか。書庫・PDF・EPUB のファイルか、フォルダ(画像フォルダか棚かは
     /// 選んだときに調べる)。画像ファイル 1 枚は本にしない(CollectionDropClassifier と同じ)。
+    /// 記号リンク・エイリアスは解けている先で見る(`effective`。相手も先の項目)。
     func canUseAsBooks(_ entries: [FileBrowserEntry]) -> Bool {
-        !entries.isEmpty && entries.allSatisfy { !$0.isVolume && ($0.isNavigableFolder || $0.isBookFile) }
+        !entries.isEmpty && entries.allSatisfy {
+            let entry = effective($0)
+            return !entry.isVolume && (entry.isNavigableFolder || entry.isBookFile)
+        }
     }
 
     /// 1 冊だけを相手にする操作(メタデータ・書き出し)の対象になりうるか。
@@ -40,7 +44,7 @@ extension FileBrowserActions {
     @discardableResult
     func createCollection(from entries: [FileBrowserEntry], libraryID: UUID? = nil) -> Task<Void, Never>? {
         guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
-        let urls = entries.map(\.url)
+        let urls = entries.map { effective($0).url }
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
@@ -71,7 +75,7 @@ extension FileBrowserActions {
     @discardableResult
     func addToCollection(_ entries: [FileBrowserEntry], collectionID: UUID) -> Task<Void, Never>? {
         guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
-        let urls = entries.map(\.url)
+        let urls = entries.map { effective($0).url }
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
@@ -134,9 +138,9 @@ extension FileBrowserActions {
     /// 選んだときに調べる」)。
     func canAddToSmartLibrary(_ entries: [FileBrowserEntry]) -> Bool {
         guard isSmartLibraryFeatureEnabled, allowsSaving, let smartLibraryStore, !entries.isEmpty,
-              entries.allSatisfy({ $0.isNavigableFolder && !$0.isVolume })
+              entries.allSatisfy({ let entry = effective($0); return entry.isNavigableFolder && !entry.isVolume })
         else { return false }
-        return entries.contains { !smartLibraryStore.containsFolder($0.url) }
+        return entries.contains { !smartLibraryStore.containsFolder(effective($0).url) }
     }
 
     /// 選んだフォルダをスマートライブラリの対象フォルダに足す。1 冊の本になるフォルダ(画像フォルダ・章のフォルダ)は足さない ――
@@ -149,8 +153,8 @@ extension FileBrowserActions {
     @discardableResult
     func addToSmartLibrary(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard canAddToSmartLibrary(entries), let smartLibraryStore else { return nil }
-        let urls = entries.map(\.url)
-        let names = entries.filter { !smartLibraryStore.containsFolder($0.url) }.map(\.displayName)
+        let urls = entries.map { effective($0).url }
+        let names = entries.filter { !smartLibraryStore.containsFolder(effective($0).url) }.map(\.displayName)
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         return Task { [weak self, weak smartLibraryStore] in
             guard let smartLibraryStore, let result = await SmartLibraryTargetAdding.add(
@@ -182,14 +186,15 @@ extension FileBrowserActions {
 
     // MARK: - このアプリケーションで開く
 
-    /// 右クリックした項目を開けるアプリ(複数選択では先頭の項目の種類で引く)。
+    /// 右クリックした項目を開けるアプリ(複数選択では先頭の項目の種類で引く。記号リンク・エイリアスは先の種類 ―― Finder と同じ)。
     func openWithApplications(for entries: [FileBrowserEntry]) -> [OpenWithApplications.Application] {
-        guard let first = entries.first, !first.isVolume else { return [] }
+        guard let first = entries.first.map(effective), !first.isVolume else { return [] }
         return OpenWithApplications.shared.applications(for: first.url, isDirectory: first.isDirectory, isPackage: first.isPackage)
     }
 
+    /// 記号リンク・エイリアスは先を渡す(LaunchServices はリンクも解くが、先の種類で選んだアプリに先を渡す方が確か)。
     func open(_ entries: [FileBrowserEntry], withApplicationAt application: URL) {
-        let urls = entries.filter { !$0.isVolume }.map(\.url)
+        let urls = entries.filter { !$0.isVolume }.map { effective($0).url }
         guard !urls.isEmpty else { return }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
@@ -245,7 +250,8 @@ extension FileBrowserActions {
             var firstFailure: String?
             for entry in entries {
                 do {
-                    try await setDefault(application, entry.url)
+                    // 記号リンク・エイリアスは先に書く(開くときも先を渡すので、拡張属性は先に無いと効かない)。
+                    try await setDefault(application, self?.effective(entry).url ?? entry.url)
                     updated.append(entry)
                 } catch {
                     if firstFailure == nil { firstFailure = error.localizedDescription }
@@ -285,7 +291,7 @@ extension FileBrowserActions {
     /// - Returns: フォルダを調べる Task(**テストのための口**。ファイルならその場でシートを出して nil)。
     @discardableResult
     func editMetadata(_ entries: [FileBrowserEntry], notABook: (@MainActor () -> Void)? = nil) -> Task<Void, Never>? {
-        guard allowsSaving, canUseAsSingleBook(entries), let entry = entries.first else { return nil }
+        guard allowsSaving, canUseAsSingleBook(entries), let entry = entries.first.map(effective) else { return nil }
         return resolveBook(entry, notABook: notABook) { [weak self] _ in
             self?.state?.bookSheet = FileBrowserBookSheet(kind: .metadata(entry))
         }
@@ -297,7 +303,7 @@ extension FileBrowserActions {
     /// ビューアと違って「書き出したあとの動作」「保存データ・履歴の削除」はしない ―― どちらも読んでいる本の続きを決める設定で、
     /// 本を開いていないここには当てはまらない(そのうえ同じ本を別のウインドウで開いていると、読書位置を消せない)。
     func exportBook(_ entries: [FileBrowserEntry], format: BookExportFormat) {
-        guard canUseAsSingleBook(entries), let entry = entries.first, state?.bookSheet == nil else { return }
+        guard canUseAsSingleBook(entries), let entry = entries.first.map(effective), state?.bookSheet == nil else { return }
         resolveBook(entry) { [weak self] url in
             self?.presentExport(of: url, isDirectory: entry.isDirectory, format: format)
         }
@@ -325,6 +331,7 @@ extension FileBrowserActions {
     @discardableResult
     private func resolveBook(_ entry: FileBrowserEntry, notABook: (@MainActor () -> Void)? = nil,
                              then perform: @escaping @MainActor (URL) -> Void) -> Task<Void, Never>? {
+        let entry = effective(entry)
         guard entry.isNavigableFolder else {
             perform(entry.url)
             return nil

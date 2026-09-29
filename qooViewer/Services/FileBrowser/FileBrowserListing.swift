@@ -37,6 +37,9 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     /// (`BookThumbnailer.Kind.alias`。2026-09-29)。ふつうのファイルとして扱う(コピー・削除・名前の変更は Finder と同じくファイル自身)。
     var isAliasFile = false
 
+    /// 記号リンクか Finder のエイリアス。先の項目として扱う操作は `FileBrowserState.effective(_:)`(docs/15「記号リンクとエイリアスの先」)。
+    var isLink: Bool { isSymbolicLink || isAliasFile }
+
     /// 選択・スクロール先の鍵。**末尾の`/`を持たないパス**(FileBrowserState.id(for:))。
     /// 列挙はフォルダのURLを末尾`/`付きで返し、外から渡されるURLは付いていないことが多いので、
     /// URLの`==`で突き合わせると同じ項目が別物になる。
@@ -201,7 +204,9 @@ nonisolated enum FileBrowserListing {
             isSymbolicLink: values?.isSymbolicLink ?? false,
             isVolume: false,
             fileSize: isDirectory && !isPackage ? nil : (values?.totalFileSize ?? values?.fileSize).map(Int64.init),
-            typeDescription: typeDescription(for: url, isDirectory: isDirectory, isPackage: isPackage, cache: &kindCache),
+            typeDescription: typeDescription(
+                for: url, isDirectory: isDirectory, isPackage: isPackage, isLink: values?.isAliasFile ?? false, cache: &kindCache
+            ),
             creationDate: values?.creationDate,
             modificationDate: values?.contentModificationDate,
             isHidden: values?.isHidden ?? url.lastPathComponent.hasPrefix("."),
@@ -287,14 +292,17 @@ nonisolated enum FileBrowserListing {
     ///
     /// **文字列はOSの言語で返る**(環境設定の表示言語には従わない)。LaunchServicesの説明文を
     /// アプリの言語で引く手段が無いため。Finderの「種類」列と同じ文字列になる、というほうを取った。
+    /// - Parameter isLink: 記号リンク・エイリアス(`isAliasFileKey`)。種類は「エイリアス」で、拡張子には依らない ―― 鍵を分けないと、
+    ///   同じ拡張子の実体とリンクが混じったとき先に出た方の種類が両方に付いた(記号リンク「a.cbz」の後の「book.cbz」が「エイリアス」。
+    ///   レビュー 2026-09-29)。
     private static func typeDescription(
-        for url: URL, isDirectory: Bool, isPackage: Bool, cache: inout [String: String]
+        for url: URL, isDirectory: Bool, isPackage: Bool, isLink: Bool = false, cache: inout [String: String]
     ) -> String? {
-        let prefix = isPackage ? "p:" : (isDirectory ? "d:" : "f:")
-        let key = prefix + url.pathExtension.lowercased()
+        let prefix = isLink ? "a:" : (isPackage ? "p:" : (isDirectory ? "d:" : "f:"))
+        let key = prefix + (isLink ? "" : url.pathExtension.lowercased())
         if let cached = cache[key] { return cached }
         let description: String?
-        if isDirectory, !isPackage {
+        if isDirectory, !isPackage, !isLink {
             description = UTType.folder.localizedDescription
         } else {
             description = (try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription

@@ -652,10 +652,12 @@ struct FileBrowserListView: NSViewRepresentable {
             return decision.isAccepted
         }
 
-        /// 行の上へのドロップで、その行がフォルダ(パッケージでない)ならそのフォルダ。
+        /// 行の上へのドロップで、その行がフォルダ(パッケージでない)ならそのフォルダ。フォルダへの記号リンク・エイリアスなら先の
+        /// フォルダ(Finder と同じ。2026-09-29)。
         private func dropFolder(row: Int, operation: NSTableView.DropOperation) -> URL? {
-            guard operation == .on, entries.indices.contains(row), entries[row].isNavigableFolder else { return nil }
-            return entries[row].url
+            guard operation == .on, entries.indices.contains(row) else { return nil }
+            let entry = state?.effective(entries[row]) ?? entries[row]
+            return entry.isNavigableFolder ? entry.url : nil
         }
 
         // MARK: 操作

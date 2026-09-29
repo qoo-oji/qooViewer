@@ -314,6 +314,76 @@ final class FileBrowserState: ObservableObject {
     /// 待つ側は`settle()`を使う。
     private(set) var loadTask: Task<Void, Never>?
 
+    // MARK: - 記号リンク・エイリアスの先(2026-09-29)
+
+    /// 一覧の記号リンク・エイリアスの先(鍵は `linkKey`: 項目の id と更新日時)。一覧を読んだ後に FileIO で解く(`resolveLinkTargets`。
+    /// 触ってよい先だけ ―― `FileBrowserLinkResolver.backgroundTargetInfo`)。開く・新規タブ・コレクション・メタデータ・書き出し・展開・
+    /// 「このアプリケーションで開く」・ドロップ先の判定が `effective(_:)` で**先の項目として**見る(Finder と同じ扱い。
+    /// docs/15「記号リンクとエイリアスの先」)。解けていない(断られた・まだ)リンクは自分自身として扱われ、開くときだけ
+    /// `FileBrowserActions.openLink` が場所を選ばずに解き直す。
+    private var linkTargets: [String: FileBrowserLinkResolver.Target] = [:]
+    private var linkTargetsTask: Task<Void, Never>?
+    private static let linkTargetsLimit = 2000
+    /// 先を読んでよいかの規則(`DirectoryProbe`)。**テストは空を渡す**(テストホストの一時フォルダはコンテナ = `~/Library/Containers` の中で、
+    /// 既定の一覧では保護下)。
+    var linkTargetProtectedPrefixes: [String] = DirectoryProbe.protectedPrefixes
+    var linkTargetCategoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+
+    /// 記号リンク・エイリアスの解けている先(在るもの)。それ以外・まだ解けていないものは nil。
+    func target(of entry: FileBrowserEntry) -> FileBrowserEntry? {
+        guard entry.isLink, let target = linkTargets[Self.linkKey(for: entry)], target.exists else { return nil }
+        return target.entry
+    }
+
+    /// 操作の相手として見る項目: 記号リンク・エイリアスなら解けている先、それ以外(と解けていないリンク)はそのまま。
+    func effective(_ entry: FileBrowserEntry) -> FileBrowserEntry {
+        target(of: entry) ?? entry
+    }
+
+    private static func linkKey(for entry: FileBrowserEntry) -> String {
+        "\(entry.id)|\(entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0)"
+    }
+
+    /// 一覧のリンクの先を解く(`apply` で一覧が変わったとき)。解けている鍵は残し、消えた項目の分は捨てる。
+    private func resolveLinkTargets() {
+        linkTargetsTask?.cancel()
+        linkTargetsTask = nil
+        let links = Array(allEntries.lazy.filter(\.isLink).prefix(Self.linkTargetsLimit))
+        let keys = Set(links.map(Self.linkKey(for:)))
+        linkTargets = linkTargets.filter { keys.contains($0.key) }
+        let known = linkTargets
+        // FileIO の閉包へ渡すので配列にする(lazy の列は閉包を抱える。レビュー 2026-09-29)。
+        let pending: [(key: String, url: URL)] = links.compactMap {
+            let key = Self.linkKey(for: $0)
+            return known[key] == nil ? (key, $0.url) : nil
+        }
+        guard !pending.isEmpty else { return }
+        let folder = currentFolder
+        let mountTable = MountTable.current()
+        let (protectedPrefixes, categoryPrefixes) = (linkTargetProtectedPrefixes, linkTargetCategoryPrefixes)
+        linkTargetsTask = Task { [weak self] in
+            let resolved = await FileIO.perform { () -> [(key: String, target: FileBrowserLinkResolver.Target?)] in
+                pending.map { item in
+                    guard !Cancellation.isRequestedInCurrentScope else { return (item.key, nil) }
+                    return (item.key, FileBrowserLinkResolver.backgroundTargetInfo(
+                        of: item.url, currentFolder: folder, mountTable: mountTable,
+                        protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+                    ))
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            for item in resolved {
+                if let target = item.target { self.linkTargets[item.key] = target }
+            }
+            self.linkTargetsTask = nil
+        }
+    }
+
+    /// リンクの先を解き終わるまで待つ(**テストのための口**)。
+    func waitForLinkTargets() async {
+        await linkTargetsTask?.value
+    }
+
     private var allEntries: [FileBrowserEntry] = [] {
         didSet { normalizedNamesCache = nil }
     }
@@ -526,6 +596,8 @@ final class FileBrowserState: ObservableObject {
         isVisible = false
         loadTask?.cancel()
         loadTask = nil
+        linkTargetsTask?.cancel()
+        linkTargetsTask = nil
         watcher?.tearDown()
         systemObservations.removeAll()
         changeObservation = nil
@@ -833,7 +905,10 @@ final class FileBrowserState: ObservableObject {
         let sorted = sortedWith == sort ? list : sort.sorted(list)
         // 読み直しても中身が同じ(アクティブ化・ホームへ戻る・関係の無い FSEvents のほとんど)なら差し替えない。差し替えは
         // `applyFilter` の比較で一覧の作り直し(reloadData と見えているセルの絵の頼み直し)を呼ばない。
-        if sorted != allEntries { allEntries = sorted }
+        if sorted != allEntries {
+            allEntries = sorted
+            resolveLinkTargets()
+        }
         settleRenameRequest()
         // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
         // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。

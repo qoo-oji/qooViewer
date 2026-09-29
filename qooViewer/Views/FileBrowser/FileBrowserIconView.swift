@@ -580,7 +580,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         func dragOperation(for info: NSDraggingInfo, at point: NSPoint) -> NSDragOperation {
             guard let actions else { return [] }
             var folderIndex = folderIndex(at: point)
-            let destination = folderIndex.map { entries[$0].url } ?? displayedFolder
+            let destination = folderIndex.flatMap { dropFolderURL(of: entries[$0]) } ?? displayedFolder
             let (decision, _) = actions.dropDecision(for: info, into: destination)
             // 「ビューアで開く」の設定では、フォルダのセルの上でもそのフォルダへは入れない(開く)ので、セルを強調しない
             // (2026-09-27。リスト表示と同じ)。
@@ -595,7 +595,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             let folderIndex = folderIndex(at: point)
             clearDropTarget()
             guard let actions else { return false }
-            let destination = folderIndex.map { entries[$0].url } ?? displayedFolder
+            let destination = folderIndex.flatMap { dropFolderURL(of: entries[$0]) } ?? displayedFolder
             let (decision, urls) = actions.dropDecision(for: info, into: destination)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted
@@ -606,12 +606,19 @@ struct FileBrowserIconView: NSViewRepresentable {
             isWholeViewDropTarget = false
         }
 
-        /// `point`(一覧の座標)の下のセルがフォルダ(パッケージでない)なら、その添字。
+        /// `point`(一覧の座標)の下のセルがフォルダ(パッケージでない。フォルダへの記号リンク・エイリアスも ―― Finder と同じ、
+        /// 2026-09-29)なら、その添字。
         private func folderIndex(at point: NSPoint) -> Int? {
             guard let index = collection?.indexPathForItem(at: point)?.item, entries.indices.contains(index),
-                  entries[index].isNavigableFolder
+                  dropFolderURL(of: entries[index]) != nil
             else { return nil }
             return index
+        }
+
+        /// セルの項目がドロップの受け口になるフォルダ(記号リンク・エイリアスなら先)。
+        private func dropFolderURL(of entry: FileBrowserEntry) -> URL? {
+            let entry = state?.effective(entry) ?? entry
+            return entry.isNavigableFolder ? entry.url : nil
         }
 
         private func setDropTarget(id: String?) {

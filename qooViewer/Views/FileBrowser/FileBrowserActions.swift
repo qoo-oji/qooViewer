@@ -58,9 +58,8 @@ final class FileBrowserActions {
         if entries.count == 1, let entry = entries.first, entry.isNavigableFolder {
             return openFolder(entry, fromMenu: false)
         }
-        if entries.count == 1, let entry = entries.first, entry.isSymbolicLink {
-            openSymbolicLink(entry)
-            return nil
+        if entries.count == 1, let entry = entries.first, entry.isLink {
+            return openLink(entry, fromMenu: false)
         }
         let books = entries.filter(\.opensAsBook).map(\.url)
         if !books.isEmpty {
@@ -76,21 +75,27 @@ final class FileBrowserActions {
     /// (2026-09-19 の総点検。それまでの淡色の条件は「フォルダ・本・画像だけ」で、フォルダを 2 つ選ぶと押せるのに何も起きず、
     /// フォルダへのリンク・ふつうのファイルは淡色なのに Return では開けた)。
     /// - 1 件: 何でも開く(フォルダ・リンクは中へ、本と画像は qooViewer、それ以外は既定のアプリ)
-    /// - 複数: フォルダ・リンクを含まないときだけ(中へ入れるのは 1 つずつ。本はまとめて開き、それ以外は既定のアプリ)
+    /// - 複数: フォルダ・リンク(記号リンク・エイリアス)を含まないときだけ(中へ入れるのは 1 つずつ。本はまとめて開き、それ以外は既定のアプリ)
     func canOpen(_ entries: [FileBrowserEntry]) -> Bool {
         guard !entries.isEmpty else { return false }
         if entries.count == 1 { return true }
-        return !entries.contains { $0.isNavigableFolder || $0.isSymbolicLink }
+        return !entries.contains { $0.isNavigableFolder || $0.isLink }
     }
 
     /// 右クリックの「開く」。画像フォルダでは**ダブルクリックと反対のことをする**(既定の設定なら本として開き、
-    /// 「ビューアで開く」にしてあれば中へ移動する)。どちらの設定でも、もう片方の開き方がここに残る。
+    /// 「ビューアで開く」にしてあれば中へ移動する)。どちらの設定でも、もう片方の開き方がここに残る。リンクの先がフォルダでも同じ。
     @discardableResult
     func openFromMenu(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
-        guard entries.count == 1, let entry = entries.first, entry.isNavigableFolder else {
-            return open(entries)
-        }
+        guard entries.count == 1, let entry = entries.first else { return open(entries) }
+        if entry.isLink { return openLink(entry, fromMenu: true) }
+        guard entry.isNavigableFolder else { return open(entries) }
         return openFolder(entry, fromMenu: true)
+    }
+
+    /// 記号リンク・エイリアスなら解けている先の項目、それ以外はそのまま(`FileBrowserState.effective`)。淡色の判定と操作の相手はこれで見る
+    /// (Finder と同じく、リンクは先の項目として扱う。docs/15「記号リンクとエイリアスの先」)。
+    func effective(_ entry: FileBrowserEntry) -> FileBrowserEntry {
+        state?.effective(entry) ?? entry
     }
 
     /// フォルダを開く。画像フォルダを本として開く側のときだけ、画像フォルダかどうかをここで1回だけ調べる
@@ -117,9 +122,10 @@ final class FileBrowserActions {
     }
 
     /// 新規タブ / 新規ノーマルウインドウ / 新規シークレットウインドウで開く。フォルダは画像フォルダなら
-    /// 本として、それ以外はファイルブラウザとして開く。
+    /// 本として、それ以外はファイルブラウザとして開く。記号リンク・エイリアスは解けている先(Finder と同じ)。
     func open(_ entry: FileBrowserEntry, in destination: BookOpenDestination) {
         guard let openWindow, let launchCoordinator else { return }
+        let entry = effective(entry)
         let source = appState
         if entry.isNavigableFolder {
             Task {
@@ -140,9 +146,9 @@ final class FileBrowserActions {
         }
     }
 
-    /// 新しいタブ/ウインドウで開けるか(1件用。本かフォルダだけ)。
+    /// 新しいタブ/ウインドウで開けるか(1件用。本かフォルダだけ。リンクは解けている先で見る)。
     func canOpenInNewWindow(_ entries: [FileBrowserEntry]) -> Bool {
-        guard entries.count == 1, let entry = entries.first else { return false }
+        guard entries.count == 1, let entry = entries.first.map(effective) else { return false }
         return entry.isNavigableFolder || entry.opensAsBook
     }
 
@@ -274,8 +280,9 @@ final class FileBrowserActions {
     }
 
     /// 展開できるか(段階 6)。**選んだ全部が書庫のときだけ**(書庫でない項目が混ざったら淡色。何が展開されるのか曖昧にしない)。
+    /// 記号リンク・エイリアスは解けている先で見る(展開先はリンクのあるフォルダ。`FileBrowserOperations.extract`)。
     func canExtract(_ entries: [FileBrowserEntry]) -> Bool {
-        canCompress(entries) && entries.allSatisfy(\.isExtractableArchive)
+        canCompress(entries) && entries.allSatisfy { effective($0).isExtractableArchive }
     }
 
     func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool) {
@@ -285,7 +292,10 @@ final class FileBrowserActions {
 
     func extract(_ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool) {
         guard canExtract(entries) else { return }
-        state?.operations.extract(entries, placement: placement, choosingDestination: choosingDestination)
+        state?.operations.extract(
+            entries, archives: entries.map(effective).filter(\.isExtractableArchive).map(\.url),
+            placement: placement, choosingDestination: choosingDestination
+        )
     }
 
     /// 右クリックの「名前を変更」。1 件なら一覧に名前の編集を始めてもらい、複数なら一括リネームのシートを出す(段階 5。Finder と同じ)。
@@ -394,26 +404,43 @@ final class FileBrowserActions {
 
     // MARK: - 下請け
 
-    /// 記号リンク: 実体がフォルダなら中へ、ファイルなら実体を開く。
-    private func openSymbolicLink(_ entry: FileBrowserEntry) {
-        let link = entry.url
-        Task { [weak self] in
-            let target = await FileIO.perform { () -> (URL, Bool) in
-                let resolved = link.resolvingSymlinksInPath()
-                var isDirectory: ObjCBool = false
-                let exists = FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDirectory)
-                return (resolved, exists && isDirectory.boolValue)
-            }
-            guard let self else { return }
-            if target.1 {
-                self.state?.navigate(to: target.0)
-            } else if isArchiveFile(target.0.lastPathComponent) || isPDFFile(target.0.lastPathComponent)
-                        || isEpubFile(target.0.lastPathComponent) || isImageFile(target.0.lastPathComponent) {
-                self.appState?.open(url: target.0)
-            } else {
-                NSWorkspace.shared.open(target.0)
-            }
+    /// 記号リンク・エイリアスを開く: 先の項目を開いたのと同じことをする(Finder と同じ。2026-09-29 ―― それまで記号リンクは
+    /// `resolvingSymlinksInPath` で解いていたがエイリアスは解かず、先がアプリだとバンドルの中へ移動し、先が画像フォルダでも開き方の設定を
+    /// 見なかった)。先はまず一覧の控え(`FileBrowserState.target(of:)`)、無ければ場所を選ばずに FileIO で解く
+    /// (`FileBrowserLinkResolver.openingTargetInfo`)。先が無い・stat できない(サンドボックスの外の実体)ときはリンク自身を
+    /// LaunchServices に渡す ―― LaunchServices はサンドボックスの外でも解けることがあり、先が本当に無ければ Finder と同じ
+    /// 「元の項目が見つかりません」のダイアログを出す(レビュー 2026-09-29。それまでは鳴らすだけだった)。
+    ///
+    /// 返す Task は解いて開くまで(テストの待ち合わせ用。控えから開けたときは `openResolved` の Task か nil)。
+    @discardableResult
+    private func openLink(_ entry: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
+        if let target = state?.target(of: entry) {
+            return openResolved(target, fromMenu: fromMenu)
         }
+        let link = entry.url
+        return Task { [weak self] in
+            let target = await FileIO.perform { FileBrowserLinkResolver.openingTargetInfo(of: link) }
+            guard let self else { return }
+            guard let target, target.exists else {
+                NSWorkspace.shared.open(link)
+                return
+            }
+            await self.openResolved(target.entry, fromMenu: fromMenu)?.value
+        }
+    }
+
+    /// 解けた先を、その項目を選んで開いたのと同じ場合分けで開く(フォルダは中へ ―― 画像フォルダの開き方の設定に従う、本と画像は
+    /// qooViewer、アプリなどそれ以外は既定のアプリ = アプリは起動)。
+    private func openResolved(_ target: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
+        if target.isNavigableFolder {
+            return openFolder(target, fromMenu: fromMenu)
+        }
+        if target.opensAsBook {
+            appState?.open(url: target.url)
+        } else {
+            NSWorkspace.shared.open(target.url)
+        }
+        return nil
     }
 
     /// 画像フォルダ(それ自体が1冊の本)か。棚への登録と同じ規則を、子フォルダの中を全部読まず、保護下の場所にも入らずに

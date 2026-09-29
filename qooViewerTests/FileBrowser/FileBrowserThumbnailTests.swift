@@ -113,10 +113,10 @@ struct FileBrowserThumbnailTests {
     @Test("記号リンクの先は readlink の字面で決める(相対・絶対・..)。先には触らない")
     func symbolicLinkTargetIsLexical() {
         let link = URL(fileURLWithPath: "/opt/books/link")
-        #expect(FileBrowserSystemIcon.symbolicLinkTarget("book.cbz", linkAt: link).path == "/opt/books/book.cbz")
-        #expect(FileBrowserSystemIcon.symbolicLinkTarget("../other/./book.cbz", linkAt: link).path == "/opt/other/book.cbz")
-        #expect(FileBrowserSystemIcon.symbolicLinkTarget("/Applications/Some.app", linkAt: link).path == "/Applications/Some.app")
-        #expect(FileBrowserSystemIcon.symbolicLinkTarget("../../../..", linkAt: link).path == "/")
+        #expect(FileBrowserLinkResolver.symbolicLinkTarget("book.cbz", linkAt: link).path == "/opt/books/book.cbz")
+        #expect(FileBrowserLinkResolver.symbolicLinkTarget("../other/./book.cbz", linkAt: link).path == "/opt/other/book.cbz")
+        #expect(FileBrowserLinkResolver.symbolicLinkTarget("/Applications/Some.app", linkAt: link).path == "/Applications/Some.app")
+        #expect(FileBrowserLinkResolver.symbolicLinkTarget("../../../..", linkAt: link).path == "/")
     }
 
     @Test("先を読んでよい場所の規則: ネットワーク越し・繋がっていないボリューム・保護下は読まない。同じ保護下の中を見ているときだけ読む")
@@ -131,7 +131,7 @@ struct FileBrowserThumbnailTests {
         let prefixes = [desktop, support]
         let categories: Set<String> = [desktop]
         func resolved(_ url: URL, from current: URL?, mountTable: MountTable = Self.localOnly) -> URL? {
-            FileBrowserSystemIcon.aliasTarget(
+            FileBrowserLinkResolver.backgroundTarget(
                 of: url, currentFolder: current, mountTable: mountTable, protectedPrefixes: prefixes, categoryPrefixes: categories
             )
         }
@@ -185,6 +185,27 @@ struct FileBrowserThumbnailTests {
         #expect(resolved(dangling, from: folder)?.path == "/opt/nothing/here")
     }
 
+    @Test("利用者の操作の解決は場所を選ばない: アプリへのリンクはパッケージとして、無い先は exists = false で返る")
+    func openingResolutionGoesAnywhere() throws {
+        let temporary = try TemporaryDirectory("thumb-alias-opening")
+        let folder = try temporary.directory("root")
+        let toFinder = folder.appendingPathComponent("to-finder")
+        try FileManager.default.createSymbolicLink(
+            at: toFinder, withDestinationURL: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app", isDirectory: true)
+        )
+        let finder = try #require(FileBrowserLinkResolver.openingTargetInfo(of: toFinder))
+        #expect(finder.exists && finder.isDirectory && finder.isPackage)
+        #expect(!finder.entry.isNavigableFolder)
+        let dangling = folder.appendingPathComponent("dangling")
+        try FileManager.default.createSymbolicLink(atPath: dangling.path, withDestinationPath: "/opt/nothing/here")
+        let missing = try #require(FileBrowserLinkResolver.openingTargetInfo(of: dangling))
+        #expect(!missing.exists && missing.url.path == "/opt/nothing/here")
+        // 記号リンクでもエイリアスでもないものは nil。
+        let plain = folder.appendingPathComponent("plain.txt")
+        try Data("x".utf8).write(to: plain)
+        #expect(FileBrowserLinkResolver.openingTargetInfo(of: plain) == nil)
+    }
+
     @Test("エイリアスの先は記録されたパス。先が動いていたらブックマークを解いて追う。一覧はエイリアスに印を付ける")
     func aliasFileTarget() throws {
         let temporary = try TemporaryDirectory("thumb-alias-file")
@@ -203,7 +224,7 @@ struct FileBrowserThumbnailTests {
         #expect(FileBrowserThumbnailProvider.kind(for: aliasEntry, currentFolder: folder, mountTable: Self.localOnly) == .alias)
 
         func resolved() -> URL? {
-            FileBrowserSystemIcon.aliasTarget(of: alias, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: [])
+            FileBrowserLinkResolver.backgroundTarget(of: alias, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: [])
         }
         #expect(resolved()?.path == target.path)
         // 先を同じボリュームの中で動かす → 記録されたパスには無いので、ブックマークで追う。
@@ -214,7 +235,7 @@ struct FileBrowserThumbnailTests {
         // 記号リンク → エイリアス → 本、も先まで追う(レビュー 2026-09-29)。輪は諦める。
         let linkToAlias = folder.appendingPathComponent("link-to-alias")
         try FileManager.default.createSymbolicLink(at: linkToAlias, withDestinationURL: alias)
-        #expect(FileBrowserSystemIcon.aliasTarget(
+        #expect(FileBrowserLinkResolver.backgroundTarget(
             of: linkToAlias, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: []
         )?.path == moved.path)
         let loopA = folder.appendingPathComponent("alias-a")
@@ -222,7 +243,7 @@ struct FileBrowserThumbnailTests {
         try Data("placeholder".utf8).write(to: loopA)
         try URL.writeBookmarkData(try loopA.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil), to: loopB)
         try URL.writeBookmarkData(try loopB.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil), to: loopA)
-        #expect(FileBrowserSystemIcon.aliasTarget(
+        #expect(FileBrowserLinkResolver.backgroundTarget(
             of: loopA, currentFolder: folder, mountTable: Self.localOnly, protectedPrefixes: []
         ) == nil)
     }

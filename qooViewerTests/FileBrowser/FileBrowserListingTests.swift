@@ -35,6 +35,23 @@ struct FileBrowserListingTests {
         #expect(book.opensAsBook)
     }
 
+    @Test("種類の列: 同じ拡張子の実体と記号リンクが混じっても、リンクは「エイリアス」、実体は実体の種類(2026-09-29)")
+    func kindOfLinksIsNotSharedWithRealFiles() throws {
+        let temporary = try TemporaryDirectory("listing-link-kind")
+        let folder = try temporary.directory("root")
+        try Data("zip".utf8).write(to: folder.appendingPathComponent("book.cbz"))
+        // 名前順で実体より前に来るリンクと、後に来るリンク(列挙の順で先に出た方の種類が付いていた)。
+        try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("a.cbz").path, withDestinationPath: "book.cbz")
+        try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("z.cbz").path, withDestinationPath: "book.cbz")
+        let entries = try FileBrowserListing.entries(in: folder)
+        let book = try #require(entries.first { $0.url.lastPathComponent == "book.cbz" })
+        let a = try #require(entries.first { $0.url.lastPathComponent == "a.cbz" })
+        let z = try #require(entries.first { $0.url.lastPathComponent == "z.cbz" })
+        #expect(a.isLink && z.isLink && !book.isLink)
+        #expect(a.typeDescription != nil && a.typeDescription == z.typeDescription)
+        #expect(book.typeDescription != nil && book.typeDescription != a.typeDescription)
+    }
+
     @Test("「隠しファイルを表示」では . で始まる項目と UF_HIDDEN の項目も出し、隠しファイルの印を付ける。.DS_Store は出さない(Finder と同じ)")
     func includesHiddenItemsWhenAsked() throws {
         let temporary = try TemporaryDirectory("listing-hidden")

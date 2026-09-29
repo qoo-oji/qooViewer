@@ -213,7 +213,7 @@ enum FileBrowserIconProvider {
             type = UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 }
                 ?? (entry.isPackage ? .package : .data)
         }
-        if entry.isSymbolicLink || entry.isAliasFile { return aliasIcon(key: key, type: type) }
+        if entry.isLink { return aliasIcon(key: key, type: type) }
         if let cached = cache[key] { return cached }
         let image = NSWorkspace.shared.icon(for: type)
         cache[key] = image

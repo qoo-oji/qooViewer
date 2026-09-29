@@ -81,6 +81,78 @@ struct FileBrowserIntegrationTests {
         }
     }
 
+    // MARK: - 記号リンク・エイリアス(2026-09-29)
+
+    @Test("記号リンク・エイリアスは先の項目として扱う: 開くと先へ移動し、新規タブ・本の判定・展開・このアプリケーションで開くは先で見る")
+    func linksActAsTheirTargets() async throws {
+        let fixture = try Fixture("fb-links")
+        defer { fixture.close() }
+        // 一時フォルダはコンテナ(`~/Library/Containers`)の中で既定では保護下なので、先を読んでよい場所の一覧は空にする。
+        fixture.state.linkTargetProtectedPrefixes = []
+        fixture.state.linkTargetCategoryPrefixes = []
+        let root = try fixture.temporary.directory("root")
+        let book = try fixture.archive("shelf/book.cbz")
+        let plain = try fixture.temporary.directory("shelf/plain")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("to-book"), withDestinationURL: book)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("to-plain"), withDestinationURL: plain)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("to-finder"),
+            withDestinationURL: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app", isDirectory: true)
+        )
+        try URL.writeBookmarkData(
+            try book.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil),
+            to: root.appendingPathComponent("book alias")
+        )
+        try Data("zip".utf8).write(to: root.appendingPathComponent("real.cbz"))
+
+        fixture.state.navigate(to: root)
+        await fixture.state.settle()
+        await fixture.state.waitForLinkTargets()
+        func entry(_ name: String) throws -> FileBrowserEntry {
+            try #require(fixture.state.entries.first { $0.url.lastPathComponent == name })
+        }
+        let toBook = try entry("to-book")
+        let toPlain = try entry("to-plain")
+        let toFinder = try entry("to-finder")
+        let alias = try entry("book alias")
+        let real = try entry("real.cbz")
+        #expect(toBook.isSymbolicLink && alias.isAliasFile && !alias.isSymbolicLink)
+
+        // 先の控え。先の項目の形(フォルダ・パッケージ)を持つ。
+        #expect(fixture.state.target(of: toBook)?.url.path == book.path)
+        #expect(fixture.state.target(of: alias)?.url.path == book.path)
+        #expect(fixture.state.effective(toPlain).isNavigableFolder)
+        #expect(fixture.state.effective(toFinder).isPackage)
+        #expect(fixture.state.target(of: real) == nil)
+
+        // 淡色の判定は先で見る。
+        #expect(fixture.actions.canOpenInNewWindow([toPlain]))
+        #expect(fixture.actions.canOpenInNewWindow([toBook]))
+        #expect(!fixture.actions.canOpenInNewWindow([toFinder]))
+        #expect(fixture.actions.canUseAsBooks([alias]))
+        #expect(fixture.actions.canUseAsBooks([toBook, toPlain]))
+        #expect(!fixture.actions.canUseAsBooks([toFinder]))
+        #expect(fixture.actions.canExtract([toBook]))
+        #expect(fixture.actions.canExtract([alias]))
+        #expect(!fixture.actions.canExtract([toPlain]))
+        // 複数の「開く」はリンクを含むと淡色(フォルダと同じ)。
+        #expect(!fixture.actions.canOpen([toBook, real]))
+
+        // 「このアプリケーションで開く」の候補は先の種類(本と同じ)。
+        let forBook = fixture.actions.openWithApplications(for: [try entry("to-book")]).map(\.url)
+        #expect(forBook == fixture.actions.openWithApplications(for: [real]).map(\.url))
+
+        // 種類の列: リンクは「エイリアス」で、同じ拡張子の実体とは別(先に出た方の種類が付いていた)。
+        #expect(toBook.typeDescription != nil && toBook.typeDescription == alias.typeDescription)
+        #expect(real.typeDescription != toBook.typeDescription)
+
+        // 開く: フォルダへのリンクは先へ移動する。
+        let task = fixture.actions.open([toPlain])
+        await task?.value
+        await fixture.state.settle()
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: plain))
+    }
+
     // MARK: - ファイルブラウザで開く
 
     @Test("本を開いていないウインドウはそのウインドウで、開いているウインドウは環境設定の行き先で開く")

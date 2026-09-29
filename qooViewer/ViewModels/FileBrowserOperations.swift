@@ -615,16 +615,20 @@ final class FileBrowserOperations: ObservableObject {
 
     /// 「ここに展開」「〈名前〉に展開」(`choosingDestination` なら「展開先を選んで展開…」。置き方は `placement`)。
     /// 書庫でない項目は外す。1 冊ずつ順に展開し、全体で 1 回の取り消し。
+    /// - Parameter archives: 展開する書庫(記号リンク・エイリアスを解いた先。`FileBrowserActions.extract`)。nil なら `entries` の書庫。
+    ///   展開先は**選んだ項目のあるフォルダ**(リンクなら先ではなくリンクの隣。利用者が見ている場所)。
     @discardableResult
     func extract(
-        _ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool = false
+        _ entries: [FileBrowserEntry], archives: [URL]? = nil, placement: ArchiveExtractor.Placement,
+        choosingDestination: Bool = false
     ) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
-        let archives = entries.filter(\.isExtractableArchive).map(\.url)
+        let archives = archives ?? entries.filter(\.isExtractableArchive).map(\.url)
+        let anchor = entries.first?.url
         let limits = extractionLimits
         return enqueue { [weak self] in
-            guard let self, let first = archives.first else { return }
-            var destination = first.deletingLastPathComponent()
+            guard let self, let first = archives.first, let anchor else { return }
+            var destination = anchor.deletingLastPathComponent()
             if choosingDestination {
                 let startingFolder = destination
                 guard let chosen = await self.asking({
