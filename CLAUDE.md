@@ -193,7 +193,10 @@ smart library, never in the file browser). Edit mode no longer changes clicks: i
 create/add — and a drop on a tile adds to that collection), shows the select-all/trash buttons and the delete items, and the
 header rename; creating/adding/renaming are not gated on it (the user kept edit mode on purpose: without it, people who drop
 to open would lose drop-to-create). **「直前の本へ戻る」** (2026-09-28): the leftmost item of every Home top bar (and the top-left of the classic screen) reopens the book this
-tab last opened, and a narrow `clock.arrow.circlepath` button right next to it drops down the history (`RecentBooksPopover`; the only history button on the bar since 2026-09-28), from `AppState.lastOpenedBook` — a per-window, in-memory record (never written to disk, so private windows have it too);
+tab last opened, and a narrow `clock.arrow.circlepath` button right next to it drops down the history (`RecentBooksPopover`; the only history button on the bar since 2026-09-28), from `AppState.lastOpenedBook` — a per-window, in-memory record (never written to disk, so private windows have it too; the button is
+also dimmed while the book cannot be reopened, 2026-09-29 — `AppState.lastBookAvailability`: a failed reopen, or not at the path it was
+opened from, rechecked on `FileIO` only while the button is on screen; `LastBookPresence` answers "absent" only for ENOENT/ENOTDIR or an
+unmounted volume, and a book that came back is enabled again);
 with no top bar and only the file browser, `WelcomeView`'s onAppear instead makes the browser select that book, but only after `closeBook`
 (`AppState.takeLastBookForHomeSelection`), never after a failed load. The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
 `FileBrowserState` one-per-window — its place is a `FileBrowserLocation` (computer / recents / folder; `currentFolder` stays nil for the

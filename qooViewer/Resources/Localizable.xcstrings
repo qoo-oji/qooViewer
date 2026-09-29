@@ -266,6 +266,22 @@
         }
       }
     },
+    "“%@” can’t be found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」が見つかりません"
+          }
+        }
+      }
+    },
     "“%@” can’t be opened as a book." : {
       "localizations" : {
         "en" : {
@@ -326,6 +342,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」が見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be opened" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be opened"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を開けませんでした"
           }
         }
       }

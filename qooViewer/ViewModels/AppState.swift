@@ -132,10 +132,81 @@ final class AppState: ObservableObject {
         let title: String
     }
 
-    /// 直前に開いていた本を、このウインドウで開き直す(ホームのボタン)。無ければ何もしない。
+    /// 直前の本(`lastOpenedBook`)へ**いま戻れるか**(2026-09-29、利用者の指摘「戻る先の本が移動したり削除されたりして
+    /// 開けなくなった後もグレーアウトしない」)。
+    ///
+    /// 控えは「開けた時点」の写しなので、その後に本が消えても移っても控え自体は変わらない。以前はボタンの淡色の条件が
+    /// 「控えが無い」だけで、押すたびに「見つかりません」の知らせが出るのに、ボタンは押せる見た目のままだった。
+    /// 控えは消さずに、戻れるかどうかを別に持つ ―― 本が元の場所へ戻れば(ゴミ箱から戻した・取り消した・ボリュームを
+    /// 繋ぎ直した)、また押せるようにするため。
+    enum LastBookAvailability: Equatable, Sendable {
+        /// 戻れる(確かめられなかった場合も。「読めなかった」は「無い」ではない)。
+        case available
+        /// 開いたときの場所に無い(`refreshLastBookAvailability` が確かめた)。そこにまた在れば `available` へ戻る。
+        case missing
+        /// 開き直そうとして失敗した(利用者の指摘: 一度押して開けない知らせが出た時点で、ボタンとして働かないことは
+        /// 分かっている)。無いせいなら、直後の確かめで `missing` になる。**在るのに開けなかった**(壊れた・読めない)なら、
+        /// 在ることを確かめ直しても押せる状態へは戻さない ―― 戻すと、押す → 失敗の知らせ → また押せる、を繰り返す。
+        case failedToOpen
+    }
+
+    @Published private(set) var lastBookAvailability: LastBookAvailability = .available
+
+    /// 「直前の本へ戻る」を押せるか。ボタンの淡色と `reopenLastBook` が同じものを見る(押せる見た目なのに何も起きない、
+    /// を作らない)。
+    var canReopenLastBook: Bool { lastOpenedBook != nil && lastBookAvailability == .available }
+
+    /// 直前に開いていた本を、このウインドウで開き直す(ホームのボタン)。無い・戻れないなら何もしない。
     func reopenLastBook() {
-        guard let last = lastOpenedBook else { return }
+        guard canReopenLastBook, let last = lastOpenedBook else { return }
         open(request: last.request)
+    }
+
+    /// 走っている確かめ(テストが終わりを待つ)。走っている間に次を頼まれたら、終わってからもう一度だけ確かめる
+    /// (`lastBookProbeIsStale`) ―― 応答しないボリュームへの問い合わせを、頼まれた回数ぶん積まない。
+    private(set) var lastBookProbeTask: Task<Void, Never>?
+    private var lastBookProbeIsStale = false
+
+    /// 確かめを待つ上限(`sequenceProbeLimit` と同じ考え方)。過ぎたら、今の状態のままにする。
+    nonisolated static let lastBookProbeLimit: Duration = .seconds(5)
+
+    /// 直前の本が、開いたときの場所に今も在るかを確かめ直す。**ボタンが画面に出ている間だけ**、ボタンが頼む
+    /// (`HomeLastBookButton`: 出たとき・アプリが前面に戻ったとき・アプリ自身がファイルを動かしたとき・ボリュームの
+    /// 付け外し)。開き直しに失敗したときは自分でも頼む。
+    ///
+    /// 確かめは `FileIO` の上で、期限つき(応答しないボリュームでメインもプールも止めない)。確かめるのは**ボタンが開く
+    /// もの**(`request.urls`。棚ならフォルダ、画像をまとめた 1 冊ならその画像)で、実際に開いた本(`sourceURL`)ではない。
+    func refreshLastBookAvailability() {
+        guard let last = lastOpenedBook else { return }
+        guard lastBookProbeTask == nil else {
+            lastBookProbeIsStale = true
+            return
+        }
+        let urls = last.request.urls
+        lastBookProbeTask = Task { [weak self] in
+            let presence = try? await FileIO.withDeadline(Self.lastBookProbeLimit) {
+                await FileIO.perform { LastBookPresence.probe(urls) }
+            }
+            guard let self else { return }
+            self.lastBookProbeTask = nil
+            // 確かめている間に別の本を開けていたら、この答えは前の本のもの。
+            if let presence, self.lastOpenedBook?.request.urls == urls {
+                self.lastBookAvailability = self.lastBookAvailability.updated(by: presence)
+            }
+            if self.lastBookProbeIsStale {
+                self.lastBookProbeIsStale = false
+                self.refreshLastBookAvailability()
+            }
+        }
+    }
+
+    /// アプリ自身がファイルを動かした知らせ(`FileSystemChange`)のうち、直前の本に関わるものだけ確かめ直す(本そのもの・
+    /// 入っているフォルダが移った・消えた・戻った)。
+    func refreshLastBookAvailability(after change: FileSystemChange) {
+        guard let last = lastOpenedBook else { return }
+        let paths = Set(last.request.urls.map { MountTable.normalized($0.path) })
+        guard change.touchesAny(of: paths) else { return }
+        refreshLastBookAvailability()
     }
 
     /// 帯の無いファイルブラウザだけのホームが、次に出たときに `lastOpenedBook` を選んで見せるべきか
@@ -1322,6 +1393,7 @@ final class AppState: ObservableObject {
                     self.errorMessage = nil
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
                     self.lastOpenedBook = LastOpenedBook(request: request, sourceURL: book.sourceURL, title: book.title)
+                    self.lastBookAvailability = .available
                     // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
                     if self.pendingInitialPage?.bookID != book.id {
                         self.pendingInitialPage = nil
@@ -1354,6 +1426,13 @@ final class AppState: ObservableObject {
                     self.currentBook = nil
                     // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
                     self.lastBookAwaitsHomeSelection = false
+                    // 開けなかったのが直前の本なら、「直前の本へ戻る」はもう働かない(LastBookAvailability.failedToOpen の
+                    // コメント。ボタンから開き直したときに限らない ―― 履歴などから同じ本を開こうとして失敗しても同じ)。
+                    // 無いせいなのかは、続けて確かめる。
+                    if let last = self.lastOpenedBook, last.request.urls == request.urls {
+                        self.lastBookAvailability = .failedToOpen
+                        self.refreshLastBookAvailability()
+                    }
                     self.clearSiblingBooks()
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
