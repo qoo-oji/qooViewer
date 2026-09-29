@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import CoreGraphics
 import Foundation
@@ -197,6 +198,16 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.revision &+= 1 }
             }
+        // 断られたリンクの記憶はボリュームの着脱で捨てる(`refusedAliasKeys`)。
+        let workspace = NSWorkspace.shared.notificationCenter
+        volumeObservation = Publishers.MergeMany(
+            workspace.publisher(for: NSWorkspace.didMountNotification),
+            workspace.publisher(for: NSWorkspace.didUnmountNotification)
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.forgetRefusedAliasTargets() }
+        }
         if layoutStore != nil {
             layoutObserver = NotificationCenter.default.addObserver(
                 forName: .layoutDataDidChange, object: nil, queue: .main
@@ -364,6 +375,134 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private var aliasTargets: [String: AliasTarget] = [:]
     private static let aliasTargetsLimit = 2000
 
+    /// 先を解く頼み(`resolveAliasTarget`)。同じリンク(と見ているフォルダ)を待つセルを束ね、溜まった頼みを **1 本の FileIO で
+    /// まとめて**解く(2026-09-29 の監査: 以前はセルごとに `FileIO.perform` を呼び、エイリアスが数百並ぶフォルダでは見えているセルの
+    /// 数だけスレッドが同時に立ち、一覧を読み直すたびに繰り返した)。仕事の枠(`Job`)の外に置く理由は `aliasThumbnail` のコメント。
+    private final class AliasResolution {
+        let url: URL
+        let currentFolder: URL?
+        /// 待っているセル(取り消されたものはここから外して nil で起こす。`cancelAliasWaiter`)。
+        var waiters: [UUID: CheckedContinuation<FileBrowserLinkResolver.Target?, Never>] = [:]
+
+        init(url: URL, currentFolder: URL?) {
+            self.url = url
+            self.currentFolder = currentFolder
+        }
+    }
+    /// 鍵はリンクの項目の鍵と見ているフォルダ(先を読んでよいかの判断が変わる。`aliasResolutionKey`)。
+    private var aliasResolutions: [String: AliasResolution] = [:]
+    private static func aliasResolutionKey(for entry: FileBrowserEntry, currentFolder: URL?) -> String {
+        itemKey(for: entry) + "|" + (currentFolder?.path ?? "")
+    }
+    /// まだ FileIO に渡していない頼みの鍵(頼まれた順)。
+    private var pendingAliasResolutionKeys: [String] = []
+    private var aliasResolutionTask: Task<Void, Never>?
+    /// 先を解くのを待っている `aliasThumbnail` の数(`waitUntilIdle` が見る ―― 起こされたセルが先の仕事を積むまでの間も「仕事中」)。
+    private var aliasResolutionWaiterCount = 0
+    /// 場所の規則で断られたリンク(`InfoOutcome.refused`。鍵は `aliasResolutionKey`)。リストのアイコン(`FileBrowserListSystemIcons.refused`)
+    /// と同じ約束: **ボリュームの着脱まで覚え**、決められないだけのもの(壊れたエイリアス)は覚えない(レビュー 2026-09-29 ―― 以前は
+    /// セルが作り直されるたびに、共有を指すリンクを FileIO で解き直していた)。上限を超えたら丸ごと忘れる。
+    private var refusedAliasKeys: Set<String> = []
+    private var volumeObservation: AnyCancellable?
+    /// FileIO へ渡したリンクの数(**テストのための口**。束ねた頼み・覚えた断りは数えない)。
+    private(set) var aliasResolutionCount = 0
+
+    /// 断られたリンクの記憶を捨てる(ボリュームの着脱。**テストのための口**でもある)。
+    func forgetRefusedAliasTargets() {
+        refusedAliasKeys.removeAll()
+    }
+
+    /// 記号リンク・エイリアス `entry` の先(触ってよい場所だけ。断られたら nil)。同じ頼みは束ね、溜まった分を 1 本の FileIO で解く
+    /// (`AliasResolution` のコメント)。頼んだセルが取り消されたら、その分は待たずに nil(仕事も要らなくなれば頼みごと捨てる)。
+    private func resolveAliasTarget(
+        of entry: FileBrowserEntry, currentFolder: URL?
+    ) async -> FileBrowserLinkResolver.Target? {
+        let key = Self.aliasResolutionKey(for: entry, currentFolder: currentFolder)
+        guard !refusedAliasKeys.contains(key) else { return nil }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<FileBrowserLinkResolver.Target?, Never>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                if let existing = aliasResolutions[key] {
+                    existing.waiters[waiterID] = continuation
+                } else {
+                    let resolution = AliasResolution(url: entry.url, currentFolder: currentFolder)
+                    resolution.waiters[waiterID] = continuation
+                    aliasResolutions[key] = resolution
+                    pendingAliasResolutionKeys.append(key)
+                }
+                startAliasResolutionsIfNeeded()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelAliasWaiter(waiterID, of: key) }
+        }
+    }
+
+    /// 取り消されたセルを起こし、誰も待たなくなった頼みは(まだ FileIO に渡していなければ)捨てる(`pixels` の `cancelWaiter` と同じ形)。
+    private func cancelAliasWaiter(_ waiterID: UUID, of key: String) {
+        guard let resolution = aliasResolutions[key], let continuation = resolution.waiters.removeValue(forKey: waiterID) else { return }
+        continuation.resume(returning: nil)
+        guard resolution.waiters.isEmpty, let index = pendingAliasResolutionKeys.lastIndex(of: key) else { return }
+        pendingAliasResolutionKeys.remove(at: index)
+        aliasResolutions[key] = nil
+    }
+
+    /// 1 回の FileIO で解く頼みの数。少しずつにするのは、後から画面に入ったセルが前の全部を待たないように(レビュー 2026-09-29:
+    /// 溜まった全部を 1 回で解くと、記録されたパスに無いエイリアス 1 つの解決(ボリュームのファイル ID の探索)で全セルの絵が遅れた)。
+    private static let aliasResolutionBatchSize = 8
+
+    /// 溜まった頼みを、後から頼まれたもの(画面に入ったばかりのセル)から `aliasResolutionBatchSize` 件ずつ 1 本の FileIO で解き、
+    /// 待っているセルに配る。解いている間に届いた頼みは次の回で(同じ鍵の頼みは解いている回の結果を受け取る ―― `aliasResolutions`
+    /// から外すのは配るとき)。**待っているセルには必ず答える**: 提供役が解放されていても、解き終えた回の分は nil で起こす
+    /// (CheckedContinuation を捨てると待つ側が永遠に止まる)。
+    private func startAliasResolutionsIfNeeded() {
+        guard aliasResolutionTask == nil, !pendingAliasResolutionKeys.isEmpty else { return }
+        aliasResolutionTask = Task { [weak self] in
+            while true {
+                guard let self else { return }
+                let count = min(Self.aliasResolutionBatchSize, self.pendingAliasResolutionKeys.count)
+                guard count > 0 else {
+                    self.aliasResolutionTask = nil
+                    return
+                }
+                let keys = Array(self.pendingAliasResolutionKeys.suffix(count).reversed())
+                self.pendingAliasResolutionKeys.removeLast(count)
+                let batch: [(key: String, resolution: AliasResolution)] = keys.compactMap { key in
+                    self.aliasResolutions[key].map { (key, $0) }
+                }
+                let items = batch.map { (key: $0.key, url: $0.resolution.url, currentFolder: $0.resolution.currentFolder) }
+                self.aliasResolutionCount += items.count
+                let mountTable = MountTable.current()
+                let (protectedPrefixes, categoryPrefixes) = (self.protectedPrefixes, self.categoryPrefixes)
+                let resolved = await FileIO.perform { () -> [(key: String, outcome: FileBrowserLinkResolver.InfoOutcome)] in
+                    items.map { item in
+                        (item.key, FileBrowserLinkResolver.backgroundInfo(
+                            of: item.url, currentFolder: item.currentFolder, mountTable: mountTable,
+                            protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+                        ))
+                    }
+                }
+                let outcomes = Dictionary(uniqueKeysWithValues: resolved.map { ($0.key, $0.outcome) })
+                for (key, resolution) in batch {
+                    // 提供役が生きていれば台帳から外す(その後に届く同じ鍵の頼みは次の回へ)。解放されていても、待っている側は起こす。
+                    self.aliasResolutions.removeValue(forKey: key)
+                    var target: FileBrowserLinkResolver.Target?
+                    switch outcomes[key] {
+                    case .target(let info): target = info
+                    case .refused:
+                        if self.refusedAliasKeys.count >= Self.aliasTargetsLimit { self.refusedAliasKeys.removeAll() }
+                        self.refusedAliasKeys.insert(key)
+                    case .unresolvable, nil: break
+                    }
+                    for waiter in resolution.waiters.values { waiter.resume(returning: target) }
+                }
+            }
+        }
+    }
+
     /// 先の絵が「中の絵」(本・画像・画像フォルダ・動画)か。それ以外(アプリ・その他・無い先・エイリアスのエイリアス)は先のアイコン。
     private static func drawsTargetPicture(_ kind: BookThumbnailer.Kind?) -> Bool {
         guard let kind else { return false }
@@ -373,8 +512,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 記号リンク・エイリアスの先の絵。**先の項目そのものと同じ経路**で作る(ユーザーの要望 2026-09-29: 登録済みの本なら本棚と同じ表紙、
     /// 未登録なら 1 ページ目、画像・画像フォルダ・動画も直接置かれたときと同じ)。
     ///
-    /// 1. 先を決める(`FileBrowserLinkResolver.backgroundTargetInfo`。触ってよい場所か段ごとに確かめる。FileIO の上、仕事の枠の外 ―― 枠の中で
-    ///    先の仕事を待つと、枠がリンクの仕事で埋まったとき先の仕事が始まれず止まる)。断られたら nil で、失敗とは覚えない。
+    /// 1. 先を決める(`resolveAliasTarget` → `FileBrowserLinkResolver.backgroundTargetInfo`。触ってよい場所か段ごとに確かめる。FileIO の上、
+    ///    仕事の枠の外 ―― 枠の中で先の仕事を待つと、枠がリンクの仕事で埋まったとき先の仕事が始まれず止まる。セルごとに 1 本ではなく、
+    ///    溜まった頼みをまとめて 1 本で解く)。断られたら nil で、失敗とは覚えない。
     /// 2. 先の種類を、先の項目が直接並んでいるときと同じ規則で決める(`kind(for:)`。先がデスクトップの中なら見ているフォルダ次第)。
     /// 3. 中の絵になる種類なら、先の項目として `thumbnail(for:)` を頼む ―― 出どころ(コレクションの表紙・表紙の指定・1 ページ目)、
     ///    メモリとディスクのキャッシュ、失敗の記憶、同じ絵の束ねが**先の項目と共有**される(同じ本が直接並ぶ場所と作り直さない)。
@@ -384,15 +524,11 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         for entry: FileBrowserEntry, pixelSize: CGFloat, savesToDisk: Bool, currentFolder: URL?
     ) async -> PagePixelBuffer? {
         let key = Self.itemKey(for: entry)
+        aliasResolutionWaiterCount += 1
+        let resolvedInfo = await resolveAliasTarget(of: entry, currentFolder: currentFolder)
+        aliasResolutionWaiterCount -= 1
+        guard let info = resolvedInfo else { return nil }
         let mountTable = MountTable.current()
-        let url = entry.url
-        let (protectedPrefixes, categoryPrefixes) = (protectedPrefixes, categoryPrefixes)
-        guard let info = await FileIO.perform({
-            FileBrowserLinkResolver.backgroundTargetInfo(
-                of: url, currentFolder: currentFolder, mountTable: mountTable,
-                protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
-            )
-        }) else { return nil }
         let targetEntry = info.entry
         let targetKind = info.exists
             ? Self.kind(
@@ -725,6 +861,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         memory.removeAll()
         failedKeys.removeAll()
         aliasTargets.removeAll()
+        refusedAliasKeys.removeAll()
         purgeGeneration &+= 1
         revision &+= 1
     }
@@ -737,9 +874,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         aliasTargets.removeAll()
     }
 
-    /// 仕事がすべて終わるまで待つ(**テストのための口**)。
+    /// 仕事がすべて終わるまで待つ(**テストのための口**)。リンクの先を解く頼みと、解けて先の仕事を積むまでのセルも含む。
     func waitUntilIdle() async {
-        while runningCount > 0 || !queue.isEmpty {
+        while runningCount > 0 || !queue.isEmpty || aliasResolutionTask != nil || aliasResolutionWaiterCount > 0 {
             try? await Task.sleep(for: .milliseconds(10))
         }
     }

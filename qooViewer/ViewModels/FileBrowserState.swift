@@ -328,6 +328,8 @@ final class FileBrowserState: ObservableObject {
     /// 既定の一覧では保護下)。
     var linkTargetProtectedPrefixes: [String] = DirectoryProbe.protectedPrefixes
     var linkTargetCategoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    /// リンクの先を解くときのマウント表(**テストのための口**: 作業フォルダをネットワーク越しに見立てる)。
+    var linkTargetMountTable: () -> MountTable = MountTable.current
 
     /// 記号リンク・エイリアスの解けている先(在るもの)。それ以外・まだ解けていないものは nil。
     func target(of entry: FileBrowserEntry) -> FileBrowserEntry? {
@@ -340,11 +342,14 @@ final class FileBrowserState: ObservableObject {
         target(of: entry) ?? entry
     }
 
-    private static func linkKey(for entry: FileBrowserEntry) -> String {
-        "\(entry.id)|\(entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0)"
-    }
+    private static func linkKey(for entry: FileBrowserEntry) -> String { entry.identityKey }
 
     /// 一覧のリンクの先を解く(`apply` で一覧が変わったとき)。解けている鍵は残し、消えた項目の分は捨てる。
+    ///
+    /// **ネットワーク越しのボリュームにあるリンクは解かない**(2026-09-29 の監査)。先の場所は `backgroundTargetInfo` が段ごとに
+    /// 確かめるが、リンク自身の readlink とエイリアスファイルの読み取りはその前に起きるので、共有上のフォルダではリンクの数だけ
+    /// 往復していた(絵・アイコンが「見ているフォルダがネットワーク越しなら読まない」としているのと同じ規則に揃える)。解けていない
+    /// リンクは自分自身として扱われ、開くときだけ `FileBrowserActions.openLink` が解く。
     private func resolveLinkTargets() {
         linkTargetsTask?.cancel()
         linkTargetsTask = nil
@@ -352,14 +357,15 @@ final class FileBrowserState: ObservableObject {
         let keys = Set(links.map(Self.linkKey(for:)))
         linkTargets = linkTargets.filter { keys.contains($0.key) }
         let known = linkTargets
+        let mountTable = linkTargetMountTable()
         // FileIO の閉包へ渡すので配列にする(lazy の列は閉包を抱える。レビュー 2026-09-29)。
         let pending: [(key: String, url: URL)] = links.compactMap {
             let key = Self.linkKey(for: $0)
-            return known[key] == nil ? (key, $0.url) : nil
+            guard known[key] == nil, !mountTable.isRemote($0.url) else { return nil }
+            return (key, $0.url)
         }
         guard !pending.isEmpty else { return }
         let folder = currentFolder
-        let mountTable = MountTable.current()
         let (protectedPrefixes, categoryPrefixes) = (linkTargetProtectedPrefixes, linkTargetCategoryPrefixes)
         linkTargetsTask = Task { [weak self] in
             let resolved = await FileIO.perform { () -> [(key: String, target: FileBrowserLinkResolver.Target?)] in
@@ -664,9 +670,35 @@ final class FileBrowserState: ObservableObject {
         move(to: Self.location(of: Self.parent(of: leaving)), selecting: Self.id(for: leaving))
     }
 
+    /// 戻る/進むの履歴から「最近の項目」を外す(設定を OFF にしたとき)。外した跡で同じ場所が続く(`[A, 最近, A]`)・いま居る場所が隣に
+    /// 来る(最近の項目に居てホームへ離れたとき、直前がホーム)と、押せる「戻る」「進む」が何もしないので、それも畳む(レビュー 2026-09-29)。
+    private func removeRecentsFromHistory() {
+        // 比べるのは `FileBrowserLocation` そのもの(`selectionKey` はコンピュータが nil で、空の履歴の `last` と区別がつかない ――
+        // 2026-09-29 のテストで空の履歴から removeLast してクラッシュした)。
+        func pruned(_ stack: [FileBrowserLocation]) -> [FileBrowserLocation] {
+            var result: [FileBrowserLocation] = []
+            for entry in stack where !entry.isRecents {
+                if result.last != entry { result.append(entry) }
+            }
+            return result
+        }
+        let current = location
+        backStack = pruned(backStack)
+        forwardStack = pruned(forwardStack)
+        while let last = backStack.last, last == current { backStack.removeLast() }
+        while let last = forwardStack.last, last == current { forwardStack.removeLast() }
+    }
+
+    /// 戻る・進むの履歴に残った場所のうち、いまは出せない「最近の項目」はホームフォルダに読み替える(`startupLocation` の「最後に表示した
+    /// フォルダ」と同じ。2026-09-29 の監査)。設定を OFF にしたときに履歴から外す(`observePreferences`)ので、ふつうは残っていない
+    /// (シークレットウインドウでは積まれない)。念のための読み替え。
+    private func reachable(_ location: FileBrowserLocation) -> FileBrowserLocation {
+        location.isRecents && !canShowRecents ? .folder(FileBrowserListing.realHomeDirectory()) : location
+    }
+
     /// 戻る。**戻り先が直前のフォルダの親なら、そのフォルダを選ぶ**(上へ移動したのと同じ見え方にする)。
     func goBack() {
-        guard let previous = backStack.popLast() else { return }
+        guard let previous = backStack.popLast().map(reachable) else { return }
         let leaving = currentFolder
         forwardStack.append(location)
         var highlight: String?
@@ -678,7 +710,7 @@ final class FileBrowserState: ObservableObject {
     }
 
     func goForward() {
-        guard let next = forwardStack.popLast() else { return }
+        guard let next = forwardStack.popLast().map(reachable) else { return }
         pushBack(location)
         move(to: next, selecting: nil)
     }
@@ -752,7 +784,8 @@ final class FileBrowserState: ObservableObject {
             }
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
             if let recentEntries {
-                outcome = .success(await FileIO.perform { FileBrowserListing.recentEntries(from: recentEntries) })
+                let mountTable = MountTable.current()
+                outcome = .success(await FileIO.perform { FileBrowserListing.recentEntries(from: recentEntries, mountTable: mountTable) })
             } else if let folder {
                 do {
                     outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden)) })
@@ -1301,15 +1334,19 @@ final class FileBrowserState: ObservableObject {
             recentsPreferenceObservation = nil
             return
         }
-        // 「最近の項目」を OFF にされたら、表示していた場合はホームフォルダへ(出せない場所に居続けない)。
+        // 「最近の項目」を OFF にされたら、戻る/進むの履歴から外し(残すと、押せる「戻る」が何もしないことになる ―― レビュー
+        // 2026-09-29)、表示していた場合はホームフォルダへ(出せない場所に居続けない。履歴には積まない: 積むと最近の項目が戻り先になる)。
         recentsPreferenceObservation = preferences.$fileBrowserShowsRecents
             .dropFirst()
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] enabled in
                 MainActor.assumeIsolated {
-                    guard let self, !enabled, self.isShowingRecents else { return }
-                    self.navigate(to: FileBrowserListing.realHomeDirectory())
+                    guard let self, !enabled else { return }
+                    if self.isShowingRecents {
+                        self.move(to: .folder(FileBrowserListing.realHomeDirectory()), selecting: nil)
+                    }
+                    self.removeRecentsFromHistory()
                 }
             }
         // ファイルを変えられなくなった瞬間(`FileBrowserOperations.isReadOnly` と同じ条件)に、名前の編集を取りやめてもらう。

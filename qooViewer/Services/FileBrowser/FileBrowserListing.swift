@@ -43,6 +43,10 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     /// Finder のエイリアスのファイル(記号リンクではない)。圧縮では先の実体を入れる(ユーザーの判断 2026-09-29。docs/15「記号リンクとエイリアスの先」)。
     var isFinderAlias: Bool { isAliasFile && !isSymbolicLink }
 
+    /// 「同じ項目のまま中身が変わっていないか」の鍵(パスと更新日時)。記号リンク・エイリアスの先の控え(`FileBrowserState.linkTargets`)と
+    /// リストのシステムのアイコン(`FileBrowserListSystemIcons`)が同じ規則で使う(レビュー 2026-09-29: 3 か所で同じ式を書いていた)。
+    var identityKey: String { "\(id)|\(modificationDate?.timeIntervalSinceReferenceDate ?? 0)" }
+
     /// 選択・スクロール先の鍵。**末尾の`/`を持たないパス**(FileBrowserState.id(for:))。
     /// 列挙はフォルダのURLを末尾`/`付きで返し、外から渡されるURLは付いていないことが多いので、
     /// URLの`==`で突き合わせると同じ項目が別物になる。
@@ -185,14 +189,20 @@ nonisolated enum FileBrowserListing {
     /// 「最近の項目」の一覧(FileBrowserLocation の型コメント)。履歴の並び(新しい順)のまま、項目の属性だけ読む。
     /// 読めない場所(許可の無いフォルダの中)の項目は、履歴が覚えている「フォルダか」だけで作る(URL の `hasDirectoryPath`)。
     /// URL はパスと「フォルダか」から組む(`Entry.displayURL` と同じ形。あちらはメインアクター限定なのでここでは呼べない)。
+    /// **ネットワーク越しのボリュームにある項目には触らない**(2026-09-29 の監査。応答しない共有の上の 1 冊ごとに 30 秒、直列で
+    /// 待った ―― サイドパネルの履歴モードは stat しない)。種類は名前から引き、大きさ・日付は無し。
     /// **FileIO の上で呼ぶ。**
-    static func recentEntries(from entries: [RecentFilesStore.Entry]) -> [FileBrowserEntry] {
+    static func recentEntries(from entries: [RecentFilesStore.Entry], mountTable: MountTable) -> [FileBrowserEntry] {
         var kindCache: [String: String] = [:]
-        return entries.map { makeEntry(URL(fileURLWithPath: $0.path, isDirectory: $0.isDirectory), kindCache: &kindCache) }
+        return entries.map {
+            let url = URL(fileURLWithPath: $0.path, isDirectory: $0.isDirectory)
+            return makeEntry(url, touchesFileSystem: !mountTable.isRemote(url), kindCache: &kindCache)
+        }
     }
 
-    static func makeEntry(_ url: URL, kindCache: inout [String: String]) -> FileBrowserEntry {
-        let values = try? url.resourceValues(forKeys: Set(resourceKeys))
+    /// - Parameter touchesFileSystem: false なら項目を読まず(stat も種類の問い合わせもしない)、URL の綴りだけで組む。
+    static func makeEntry(_ url: URL, touchesFileSystem: Bool = true, kindCache: inout [String: String]) -> FileBrowserEntry {
+        let values = touchesFileSystem ? try? url.resourceValues(forKeys: Set(resourceKeys)) : nil
         let isDirectory = values?.isDirectory ?? url.hasDirectoryPath
         let isPackage = values?.isPackage ?? false
         let name: String = {
@@ -208,7 +218,8 @@ nonisolated enum FileBrowserListing {
             isVolume: false,
             fileSize: isDirectory && !isPackage ? nil : (values?.totalFileSize ?? values?.fileSize).map(Int64.init),
             typeDescription: typeDescription(
-                for: url, isDirectory: isDirectory, isPackage: isPackage, isLink: values?.isAliasFile ?? false, cache: &kindCache
+                for: url, isDirectory: isDirectory, isPackage: isPackage, isLink: values?.isAliasFile ?? false,
+                touchesFileSystem: touchesFileSystem, cache: &kindCache
             ),
             creationDate: values?.creationDate,
             modificationDate: values?.contentModificationDate,
@@ -298,15 +309,21 @@ nonisolated enum FileBrowserListing {
     /// - Parameter isLink: 記号リンク・エイリアス(`isAliasFileKey`)。種類は「エイリアス」で、拡張子には依らない ―― 鍵を分けないと、
     ///   同じ拡張子の実体とリンクが混じったとき先に出た方の種類が両方に付いた(記号リンク「a.cbz」の後の「book.cbz」が「エイリアス」。
     ///   レビュー 2026-09-29)。
+    /// - Parameter touchesFileSystem: false なら項目に問い合わせず、拡張子の UTType の説明で代える(ネットワーク越しの最近の項目)。
     private static func typeDescription(
-        for url: URL, isDirectory: Bool, isPackage: Bool, isLink: Bool = false, cache: inout [String: String]
+        for url: URL, isDirectory: Bool, isPackage: Bool, isLink: Bool = false, touchesFileSystem: Bool = true,
+        cache: inout [String: String]
     ) -> String? {
-        let prefix = isLink ? "a:" : (isPackage ? "p:" : (isDirectory ? "d:" : "f:"))
+        // 名前だけの推測(`touchesFileSystem == false`)は LaunchServices の答えと別の鍵で覚える(レビュー 2026-09-29: 同じ鍵だと、
+        // 先に出た共有上の項目の推測が、後に出たローカルの項目にも付いた)。
+        let prefix = isLink ? "a:" : (isPackage ? "p:" : (isDirectory ? "d:" : (touchesFileSystem ? "f:" : "g:")))
         let key = prefix + (isLink ? "" : url.pathExtension.lowercased())
         if let cached = cache[key] { return cached }
         let description: String?
         if isDirectory, !isPackage, !isLink {
             description = UTType.folder.localizedDescription
+        } else if !touchesFileSystem {
+            description = UTType(filenameExtension: url.pathExtension).flatMap { $0.isDynamic ? nil : $0 }?.localizedDescription
         } else {
             description = (try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription
         }

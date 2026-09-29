@@ -183,6 +183,32 @@ struct FileBrowserThumbnailTests {
         let dangling = folder.appendingPathComponent("dangling")
         try FileManager.default.createSymbolicLink(atPath: dangling.path, withDestinationPath: "/opt/nothing/here")
         #expect(resolved(dangling, from: folder)?.path == "/opt/nothing/here")
+
+        // 「場所の規則で断った」と「決められない」は別の結果(レビュー 2026-09-29: リストのアイコンは前者だけをボリュームの着脱まで覚える。
+        // 区別しないと、先が一時的に無いエイリアスがこの起動の間ずっと種類のアイコンのままになる)。
+        func outcome(_ url: URL, mountTable: MountTable = Self.localOnly) -> FileBrowserLinkResolver.Outcome {
+            FileBrowserLinkResolver.backgroundOutcome(
+                of: url, currentFolder: folder, mountTable: mountTable, protectedPrefixes: prefixes, categoryPrefixes: categories
+            )
+        }
+        #expect(outcome(toShare, mountTable: remote) == .refused)
+        #expect(outcome(toGone) == .refused)
+        #expect(outcome(toDesktop) == .refused)
+        #expect(outcome(viaHop, mountTable: remote) == .refused)
+        #expect(outcome(loopA) == .unresolvable)
+        #expect(outcome(plain) == .unresolvable)
+        // 記録されたパスに何も無く、ブックマークでも追えないエイリアス(先を消した)は決められない。先が戻れば決まる。
+        let moving = try temporary.directory("elsewhere/Moving")
+        let aliasFile = folder.appendingPathComponent("moving alias")
+        try URL.writeBookmarkData(
+            try moving.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil),
+            to: aliasFile
+        )
+        #expect(outcome(aliasFile) == .target(moving))
+        try FileManager.default.removeItem(at: moving)
+        #expect(outcome(aliasFile) == .unresolvable)
+        try FileManager.default.createDirectory(at: moving, withIntermediateDirectories: false)
+        #expect(outcome(aliasFile) == .target(moving))
     }
 
     @Test("利用者の操作の解決は場所を選ばない: アプリへのリンクはパッケージとして、無い先は exists = false で返る")
@@ -344,6 +370,49 @@ struct FileBrowserThumbnailTests {
         #expect(folderIcon.width == 128)
         #expect(provider.aliasTargetKind(for: emptyEntry) == .application)
         #expect(provider.cachedThumbnail(for: emptyEntry, kind: .alias, pixelSize: 128) != nil)
+    }
+
+    @Test("提供役: 同じリンクを待つセルは束ねて 1 度だけ解き、場所の規則で断られたリンクはボリュームの着脱まで解き直さない(2026-09-29 の監査)")
+    func aliasResolutionIsCoalescedAndRefusalsAreRemembered() async throws {
+        let temporary = try TemporaryDirectory("thumb-alias-refused")
+        let links = try temporary.directory("links")
+        // 繋がっていないボリュームの先(実物のマウント表で `/Volumes/<名前>` が無い)。触らずに断られる。
+        // (パスの検査が `/Volumes/<名前>/<名前>` を蔵書の置き場として止めるので、ボリュームの根そのものを指す。)
+        let toGone = links.appendingPathComponent("to-gone")
+        try FileManager.default.createSymbolicLink(atPath: toGone.path, withDestinationPath: "/Volumes/qooViewer-test-not-mounted")
+        let goneEntry = try entry(toGone, in: links)
+        let provider = FileBrowserThumbnailProvider(
+            diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")), protectedPrefixes: [], categoryPrefixes: []
+        )
+        // 同時に頼んだ 2 つのセルは 1 つの頼みに束ねる。
+        async let first = provider.thumbnail(for: goneEntry, kind: .alias, pixelSize: 128, currentFolder: links)
+        async let second = provider.thumbnail(for: goneEntry, kind: .alias, pixelSize: 128, currentFolder: links)
+        let results = await [first, second]
+        #expect(results.allSatisfy { $0 == nil })
+        #expect(provider.aliasResolutionCount == 1)
+        // 断られたことを覚えているので、頼み直しても FileIO へは行かない。
+        #expect(await provider.thumbnail(for: goneEntry, kind: .alias, pixelSize: 128, currentFolder: links) == nil)
+        #expect(provider.aliasResolutionCount == 1)
+        // ボリュームの着脱(の代わりに、その口)で忘れ、解き直す。
+        provider.forgetRefusedAliasTargets()
+        #expect(await provider.thumbnail(for: goneEntry, kind: .alias, pixelSize: 128, currentFolder: links) == nil)
+        #expect(provider.aliasResolutionCount == 2)
+
+        // 決められないだけのもの(壊れた記号リンクの輪)は覚えない: 頼むたびに解き直す(先が戻れば決まる)。
+        let loopA = links.appendingPathComponent("loop-a")
+        let loopB = links.appendingPathComponent("loop-b")
+        try FileManager.default.createSymbolicLink(atPath: loopA.path, withDestinationPath: "loop-b")
+        try FileManager.default.createSymbolicLink(atPath: loopB.path, withDestinationPath: "loop-a")
+        let loopEntry = try entry(loopA, in: links)
+        #expect(await provider.thumbnail(for: loopEntry, kind: .alias, pixelSize: 128, currentFolder: links) == nil)
+        #expect(await provider.thumbnail(for: loopEntry, kind: .alias, pixelSize: 128, currentFolder: links) == nil)
+        #expect(provider.aliasResolutionCount == 4)
+
+        // 取り消されたセルは待たずに nil で戻り、誰も待たなくなった頼みは FileIO へ渡さない。
+        let task = Task { await provider.thumbnail(for: goneEntry, kind: .alias, pixelSize: 128, currentFolder: links) }
+        task.cancel()
+        #expect(await task.value == nil)
+        await provider.waitUntilIdle()
     }
 
     @Test("記号リンクの先の本に表紙の指定があれば、先と同じ表紙になり、指定を変えたら鍵が変わる(本棚と同じ表紙)")

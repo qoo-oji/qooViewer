@@ -31186,6 +31186,22 @@
         }
       }
     },
+    "Two of the selected items would be stored as “%@”, so they can’t be put into one archive." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Two of the selected items would be stored as “%@”, so they can’t be put into one archive."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んだ項目のうち 2 つが同じ名前「%@」で入ることになるため、1 つの書庫にまとめられません。"
+          }
+        }
+      }
+    },
     "Unchanged from the defaults" : {
       "extractionState" : "manual",
       "localizations" : {

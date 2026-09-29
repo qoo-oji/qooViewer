@@ -305,6 +305,9 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case volumeCannotBeMoved(URL)
     /// ボリュームそのもの、またはボリュームがマウントされているフォルダを完全に削除しようとした(2026-09-23 の 3 回目の監査の高 1)。
     case volumeCannotBeDeleted(URL)
+    /// 圧縮で、同じ名前(大文字小文字を区別しない)の項目が 2 つ最上位に並んだ(エイリアスの先の実体と同じ名前の項目。
+    /// `ZipCompressor.collect`、2026-09-29 の監査)。何も書いていない。
+    case duplicateArchiveEntryName(name: String, item: URL)
 }
 
 extension FileOperationError: LocalizedError {
@@ -370,6 +373,11 @@ extension FileOperationError: LocalizedError {
         case let .volumeCannotBeDeleted(url):
             return String(
                 format: String(localized: "“%@” is a volume or contains one, so it can’t be deleted.", language: locale), url.lastPathComponent
+            )
+        case let .duplicateArchiveEntryName(name, _):
+            return String(
+                format: String(localized: "Two of the selected items would be stored as “%@”, so they can’t be put into one archive.", language: locale),
+                name
             )
         case let .replacedItemKept(backup, target):
             return String(

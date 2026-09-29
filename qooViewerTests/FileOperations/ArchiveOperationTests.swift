@@ -440,6 +440,30 @@ struct ZipCompressorTests {
         #expect((try FileManager.default.contentsOfDirectory(atPath: root.path)) == ["Book"])
     }
 
+    @Test("最上位の名前がぶつかる(別フォルダの同じ名前・大文字小文字だけ違う名前)と、書く前に断り、zip も一時ファイルも残さない(2026-09-29 の監査)")
+    func duplicateTopLevelNamesAreRefused() async throws {
+        // エイリアスを先の実体に置き換えて入れるようになり、別のフォルダの同じ名前の実体が最上位に並びうる。ZIPFoundation は同じパスを
+        // 黙って 2 つ書くので、ここで断る。
+        let root = try temporary.directory("root")
+        let other = try temporary.directory("other")
+        try Data("a".utf8).write(to: root.appendingPathComponent("Book.cbz"))
+        try Data("b".utf8).write(to: other.appendingPathComponent("book.cbz"))
+        try Data("c".utf8).write(to: root.appendingPathComponent("note.txt"))
+
+        await #expect {
+            _ = try await compress([root.appendingPathComponent("Book.cbz"), other.appendingPathComponent("book.cbz")], into: root)
+        } throws: { error in
+            guard case let .duplicateArchiveEntryName(name, item) = error as? FileOperationError else { return false }
+            return name == "book.cbz" && item.path == other.appendingPathComponent("book.cbz").path
+        }
+        #expect((try FileManager.default.contentsOfDirectory(atPath: root.path)).sorted() == ["Book.cbz", "note.txt"])
+
+        // 名前がぶつからなければ、別のフォルダの実体でも入る。
+        let zip = try #require(try await compress([root.appendingPathComponent("note.txt"), other.appendingPathComponent("book.cbz")], into: root))
+        let archive = try Archive(url: zip, accessMode: .read)
+        #expect(Set(archive.map(\.path)) == ["note.txt", "book.cbz"])
+    }
+
     @Test("書き終えた zip の末尾が欠けていたら(ZIPFoundation が握り潰すディスクフル)置く前に失敗にする")
     func verificationRejectsATruncatedArchive() async throws {
         let root = try temporary.directory("root")

@@ -16,7 +16,7 @@ import Foundation
 /// 読む(`URL.resourceValues(forKeys:fromBookmarkData:)`)。記録されたパスに何も無いときだけブックマークを解く(同じボリュームの中を
 /// ファイル ID で追う。`BookmarkResolution` は使わない: あれはアプリが保存したセキュリティスコープ付きのブックマーク用で、エイリアス
 /// ファイルのブックマークにスコープは無い)。そのパスを**段ごとに** `mayRead` で確かめてから lstat し、途中の記号リンクも追う
-/// (`followingSymbolicLinks`。字面だけで判断すると `~/nas → /Volumes/NAS` のようなローカルの記号リンクを経由する先を「ローカル」と
+/// (`followSymbolicLinks`。字面だけで判断すると `~/nas → /Volumes/NAS` のようなローカルの記号リンクを経由する先を「ローカル」と
 /// 読み違え、`icon(forFile:)` が応答しない共有で 30 秒待った ―― レビュー 2026-09-29)。先がさらにエイリアスのファイルなら追う
 /// (`maxAliasHops` 段まで。輪は諦める)。
 ///
@@ -48,9 +48,25 @@ nonisolated enum FileBrowserLinkResolver {
 
     static let maxAliasHops = 8
 
+    /// 先を決めた結果。**場所の規則で断った**(`refused`: 後で共有が繋がる・利用者がその場所に入れば決まる)と、**決められない**
+    /// (`unresolvable`: 壊れたエイリアス・記号リンクの輪・読めないリンク。項目が変わらなければ何度やっても同じ)を区別する ――
+    /// リストのアイコンは前者だけをボリュームの着脱まで覚える(`FileBrowserListSystemIcons.refused`。レビュー 2026-09-29: 区別せずに
+    /// 覚えると、先が一時的に無いエイリアスがこの起動の間ずっと種類のアイコンのままになった)。
+    enum Outcome: Sendable, Equatable {
+        case target(URL)
+        case refused
+        case unresolvable
+
+        var target: URL? {
+            if case .target(let url) = self { return url }
+            return nil
+        }
+    }
+
     // MARK: - 裏の仕事(触ってよい場所だけ)
 
-    /// 記号リンク・エイリアス `url` の先。触ってよい場所(型コメント)を段ごとに確かめながら追い、途中で断れば nil。
+    /// 記号リンク・エイリアス `url` の先。触ってよい場所(型コメント)を段ごとに確かめながら追い、途中で断れば nil(`backgroundOutcome`
+    /// の `.target` だけ)。
     /// - Parameter currentFolder: 利用者が見ているフォルダ。先がデスクトップ・書類・ダウンロードの中なら、同じ場所の中を
     ///   見ているときだけ読む(フォルダの絵と同じ規則)。
     static func backgroundTarget(
@@ -58,6 +74,18 @@ nonisolated enum FileBrowserLinkResolver {
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) -> URL? {
+        backgroundOutcome(
+            of: url, currentFolder: currentFolder, mountTable: mountTable,
+            protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+        ).target
+    }
+
+    /// `backgroundTarget` の、断ったのと決められなかったのを区別する版(`Outcome`)。
+    static func backgroundOutcome(
+        of url: URL, currentFolder: URL?, mountTable: MountTable,
+        protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
+        categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    ) -> Outcome {
         target(of: url, bookmarkOptions: [.withoutUI, .withoutMounting]) { target in
             // ネットワーク越し・繋がっていないボリューム(`/Volumes/<名前>` が表に無い。触ると自動マウントや 30 秒の待ちになりうる)・
             // TCC の保護下(見ている場所と同じデスクトップ等の中を除く)は断る。**触らずに**決める。
@@ -75,17 +103,41 @@ nonisolated enum FileBrowserLinkResolver {
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) -> Target? {
-        backgroundTarget(
+        if case .target(let info) = backgroundInfo(
             of: url, currentFolder: currentFolder, mountTable: mountTable,
             protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
-        ).map(info(of:))
+        ) { return info }
+        return nil
+    }
+
+    /// `backgroundTargetInfo` の、断ったのと決められなかったのを区別する版(`Outcome` と同じ区別。`FileBrowserThumbnailProvider` が
+    /// 断られたリンクを覚えるのに使う)。
+    enum InfoOutcome: Sendable {
+        case target(Target)
+        case refused
+        case unresolvable
+    }
+
+    static func backgroundInfo(
+        of url: URL, currentFolder: URL?, mountTable: MountTable,
+        protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
+        categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
+    ) -> InfoOutcome {
+        switch backgroundOutcome(
+            of: url, currentFolder: currentFolder, mountTable: mountTable,
+            protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
+        ) {
+        case .target(let target): .target(info(of: target))
+        case .refused: .refused
+        case .unresolvable: .unresolvable
+        }
     }
 
     // MARK: - 利用者の操作(どこへでも)
 
     /// 記号リンク・エイリアス `url` の先。場所は選ばない(Finder と同じ)。記号リンク・エイリアスでなければ nil。
     static func openingTarget(of url: URL) -> URL? {
-        target(of: url, bookmarkOptions: [.withoutUI]) { _ in true }
+        target(of: url, bookmarkOptions: [.withoutUI]) { _ in true }.target
     }
 
     /// `openingTarget` に先の stat 1 回を足したもの。
@@ -110,56 +162,58 @@ nonisolated enum FileBrowserLinkResolver {
         )
     }
 
-    /// 先がさらにエイリアスのファイルなら追う(記号リンクは `followingSymbolicLinks` が解く)。
+    /// 先がさらにエイリアスのファイルなら追う(記号リンクは `followSymbolicLinks` が解く)。鎖を追い切れなければ `.unresolvable`。
     private static func target(
         of url: URL, bookmarkOptions: URL.BookmarkResolutionOptions, mayRead: (URL) -> Bool
-    ) -> URL? {
+    ) -> Outcome {
         var current = url
         for _ in 0..<maxAliasHops {
-            guard let target = targetOnce(of: current, bookmarkOptions: bookmarkOptions, mayRead: mayRead) else { return nil }
+            let once = targetOnce(of: current, bookmarkOptions: bookmarkOptions, mayRead: mayRead)
+            guard case .target(let target) = once else { return once }
             // 触ってよい先(mayRead 済み)の stat 1 回。
             let values = try? target.resourceValues(forKeys: [.isAliasFileKey, .isSymbolicLinkKey])
-            guard values?.isAliasFile == true, values?.isSymbolicLink != true else { return target }
+            guard values?.isAliasFile == true, values?.isSymbolicLink != true else { return .target(target) }
             current = target
         }
-        return nil
+        return .unresolvable
     }
 
     private static func targetOnce(
         of url: URL, bookmarkOptions: URL.BookmarkResolutionOptions, mayRead: (URL) -> Bool
-    ) -> URL? {
+    ) -> Outcome {
         if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) {
-            return followingSymbolicLinks(symbolicLinkTarget(destination, linkAt: url), mayRead: mayRead)
+            return followSymbolicLinks(symbolicLinkTarget(destination, linkAt: url), mayRead: mayRead)
         }
         guard let data = try? URL.bookmarkData(withContentsOf: url),
-              let recorded = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path,
-              let recordedTarget = followingSymbolicLinks(URL(fileURLWithPath: recorded), mayRead: mayRead)
-        else { return nil }
-        if FileManager.default.fileExists(atPath: recordedTarget.path) { return recordedTarget }
+              let recorded = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
+        else { return .unresolvable }
+        let recordedOutcome = followSymbolicLinks(URL(fileURLWithPath: recorded), mayRead: mayRead)
+        guard case .target(let recordedTarget) = recordedOutcome else { return recordedOutcome }
+        if FileManager.default.fileExists(atPath: recordedTarget.path) { return .target(recordedTarget) }
         var isStale = false
         guard let resolved = try? URL(
             resolvingBookmarkData: data, options: bookmarkOptions, relativeTo: nil, bookmarkDataIsStale: &isStale
-        ) else { return nil }
-        return followingSymbolicLinks(resolved, mayRead: mayRead)
+        ) else { return .unresolvable }
+        return followSymbolicLinks(resolved, mayRead: mayRead)
     }
 
     /// `path` の各段を、`mayRead` で確かめてから lstat し、記号リンクなら先(字面)に差し替えて先頭からやり直す。
-    /// 記号リンクの無い絶対パスになったら返す。無い段に着いたら残りは字面のまま(先が無いのは呼ぶ側が見る)。
-    /// 途中で `mayRead` が断る・`maxHops` を超える(ループ)・読めない記号リンクなら nil。**FileIO の上で呼ぶ**。
-    static func followingSymbolicLinks(_ path: URL, mayRead: (URL) -> Bool, maxHops: Int = 32) -> URL? {
+    /// 記号リンクの無い絶対パスになったら `.target`。無い段に着いたら残りは字面のまま(先が無いのは呼ぶ側が見る)。
+    /// 途中で `mayRead` が断れば `.refused`、`maxHops` を超える(ループ)・読めない記号リンクなら `.unresolvable`。**FileIO の上で呼ぶ**。
+    static func followSymbolicLinks(_ path: URL, mayRead: (URL) -> Bool, maxHops: Int = 32) -> Outcome {
         var components = lexicalComponents(of: path.path)
         var hops = 0
         var index = 0
         while index < components.count {
             let prefix = URL(fileURLWithPath: "/" + components[0...index].joined(separator: "/"))
-            guard mayRead(prefix) else { return nil }
+            guard mayRead(prefix) else { return .refused }
             var status = stat()
             guard lstat(prefix.path, &status) == 0 else { break }
             if status.st_mode & S_IFMT == S_IFLNK {
                 hops += 1
                 guard hops <= maxHops,
                       let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: prefix.path)
-                else { return nil }
+                else { return .unresolvable }
                 let replaced = lexicalComponents(of: symbolicLinkTarget(destination, linkAt: prefix).path)
                 components = replaced + components[(index + 1)...]
                 index = 0
@@ -169,7 +223,7 @@ nonisolated enum FileBrowserLinkResolver {
         }
         // 無い段で止まった残りも含めて、最後のパス全体をもう一度確かめる(呼ぶ側はこのパスを stat する)。
         let target = URL(fileURLWithPath: "/" + components.joined(separator: "/"))
-        return mayRead(target) ? target : nil
+        return mayRead(target) ? .target(target) : .refused
     }
 
     /// `readlink` の値を絶対パスにする。相対ならリンクのあるフォルダから。`.`・`..` は**字面で**畳む(型コメント)。

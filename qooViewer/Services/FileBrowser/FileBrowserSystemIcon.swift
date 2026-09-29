@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// ファイルブラウザに出す、**システムが項目ごとに決めるアイコン**: アプリケーション(.app)の本物のアイコン(2026-09-14、ユーザー要望)と、
 /// 記号リンク・エイリアスの**先の項目のアイコンに矢印のバッジを重ねたもの**(2026-09-29、ユーザー要望。Finder の「情報を見る」と同じ絵)。
@@ -40,11 +41,14 @@ nonisolated enum FileBrowserSystemIcon {
         }
     }
 
-    /// `renderAlias` の結果。`refused`(場所の規則で先を読まなかった)は失敗として覚えない(型コメント)。
+    /// `renderAlias` の結果。`refused`(場所の規則で先を読まなかった)と `unresolved`(先が決められない)は失敗として覚えない(型コメント)。
     enum AliasIconOutcome: Sendable {
         case made(PagePixelBuffer)
-        /// 先が決められない・触ってはいけない場所(型コメント)。種類のアイコン+バッジのまま。
+        /// 触ってはいけない場所(型コメント)。種類のアイコン+バッジのまま。リストはボリュームの着脱まで覚える。
         case refused
+        /// 先が決められない(壊れたエイリアス・記号リンクの輪)。種類のアイコン+バッジのまま。覚えない ―― 先が戻れば決まる
+        /// (`FileBrowserLinkResolver.Outcome` のコメント)。
+        case unresolved
         /// 先は決まったが絵が作れなかった。
         case unavailable
     }
@@ -58,10 +62,15 @@ nonisolated enum FileBrowserSystemIcon {
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) -> AliasIconOutcome {
-        guard let target = FileBrowserLinkResolver.backgroundTarget(
+        let target: URL
+        switch FileBrowserLinkResolver.backgroundOutcome(
             of: url, currentFolder: currentFolder, mountTable: mountTable,
             protectedPrefixes: protectedPrefixes, categoryPrefixes: categoryPrefixes
-        ) else { return .refused }
+        ) {
+        case .target(let resolved): target = resolved
+        case .refused: return .refused
+        case .unresolvable: return .unresolved
+        }
         let icon = NSWorkspace.shared.icon(forFile: target.path)
         let badge = aliasBadge()
         let pixels = render(pixelSize: pixelSize) { rect in
@@ -73,9 +82,15 @@ nonisolated enum FileBrowserSystemIcon {
 
     /// Finder が記号リンク・エイリアスに重ねる矢印のバッジ(アイコンと同じ枠に描く、左下に矢印のある透明な絵)。
     /// 公開 API には無いので CoreTypes の絵を読む。無ければ nil(先のアイコンだけになる)。
+    ///
+    /// ファイルは 1 回だけ読む(`aliasBadgeData`。2026-09-29 の監査: 以前はリンク 1 件ごとに読んでいた)。`NSImage` は呼ぶたびに作る
+    /// ―― FileIO の別々のスレッドから同時に描くので、1 つの `NSImage` を共有しない。
     static func aliasBadge() -> NSImage? {
-        NSImage(contentsOf: URL(fileURLWithPath: aliasBadgePath))
+        aliasBadgeData.flatMap { NSImage(data: $0) }
     }
+
+    /// バッジの icns の中身(初回に 1 度読む。`static let` の初期化はスレッド安全)。
+    private static let aliasBadgeData: Data? = try? Data(contentsOf: URL(fileURLWithPath: aliasBadgePath))
 
     static let aliasBadgePath = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AliasBadgeIcon.icns"
 
@@ -112,17 +127,38 @@ final class FileBrowserListSystemIcons {
     private var cache: [String: NSImage] = [:]
     /// 読めなかった(アイコンが取れなかった)もの。この起動の間は試し直さない。
     private var failed: Set<String> = []
+    /// 場所の規則で先を読まなかった記号リンク・エイリアス(`AliasIconOutcome.refused`)。鍵は項目の鍵と見ているフォルダ(規則の
+    /// 材料)。**ボリュームが付いたり外れたりしたら忘れる**(繋がっていなかった先が繋がる)。失敗とは別に持つ ―― 2026-09-29 の監査:
+    /// 覚えないと、共有を指すリンクの行が描き直されるたびに FileIO でリンクを読み直していた。
+    private var refused: Set<String> = []
     private var loading: Set<String> = []
+    private var volumeObservation: AnyCancellable?
     /// 同時に読むのは `maxConcurrentLoads` 件まで(2026-09-14 の 2 回目の監査。以前は上限が無く、アプリケーションフォルダをリストで
     /// スクロールすると行の数だけ FileIO のスレッドが同時に立った)。待っているものは**後から頼まれたものから**始める(画面に入ったばかりの行)。
     private static let maxConcurrentLoads = 4
     private var runningCount = 0
-    private var waiting: [(key: String, render: @Sendable () -> FileBrowserSystemIcon.AliasIconOutcome, completion: @MainActor (NSImage) -> Void)] = []
+    private var waiting: [(
+        key: String, refusedKey: String, render: @Sendable () -> FileBrowserSystemIcon.AliasIconOutcome,
+        completion: @MainActor (NSImage) -> Void
+    )] = []
 
-    private init() {}
+    private init() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        volumeObservation = Publishers.MergeMany(
+            workspace.publisher(for: NSWorkspace.didMountNotification),
+            workspace.publisher(for: NSWorkspace.didUnmountNotification)
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.refused.removeAll() }
+        }
+    }
 
-    static func key(for entry: FileBrowserEntry) -> String {
-        "\(entry.id)|\(entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0)"
+    static func key(for entry: FileBrowserEntry) -> String { entry.identityKey }
+
+    /// 断った記録の鍵(`refused`)。
+    private static func refusedKey(_ key: String, currentFolder: URL?) -> String {
+        key + "|" + (currentFolder?.path ?? "")
     }
 
     func cachedIcon(for entry: FileBrowserEntry) -> NSImage? {
@@ -137,7 +173,8 @@ final class FileBrowserListSystemIcons {
             completion(cached)
             return
         }
-        guard !loading.contains(key), !failed.contains(key) else { return }
+        let refusedKey = Self.refusedKey(key, currentFolder: currentFolder)
+        guard !loading.contains(key), !failed.contains(key), !refused.contains(refusedKey) else { return }
         loading.insert(key)
         // 画素数は先に値で取り出す。`Self.pixelSize` はメインアクターの型の静的プロパティなので、FileIO へ渡す閉包の中では読めない。
         let pixelSize = Self.pixelSize
@@ -149,14 +186,14 @@ final class FileBrowserListSystemIcons {
         } else {
             render = { FileBrowserSystemIcon.render(at: url, pixelSize: pixelSize).map { .made($0) } ?? .unavailable }
         }
-        waiting.append((key, render, completion))
+        waiting.append((key, refusedKey, render, completion))
         startWaitingLoads()
     }
 
     private func startWaitingLoads() {
         while runningCount < Self.maxConcurrentLoads, let next = waiting.popLast() {
             runningCount += 1
-            let (key, render, completion) = next
+            let (key, refusedKey, render, completion) = next
             Task { [weak self] in
                 let outcome = await FileIO.perform { render() }
                 guard let self else { return }
@@ -167,8 +204,13 @@ final class FileBrowserListSystemIcons {
                 switch outcome {
                 case .made(let pixels): image = pixels.makeImage()
                 case .unavailable: image = nil
-                // 場所の規則で断った(型コメント)。覚えない ―― 行が作り直されたら、また安い判定からやり直す(先には触っていない)。
-                case .refused: return
+                // 先が決められない(壊れたエイリアス)。覚えない ―― 行が描き直されたらやり直す(先が戻っていれば決まる)。
+                case .unresolved: return
+                // 場所の規則で断った(型コメント)。ボリュームの着脱まで覚えておき、行が描き直されてもリンクを読み直さない(`refused`)。
+                case .refused:
+                    if self.refused.count >= Self.countLimit { self.refused.removeAll() }
+                    self.refused.insert(refusedKey)
+                    return
                 }
                 guard let image else {
                     self.failed.insert(key)

@@ -47,8 +47,15 @@ nonisolated enum ZipCompressor {
     /// (2026-09-14 の 2 回目の監査で実測)ので、最上位より下の読めないフォルダは空のフォルダとして入り、`lstat` に失敗した子
     /// (パスが PATH_MAX を超える、など)も黙って抜けていた。利用者は出来た zip を信じて元を消しうる。自分で歩いて失敗を拾う。
     /// 途中で消えた項目(ENOENT)だけは、元から無かったものとして飛ばす。
+    ///
+    /// **最上位の名前がぶつかったら失敗させる**(2026-09-29 の監査)。`items` が同じフォルダの項目だけだった間は名前が一意だったが、
+    /// Finder のエイリアスを先の実体に置き換えて入れるようになり(`FileBrowserActions.compress`)、別のフォルダにある同じ名前の実体が
+    /// 並びうる。ZIPFoundation の `addEntry` は同じパスのエントリを黙って 2 つ書き、書いた後の検証はエントリの数しか見ないので、
+    /// 展開すると後の 1 つしか残らない zip が成功として置かれていた。大文字小文字だけ違う名前も、展開先(APFS の既定)で
+    /// ぶつかるので同じ名前として扱う。
     static func collect(_ items: [URL]) throws -> [Source] {
         var sources: [Source] = []
+        var topEntryPaths: Set<String> = []
         for item in items {
             if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
             let topName = item.lastPathComponent
@@ -56,7 +63,12 @@ nonisolated enum ZipCompressor {
                 throw FileOperationError.itemMissing(item)
             }
             guard let topKind = top.kind else { continue }
-            sources.append(Source(url: item, entryPath: nfcNormalizedForExport(topName), kind: topKind, size: top.size))
+            let topEntryPath = nfcNormalizedForExport(topName)
+            // `lowercased()` ではなく Unicode の畳み(ケルビン記号 K と k などもぶつかる。展開先の APFS の畳みに近い方)。
+            guard topEntryPaths.insert(topEntryPath.folding(options: .caseInsensitive, locale: nil)).inserted else {
+                throw FileOperationError.duplicateArchiveEntryName(name: topName, item: item)
+            }
+            sources.append(Source(url: item, entryPath: topEntryPath, kind: topKind, size: top.size))
             guard topKind == .directory else { continue }
             // 列挙はディスク上の順(名前順ではない)。書庫の中の並びを毎回同じにするため、要素ごとの名前順に並べ替える
             // (親フォルダは子より前に来る)。

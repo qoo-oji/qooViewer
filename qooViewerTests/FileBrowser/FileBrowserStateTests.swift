@@ -547,6 +547,68 @@ struct FileBrowserStateTests {
         #expect(!state.isShowingRecents)
         #expect(state.currentFolder?.path == FileBrowserListing.realHomeDirectory().path)
         #expect(next.startupLocation() == .folder(FileBrowserListing.realHomeDirectory()))
+
+        // 最近の項目は戻る/進むの履歴からも外れ、「戻る」は最近の項目の前に居たフォルダへ(レビュー 2026-09-29: 残すと押せる「戻る」が
+        // 何もしなかった)。
+        #expect(state.canGoBack && !state.canGoForward)
+        state.goBack()
+        await state.settle()
+        #expect(!state.isShowingRecents)
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+
+        // ホームから最近の項目へ行って OFF にすると、離れた先のホームが履歴の隣に残らない(「戻る」がホーム→ホームにならない)。
+        let home = FileBrowserListing.realHomeDirectory()
+        state.navigate(to: home)
+        await state.settle()
+        fixture.preferences.fileBrowserShowsRecents = true
+        state.showRecents()
+        await state.settle()
+        #expect(state.isShowingRecents)
+        fixture.preferences.fileBrowserShowsRecents = false
+        try await Task.sleep(for: .milliseconds(100))
+        await state.settle()
+        #expect(state.currentFolder?.path == home.path)
+        state.goBack()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+    }
+
+    @Test("ネットワーク越しのボリュームにある記号リンク・エイリアスは、一覧の先の控えを作らない(リンクの数だけ往復しない。2026-09-29 の監査)")
+    func linksOnNetworkVolumesAreNotResolvedInTheBackground() async throws {
+        let fixture = try Fixture("fb-links-remote")
+        let state = fixture.state
+        state.linkTargetProtectedPrefixes = []
+        state.linkTargetCategoryPrefixes = []
+        try FileManager.default.createSymbolicLink(
+            at: fixture.root.appendingPathComponent("to-a"), withDestinationURL: fixture.aFolder
+        )
+        // 作業フォルダをネットワーク越しに見立てる(マウント表は文字列の比較だけ)。マウント先は `MountTable` が比べる形
+        // (`standardizedFileURL`: 実在するパスの先頭の /private を外す。CI の一時フォルダは /private/var/… ―― docs/13)で書く。
+        let remoteRoot = fixture.root.standardizedFileURL.path
+        state.linkTargetMountTable = {
+            MountTable(entries: [
+                .init(mountPoint: "/", mountedFrom: "/dev/disk1", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+                .init(mountPoint: remoteRoot, mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+            ])
+        }
+        state.navigate(to: fixture.root)
+        await state.settle()
+        await state.waitForLinkTargets()
+        let link = try #require(state.entries.first { $0.url.lastPathComponent == "to-a" })
+        #expect(link.isLink)
+        #expect(state.target(of: link) == nil)
+        #expect(state.effective(link) == link)
+
+        // ローカルなら解ける。
+        state.linkTargetMountTable = { MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "/dev/disk1", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+        ]) }
+        state.reload()
+        try Data("x".utf8).write(to: fixture.root.appendingPathComponent("new.txt"))  // 一覧を変えて解き直させる
+        state.reload()
+        await state.settle()
+        await state.waitForLinkTargets()
+        #expect(state.target(of: link)?.url.path == fixture.aFolder.path)
     }
 
     @Test("シークレットウインドウでは「最近の項目」を出さない")
