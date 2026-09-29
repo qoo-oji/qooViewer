@@ -1,8 +1,10 @@
 import CoreGraphics
 import Foundation
 
-/// Matroska(EBML)の先頭だけを読み、映像トラックの `PixelWidth` / `PixelHeight` を取り出す(改善要望7 段階 7b、
-/// 2026-09-14。qooLibrary の同名の型を写したもの)。
+/// Matroska(EBML)の先頭だけを読み、映像トラックの**表示の縦横**を取り出す(改善要望7 段階 7b、
+/// 2026-09-14。qooLibrary の同名の型を写したもの)。`DisplayWidth` / `DisplayHeight` があればそれ、無ければ
+/// `PixelWidth` / `PixelHeight`(2026-09-29: 画素が正方形でない mkv ―― 720×480 を 16:9 で見せる DVD 由来のもの ―― は
+/// 画素数の比では横に詰まった絵になった。使うのは比だけなので、表示の単位は「不明」以外なら問わない)。
 ///
 /// ■ なぜ要るのか
 /// mkv の絵を作れる QuickLook 拡張のうち、qooLibrary の実測で採用できたのは QLMedia だけで、QLMedia は**要求した大きさへ
@@ -24,6 +26,11 @@ nonisolated enum MatroskaDimensionReader {
     private static let videoID: UInt64 = 0xE0
     private static let pixelWidthID: UInt64 = 0xB0
     private static let pixelHeightID: UInt64 = 0xBA
+    private static let displayWidthID: UInt64 = 0x54B0
+    private static let displayHeightID: UInt64 = 0x54BA
+    private static let displayUnitID: UInt64 = 0x54B2
+    /// `DisplayUnit` の「不明」。このときの `DisplayWidth` / `DisplayHeight` は比としても信用しない。
+    private static let displayUnitUnknown: UInt64 = 4
     private static let trackTypeVideo: UInt64 = 1
 
     /// 映像の縦横。mkv でない・上限の中に Tracks が無い・壊れている、のどれでも nil(呼び出し側は正方形で頼む)。
@@ -103,24 +110,34 @@ nonisolated enum MatroskaDimensionReader {
 
     private static func dimensionsInVideo(_ bytes: [UInt8], offset start: Int, end: Int) -> CGSize? {
         var offset = start
-        var width: UInt64?
-        var height: UInt64?
+        var pixelWidth: UInt64?
+        var pixelHeight: UInt64?
+        var displayWidth: UInt64?
+        var displayHeight: UInt64?
+        var displayUnit: UInt64 = 0
+        // `DisplayWidth` は `PixelWidth` の後ろに来るので、見つけた所で止めずに Video の終わりまで読む。
         while offset < end {
             guard let id = readElementID(bytes, &offset), let size = readVINTSize(bytes, &offset), !size.isUnknownSize
-            else { return nil }
+            else { break }
             let contentEnd = min(end, offset.addingClamped(size.value))
-            if id == pixelWidthID {
-                width = readUInt(bytes, offset: offset, length: contentEnd - offset)
-            } else if id == pixelHeightID {
-                height = readUInt(bytes, offset: offset, length: contentEnd - offset)
+            let value = readUInt(bytes, offset: offset, length: contentEnd - offset)
+            switch id {
+            case pixelWidthID: pixelWidth = value
+            case pixelHeightID: pixelHeight = value
+            case displayWidthID: displayWidth = value
+            case displayHeightID: displayHeight = value
+            case displayUnitID: displayUnit = value ?? displayUnitUnknown
+            default: break
             }
             offset = contentEnd
-            if let width, let height {
-                guard width > 0, height > 0, width < 100_000, height < 100_000 else { return nil }
-                return CGSize(width: Double(width), height: Double(height))
-            }
         }
-        return nil
+        if displayUnit != displayUnitUnknown, let size = validated(width: displayWidth, height: displayHeight) { return size }
+        return validated(width: pixelWidth, height: pixelHeight)
+    }
+
+    private static func validated(width: UInt64?, height: UInt64?) -> CGSize? {
+        guard let width, let height, width > 0, height > 0, width < 100_000, height < 100_000 else { return nil }
+        return CGSize(width: Double(width), height: Double(height))
     }
 
     // MARK: - EBML の基礎(VINT: 可変長の整数)

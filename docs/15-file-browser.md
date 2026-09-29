@@ -1349,11 +1349,40 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
      グループから抜けられない)、先にできたら眠っているタイムアウト側を起こす(起こさないと成功 1 本ごとに枠を 8 秒ふさぐ)。
      先頭 16 バイトで実体を見て(`MediaContainerSniffer`)、**拡張子と食い違うときだけ** `Request.contentType` にシステムの具体的な型を渡す
      (`.mp4` を名乗る mkv、`.mkv` を名乗る mp4。`UTType(filenameExtension:)` は未知の拡張子にも `dyn.` の型を返すので `.movie` 準拠で弾く)。
-     実体が Matroska なら `MatroskaDimensionReader`(先頭 8MB の EBML)で縦横比を読み、要求の大きさを合わせる(QLMedia は要求の大きさへ
-     引き伸ばす)。
+     要求の大きさは**表示の縦横比**に合わせる(下の「縦横比」)。
   2. `RetaggedHEVCThumbnailLoader`: **`hev1` の HEVC**(AVFoundation が入口で断り、QuickLook も Finder も作れない。ffmpeg の libx265 の
      既定)。素通しの `AVAssetReaderTrackOutput` でキーフレームを取り出し、format description の subtype だけ `hvc1` にして
      `VTDecompressionSession` で復号する。対象外のファイルはトラックの情報を読むだけで nil。これも 8 秒の期限(`FileIO.withDeadline`)。
+- **縦横比**(2026-09-29、ユーザー要望): QLMedia は絵を**要求した大きさへそのまま引き伸ばして**返す。QLMedia の入った機では mp4 / mov を
+  含む**すべての動画**の絵を QLMedia が作る(実測: 640×360 の動画 37 本 ―― mp4・mov・m4v・3gp・mkv・webm・avi・wmv・flv・ts・mpg・vob・
+  ogv・rm・dv ―― に正方形を頼むと、どれも中の円が 0.56 倍の楕円になった)。以前は実体が Matroska のときだけ縦横比を合わせていたので、
+  ほかの形式は正方形に伸びていた。
+  - **表示の縦横**(画素の縦横比と回転を掛けた後)を `VideoDimensionReader.probe` が形式ごとに読む。先頭 16 バイトの判定
+    (`MediaContainerSniffer`。Ogg と RealMedia を足した)で読み方を選ぶ:
+
+    | 実体 | 読み方 |
+    |---|---|
+    | Matroska / WebM | `MatroskaDimensionReader`(先頭 8MB の EBML)。`DisplayWidth` / `DisplayHeight` があればそれ(単位が「不明」なら画素数) |
+    | AVI | `avih`(無ければ映像の `strf`)+ `vprp` の縦横比 |
+    | ASF(wmv) | 映像の Stream Properties Object + Metadata Object の `AspectRatioX` / `Y` |
+    | FLV | 先頭のスクリプトタグ `onMetaData` の `width` / `height` |
+    | Ogg | Theora の識別ヘッダ(`PICW` / `PICH` と `PARN` / `PARD`) |
+    | RealMedia | 映像の `MDPR` の型ごとのデータ(`VIDO`) |
+    | mp4 / mov / m4v / 3gp と、署名で見分けないもの(ts / mpg / vob / dv など) | AVFoundation(format description の表示の寸法 → `preferredTransform`)。4 秒の期限 |
+
+    AVI〜RealMedia は `VideoContainerDimensionReader`(先頭 1MB のヘッダだけ。値は信用せず、範囲を確かめてから読む)。AVFoundation は形式を
+    拡張子から決めるので、実体が mp4 で別の拡張子を名乗るファイルには MIME 型を渡す。MPEG-2 の ts は `naturalSize` に画素の縦横比が
+    入らない(720×480。表示は 872×480)ので format description の側を先に使う。回転の指定は QLMedia も絵に掛ける(mp4。mkv のものは掛けない)。
+  - **頼む大きさ**は長辺 512、比は表示の縦横(`VideoThumbnailAspect.requestSize`)。縦横が読めない・短い辺が 32 を割る(QLMedia の
+    `QLThumbnailMinimumDimension`)なら今までどおり正方形。
+  - **返ってきた絵の比が表示の比と 3% 以上違えば、表示の比へ縮め直す**(`VideoThumbnailAspect.corrected`)。QuickLook は作った絵を覚えていて、
+    **同じ長辺の要求には前の絵を返す**(実測: 512×512 で作った後に 512×288 を頼むと前の伸びた 512×512 が返り、511×288 なら作り直された)。
+    以前のこのアプリが正方形で頼んだ動画がどれもこれに当たる。QLMedia の絵は動画の全体を伸ばしたものなので、縮め直せば元の見た目に戻る。
+  - **ディスクキャッシュの鍵に作り方の世代を足した**(`FileBrowserThumbnailKey.ofVideo` / `VideoThumbnailer.cacheVariant`)。以前の伸びた絵は
+    当たらなくなり、刈り込みで消える。本・画像の絵まで作り直させないよう、鍵全体の世代は上げていない。
+  - **読めないもの**(正方形で頼む): MXF、HEVC の ts、`onMetaData` の無い FLV、Theora 以外の Ogg、画素の縦横比を映像のビットストリームの
+    中にだけ持つもの(MPEG-4 Part 2 の AVI で `vprp` の無いものなど。画素数の比になる)。このうち MXF と H.264 / HEVC の ts は、この機では
+    QLMedia が絵を作れなかった(102)。
 - **mkv**: OS の標準では作れず、**動く QuickLook 拡張があれば出る**(qooLibrary の比較で採用できたのは QLMedia。QLVideo 3.x は拡張点が無く、
   QLCodec-mkv は同時に頼むと絵が入れ替わり上下も逆)。拡張が無ければ種類のアイコンのまま。
 - **提供役での扱い**: 本と同じディスクキャッシュ・同じ鍵・同じ同時 4 件。コレクションの表紙は探さない。**実体が手元に無いファイル**
@@ -1521,6 +1550,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
 | `FileBrowserTreePathTests` | ツリーを現在のフォルダまで開く道筋(いちばん深い根、`/` の直下、根そのもの、名前の途中までの一致を祖先にしない、同じ深さの根、1 段の探し方)。同じファイルの `FileBrowserTreeAndIconHitTests` は FSEvents のパスの頭の揃え方とアイコン表示の名前のクリックの範囲、リスト・ツリーの当たり先の確かめ直し(`resolvedHit`) |
 | `FileBrowserThumbnailTests` | 絵の種類の判定(パッケージ・記号リンクとエイリアスは先のアイコン・保護下の場所・ネットワーク越しのフォルダ)、記号リンクの先の字面の解決、利用者の操作の解決(場所を選ばない・無い先)、先を読んでよい場所の規則(ネットワーク越し・繋がっていないボリューム・保護下・同じ保護下の中)、エイリアスの記録されたパスと動いた先の追跡、一覧のエイリアスの印、先のアイコン+バッジの描画と提供役の段、先が本なら先と同じ絵を同じキャッシュで出すこと・表紙の指定に追従すること、台帳の全書庫で選ぶエントリが 1 ページ目と一致、zip の除外と正準順、画像の無い・壊れた書庫、フォルダの直下だけ・隠しファイル、EPUB の spine の先頭と PDF の 1 ページ目、画像の縮小、透明な地の白、鍵(名前を変えても同じ・中身が変われば別)、ディスクキャッシュの往復と OFF で消えること、提供役のメモリ・ディスクの当たり・シークレットウインドウの頼みはディスクへ書かず読むだけ・作れなかった絵を覚える・同時の要求をまとめる・取り消し、段、同じリンクを待つセルの束ねと断られたリンクの記憶(ボリュームの着脱まで)、決められないだけのリンクは覚えないこと、取り消されたセル |
+| `VideoDimensionReaderTests` | 動画の表示の縦横(2026-09-29): ffmpeg で作った実物 13 本(`Fixtures/video/`: mp4・mkv・avi・wmv・flv・ogv・rm、画素の縦横比つき・回転つき)から読めること、別の拡張子を名乗る mp4、動画でないファイル、途中で切れた・大きさの欄を細工したヘッダで落ちないこと、Matroska の `DisplayWidth` と単位、頼む大きさ、比の違う絵の縮め直し、動画の絵の鍵の世代 |
 | `FileBrowserVideoThumbnailTests` | 動画(段階 7b): コンテナの見分け方(qooLibrary の実機の先頭バイト列)・宣言し直す型と `dyn.` の型を弾くこと、Matroska の寸法と壊れた・巨大な大きさの細工で落ちないこと、作り方の並び(QuickLook → 再タグ付け)、動画の種類と環境設定、提供役(作ってディスクへ・別の提供役はディスクから・作れなければ覚える・環境設定を写す)、先に作る役(サブフォルダまで・作り済みを飛ばす・3 回失敗した拡張子を諦める/1 度でも成功したら諦めない・ネットワーク越しと途中のマウント・実体の無いファイル・隠しフォルダ・保護下の場所・入れ子の重複・OFF・止めたら残りへ進まない)。QuickLook と VideoToolbox の実物は使わない(入っている拡張と実物の動画しだい) |
 | `FileBrowserIntegrationTests` | ⌥ で入れ替わる項目(元の項目のすぐ後ろ・並びの定義に載せない)、パス名をコピー、常にこのアプリケーションで開く(書けた項目だけ開く・知らせる・読み取り専用)。段階 8: ウインドウのタイトルの決め方、画像フォルダをダブルクリック / 右クリックの「開く」で開くときの設定との対応、AppKit のメニューに組んだ項目の action が NSObject のメソッドを指さないこと、「本ではありません」の説明の出し分け、「ファイルブラウザで表示」の出す場所と見せるもの、新しいウインドウへ選ぶ項目を渡す往復、出ていないときの予約と出たときの選択、本を開いていないウインドウのモード切替、右クリック 5 項目の淡色(シークレット・画像ファイル・複数選択)、サブメニューの中身、コレクションの作成(振り分けと本が無いときの報告)・登録(棚の展開と重複)、シークレットで書かないこと、メタデータの画像フォルダの判定、「このアプリケーションで開く」の候補の並べ方と覚え方の鍵、読み取り専用モードで淡色になる右クリックの項目とキーの操作 |
 | `AutoRenameTests` | 自動リネームの名前の決め方(置き換えの大文字小文字・拡張子に掛けない・拡張子の丸ごとの置き換え・テキストの追加と既に付いているとき・順番・変え続ける規則・衝突と避けた名前・使えない名前)、対象の範囲、確認の印、JSON の往復、書き終わりの判定と Finder のコピー中の印 |

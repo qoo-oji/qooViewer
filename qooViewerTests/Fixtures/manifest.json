@@ -498,6 +498,84 @@
         }
       }
     },
+    "video/flv1-160x90.flv": {
+      "bytes": 14323,
+      "sha256": "c33d71cdebc34ecb89d81aa6e0dcb456682d946f4575a1bbeef2af135967b27f",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。Sorenson H.263 の FLV、160×90",
+      "purpose": "FLV の onMetaData から縦横を読めること"
+    },
+    "video/h264-160x90.mkv": {
+      "bytes": 5013,
+      "sha256": "bb02ef76ef8741cb09cb5b3caeef705b66db21f3f27584bcf9d44a2769115983",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。H.264 の mkv、160×90",
+      "purpose": "Matroska の縦横を読めること"
+    },
+    "video/h264-160x90.mp4": {
+      "bytes": 5317,
+      "sha256": "d3161a7a2c5bf3fb8c816db2d8d000f62fff96b03f7acee1670a0884f4603328",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。H.264 の mp4、160×90",
+      "purpose": "mp4 の表示の縦横を AVFoundation で読めること。別の拡張子を名乗らせて読む試験の元にもなる"
+    },
+    "video/h264-rot90.mp4": {
+      "bytes": 5317,
+      "sha256": "b4f2e7b7c9fd44c58d4c0644ab9ea320ca9753c7ef7667d2e470ad520747b78e",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。h264-160x90.mp4 に 90° の回転の指定を付けて写したもの",
+      "purpose": "回転を掛けた縦横(90×160)になること"
+    },
+    "video/h264-sar.mkv": {
+      "bytes": 4732,
+      "sha256": "ef2f3b57a0e8d03d94be87ee74669a80364aaacb7a9350688ab7d6deb1f668ba",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。H.264 の mkv、144×96 を 32:27 の画素で",
+      "purpose": "Matroska の DisplayWidth / DisplayHeight を使うこと"
+    },
+    "video/h264-sar.mp4": {
+      "bytes": 5024,
+      "sha256": "31e3314005d75ccbdce345d2f81a644a3c474b407b3bdfc76b67b7470dfa6cfc",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。H.264 の mp4、144×96 を 32:27 の画素で(表示は 16:9)",
+      "purpose": "画素の縦横比を掛けた縦横になること"
+    },
+    "video/mpeg4-160x90.avi": {
+      "bytes": 18844,
+      "sha256": "c50be0defbe89844166d967bfa73ac84fbe43a9858b3aef273449cd54d2ad49f",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。MPEG-4 Part 2 の AVI、160×90",
+      "purpose": "AVI の avih から縦横を読めること"
+    },
+    "video/mpeg4-sar.avi": {
+      "bytes": 17466,
+      "sha256": "a5cca5056d74d69f0ae4e968e07be0649495be5dbd39fbe625f49abb335a37f2",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。MPEG-4 Part 2 の AVI、144×96 を 32:27 の画素で",
+      "purpose": "AVI の vprp の縦横比を使うこと"
+    },
+    "video/rv10-160x96.rm": {
+      "bytes": 13882,
+      "sha256": "95db4b496902cd991187d40899a7f02310cadf96c5a3d0918fed5c6496dd0a59",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。RealVideo 1.0 の RealMedia、160×96(rv10 は 16 の倍数だけ)",
+      "purpose": "RealMedia の MDPR から縦横を読めること"
+    },
+    "video/theora-160x90.ogv": {
+      "bytes": 6477,
+      "sha256": "63dae2f1a16919457224c2609b498af903f6e97e82d9d7958f08c5478bc08830",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。Theora の Ogg、160×90",
+      "purpose": "Theora の識別ヘッダから縦横を読めること"
+    },
+    "video/theora-sar.ogv": {
+      "bytes": 5985,
+      "sha256": "28684b038bf8aa599563221daa71a799f4e6fdc5f46f14bf3f9cc66ace6ad352",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。Theora の Ogg、144×96 を 32:27 の画素で",
+      "purpose": "Theora の識別ヘッダの画素の縦横比を使うこと"
+    },
+    "video/wmv2-160x90.wmv": {
+      "bytes": 16625,
+      "sha256": "f48e8e3432294681f3f8acf6865a71092b0b8900c84ef121def813c3ccd1aa20",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。WMV2 の ASF、160×90",
+      "purpose": "ASF の映像の Stream Properties Object から縦横を読めること"
+    },
+    "video/wmv2-sar.wmv": {
+      "bytes": 16625,
+      "sha256": "7d8bc31a026abbf789cbefde81391d347330e7ab7b5b6838ca2f2dd5410590c9",
+      "howMade": "scripts/fixtures/build-video-fixtures.sh(ffmpeg 7.1。testsrc2 を 3 コマ)。WMV2 の ASF、144×96 を 32:27 の画素で",
+      "purpose": "ASF の Metadata Object の AspectRatioX / Y を使うこと"
+    },
     "zip/zip-big5-noflag.zip": {
       "bytes": 563,
       "sha256": "f210ce7691e4ac060092677aabe9eff623a502bd2e67cfb59778863a4a4a80bf",

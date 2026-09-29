@@ -22,6 +22,10 @@ nonisolated enum MediaContainer: Sendable, Equatable, CaseIterable {
     case asf
     /// Flash Video。
     case flv
+    /// Ogg(ogv / ogm)。音声だけの Ogg も同じ署名だが、ここへ来るのは名前が動画のファイルだけ。
+    case ogg
+    /// RealMedia(rm / rmvb)。
+    case realMedia
 
     /// この形式を素直に名乗る拡張子。**ここに入っていれば宣言し直さない。**
     var matchingExtensions: Set<String> {
@@ -31,6 +35,8 @@ nonisolated enum MediaContainer: Sendable, Equatable, CaseIterable {
         case .avi: ["avi"]
         case .asf: ["wmv", "asf", "wma"]
         case .flv: ["flv", "f4v"]
+        case .ogg: ["ogv", "ogm", "ogg", "ogx"]
+        case .realMedia: ["rm", "rmvb", "rv"]
         }
     }
 
@@ -42,6 +48,8 @@ nonisolated enum MediaContainer: Sendable, Equatable, CaseIterable {
         case .avi: "avi"
         case .asf: "wmv"
         case .flv: "flv"
+        case .ogg: "ogv"
+        case .realMedia: "rm"
         }
     }
 
@@ -83,6 +91,8 @@ nonisolated enum MediaContainerSniffer {
         // ASF ヘッダオブジェクトの GUID の先頭 4 バイト。
         if starts(bytes, with: [0x30, 0x26, 0xB2, 0x75]) { return .asf }
         if matches(bytes, at: 0, ascii: "FLV") { return .flv }
+        if matches(bytes, at: 0, ascii: "OggS") { return .ogg }
+        if matches(bytes, at: 0, ascii: ".RMF") { return .realMedia }
         return nil
     }
 

@@ -184,7 +184,7 @@ final class FileBrowserVideoThumbnailWarmer {
                 if report.skippedExtensions.contains(ext) { continue }
                 let isDataless = dependencies.isDataless
                 let (key, dataless) = await FileIO.perform(qos: .utility) {
-                    (FileBrowserThumbnailKey.of(video, mountTable: mountTable), isDataless(video))
+                    (FileBrowserThumbnailKey.ofVideo(video, mountTable: mountTable), isDataless(video))
                 }
                 // 追い出されたファイルは、失敗としても数えない(数えると形式ごとの諦めを誤って引き起こす)。
                 guard !dataless, let key else { continue }

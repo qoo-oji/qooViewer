@@ -16,6 +16,11 @@ nonisolated enum VideoThumbnailer {
     /// 1 本を待つ上限(秒)。QuickLook の拡張が応答しないと完了が来ないので、ここで `cancel` する。
     static let timeoutSeconds: Double = 8
 
+    /// ディスクキャッシュの鍵に付ける、動画の絵の作り方の世代(`FileBrowserThumbnailKey.ofVideo`)。**作り方を変えたら変える。**
+    /// 2: 縦横比を mkv 以外でも合わせる(2026-09-29。それまでの絵は QLMedia の入った機で正方形に伸びていた)。
+    /// 本・画像の絵まで作り直させないよう、鍵全体の世代(`FileBrowserThumbnailKey.generation`)は上げない。
+    static let cacheVariant = "video:2"
+
     /// 動画の名前か。**入っているアプリに左右される**(mkv の `.movie` への準拠は、mkv を扱うアプリがあるときだけ)。
     /// ―― それで困らない: 扱うアプリが無ければ、どのみち絵は作れない。
     static func isVideoFile(_ name: String) -> Bool {
@@ -39,7 +44,13 @@ nonisolated enum VideoThumbnailer {
 /// ■ mkv は入っている QuickLook 拡張しだい
 /// qooLibrary の比較(2026-08): QLVideo 3.x はサムネイルの拡張点を持たず 102 で失敗、QLCodec-mkv は同時に頼むと
 /// **別のファイルの絵と入れ替わり、上下も逆**、**QLMedia(App Store)は正しい** ―― ただし要求の大きさへ引き伸ばすので、
-/// `MatroskaDimensionReader` で縦横比を読んで要求の大きさを合わせる。どれも無ければ mkv は種類のアイコンのまま。
+/// 縦横比を読んで要求の大きさを合わせる。どれも無ければ mkv は種類のアイコンのまま。
+///
+/// ■ 縦横比はどの形式でも合わせる(2026-09-29)
+/// QLMedia が入っている機では、mp4 / mov を含む**すべての動画**の絵を QLMedia が作り、どれも要求の大きさへ引き伸ばす(実測)。
+/// 以前は実体が Matroska のときだけ合わせていたので、ほかの形式は正方形に伸びていた。いまは `VideoDimensionReader` が形式ごとに
+/// 表示の縦横を読み、返ってきた絵の比が違えば直す(`VideoThumbnailAspect.corrected` ―― QuickLook が前の伸びた絵を返すことがある)。
+/// 縦横が読めない形式(MXF・HEVC の ts・`onMetaData` の無い FLV など)は今までどおり正方形で頼む。
 ///
 /// ■ 実体と拡張子が食い違うファイル
 /// `MediaContainerSniffer` で実体を見て、食い違うときだけ `Request.contentType` で宣言し直す。
@@ -56,24 +67,19 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
     private struct Preparation: Sendable {
         let size: CGSize
         let contentType: UTType?
+        /// 表示の縦横(読めなければ nil)。返ってきた絵の比を確かめるのに使う。
+        let displaySize: CGSize?
     }
 
-    /// 要求の大きさと宣言する型を、**先頭を 1 度読むだけで**決める。縦横比を補うのは実体が Matroska のときだけ
-    /// (拡張子で絞ると、`.mp4` を名乗る mkv で補正が効かず正方形に潰れた ―― qooLibrary 実測)。16 バイトの判定が
-    /// 「型の宣言し直し」と「mp4 の先頭 8MB を読まない」の両方を兼ねる。ブロッキングなので FileIO の上で呼ぶ。
-    private static func prepare(for url: URL, maxPixelSize: Int) -> Preparation {
-        let square = CGSize(width: maxPixelSize, height: maxPixelSize)
-        let container = MediaContainerSniffer.sniff(fileAt: url)
-        let contentType = container?.contentTypeToDeclare(forFileNamed: url.lastPathComponent)
-        guard container == .matroska,
-              let dimensions = MatroskaDimensionReader.dimensions(of: url),
-              dimensions.width > 0, dimensions.height > 0
-        else { return Preparation(size: square, contentType: contentType) }
-        let aspect = dimensions.width / dimensions.height
-        let size = aspect >= 1
-            ? CGSize(width: Double(maxPixelSize), height: Double(maxPixelSize) / aspect)
-            : CGSize(width: Double(maxPixelSize) * aspect, height: Double(maxPixelSize))
-        return Preparation(size: size, contentType: contentType)
+    /// 要求の大きさと宣言する型を決める。先頭 16 バイトの判定が「型の宣言し直し」と「縦横の読み方の選択」を兼ねる
+    /// (拡張子で選ぶと、`.mp4` を名乗る mkv で補正が効かず正方形に潰れた ―― qooLibrary 実測)。
+    private static func prepare(for url: URL, maxPixelSize: Int) async -> Preparation {
+        let probe = await VideoDimensionReader.probe(url)
+        return Preparation(
+            size: VideoThumbnailAspect.requestSize(displaySize: probe.displaySize, maxPixelSize: maxPixelSize),
+            contentType: probe.container?.contentTypeToDeclare(forFileNamed: url.lastPathComponent),
+            displaySize: probe.displaySize
+        )
     }
 
     /// `QLThumbnailGenerator.Request` は Sendable ではない。タイムアウト側からは `cancel(_:)` に渡す識別子としてだけ使う。
@@ -82,7 +88,7 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
     }
 
     @concurrent func makeThumbnail(for url: URL, maxPixelSize: Int) async -> CGImage? {
-        let preparation = await FileIO.perform { () -> Preparation in Self.prepare(for: url, maxPixelSize: maxPixelSize) }
+        let preparation = await Self.prepare(for: url, maxPixelSize: maxPixelSize)
         if Task.isCancelled { return nil }
         let request = QLThumbnailGenerator.Request(
             fileAt: url, size: preparation.size, scale: 1, representationTypes: .thumbnail
@@ -99,7 +105,7 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
         // 呼んでから子の終わりを待っていたので、QuickLook が取り消しに応えない(完了ハンドラを呼ばない)と、そこから抜けられず提供役の枠が
         // 塞がったままになった。いまは完了・期限・呼び出し元の取り消しのうち最初の 1 つで戻り、残りは捨てる。
         // 成功したら期限の側を止める(眠ったままでも枠は塞がないが、8 秒ぶんの Task を残さない ―― qooLibrary の監査の件)。
-        return await withTaskCancellationHandler {
+        let thumbnail = await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<CGImage?, Never>) in
                 waiter.install(continuation)
                 // 取り消しが先に来て戻し終えていたら、要求を出さない(2026-09-15 の 3 回目の監査。以前は出した要求を誰も取り消さなかった)。
@@ -118,6 +124,16 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
         } onCancel: {
             if waiter.resume(with: nil) { QLThumbnailGenerator.shared.cancel(box.request) }
         }
+        guard let thumbnail else { return nil }
+        let made = ImageBox(image: thumbnail)
+        let displaySize = preparation.displaySize
+        // 縮め直しは画素を描くので、呼び出し側のアクターの外で。
+        return await FileIO.perform { ImageBox(image: VideoThumbnailAspect.corrected(made.image, displaySize: displaySize)) }.image
+    }
+
+    /// CGImage を借りたスレッドへ渡す箱(作ったあとは誰も書き換えない)。
+    private struct ImageBox: @unchecked Sendable {
+        let image: CGImage
     }
 
     /// 完了・期限・取り消しのうち、最初に来たものだけで戻す箱。

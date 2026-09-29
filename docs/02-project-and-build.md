@@ -356,7 +356,8 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
 
 - **コミットするもの**: 外部ツールや生のバイト列が要るもの ―― rar / 7z、UTF-8 フラグ無しの zip
   (CP932 / EUC-JP / CP949 / Big5)、Finder の「圧縮」相当(`__MACOSX/._*` 入り)、入れ子の書庫、
-  壊れた書庫、Document Catalog に読み方向を書いた PDF。ページ画像は 8x12 px の単色 PNG で、
+  壊れた書庫、Document Catalog に読み方向を書いた PDF、数コマの動画(`video/`。縦横を読む試験用。
+  `scripts/fixtures/build-video-fixtures.sh` が ffmpeg で作る ―― `FFMPEG=…` で場所を渡す)。ページ画像は 8x12 px の単色 PNG で、
   **R = ページ番号**(書き出しの後で中身から順序を追えるように)。上限は 1 ファイル 200 KB・
   合計 2 MB。
 - **テストの中で作るもの**: フォルダの本(`FixtureFolder`)、UTF-8 の zip(`ZipFixtureBuilder`)、

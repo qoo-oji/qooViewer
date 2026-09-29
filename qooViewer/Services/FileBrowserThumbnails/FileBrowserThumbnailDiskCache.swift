@@ -13,7 +13,8 @@ nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable, Codable {
     /// 更新日時(ナノ秒)。
     let modified: Int64
     let size: Int64
-    /// 同じ項目から作る別の絵(コレクション表紙に指定した本の中のページ。`"shelfPage:<ページのキー>"`)。
+    /// 同じ項目から作る別の絵(コレクション表紙に指定した本の中のページ。`"shelfPage:<ページのキー>"`)と、動画の絵の作り方の世代
+    /// (`VideoThumbnailer.cacheVariant`)。
     /// nil は項目の先頭の絵(従来の鍵。**nil のときはファイル名の計算に入れない**ので、既存のキャッシュはそのまま当たる)。
     var variant: String? = nil
 
@@ -31,6 +32,13 @@ nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable, Codable {
             modified: Int64(info.st_mtimespec.tv_sec) &* 1_000_000_000 &+ Int64(info.st_mtimespec.tv_nsec),
             size: Int64(info.st_size)
         )
+    }
+
+    /// 動画の絵の鍵。`of` に作り方の世代を足したもの(提供役と、先に作っておく役が同じ鍵を使う)。
+    static func ofVideo(_ url: URL, mountTable: MountTable) -> FileBrowserThumbnailKey? {
+        var key = of(url, mountTable: mountTable)
+        key?.variant = VideoThumbnailer.cacheVariant
+        return key
     }
 
     /// ディスクの上のファイル名。ボリュームの識別子には `/` や `:` が入りうるので、ハッシュにする。

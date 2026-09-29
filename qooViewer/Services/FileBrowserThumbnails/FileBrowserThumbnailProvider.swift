@@ -745,7 +745,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         case .item(let url, .video):
             let mountTable = MountTable.current()
             let (key, isDataless) = await FileIO.perform {
-                (FileBrowserThumbnailKey.of(url, mountTable: mountTable), VideoThumbnailer.isDataless(url))
+                (FileBrowserThumbnailKey.ofVideo(url, mountTable: mountTable), VideoThumbnailer.isDataless(url))
             }
             if let key, let data = await diskCache.data(for: key) {
                 if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }

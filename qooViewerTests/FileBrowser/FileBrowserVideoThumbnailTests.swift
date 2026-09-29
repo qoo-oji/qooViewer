@@ -38,6 +38,8 @@ struct FileBrowserVideoThumbnailTests {
         #expect(MediaContainerSniffer.sniff(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WAVE".utf8)) == nil)
         #expect(MediaContainerSniffer.sniff([0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66]) == .asf)
         #expect(MediaContainerSniffer.sniff(Array("FLV".utf8) + [0x01]) == .flv)
+        #expect(MediaContainerSniffer.sniff(Array("OggS".utf8) + [0x00, 0x02]) == .ogg)
+        #expect(MediaContainerSniffer.sniff(Array(".RMF".utf8) + [0x00, 0x00, 0x00, 0x12]) == .realMedia)
     }
 
     @Test("短すぎる・無関係なバイト列では nil", arguments: [
@@ -250,7 +252,7 @@ struct FileBrowserVideoThumbnailTests {
 
         let report = try #require(await sweep(warmer, roots: [fixture.root]))
         #expect(report.generated.map(\.lastPathComponent) == ["a.mp4", "b.mp4"])
-        let key = try #require(FileBrowserThumbnailKey.of(first, mountTable: MountTable.current()))
+        let key = try #require(FileBrowserThumbnailKey.ofVideo(first, mountTable: MountTable.current()))
         #expect(await fixture.disk.contains(key))
 
         warmer.restart()
