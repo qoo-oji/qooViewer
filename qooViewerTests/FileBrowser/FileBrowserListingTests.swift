@@ -57,8 +57,10 @@ struct FileBrowserListingTests {
         let temporary = try TemporaryDirectory("listing-recents-remote")
         let local = try temporary.directory("local")
         let share = try temporary.directory("share")
-        try Data("zip".utf8).write(to: local.appendingPathComponent("book.cbz"))
-        try Data("zip".utf8).write(to: share.appendingPathComponent("remote.cbz"))
+        // 拡張子はシステムが宣言する種類(PDF)にする。アプリが宣言する cbz は、CI の実行機では `UTType(filenameExtension:)` が
+        // 名前から引けず(実体に問い合わせる方は引けた)、名前だけの推測が nil になった(2026-09-29 の CI)。
+        try Data("pdf".utf8).write(to: local.appendingPathComponent("book.pdf"))
+        try Data("pdf".utf8).write(to: share.appendingPathComponent("remote.pdf"))
         try temporary.directory("share/remote-folder")
         // 作業フォルダの一部をネットワーク越しのボリュームに見立てる(マウント表は文字列の比較だけ)。マウント先は `MountTable` が
         // 比べる形(`standardizedFileURL`: 実在するパスの先頭の /private を外す。CI の一時フォルダは /private/var/… ―― docs/13)で書く。
@@ -68,10 +70,10 @@ struct FileBrowserListingTests {
         ])
         let entries = FileBrowserListing.recentEntries(from: [
             .init(path: share.appendingPathComponent("remote-folder").path, isDirectory: true, bookmark: Data()),
-            .init(path: share.appendingPathComponent("remote.cbz").path, isDirectory: false, bookmark: Data()),
-            .init(path: local.appendingPathComponent("book.cbz").path, isDirectory: false, bookmark: Data()),
+            .init(path: share.appendingPathComponent("remote.pdf").path, isDirectory: false, bookmark: Data()),
+            .init(path: local.appendingPathComponent("book.pdf").path, isDirectory: false, bookmark: Data()),
         ], mountTable: table)
-        #expect(entries.map(\.url.lastPathComponent) == ["remote-folder", "remote.cbz", "book.cbz"])
+        #expect(entries.map(\.url.lastPathComponent) == ["remote-folder", "remote.pdf", "book.pdf"])
         // 共有上の 2 つは実在するが読んでいない: 大きさ・日付が無く、「フォルダか」は履歴の記録のまま。種類は名前から。
         #expect(entries[0].isDirectory && entries[0].fileSize == nil && entries[0].modificationDate == nil)
         #expect(!entries[1].isDirectory && entries[1].fileSize == nil && entries[1].modificationDate == nil)
