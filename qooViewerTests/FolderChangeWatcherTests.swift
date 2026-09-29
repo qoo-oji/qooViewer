@@ -52,13 +52,18 @@ struct FolderChangeWatcherTests {
     ///
     /// 待ち合わせは知らせそのもので行う ―― 履歴は生の知らせより先に届くので、入れ替えた後に置いた目印が届くまでに
     /// 受け取ったものを全部見る。
+    ///
+    /// **見るのは「前からあったもの」の名前だけ**(見張っている 2 つのフォルダと、前から置いてあったファイル)。目印のほかは何も
+    /// 届かない、とは見ない ―― `FileManager.createFile` は一時ファイル(`marker.txt.sb-…`)へ書いてから名前を変えるので、その
+    /// 一時ファイルの生の知らせが届く(CI で実測 2026-09-29。手元では届かず、CI の 2 つのジョブだけが落ちた)。ファイルは
+    /// `open(2)` でじかに作り、届いたものは前からあった名前かどうかで見分ける。
     @Test("見張るフォルダを入れ替えても、前からあった変更と番兵は届かない", .timeLimit(.minutes(1)))
     func swappingWatchedFoldersReplaysNoHistory() async throws {
         let temporary = try TemporaryDirectory("folder-watch-swap")
         let first = try temporary.directory("first")
         let second = try temporary.directory("second")
         // 入れ替えの前からある変更(履歴になるもの)。
-        #expect(FileManager.default.createFile(atPath: second.appendingPathComponent("old.txt").path, contents: Data()))
+        try Self.createEmptyFile(at: second.appendingPathComponent("old.txt"))
         // フォルダを作った知らせが、最初のストリームへ生の知らせとして届かないところまで待つ(履歴には残る)。
         try await Task.sleep(for: .seconds(1))
 
@@ -66,7 +71,7 @@ struct FolderChangeWatcherTests {
         let watcher = FolderChangeWatcher(onChangedPaths: { continuation.yield($0) })
         await watcher.watch([first.path])
         await watcher.watch([first.path, second.path])
-        #expect(FileManager.default.createFile(atPath: first.appendingPathComponent("marker.txt").path, contents: Data()))
+        try Self.createEmptyFile(at: first.appendingPathComponent("marker.txt"))
 
         var received: [String] = []
         for await paths in changes {
@@ -74,8 +79,17 @@ struct FolderChangeWatcherTests {
             if paths.contains(where: { $0.hasSuffix("/marker.txt") }) { break }
         }
         watcher.tearDown()
-        let unexpected = received.filter { !$0.hasSuffix("/marker.txt") }.map { ($0 as NSString).lastPathComponent }
-        #expect(unexpected.isEmpty, "入れ替えで再生された: \(unexpected)")
+        // 番兵は見張っている根のパスで届く(フォルダを作った履歴も同じ名前)。
+        let replayed = received.map { ($0 as NSString).lastPathComponent }
+            .filter { $0 == "first" || $0 == "second" || $0.hasPrefix("old.txt") }
+        #expect(replayed.isEmpty, "入れ替えで再生された: \(replayed)")
+    }
+
+    /// 一時ファイルを経ずに、その名前でじかに空のファイルを作る。
+    private static func createEmptyFile(at url: URL) throws {
+        let descriptor = open(url.path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        close(descriptor)
     }
 
     @Test("履歴の再生のうち捨てるのは、番兵と、番兵より前に届いた起点以前の変更だけ")
