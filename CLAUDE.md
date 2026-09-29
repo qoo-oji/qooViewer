@@ -165,7 +165,10 @@ direction is not remembered"; `ReadingStateReplacementTests` / `FeatureTogglePer
 while it is on screen — the side panel's folder browser (`SidePanelBrowserState.setVisible`) and book-contents browser
 (`ContentView.isBookContentsPaneOnScreen`) only mark themselves stale while hidden and catch up when shown, the export window's
 VM likewise (`setPresented`), the smart-library catalog counts per-screen clients (`activate(client:)`). Cells ask for thumbnails
-again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on the provider's global `revision` alone. Store
+again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on the provider's global `revision` alone.
+`FolderChangeWatcher` drops FSEvents' history replay and its `HistoryDone` sentinel (2026-09-29: `FullHistory` replays events older than
+`sinceWhen`, so every swap of watched folders — each expand/collapse in the file browser tree — reloaded the other open rows), and a tree
+row reload calls `reloadItem` only when what its child rows show has changed (`ShownChild`). Store
 notifications that concern particular books carry their IDs (`BookRelocationPlan.relocatedBookIDsUserInfoKey`,
 `ViewerViewModel.notificationConcerns`). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
 `BookPageListCache.Entry.sourceProbe` — never by setting `didImportSourceMetadata`, which would change `isParsedOnly`.

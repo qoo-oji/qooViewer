@@ -765,6 +765,20 @@ struct FileBrowserTreeView: NSViewRepresentable {
             weak var node: Node?
         }
 
+        /// 子の行に出るもの: どの行か(並びも)、三角の有無、淡く描くか(隠しフォルダ)。読み直しの前後で比べる(`startLoadingChildren`)。
+        /// 名前は Node ごとに決まっている(名前が変われば別のパス = 別の Node)。カットの淡さは `applyCutAppearance` が別に直す。
+        private struct ShownChild: Equatable {
+            let node: ObjectIdentifier
+            let hasSubfolders: Bool?
+            let isHidden: Bool
+
+            init(_ node: Node) {
+                self.node = ObjectIdentifier(node)
+                hasSubfolders = node.hasSubfolders
+                isHidden = node.listing?.isHidden == true
+            }
+        }
+
         /// 行の子を読む。**読んでいる最中なら重ねずに、読み終えてから 1 回だけ読み直す**(2026-09-14 の 2 回目の監査 17)。
         /// 以前は前の読み込みを残したまま新しい読み込みを始めたので、開いたダウンロードフォルダの中でダウンロードが続くと
         /// 0.3 秒ごとに FileIO のスレッドが 1 本ずつ立ち(応答しない共有なら戻らないまま積もる)、いちばん新しい読み込みが
@@ -815,6 +829,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
                     uniquingKeysWith: { first, _ in first }
                 )
+                let shownBefore = (node.children ?? []).map(ShownChild.init)
                 let children = folders.map { entry, hasSubfolders in
                     let child = previous[FileBrowserState.id(for: entry.url)]
                         ?? Node(kind: .folder, url: entry.url, name: entry.displayName)
@@ -825,8 +840,16 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     return child
                 }
                 // 並べるのは結果を受け取ったこの時点の並び(読んでいる間に基準が変わっても古い順で入らない)。
-                node.children = self.sortedChildren(children)
-                outline.reloadItem(node, reloadChildren: true)
+                let sorted = self.sortedChildren(children)
+                node.children = sorted
+                // **行に出るものが何も変わっていなければ描き直さない**(2026-09-29、ユーザー報告「ほかの行を開閉すると、開いている
+                // 行が開き直すように描き直される」)。読み直しは、フォルダの中のファイルが書き換わっただけでも頼まれる(FSEvents は
+                // ファイル単位で知らせる)。`reloadItem(_:reloadChildren:)` は配下の行を全部作り直すので、そのたびに開いている行の
+                // 配下がまるごと描き直されていた。開いた直後の最初の読み込みは、子が増えるのでここを通らない(空のフォルダなら
+                // 描き直すものが無い)。
+                if sorted.map(ShownChild.init) != shownBefore {
+                    outline.reloadItem(node, reloadChildren: true)
+                }
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
                 // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。
                 self.scheduleWatchUpdate()

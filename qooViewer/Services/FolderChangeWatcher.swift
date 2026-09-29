@@ -1,5 +1,6 @@
 import CoreServices
 import Foundation
+import os
 
 /// 指定したフォルダの中身が変わったことを知らせる(FSEvents の薄い包み)。
 ///
@@ -33,6 +34,15 @@ import Foundation
 /// FSEvents はネットワークボリューム(SMB/AFP)では飛ばず、アプリが止められている間の変更も
 /// まとめて1回になる。**これだけに頼らない** ―― 呼び出し側は従来どおり、アプリがアクティブに
 /// なったときや画面が出たときにも走査する。監視はあくまで「見ている間の即時反映」のためのもの。
+///
+/// ■ 履歴の再生は受け取り側へ流さない(2026-09-29)
+/// 起点(`sinceWhen`)を渡して張ったストリームには、まず「履歴」が再生され、番兵(`HistoryDone`)が届いてから生の知らせが続く。
+/// `FullHistory` は「起点を含むかたまりの変更を、**起点より前のものまで**全部再生する」フラグ(FSEvents.h に明記)で、番兵は
+/// 見張っている根のパスを持って届く(ヘッダーは「このパスは無視せよ」)。以前はどちらもそのまま流していたので、**見張るフォルダを
+/// 入れ替えるたびに**、見張っている全部の根の古い変更と根そのもののパスが届いた(実測: フォルダ 2 つで 4 件 + 番兵、ホームと `/` では
+/// 約 4,000 件)。ファイルブラウザのツリーは行を開閉するたびに入れ替えるので、開いているほかの行がそのたびに読み直され、
+/// 開き直したように描き直された(ユーザー報告)。番兵と、番兵より前に届く起点以前の変更は C のコールバックで捨てる
+/// (`FolderChangeStreamProgress`)。起点より後の変更(入れ替えの間の空白)は今までどおり届く。
 ///
 /// ■ 何が変わったかは見ない
 /// コールバックはイベントの中身を捨てて「何か変わった」とだけ伝える。どの本が増えたかは
@@ -70,6 +80,8 @@ final class FolderChangeWatcher {
     /// `deinit`(nonisolated)から破棄するため`nonisolated(unsafe)`。書き換えはメインアクター上の
     /// メソッドからだけで、`deinit`の時点では他に参照が無いため競合しない。
     private nonisolated(unsafe) var stream: FSEventStreamRef?
+    /// いまのストリームの進み具合(起点と、最後にコールバックが呼ばれた時刻)。`stopStream` が次の起点を決めるのに使う。
+    private var streamProgress: FolderChangeStreamProgress?
     /// 直前のストリームを止めた時点のイベントID。パスを差し替えるときに`sinceWhen`として
     /// 渡し、止めてから始めるまでの空白を埋める(その間の変更を取りこぼさない)。
     private(set) var lastEventID = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
@@ -153,6 +165,7 @@ final class FolderChangeWatcher {
             return
         }
         stream = created.ref
+        streamProgress = created.progress
     }
 
     /// 監視をやめる(テストと、フォルダが1つも無くなったとき)。
@@ -177,10 +190,25 @@ final class FolderChangeWatcher {
         // `FullHistory` を付けているため、**新しく見張るパスの過去の履歴がその時点から丸ごと再生された**
         // (ファイルブラウザでフォルダを移るたびに、移った先の古い変更が届いた。2026-09-14 の監査の 4)。
         // いまのIDなら、残るパスの空白は埋まり、新しいパスで再生されるのは止めてから始めるまでの間だけ。
-        lastEventID = FSEventsGetCurrentEventId()
+        //
+        // **直前までコールバックが呼ばれていたストリームだけは、受け取った最後の ID を起点にする**(2026-09-29)。変更が続いている間は
+        // FSEvents が `latency` ぶんまとめて持っており、止めた時点でまだ渡されていないものがありうる。以前は `FullHistory` の再生が
+        // (意図せず)それも届けていたが、起点以前の再生を捨てるようにしたので、ここで起点を戻して拾う。戻る幅は高々
+        // `pendingDeliveryWindow` 秒ぶんなので、静かなフォルダの何時間も前の履歴が再生されることはない。
+        let current = FSEventsGetCurrentEventId()
+        if let progress = streamProgress, progress.wasCalledBack(within: Self.pendingDeliveryWindow) {
+            let delivered = max(FSEventStreamGetLatestEventId(stream), progress.startedAfter ?? 0)
+            lastEventID = delivered > 0 ? min(delivered, current) : current
+        } else {
+            lastEventID = current
+        }
         self.stream = nil
+        streamProgress = nil
         Self.tearDownWithoutWaiting(stream)
     }
+
+    /// 「まだ渡されていない変更がありうる」とみなす、最後のコールバックからの秒数(`latency` より十分長く)。
+    private static let pendingDeliveryWindow: TimeInterval = 1
 
     /// 破棄を別の実行先へ投げ、完了を待たない(破棄もブロックしうる)。渡した時点でこちらは
     /// 参照を捨てているので、二重に触ることはない。
@@ -204,7 +232,72 @@ final class FolderChangeWatcher {
 /// 渡す側は必ず参照を手放してから渡すので、共有された可変状態にはならない。
 private nonisolated struct FolderChangeStreamBox: @unchecked Sendable {
     let ref: FSEventStreamRef
-    init(_ ref: FSEventStreamRef) { self.ref = ref }
+    /// 張ったストリームの進み具合(破棄のために運ぶときは要らない)。
+    let progress: FolderChangeStreamProgress?
+    init(_ ref: FSEventStreamRef, progress: FolderChangeStreamProgress? = nil) {
+        self.ref = ref
+        self.progress = progress
+    }
+}
+
+/// ストリーム 1 本の進み具合: 履歴の再生が終わったか、最後にコールバックが呼ばれたのはいつか
+/// (FolderChangeWatcher の型コメント「履歴の再生は受け取り側へ流さない」)。
+///
+/// 書くのは FSEvents の配送キュー(C のコールバック)、読むのはメインアクター(`stopStream`)なので、ロックで守る。
+nonisolated final class FolderChangeStreamProgress: Sendable {
+    /// このストリームの起点。nil は `SinceNow`(履歴は再生されず、番兵も届かない)。
+    let startedAfter: FSEventStreamEventId?
+
+    private nonisolated struct State: Sendable {
+        var isReplayingHistory: Bool
+        var lastCallbackUptime: UInt64?
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(sinceWhen: FSEventStreamEventId) {
+        let startedAfter = sinceWhen == FSEventStreamEventId(kFSEventStreamEventIdSinceNow) ? nil : sinceWhen
+        self.startedAfter = startedAfter
+        state = OSAllocatedUnfairLock(initialState: State(isReplayingHistory: startedAfter != nil, lastCallbackUptime: nil))
+    }
+
+    /// コールバック 1 回ぶんのイベントのうち、受け取り側へ渡すものの位置。
+    ///
+    /// 捨てるのは、番兵(`HistoryDone`。パスは見張っている根で、変更ではない)と、**番兵より前に届いた起点以前の変更**
+    /// (`FullHistory` の重なり)。取りこぼしの知らせ(`UserDropped` / `KernelDropped`)と ID を持たないもの(0)は、
+    /// ID で新旧を決められないので必ず渡す。番兵の後に届くものは生の知らせなので、ID を見ずに渡す。
+    func admittedIndices(
+        count: Int, flags: UnsafePointer<FSEventStreamEventFlags>, ids: UnsafePointer<FSEventStreamEventId>
+    ) -> [Int] {
+        let historyDone = FSEventStreamEventFlags(kFSEventStreamEventFlagHistoryDone)
+        let dropped = FSEventStreamEventFlags(kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
+        let now = DispatchTime.now().uptimeNanoseconds
+        let startedAfter = startedAfter
+        return state.withLockUnchecked { state in
+            state.lastCallbackUptime = now
+            var admitted: [Int] = []
+            for index in 0..<count {
+                if flags[index] & historyDone != 0 {
+                    state.isReplayingHistory = false
+                    continue
+                }
+                if state.isReplayingHistory, let startedAfter, ids[index] != 0, ids[index] <= startedAfter,
+                   flags[index] & dropped == 0 {
+                    continue
+                }
+                admitted.append(index)
+            }
+            return admitted
+        }
+    }
+
+    /// 直前 `seconds` 秒のうちにコールバックが呼ばれたか(捨てたイベントだけの回も数える ―― FSEvents がまとめ始めるのは
+    /// 配送した時点からなので)。
+    func wasCalledBack(within seconds: TimeInterval) -> Bool {
+        guard let last = state.withLock({ $0.lastCallbackUptime }) else { return false }
+        let now = DispatchTime.now().uptimeNanoseconds
+        return now >= last && Double(now - last) / 1_000_000_000 < seconds
+    }
 }
 
 /// FSEvents の`context.info`に載せるためだけの箱。C の`void *`を跨ぐために要る。
@@ -212,9 +305,14 @@ private nonisolated struct FolderChangeStreamBox: @unchecked Sendable {
 private nonisolated final class FolderChangeCallbackBox: Sendable {
     let handle: @Sendable ([FolderChangeWatcher.Event]) -> Void
     let reportsPaths: Bool
-    init(_ handle: @escaping @Sendable ([FolderChangeWatcher.Event]) -> Void, reportsPaths: Bool) {
+    let progress: FolderChangeStreamProgress
+    init(
+        _ handle: @escaping @Sendable ([FolderChangeWatcher.Event]) -> Void, reportsPaths: Bool,
+        progress: FolderChangeStreamProgress
+    ) {
         self.handle = handle
         self.reportsPaths = reportsPaths
+        self.progress = progress
     }
 }
 
@@ -228,9 +326,12 @@ private nonisolated let folderChangeRelease: CFAllocatorReleaseCallBack = { info
     Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).release()
 }
 
-private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, count, eventPaths, eventFlags, _ in
+private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, count, eventPaths, eventFlags, eventIds in
     guard let info else { return }
     let box = Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).takeUnretainedValue()
+    // 履歴の再生と番兵は渡さない(型コメント「履歴の再生は受け取り側へ流さない」)。残らなければ知らせない。
+    let admitted = box.progress.admittedIndices(count: count, flags: eventFlags, ids: eventIds)
+    guard !admitted.isEmpty else { return }
     // パスを求められていなければ中身は見ない(型コメント参照)。「何か変わった」だけを伝える。
     guard box.reportsPaths else {
         box.handle([])
@@ -244,7 +345,7 @@ private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info,
     let directoryFlag = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir)
     let arrivalFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed)
     let structuralFlags = arrivalFlags | FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)
-    box.handle((0..<count).map {
+    box.handle(admitted.map {
         FolderChangeWatcher.Event(
             path: String(cString: pointers[$0]), mustScanSubdirectories: eventFlags[$0] & rescanFlags != 0,
             isDirectoryCreatedOrRenamed: eventFlags[$0] & directoryFlag != 0 && eventFlags[$0] & arrivalFlags != 0,
@@ -263,7 +364,8 @@ private nonisolated func makeFolderChangeStream(
     reportsPaths: Bool,
     onChange: @escaping @Sendable ([FolderChangeWatcher.Event]) -> Void
 ) -> FolderChangeStreamBox? {
-    let box = FolderChangeCallbackBox(onChange, reportsPaths: reportsPaths)
+    let progress = FolderChangeStreamProgress(sinceWhen: sinceWhen)
+    let box = FolderChangeCallbackBox(onChange, reportsPaths: reportsPaths, progress: progress)
     var context = FSEventStreamContext(
         version: 0,
         // **passUnretained で渡す。** retain を指定した context は CF が自分で+1するので、
@@ -278,6 +380,8 @@ private nonisolated func makeFolderChangeStream(
     // NoDefer: 最初のイベントを latency ぶん待たせない(待つのは続けて起きた変更をまとめるとき)。
     // FullHistory: 異常終了の直前に起きた変更を取りこぼさない。走査は何度やっても同じ結果
     //   (重複はinsertItemsが弾く)なので、余分に届いても害が無い。
+    //   → **害はあった**(2026-09-29。型コメント「履歴の再生は受け取り側へ流さない」)。フラグは残し、起点より前の再生は
+    //   コールバックで捨てる(フラグを外すと、起点の近くの変更が「保存のされ方の都合で飛ばされうる」―― FSEvents.h)。
     //
     // **WatchRoot は付けない**(実機で発覚 2026-09-09)。このフラグは見張っているフォルダ自身の
     // 改名・移動を知らせるために、**ルートとその祖先ディレクトリを1階層ごとに open して握り続ける**
@@ -308,5 +412,5 @@ private nonisolated func makeFolderChangeStream(
         FSEventStreamRelease(created)
         return nil
     }
-    return FolderChangeStreamBox(created)
+    return FolderChangeStreamBox(created, progress: progress)
 }
