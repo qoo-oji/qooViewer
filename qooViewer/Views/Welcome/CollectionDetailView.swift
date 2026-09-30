@@ -68,8 +68,6 @@ struct CollectionDetailView: View {
     /// 描き直しで消えた行の属性を読んで落ちる(SwiftDataの "model instance was invalidated")。
     /// 削除するときはidから引き直し、無ければ黙って何もしない。
     @State private var missingBook: MissingBook?
-    /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。同じ理由でidで持つ。
-    @State private var metadataTarget: MetadataTarget?
     /// 開く・Finder に表示するなどの前の、本 1 冊の確かめ(メインの外。CollectionItemOpenProbe の型コメント。
     /// 2026-09-27、表示の切り替えの監査の 11)。確かめている本のカバーに回転表示を出す。
     @State private var openTracker = CollectionItemOpenTracker()
@@ -102,13 +100,6 @@ struct CollectionDetailView: View {
     @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
     /// 頭文字で選ぶ(type-select)の入力の控え。
     @State private var typeSelect = HomeTypeSelect()
-
-    /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
-    /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
-    private struct MetadataTarget: Identifiable {
-        let id: UUID
-        let url: URL
-    }
 
     /// 「本が見つかりません」の対象(missingBookのコメント参照)。
     ///
@@ -541,8 +532,9 @@ struct CollectionDetailView: View {
             state.itemSelection.selectAll(order: items.map(\.id))
         }
         // 選び直したら(帯でまとめて選ぶ・「すべてを選択」のボタンも)、そのまま ⌘C が効くようにグリッドへ焦点を移す。
+        // 右クリックの「メタデータの編集…」で選び直したときは移さない(インスペクタの題の欄が焦点を取る。2026-09-30)。
         .onChange(of: state.selectedItemIDs) { _, selection in
-            if !selection.isEmpty { isGridFocused = true }
+            if !selection.isEmpty, !state.isInspectorTakingFocus() { isGridFocused = true }
         }
         // 画面に出たらキーの行き先にする(コレクションへ入った・一覧へ戻った直後から矢印キー・Return・⌘↑ が効くように。
         // Finder がウインドウの一覧に焦点を置くのと同じ)。
@@ -550,12 +542,8 @@ struct CollectionDetailView: View {
         // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(コレクションの
         // 切り替え・グリッドの作り直し)。`.id`より外に付ける理由はCollectionGridView参照。
         .onChange(of: gridID) { marquee.forgetFrames() }
-        // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
+        // 右クリックの「本の書き出し」(2026-09-23)。ほかのシートとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
         // 片方しか出ないことがある(SwiftUIの既知の癖)。
-        .sheet(item: $metadataTarget) { target in
-            BookMetadataSheet(itemID: target.id, sourceURL: target.url, library: library)
-        }
-        // 右クリックの「本の書き出し」(2026-09-23)。ほかのシートとは別の階層に付ける(上のコメントと同じ理由)。
         .background {
             Color.clear.homeBookExportSheet($exportRequest, allowsCoverSelection: allowsEditing)
         }
@@ -685,12 +673,12 @@ struct CollectionDetailView: View {
             // シークレットウインドウでは淡色(保存データへの書き込み。項目ごと消すのは機能が OFF のときだけ ―― 利用者の決定 2026-09-23。
             // 以前はシークレットウインドウでは消していた)。
             Divider()
+            // 押すと、その本を選んでインスペクタ(右ペイン)を出し、題の欄へ焦点を入れる(2026-09-30、利用者の指示。以前は 1 冊ぶんの
+            // シートを出していた)。見つからない本でも欄は直せる(DB の行はパスで引く。場所はインスペクタの情報が「見つかりません」と出す)。
             Button("Edit Metadata…") {
                 guard allowsEditing else { return }
-                let itemID = item.id
-                withExistingURL(of: item) { url in
-                    metadataTarget = MetadataTarget(id: itemID, url: url)
-                }
+                state.itemSelection.select(item.id)
+                state.revealInspector(editingMetadataOf: item.bookID)
             }
             .disabled(!allowsEditing || !isSingle)
             // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は保存データを書かないので、

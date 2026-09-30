@@ -523,12 +523,7 @@ struct SmartLibraryListView: NSViewRepresentable {
                 // 束は疑似的なフォルダ(型コメント)。
                 return FileBrowserIconProvider.folderIcon
             case .book(let book):
-                return FileBrowserIconProvider.icon(for: FileBrowserEntry(
-                    url: URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder), displayName: book.fileName,
-                    isDirectory: book.kind == .folder, isPackage: false, isSymbolicLink: false, isVolume: false,
-                    fileSize: book.fileSize, typeDescription: nil, creationDate: book.creationDate,
-                    modificationDate: book.modificationDate
-                ))
+                return FileBrowserIconProvider.icon(for: book.fileBrowserEntry)
             }
         }
 

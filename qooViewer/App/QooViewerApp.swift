@@ -619,7 +619,7 @@ struct QooViewerApp: App {
             // ファイルブラウザの右クリックの「自動リネーム」(2026-09-15)。
             .environmentObject(autoRenameStore)
             .environmentObject(autoRenameService)
-            // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
+            // ホームのインスペクタのメタデータの欄(HomeInspectorMetadataSection)がファイル名からの推測に使う。
             .environment(metadataRulesStore)
             .environmentObject(launchCoordinator)
             .environmentObject(resourceSampler)

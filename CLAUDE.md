@@ -341,8 +341,8 @@ rest), genre, event, source, info, series, volume (as written) and `volumeSort`,
 these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
 Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
 bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
-page 3. The Edit menu's "Edit Metadata…" **always opens that window** (2026-09-23; the one-book sheet stays on the
-context menus): the book selected on Home travels through `MetadataEditorReveal.shared` (value + token, taken once) to
+page 3. The Edit menu's "Edit Metadata…" **always opens that window** (2026-09-23; the context menus' "Edit Metadata…"
+selects the book and opens the Home inspector with the title field focused — the one-book sheet was removed 2026-09-30): the book selected on Home travels through `MetadataEditorReveal.shared` (value + token, taken once) to
 `MetadataWorkspace.reveal`, which selects the row, clears the filters that hide it and asks the table to scroll to it —
 a book with no row is left alone. In the window, **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless). **Only
 `MetadataGenerator` (one app-wide) derives values from file names and writes them** (2026-09-22, docs/plans/metadata-generator-plan.md —
@@ -350,7 +350,7 @@ five writers with different anchor sets had disagreed and reverted edits): one `
 (reading states, bookmarks, layouts, favorites) + metadata rows + the book lists features *record* in `MetadataCorpusStore`
 (collection books, smart-library target-folder books — kept while a feature is off, so metadata never depends on a feature
 flag) + books opened this session; rowless books are listed only once probed at their recorded path. It creates unlocked rows
-and rewrites unlocked values; it never writes locks, edits or rule sets. The window, the one-book sheet, source-metadata import
+and rewrites unlocked values; it never writes locks, edits or rule sets. The window, the inspector's metadata fields, source-metadata import
 and saved-data import write only the row state (`BookMetadataRowState`) and let it re-derive; the smart library only records
 its scan and reads the DB; opening a book only calls `noteBookOpened`. `isLocked` freezes a row, unlocked rows keep the user's
 edited fields (`editsData`) and rule set; Delete Metadata removes the row and does not remember it (re-registered when the
@@ -358,7 +358,7 @@ book or the window is opened again). Parsed-only rows (`BookMetadata.isParsedOnl
 (`pruneParsedOnlyRows` — `KnownBooks` must be collected without metadata rows there, or the rows keep themselves alive). The
 old drafts file (`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books under an excluded
 folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
-defaults, the one-book sheet) read through the same rules. Details in docs/07「書誌メタデータ」.
+defaults, the inspector) read through the same rules. Details in docs/07「書誌メタデータ」.
 
 **Smart library (2026-09-21/22)**: the Home's third mode (`WelcomeMode.smart`, `Views/Welcome/SmartLibrary/`). It shows **only
 books under its own target folders** (`SmartLibraryStore.folders`, path only; permission stays with `FolderAccessStore`) —
@@ -389,7 +389,7 @@ so margins are never baked. "Keep When Cropping"
 (`AppPreferences.smartLibraryCoverCropAnchor`) is only the default, as the library's is: a book's own
 `BookLayoutSettings.coverCropAnchor` wins. That per-book value is shared by the library and the smart library: every place
 that sets it offers the same four choices, "No Setting" (nil — follow whichever view's own setting) / Top-Left / Center /
-Bottom-Right, always enabled (`coverCropAnchorMenuItems` in BookMetadataSheet, the Edit Metadata window's cover picker). The cover grid has Finder-style selection and keys
+Bottom-Right, always enabled (`coverCropAnchorMenuItems` in BookCoverEditAreas.swift — the Home inspector's cover —, the Edit Metadata window's cover picker). The cover grid has Finder-style selection and keys
 (2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
 outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
 **every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view
@@ -401,6 +401,15 @@ scene (`WelcomeLibraryState` / `SmartLibraryViewState.scrollMemory`, `.homeScrol
 `dismantleNSView` + `HomeWheelScrollView.restoreScrollOrigin` for AppKit lists; the file browser keeps its own in `FileBrowserState`,
 tree expansion included). A new Home list must do the same, and a SwiftUI one must not save before restoring starts (the first
 geometry report, offset 0, can arrive before `onAppear`).
+**Home inspector (2026-09-30; `Views/Welcome/Inspector/`, docs/14「インスペクタ」)**: a Finder-preview-like right pane next to the
+file browser / smart library / library, one per-window flag shared by all three (`WelcomeLibraryState.isInspectorShown`, View ▸ Show/Hide
+Inspector ⇧⌘P, a button at the right end of the top bar — or of the file browser's header when there is no top bar), absent in `.classic`.
+It shows the selection (`HomeInspectorSubject`): a book's collection cover with the old metadata sheet's cover editing
+(`BookCoverEditAreas.swift`), name, the metadata fields (written when a field loses focus or the pane goes away), and Finder's info rows;
+non-books get Finder-like previews (thumbnail provider → QuickLook → system icon, never reading unentered/remote locations). Private
+windows only look. **A SwiftUI `.onDrop` inside the inspector's ScrollView never fires** — the window-wide "open book" target wins
+(measured 2026-09-30; cause unknown) — so the cover's image drop is routed by one drop target on the inspector column
+(`HomeInspectorCoverDrop`: the cover registers its frame; outside it the drop goes to `AppState.openDroppedFiles`, the window's own path).
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
 books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).

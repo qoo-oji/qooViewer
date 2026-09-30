@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// ウェルカム画面のファイルブラウザ(改善要望7 段階3、2026-09-13)。帯の下、本棚の代わりに出る。
 ///
 /// ```
-/// [ツリー] | [‹ › ↑]      [検索欄]      [リスト/アイコン][並べ替え][大きさ]
+/// [ツリー] | [‹ › ↑]      [フォルダ名]      [大きさ][アイコン/リスト][並べ替え][検索]([インスペクタ])
 ///          | リスト(NSTableView) または アイコン(NSCollectionView)
 ///          | パスバー(NSPathControl)
 /// ```
@@ -43,12 +43,16 @@ struct FileBrowserPane: View {
     @Environment(\.panelContentOutlineWidth) private var outlineWidth
 
     @ObservedObject var state: FileBrowserState
+    /// ホームの表示の状態(インスペクタの出し入れのボタン。2026-09-30)。
+    let home: WelcomeLibraryState
+    /// 操作列の右端(検索の右)にインスペクタの出し入れのボタンを置くか。帯が無いホーム(ファイルブラウザだけ)のとき ―― 帯が
+    /// あれば帯の右端に置く(利用者の指定)。値で受ける(`home` の変化をこのペインは購読しない)。
+    let showsInspectorToggle: Bool
 
     /// 3つの一覧が共有する「開く」などの口。**ビューを捕まえない**(FileBrowserActionsの型コメント)。
     @State private var actions = FileBrowserActions()
     /// 左の幅をドラッグしている間の幅(離したときに状態へ書く。毎フレーム保存しない)。
     @State private var liveTreeWidth: CGFloat?
-    @State private var dragStartWidth: CGFloat = 0
     /// 検索がボタンから欄へ広がっているか(ユーザー要望 2026-09-13)。
     @State private var isSearchExpanded = false
     /// 右ペインがドロップの受け口として反応しているか(表示中のフォルダへ落とす。段階4b)。
@@ -156,7 +160,7 @@ struct FileBrowserPane: View {
         .sheet(isPresented: $state.isShowingGoToFolder) {
             FileBrowserGoToFolderSheet(state: state)
         }
-        // 右クリックの「メタデータの編集…」「本の書き出し」(段階 8)。
+        // 右クリックの「本の書き出し」(段階 8。「メタデータの編集…」はシートをやめてインスペクタで直す。2026-09-30)。
         .sheet(item: $state.bookSheet) { sheet in
             bookSheet(sheet)
         }
@@ -165,8 +169,6 @@ struct FileBrowserPane: View {
     @ViewBuilder
     private func bookSheet(_ sheet: FileBrowserBookSheet) -> some View {
         switch sheet.kind {
-        case .metadata(let entry):
-            BookMetadataSheet(fileBrowserEntry: entry)
         case .export(let export):
             OpenBookExportSheet(
                 viewModel: export.viewModel,
@@ -248,6 +250,9 @@ struct FileBrowserPane: View {
                 }
                 FileBrowserSortMenu(key: $state.sortKey, direction: $state.sortDirection)
                 search
+                if showsInspectorToggle {
+                    HomeInspectorToggleButton(state: home)
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -370,29 +375,13 @@ struct FileBrowserPane: View {
 
     // MARK: - 左の幅
 
-    /// 区切り線の上の、幅を変える掴みどころ。**座標はペインの座標空間で読む** ―― 掴みどころ自身は
-    /// 幅に合わせて動くので、自分の座標で読むとドラッグの出力が自分の位置を動かし、震える
-    /// (SidePanelView.widthDragHitAreaで実際に起きた自己参照ループ)。
+    /// 区切り線の上の、幅を変える掴みどころ(PaneWidthDragHandle。座標はペインの座標空間で読む)。
     private func widthDragHandle(currentWidth: CGFloat) -> some View {
-        Color.clear
-            .frame(width: 8)
-            .contentShape(Rectangle())
-            // 左右矢印のカーソルは hoverCursor で(2026-09-27、監査 38。以前は onHover で直に push / pop していて、掴んだまま
-            // ペインが消えると pop されずにカーソルが残りえた ―― HoverCursor.swift の決まり)。
-            .hoverCursor(.resizeLeftRight)
-            .gesture(
-                DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.coordinateSpace))
-                    .onChanged { value in
-                        if liveTreeWidth == nil { dragStartWidth = currentWidth }
-                        let range = FileBrowserState.treeWidthRange
-                        let proposed = dragStartWidth + value.location.x - value.startLocation.x
-                        liveTreeWidth = min(range.upperBound, max(range.lowerBound, proposed))
-                    }
-                    .onEnded { _ in
-                        if let liveTreeWidth { state.treeWidth = liveTreeWidth }
-                        liveTreeWidth = nil
-                    }
-            )
+        PaneWidthDragHandle(
+            currentWidth: currentWidth, range: FileBrowserState.treeWidthRange, growth: .trailing,
+            coordinateSpace: Self.coordinateSpace, liveWidth: $liveTreeWidth,
+            onCommit: { [state] width in state.treeWidth = width }
+        )
     }
 }
 

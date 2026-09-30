@@ -883,7 +883,6 @@ struct SmartLibraryContent: View {
     @State private var pendingRevealID: String?
     /// 本を開いて戻ってきたとき・リストから切り替えたときに、離れたときの位置へ戻す段取り(HomeScrollMemory)。
     @State private var scrollRestorer = HomeScrollRestorer()
-    @State private var metadataTarget: SmartMetadataTarget?
     /// 画面外の表紙を手放すための帳簿(型コメントは CollectionGridView「画面外のカバーを手放す」)。2026-09-22 の監査で指摘:
     /// ここだけ帳簿が無く、表紙の CGImage はセルの `@State` に残る ―― 絵は提供役の mmap 領域を共有するので、提供役の
     /// メモリの上限(96 MB)で追い出されても本体は残り、2,439 冊を端まで流すと 1.7 GB ほどがペインを閉じるまで残る計算だった。
@@ -943,10 +942,6 @@ struct SmartLibraryContent: View {
             Button("OK", role: .cancel) { missingBook = nil }
         } message: {
             Text(verbatim: missingBook ?? "")
-        }
-        .sheet(item: $metadataTarget) { target in
-            // 表紙の面はスマートライブラリの形・残す位置で出す(本ごとの「切り取るときに残す位置」をここで選ぶ。2026-09-23)。
-            BookMetadataSheet(fileBrowserEntry: target.entry, fromSmartLibrary: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
@@ -1758,15 +1753,15 @@ struct SmartLibraryContent: View {
         withResolvedURLs(for: books) { FinderReveal.showInfo($0) }
     }
 
+    /// 「メタデータの編集…」: その本を選んでインスペクタ(右ペイン)を出し、題の欄へ焦点を入れる(2026-09-30、利用者の指示。以前は
+    /// 1 冊ぶんのシートを出していた)。表紙の面はインスペクタがスマートライブラリの形・残す位置で出す(本ごとの「切り取るときに
+    /// 残す位置」をそこで選ぶ)。
     private func editMetadata(_ book: SmartBook) {
         // シークレットウインドウでは淡色(右クリック)。入口でも断る。
         guard allowsEditing else { return }
-        withResolvedURL(for: book) { url in
-            metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
-                url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
-                isSymbolicLink: false, isVolume: false, fileSize: book.fileSize, typeDescription: nil,
-                creationDate: book.creationDate, modificationDate: book.modificationDate))
-        }
+        let id = SmartGridItem.bookIDPrefix + book.id
+        state.setSelection([id], cursor: id)
+        home.revealInspector(editingMetadataOf: book.id)
     }
 
     /// リスト表示(`SmartLibraryListView`。束は疑似的なフォルダ)。選択・並べ替え・束の出入りはグリッドと同じ状態を使う。
@@ -1842,12 +1837,6 @@ struct SmartLibraryContent: View {
         let sequence = state.sequence(opening: book)
         withResolvedURL(for: book) { appState.open(request: BookOpenRequest($0, sequence: sequence)) }
     }
-}
-
-/// メタデータの編集シートの相手(ファイルブラウザの右クリックと同じ版で開く)。
-private struct SmartMetadataTarget: Identifiable {
-    let entry: FileBrowserEntry
-    var id: String { entry.id }
 }
 
 /// 表紙 1 枚と、その下の題・著者。
@@ -2110,14 +2099,7 @@ private struct SmartBookThumbnail: View {
         }
     }
 
-    private var entry: FileBrowserEntry {
-        FileBrowserEntry(
-            url: URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder), displayName: book.fileName,
-            isDirectory: book.kind == .folder, isPackage: false, isSymbolicLink: false, isVolume: false,
-            fileSize: book.fileSize, typeDescription: nil, creationDate: book.creationDate,
-            modificationDate: book.modificationDate
-        )
-    }
+    private var entry: FileBrowserEntry { book.fileBrowserEntry }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)

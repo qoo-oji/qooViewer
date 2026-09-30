@@ -58,6 +58,8 @@ struct CollectionTile: View {
     var nameFontSize: CGFloat = 13
     /// 右下の冊数バッジの大きさ(環境設定「外観」→「ウェルカム画面」。CollectionTileBadgeSize)。
     var badgeSize: CollectionTileBadgeSize = .small
+    /// 札の下に名前を出すか(インスペクタは絵のすぐ下に自分の見出しを出すので出さない。2026-09-30)。
+    var showsName = true
     /// 保持した画像を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。第2引数は
     /// **その1枚が何セル分に相当するか** ―― 焼いた札の絵は1枚で中身のカバー全部を兼ねる。
     var onImageRetained: ((CGImage, Int) -> Void)?
@@ -132,11 +134,13 @@ struct CollectionTile: View {
         VStack(spacing: 6) {
             artwork
 
-            Text(collection.name)
-                .font(.system(size: nameFontSize))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .panelOutlinedContent()
+            if showsName {
+                Text(collection.name)
+                    .font(.system(size: nameFontSize))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .panelOutlinedContent()
+            }
         }
         // 絵と名前の間の隙間も札のうち(押し損じで余白のクリック = 選択の解除にならないように)。
         .contentShape(Rectangle())

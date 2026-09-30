@@ -535,6 +535,19 @@ struct HomeViewMenuItems: View {
             .keyboardShortcut("-", modifiers: .command)
             .disabled(!canResize)
 
+        Divider()
+
+        // インスペクタ(ホームの右ペイン。2026-09-30、利用者の要望)。3 つの画面で共通の 1 つの値(WelcomeLibraryState.isInspectorShown)。
+        // 名前は「表示」と「隠す」で入れ替わる(ビューアのツールバーの項目と同じ)。キーは Finder の「プレビューを表示」と同じ ⇧⌘P
+        // (インスペクタは Finder のプレビューの位置付け)。ホームが出ている間だけ付ける(本を読んでいる間のキーを奪わない)。
+        Button(home.isInspectorShown ? LocalizedStringKey("Hide Inspector") : LocalizedStringKey("Show Inspector")) {
+            [weak appState] in
+            guard let welcome = appState?.welcomeLibrary, welcome.canShowInspector else { return }
+            welcome.isInspectorShown.toggle()
+        }
+        .homeMenuShortcut("p", modifiers: [.command, .shift], isActive: home.canToggleInspector)
+        .disabled(!home.canToggleInspector)
+
         if isFileBrowserFeatureEnabled {
             Divider()
 

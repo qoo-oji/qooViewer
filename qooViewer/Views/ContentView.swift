@@ -312,10 +312,8 @@ struct ContentView: View {
                 refusesDrop: { [weak appState] in appState.map { HomeBookDragTracker.isDragging(from: $0) } ?? false }
             ) { urls in
                 // ウェルカム画面が編集モードで出ている間は、ドロップは「開く」ではなく
-                // 「コレクションを作る/本を追加する」になる(AppState.welcomeDropHandler参照)。
-                // 引き受けられなければ従来どおり開く。
-                if let handler = appState.welcomeDropHandler, handler(urls) { return }
-                appState.open(urls: urls)
+                // 「コレクションを作る/本を追加する」になる(AppState.openDroppedFiles)。
+                appState.openDroppedFiles(urls)
             }
             // 表示中の画像やパネルの見え方を変えたくないので、背景を染めるのではなく縁だけを
             // 強調する。
@@ -518,7 +516,8 @@ struct ContentView: View {
             browserSortKey: fileBrowser.sortKey,
             browserSortDirection: fileBrowser.sortDirection,
             hiddenListColumns: fileBrowser.hiddenListColumns.sorted(),
-            showsHiddenFiles: fileBrowser.showsHiddenFiles
+            showsHiddenFiles: fileBrowser.showsHiddenFiles,
+            isInspectorShown: welcomeLibrary.isInspectorShown
         )
     }
 

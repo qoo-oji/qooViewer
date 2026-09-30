@@ -33,6 +33,8 @@ final class WelcomeLibraryState: ObservableObject {
         static let tileSize = "qooViewer.welcome.tileSize"
         static let coverSize = "qooViewer.welcome.coverSize"
         static let mode = "qooViewer.welcome.mode"
+        static let showsInspector = "qooViewer.welcome.showsInspector"
+        static let inspectorWidth = "qooViewer.welcome.inspectorWidth"
     }
 
     /// 本棚かファイルブラウザか(改善要望7 段階3、2026-09-13)。帯の左端のボタンで切り替える。
@@ -63,6 +65,7 @@ final class WelcomeLibraryState: ObservableObject {
             if !isForcingMode { defaults.set(mode.rawValue, forKey: Keys.mode) }
             isEditing = false
             clearSelection()
+            inspectorFocusRequest = nil
         }
     }
 
@@ -134,6 +137,91 @@ final class WelcomeLibraryState: ObservableObject {
             .compactMap { $0 }
         guard let fallback = allowed.first else { return .classic }
         return allowed.contains(wanted) ? wanted : fallback
+    }
+
+    // MARK: - インスペクタ(右ペイン。2026-09-30)
+
+    /// インスペクタ(ホームの右ペイン)を出しているか(2026-09-30、利用者の要望。`HomeInspectorPane`)。
+    ///
+    /// **ファイルブラウザ・スマートライブラリ・ライブラリで共通の 1 つの値**(利用者の指定)。表示メニューの「インスペクタを表示/隠す」
+    /// (⇧⌘P)・帯の右端のボタン・帯の無いホームではファイルブラウザの操作列の右端のボタンで切り替える。値はウインドウごとに持ち、
+    /// 最後に切り替えた値を次に開くウインドウが引き継ぐ(ファイルブラウザの表示形式・隠しファイルと同じ扱い)。
+    /// 3 つとも OFF のホーム(`.classic`)には出さない(`showsInspector`)。
+    @Published var isInspectorShown: Bool {
+        didSet {
+            guard isInspectorShown != oldValue else { return }
+            defaults.set(isInspectorShown, forKey: Keys.showsInspector)
+            if !isInspectorShown { inspectorFocusRequest = nil }
+        }
+    }
+
+    /// インスペクタの幅(左の区切り線を掴んで変える。ファイルブラウザのツリーの幅と同じく、離したときに書く)。
+    @Published var inspectorWidth: CGFloat {
+        didSet {
+            guard inspectorWidth != oldValue else { return }
+            defaults.set(Double(inspectorWidth), forKey: Keys.inspectorWidth)
+        }
+    }
+
+    static let inspectorWidthRange: ClosedRange<CGFloat> = 220...480
+    static let defaultInspectorWidth: CGFloat = 280
+
+    /// いまインスペクタを描くか(出す設定で、かつ出せるモード)。
+    var showsInspector: Bool { isInspectorShown && canShowInspector }
+
+    /// インスペクタを出せるモードか。3 つの機能が全部 OFF のホーム(本棚を足す前のウェルカム画面)には無い。
+    var canShowInspector: Bool { mode != .classic }
+
+    /// 「メタデータの編集…」から来た、インスペクタの題の欄へ焦点を入れる頼み(2026-09-30。以前はシートを出していた)。
+    /// インスペクタのメタデータの欄がその本を出したときに拾って `nil` へ戻す(`takeInspectorFocusRequest(for:)`)。
+    /// 本かどうかを調べている間(フォルダ)は欄がまだ無いので、頼みは拾われるまで残す。別の本を選んだら、その本の欄は
+    /// 拾わない(本の id で突き合わせる)。**拾われないまま古くなった頼みは効かない**(`focusRequestLifetime`)―― 残った頼みが、
+    /// 後でその本を選び直したときに頼んでもいない焦点を欄へ入れないように。モードを移ったときも捨てる。
+    @Published private(set) var inspectorFocusRequest: InspectorFocusRequest?
+
+    struct InspectorFocusRequest: Equatable {
+        let id = UUID()
+        /// 本の id(パス)。
+        let bookID: String
+        let date: Date
+    }
+
+    /// 頼みが効く間。本かどうかの確かめ(フォルダを 1 つ読む)より十分に長く、利用者が次の操作へ移るより短く。
+    static let focusRequestLifetime: TimeInterval = 10
+
+    /// 欄が頼みを拾った時刻。一覧が選択の変化で焦点を取り返さないために見る(`isInspectorTakingFocus`)。
+    private var inspectorFocusTakenAt: Date?
+
+    /// インスペクタが焦点を取りにいっている最中か。コレクションの中のグリッドは、選択が変わると焦点を自分へ移す
+    /// (CollectionDetailView)ので、「メタデータの編集…」で選び直したときはそれを控えてもらう(控えないと題の欄から焦点を奪う)。
+    func isInspectorTakingFocus(now: Date = Date()) -> Bool {
+        if inspectorFocusRequest != nil { return true }
+        guard let taken = inspectorFocusTakenAt else { return false }
+        return now.timeIntervalSince(taken) < 1
+    }
+
+    /// 右クリックの「メタデータの編集…」: インスペクタを出し、その本の題の欄へ焦点を入れる頼みを置く。
+    /// 選ぶのは呼び出し側(その画面の選択の持ち主)。
+    func revealInspector(editingMetadataOf bookID: String, now: Date = Date()) {
+        guard canShowInspector else { return }
+        if !isInspectorShown { isInspectorShown = true }
+        inspectorFocusRequest = InspectorFocusRequest(bookID: bookID, date: now)
+    }
+
+    /// その本への、まだ効く頼みがあるか(拾わない)。インスペクタが「本かどうか」を調べずに本として出してよい印にもなる ―― 頼みを
+    /// 置いた入り口(「メタデータの編集…」)が、本であることを確かめてから置いている。
+    func hasInspectorFocusRequest(for bookID: String, now: Date = Date()) -> Bool {
+        guard let request = inspectorFocusRequest, request.bookID == bookID else { return false }
+        return now.timeIntervalSince(request.date) < Self.focusRequestLifetime
+    }
+
+    /// インスペクタのメタデータの欄が、自分の本への頼みなら拾う。古くなった頼みは拾わずに捨てる。
+    func takeInspectorFocusRequest(for bookID: String, now: Date = Date()) -> Bool {
+        guard let request = inspectorFocusRequest, request.bookID == bookID else { return false }
+        inspectorFocusRequest = nil
+        guard now.timeIntervalSince(request.date) < Self.focusRequestLifetime else { return false }
+        inspectorFocusTakenAt = now
+        return true
     }
 
     /// コレクションのタイルの大きさ。**札はこの幅ちょうどで並ぶ**(2026-09-13まではLazyVGridの
@@ -436,6 +524,9 @@ final class WelcomeLibraryState: ObservableObject {
             .map { Self.tileSizeRange.clamping(CGFloat($0)) } ?? Self.defaultTileSize
         coverSize = (defaults.object(forKey: Keys.coverSize) as? Double)
             .map { Self.coverSizeRange.clamping(CGFloat($0)) } ?? Self.defaultCoverSize
+        isInspectorShown = defaults.bool(forKey: Keys.showsInspector)
+        inspectorWidth = (defaults.object(forKey: Keys.inspectorWidth) as? Double)
+            .map { Self.inspectorWidthRange.clamping(CGFloat($0)) } ?? Self.defaultInspectorWidth
     }
 
     /// 本を開いたとき・ウェルカム画面から離れるときの後始末。編集モードと出しかけのシートを

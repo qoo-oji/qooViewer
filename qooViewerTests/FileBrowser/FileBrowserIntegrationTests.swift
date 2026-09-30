@@ -956,34 +956,37 @@ struct FileBrowserIntegrationTests {
         #expect(fixture.actions.createCollection(from: [fixture.entry(book)]) == nil)
         #expect(fixture.actions.editMetadata([fixture.entry(book)]) == nil)
         #expect(fixture.welcome.pendingCreations.isEmpty)
-        #expect(fixture.state.bookSheet == nil)
+        #expect(fixture.welcome.inspectorFocusRequest == nil)
+        #expect(!fixture.welcome.isInspectorShown)
     }
 
-    @Test("「メタデータの編集…」は書庫ならその場で、画像フォルダは調べてからシートを出す。棚のフォルダは本ではないと伝える")
+    @Test("「メタデータの編集…」は書庫ならその場で、画像フォルダは調べてから、その項目を選んでインスペクタを出す。棚のフォルダは本ではないと伝える")
     func editMetadataResolvesImageFolders() async throws {
         let fixture = try Fixture("fb-edit-metadata")
         defer { fixture.close() }
         let book = try fixture.archive("book.cbz")
         #expect(fixture.actions.editMetadata([fixture.entry(book)]) == nil)
-        guard case .metadata(let bookEntry)? = fixture.state.bookSheet?.kind else {
-            Issue.record("メタデータのシートが出ていない")
-            return
-        }
-        #expect(bookEntry.url == book)
+        #expect(fixture.welcome.isInspectorShown)
+        #expect(fixture.welcome.inspectorFocusRequest?.bookID == book.path)
+        #expect(fixture.state.selection == [fixture.entry(book).id])
+        #expect(fixture.state.bookSheet == nil)
 
-        fixture.state.bookSheet = nil
+        // 頼みは、その本の欄だけが拾える。
+        #expect(!fixture.welcome.takeInspectorFocusRequest(for: "/elsewhere/other.cbz"))
+        #expect(fixture.welcome.takeInspectorFocusRequest(for: book.path))
+        #expect(fixture.welcome.inspectorFocusRequest == nil)
+
         let folder = try fixture.imageFolder("pictures")
         await fixture.actions.editMetadata([fixture.entry(folder)])?.value
-        guard case .metadata(let folderEntry)? = fixture.state.bookSheet?.kind else {
-            Issue.record("画像フォルダでシートが出ていない")
-            return
-        }
-        #expect(folderEntry.url.path == folder.path)
+        #expect(fixture.welcome.inspectorFocusRequest?.bookID == folder.path)
+        #expect(fixture.state.selection == [fixture.entry(folder).id])
 
-        fixture.state.bookSheet = nil
+        fixture.welcome.isInspectorShown = false
+        #expect(fixture.welcome.inspectorFocusRequest == nil)
         let shelf = try fixture.archive("Shelf/01.cbz").deletingLastPathComponent()
         await fixture.actions.editMetadata([fixture.entry(shelf)])?.value
-        #expect(fixture.state.bookSheet == nil)
+        #expect(!fixture.welcome.isInspectorShown)
+        #expect(fixture.welcome.inspectorFocusRequest == nil)
         #expect(fixture.presenter.problems.count == 1)
     }
 

@@ -101,7 +101,7 @@ struct AddBooksPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                // 幅はボタンではなくラベルへ(BookMetadataSheetの同じコメント参照)。
+                // 幅はボタンではなくラベルへ(WelcomeTopBar.openButtonの同じコメント参照)。
                 // 1つきりのボタンなので揃える相手はいないが、「完了」の2文字だけの
                 // 小さすぎるボタンにしないための下限として使う。
                 Button { dismiss() } label: {

@@ -787,7 +787,7 @@ private struct CoverPreviewImage: View {
 /// 下2つ(「既定に戻す」「ファイルを選ぶ…」)と切り出し位置は**その場で効く**まま。前2つは
 /// それ自体が終わりの操作なので、効かせたらそのまま閉じる ―― 「キャンセルで戻るのはどれか」を
 /// 面の上に残さないため。切り出し位置だけは設定なので居座るが、これは元から即時保存の側
-/// (BookMetadataSheetの型コメント参照)。
+/// (BookCoverEditAreas.swift の冒頭のコメント参照)。
 struct ExportCoverPickerContent: View {
     let bookID: String
     @ObservedObject var controller: CoverOverrideController
@@ -858,7 +858,7 @@ struct ExportCoverPickerContent: View {
                 // カバーの比が枠の比と違うぶんを、どこで切るか(ユーザー要望 2026-09-09)。
                 // 切る軸(左右か上下か)は画像ごとに決まるので、ラベルは両方の軸を併記する
                 // (CoverCropAnchor参照)。「設定なし」(未指定)なら、ライブラリ・スマートライブラリそれぞれの設定に従う
-                // (本ごとの指定は両方で共有。BookMetadataSheet の coverCropAnchorMenuItems と同じ文言)。
+                // (本ごとの指定は両方で共有。BookCoverEditAreas.swift の coverCropAnchorMenuItems と同じ文言)。
                 // Pickerにしているのは、いまどれが選ばれているかをチェックマークで示すのを
                 // 自前で書かずに済ませるため。
                 Picker("Keep When Cropping", selection: cropAnchorSelection) {

@@ -298,6 +298,14 @@ final class AppState: ObservableObject {
     /// 出ていなければnilのままで、従来どおり本が開く。
     var welcomeDropHandler: (([URL]) -> Bool)?
 
+    /// このウインドウへ落とされたファイル/フォルダの扱い(ウインドウ全体の受け口 ContentView.applyFileDropTarget と、ホームの
+    /// インスペクタの列の受け口 HomeInspectorDropDelegate が共有する。2026-09-30)。ホームが引き受ければ(編集モードの本棚)
+    /// 登録、引き受けなければ開く。
+    func openDroppedFiles(_ urls: [URL]) {
+        if let handler = welcomeDropHandler, handler(urls) { return }
+        open(urls: urls)
+    }
+
     /// 現在開いている本のブックマーク一覧。メニューバーの「ブックマーク」メニュー下部に
     /// 一覧表示するために、ViewerViewが自分自身のViewerViewModelの内容をここへ反映する
     /// (performViewerActionと同じ、本を表示している間だけ登録する仕組み)。

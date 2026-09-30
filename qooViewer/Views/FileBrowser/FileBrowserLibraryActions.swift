@@ -283,17 +283,23 @@ extension FileBrowserActions {
 
     // MARK: - メタデータ・書き出し
 
-    /// 「メタデータの編集…」。コレクションの外の本でも編集できる(カバーの面は出さない。BookMetadataSheet の型コメント)。
+    /// 「メタデータの編集…」。コレクションの外の本でも編集できる。**その項目を選んでインスペクタ(ホームの右ペイン)を出し、題の欄へ
+    /// 焦点を入れる**(2026-09-30、利用者の指示。以前は 1 冊ぶんのシート `BookMetadataSheet` を出していた)。
     ///
     /// - Parameter notABook: 選んだフォルダが 1 冊の本でなかったときにすること。nil なら「本ではない」と伝える(右クリック)。
     ///   編集メニューからは「メタデータの編集」ウインドウを開く ―― 本でないフォルダを選んでいるだけでメニューの項目が
     ///   ウインドウを開かなくなっていた(2026-09-22、利用者の報告)。
-    /// - Returns: フォルダを調べる Task(**テストのための口**。ファイルならその場でシートを出して nil)。
+    /// - Returns: フォルダを調べる Task(**テストのための口**。ファイルならその場でインスペクタを出して nil)。
     @discardableResult
     func editMetadata(_ entries: [FileBrowserEntry], notABook: (@MainActor () -> Void)? = nil) -> Task<Void, Never>? {
-        guard allowsSaving, canUseAsSingleBook(entries), let entry = entries.first.map(effective) else { return nil }
-        return resolveBook(entry, notABook: notABook) { [weak self] _ in
-            self?.state?.bookSheet = FileBrowserBookSheet(kind: .metadata(entry))
+        guard allowsSaving, canUseAsSingleBook(entries), let selected = entries.first else { return nil }
+        let entry = effective(selected)
+        return resolveBook(entry, notABook: notABook) { [weak self] url in
+            // 選ぶのは一覧の項目そのもの(リンクなら先は別のフォルダにあり、一覧に無い)。インスペクタはリンクを先の本として見せる。
+            guard let self, let state = self.state else { return }
+            state.selection = [selected.id]
+            state.setSelectionAnchor(selected.id)
+            self.appState?.welcomeLibrary?.revealInspector(editingMetadataOf: url.path)
         }
     }
 

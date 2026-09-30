@@ -130,6 +130,9 @@ struct WelcomeTopBar: View {
             }
 
             Spacer(minLength: 0)
+
+            // いちばん右はインスペクタ(右ペイン)の出し入れ(2026-09-30、利用者の指定)。3 つの画面で共通の 1 つの値。
+            HomeInspectorToggleButton(state: state)
         }
         .padding(.horizontal, 12)
         .frame(height: Self.height)

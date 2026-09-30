@@ -42,6 +42,8 @@ struct WelcomeView: View {
     /// ホームの下に短く出す知らせ(AppState.viewerNotice。ドロップで開かなかった・登録しなかったもの。2026-09-27)。
     @State private var noticeMessage: String?
     @State private var noticeDismissTask: Task<Void, Never>?
+    /// インスペクタの幅をドラッグしている間の幅(離したときに状態へ書く。毎フレーム保存しない)。
+    @State private var liveInspectorWidth: CGFloat?
 
     /// いま見ているライブラリ。保存されていたidの実体が無ければ先頭へ読み替える
     /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
@@ -63,20 +65,23 @@ struct WelcomeView: View {
                 // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
                 WelcomeSeparator(axis: .horizontal)
             }
-            // 中身は `mode` で決まる。環境設定で機能をOFFにしている間は、そのモードを出さない
-            // (WelcomeLibraryState.constrained): 出せないモードは、本棚 → ファイルブラウザ → スマートライブラリの順で最初に出せるものへ読み替え、
-            // 3つともOFFなら本棚を足す前のウェルカム画面。
-            if state.mode == .classic {
-                ClassicWelcomeView()
-            } else if state.mode == .browser {
-                FileBrowserPane(state: fileBrowser)
-            } else if state.mode == .smart, state.isSmartLibraryFeatureEnabled {
-                SmartLibraryPane(home: state, state: smartLibrary, allowsEditing: allowsEditing)
-            } else if let library {
-                WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)
-            } else {
-                Spacer(minLength: 0)
+            // 中央の中身の右に、インスペクタ(右ペイン。2026-09-30。HomeInspectorPane)。出し入れは 3 つの画面で共通の 1 つの値
+            // (WelcomeLibraryState.isInspectorShown)で、3 つとも OFF のホーム(.classic)には出さない。
+            HStack(spacing: 0) {
+                modeContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if state.showsInspector {
+                    let width = liveInspectorWidth ?? state.inspectorWidth
+                    // 中央との境目。標準の Divider はすりガラスの上で薄い(WelcomeSeparator参照)。
+                    WelcomeSeparator(axis: .vertical)
+                        .overlay { inspectorWidthDragHandle(currentWidth: width) }
+                    HomeInspectorPane(
+                        home: state, fileBrowser: fileBrowser, smartLibrary: smartLibrary, allowsEditing: allowsEditing
+                    )
+                    .frame(width: width)
+                }
             }
+            .coordinateSpace(.named(Self.inspectorCoordinateSpace))
             // ファイル操作の進捗の帯は、ふだんはファイルブラウザのペインの中(パスバーの上)に出る。**操作の最中にペインが消えても**
             // (本棚へ切り替えた・環境設定でファイルブラウザを OFF にした)操作は最後まで続くので、帯と中止ボタンはここへ引き継ぐ
             // (2026-09-21 の監査 docs/plans/feature-toggle-audit.md §4 ―― 以前は進捗も中止の手段もペインごと消えた)。動いていなければ何も描かない。
@@ -186,6 +191,36 @@ struct WelcomeView: View {
         .onDisappear {
             appState.welcomeDropHandler = nil
         }
+    }
+
+    /// 中央の中身。`mode` で決まる。環境設定で機能をOFFにしている間は、そのモードを出さない
+    /// (WelcomeLibraryState.constrained): 出せないモードは、本棚 → ファイルブラウザ → スマートライブラリの順で最初に出せるものへ読み替え、
+    /// 3つともOFFなら本棚を足す前のウェルカム画面。
+    @ViewBuilder
+    private var modeContent: some View {
+        if state.mode == .classic {
+            ClassicWelcomeView()
+        } else if state.mode == .browser {
+            // 帯が無いホーム(ファイルブラウザだけ)では、インスペクタの出し入れのボタンを操作列の右端に置く(帯があれば帯の右端)。
+            FileBrowserPane(state: fileBrowser, home: state, showsInspectorToggle: !state.showsTopBar)
+        } else if state.mode == .smart, state.isSmartLibraryFeatureEnabled {
+            SmartLibraryPane(home: state, state: smartLibrary, allowsEditing: allowsEditing)
+        } else if let library {
+            WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)
+        } else {
+            Spacer(minLength: 0)
+        }
+    }
+
+    private static let inspectorCoordinateSpace = "welcome.inspector"
+
+    /// インスペクタの左の区切り線の上の、幅を変える掴みどころ(PaneWidthDragHandle)。右のペインなので、左へ引くと広がる。
+    private func inspectorWidthDragHandle(currentWidth: CGFloat) -> some View {
+        PaneWidthDragHandle(
+            currentWidth: currentWidth, range: WelcomeLibraryState.inspectorWidthRange, growth: .leading,
+            coordinateSpace: Self.inspectorCoordinateSpace, liveWidth: $liveInspectorWidth,
+            onCommit: { [state] width in state.inspectorWidth = width }
+        )
     }
 
     private func showNotice(_ message: String) {

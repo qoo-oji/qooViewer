@@ -1206,7 +1206,8 @@ nonisolated extension Confirmation {
     }
 }
 
-// MARK: - 1 冊ぶんのシートの鍵を外す(BookMetadataSheet。あちらは QooMetaKit を読み込まない ―― `BookMetadata` の名前がぶつかる)
+// MARK: - インスペクタのメタデータの欄の鍵を外す(HomeInspectorMetadataSection。2026-09-30 までは 1 冊ぶんのシート BookMetadataSheet。
+// あちらは QooMetaKit を読み込まない ―― `BookMetadata` の名前がぶつかる)
 
 extension MetadataWorkspace {
     /// 鍵を外した直後の形: 全部の欄を直した欄にして、値を変えない(`narrowEditsAfterUnlock` が後で絞る)。

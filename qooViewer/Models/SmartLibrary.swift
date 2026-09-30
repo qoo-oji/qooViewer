@@ -51,6 +51,18 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+nonisolated extension SmartBook {
+    /// ファイルブラウザの項目の形(表紙の絵をアイコン表示と同じ提供役から引く・種類のアイコンを引くため)。記録した値だけで組み、
+    /// ファイルには触らない。グリッドのセル・リストの行・インスペクタが同じものを使う(2026-09-30 に 3 か所の写しをまとめた)。
+    var fileBrowserEntry: FileBrowserEntry {
+        FileBrowserEntry(
+            url: URL(fileURLWithPath: id, isDirectory: kind == .folder), displayName: fileName,
+            isDirectory: kind == .folder, isPackage: false, isSymbolicLink: false, isVolume: false,
+            fileSize: fileSize, typeDescription: nil, creationDate: creationDate, modificationDate: modificationDate
+        )
+    }
+}
+
 /// 本の種類。
 nonisolated enum SmartBookKind: String, CaseIterable, Codable, Hashable, Sendable {
     case zip, rar, sevenZip, pdf, epub, folder

@@ -90,8 +90,13 @@ struct HomeMenuState: Equatable {
     var hiddenListColumns: [String] = []
     /// ファイルブラウザで隠しファイルも出しているか(FileBrowserState.showsHiddenFiles。表示メニュー「隠しファイルを表示」)。
     var showsHiddenFiles = false
+    /// インスペクタ(右ペイン)を出しているか(WelcomeLibraryState.isInspectorShown。表示メニュー「インスペクタを表示/隠す」。2026-09-30)。
+    var isInspectorShown = false
 
     var isShelfShown: Bool { isShown && mode == .shelf }
+
+    /// 「インスペクタを表示/隠す」が効くか(ホームが出ていて、3 つの機能のどれかが ON。WelcomeLibraryState.canShowInspector)。
+    var canToggleInspector: Bool { isShown && mode != .classic }
 
     // MARK: - 相手
 

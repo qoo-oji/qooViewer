@@ -29,13 +29,13 @@ extension View {
     /// 落とされたファイル/フォルダのURLを受け取るだけのドロップ先(本を開くとは限らない版)。
     ///
     /// 本を開く経路は必ず`bookFileDropTarget`を通ること。こちらを直に使うのは、いずれも
-    /// **本を開かない**ウェルカム画面のシート2つだけ:
+    /// **本を開かない**ホームの受け口だけ:
     ///
-    /// - 「本を追加」パネル(AddBooksPanel) ―― 落とされた本をコレクションへ登録する
-    /// - メタデータ編集シート(BookMetadataSheet) ―― 落とされた画像1枚をカバーにする
+    /// - 「本を追加」パネル(AddBooksPanel) ―― 落とされた本をコレクションへ登録する。シート = 別のNSWindowで、
+    ///   ウインドウ本体に付けた1つの受け口(ContentView.applyFileDropTarget)がドロップを拾えないため、自前で受ける
+    /// - インスペクタの表紙(BookCoverEditAreas.swift。2026-09-30 まではメタデータ編集シートの表紙) ―― 落とされた画像1枚を
+    ///   カバーにする。ウインドウ本体の受け口(本を開く)より手前で受ける
     ///
-    /// どちらもシート = 別のNSWindowで、ウインドウ本体に付けた1つの受け口
-    /// (ContentView.applyFileDropTarget)がドロップを拾えないため、自前で受ける必要がある。
     /// NSItemProviderからURLを取り出すところはこうして1か所に残してある。
     func fileURLDropTarget(
         isTargeted: Binding<Bool>, refusesDrop: @escaping () -> Bool = { false },

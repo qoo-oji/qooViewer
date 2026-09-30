@@ -1438,11 +1438,11 @@ final class FileBrowserState: ObservableObject {
 }
 
 /// ファイルブラウザの右クリックから出す本のシート(改善要望7 段階 8、2026-09-14)。
+///
+/// 「メタデータの編集…」のシート(`BookMetadataSheet`)は 2026-09-30 に廃止した(ホームのインスペクタで直す。
+/// FileBrowserActions.editMetadata)。残るのは「本の書き出し」だけ。
 struct FileBrowserBookSheet: Identifiable {
     enum Kind {
-        /// 「メタデータの編集…」。コレクションの外の本でも編集できる版(BookMetadataSheet.init(fileBrowserEntry:))。
-        /// 項目ごと渡す(カバーの面の絵をアイコン表示と同じ提供役から引く。鍵に更新日時・サイズ、種類に「フォルダか」が要る)。
-        case metadata(FileBrowserEntry)
         /// 「本の書き出し」。ビューアの右クリックと同じシート(OpenBookExportSheet)を、本を開かずに出す。
         case export(Export)
     }
