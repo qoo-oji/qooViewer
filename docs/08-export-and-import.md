@@ -173,9 +173,9 @@
   (`importedSourceMetadata`。済みのときだけ true)**も書く(2026-09-22。どれも Optional で formatVersion は据え置き)。印を書かないと、
   読み込んだあと、ロックしていない本は次に開いたときにファイルの書誌をもう一度重ね、「メタデータを再生成」でファイル名の読みに戻した
   欄が戻された。印は行の値とは別に、`upsertAll` の後で立てる(`BookMetadataStore.markSourceMetadataImported`)。
-- メタデータの行は、欄の 2 つ目からの値(`moreValues`。鍵は qooMeta の欄の名前)と利用者が足したシリーズ(`alternateSeries`)を、
-  あるときだけ書く(2026-10-01、qooMeta 0.3.0。Optional で formatVersion は据え置き。前の版はこの 2 つを読まずに先頭の値だけを入れる)。
-  直した欄(`edits`)の中の足した値・足したシリーズは、qooMeta の `Confirmation` の JSON のまま入る。
+- メタデータの行は、原作・情報の 2 つ目からの値(`moreValues`。鍵は qooMeta の欄の名前)を、あるときだけ書く(2026-10-01、qooMeta 0.3.0。
+  Optional で formatVersion は据え置き。前の版はこれを読まずに先頭の値だけを入れる)。直した欄(`edits`)は qooMeta の `Confirmation` の
+  JSON のまま入るが、読むときに qooViewer の欄の形に揃える(1 つに固定した欄は先頭だけ、足したシリーズは捨てる ―― docs/07)。
 - 書き出し側は、書き出す本の URL を解決できたタイミングで識別子の補完(`backfill*`)も行う。
 - 読み込み画面は、ファイルを選ぶ前後で部品を増減させない(選んだ瞬間にレイアウトが跳ねるため。
   無効化だけで対応)。

@@ -762,28 +762,24 @@ struct MetadataBookTableView: View {
     }
 
     /// 巻数(表記・並べ替え用とも)は、シリーズ名の決まっている本にしか入らない(シリーズの中の番号なので)。
-    /// 巻数(並べ替え用)は巻の表記が空の本でも入る(2026-09-22、利用者の要望)。足したシリーズの段(2 段目から)は、
-    /// いつも名前があるので直せる。ロック(登録)した本は直せない。
+    /// 巻数(並べ替え用)は巻の表記が空の本でも入る(2026-09-22、利用者の要望)。ロック(登録)した本は直せない。
     private func canEdit(_ column: MetadataBookTable.Column, _ book: MetadataBookRow, _ line: Int) -> Bool {
         guard !book.isLocked else { return false }
         switch column {
-        case .field(.volume), .volumeSort: return line >= 1 || !MetadataWorkspace.currentSeriesName(book).isEmpty
+        case .field(.volume), .volumeSort: return !MetadataWorkspace.currentSeriesName(book).isEmpty
         case .field: return true
         case .lock, .fileName, .cover: return false
         }
     }
 
     /// 青く出す段: 直したが、まだロック(登録)していない値(案 A。ロックした本の値はふつうの色)。値をいくつも持てる欄は
-    /// 欄ごと(直すと並び全体が直した値になる)。足したシリーズの段は利用者が足したものなので、いつも直した段(巻数(並べ替え用)
-    /// だけは、確定した数のときだけ)。
+    /// 欄ごと(直すと並び全体が直した値になる)。
     private func isEdited(_ column: MetadataBookTable.Column, _ book: MetadataBookRow, _ line: Int) -> Bool {
         guard !book.isLocked else { return false }
-        let confirmed = book.confirmation.fields.alternateSeries
-        let alternate = confirmed.indices.contains(line - 1) ? confirmed[line - 1] : nil
         switch column {
-        case .field(.series), .field(.volume): return line == 0 ? book.hasConfirmedSeries : true
+        case .field(.series), .field(.volume): return book.hasConfirmedSeries
         case .field(let field): return book.edited.contains(field)
-        case .volumeSort: return line == 0 ? book.hasConfirmedVolumeSort : alternate?.volumeSort != nil
+        case .volumeSort: return book.hasConfirmedVolumeSort
         case .lock, .fileName, .cover: return false
         }
     }
@@ -798,12 +794,12 @@ struct MetadataBookTableView: View {
         case .series: return "Double-click to settle the series for this book. Empty puts it in no series".ui
         case .volume: return "Double-click to settle the volume for this book. Empty clears it".ui
         case .authors: return "Double-click to edit. Several authors are separated by 、".ui
-        default: return "Double-click a line to edit it. Option-Return adds a line below".ui
+        case .source, .info: return "Double-click a line to edit it. Option-Return adds a line below".ui
+        default: return "Double-click to edit this book’s value".ui
         }
     }
 
     /// 直した値の入れ先は、右クリックと同じ口(取り消しも同じ 1 手)。**押した 1 冊だけ**に入る。
-    /// シリーズと巻数の一番上の段は主のシリーズ(前からの口)、2 段目からは足したシリーズ。
     private func commit(_ column: MetadataBookTable.Column, _ line: Int, _ value: String, for book: MetadataBookRow) {
         let text = value.trimmingCharacters(in: .whitespaces)
         switch column {
@@ -813,28 +809,23 @@ struct MetadataBookTableView: View {
             // 全角の数字・小数点でも入るように、揃えてから読む。数に読めなければ何もしない(元の値のまま)。
             let number = text.isEmpty ? nil : MetadataWorkspace.volumeSortNumber(text)
             if !text.isEmpty, number == nil { return NSSound.beep() }
-            if line == 0 {
-                workspace.setVolumeSort(number, for: [book.id])
-            } else {
-                workspace.setAlternateVolumeSort(of: book.id, at: line - 1, to: number)
-            }
+            workspace.setVolumeSort(number, for: [book.id])
         case .field(.series):
-            if line >= 1 { return workspace.setAlternateName(of: book.id, at: line - 1, to: text) }
             guard !text.isEmpty else { return workspace.removeFromSeries([book.id]) }
             applySeriesName(text, to: [book.id])
         case .field(.volume):
-            if line >= 1 { return workspace.setAlternateVolume(of: book.id, at: line - 1, to: text) }
             if text.isEmpty { workspace.clearVolumes([book.id]) } else { workspace.setVolumes(text, for: [book.id]) }
-        case .field(let field):
+        case .field(let field) where field.holdsSeveralInQooViewer:
             workspace.setLine(field, of: book.id, at: line, to: text)
+        case .field(let field):
+            workspace.set(field, to: [text], for: [book.id])
         }
     }
 
-    /// 段を足した(Option+Return・右クリックの「段を足す」)。シリーズの列では、足したシリーズの組を足す。
+    /// 段を足した(Option+Return・右クリックの「段を足す」。著者・原作・情報だけ)。
     private func insert(_ column: MetadataBookTable.Column, _ line: Int, _ value: String, for book: MetadataBookRow) {
         switch column {
-        case .field(.series): workspace.setAlternateName(of: book.id, at: line - 1, to: value, inserting: true)
-        case .field(let field) where field.holdsSeveral:
+        case .field(let field) where field.holdsSeveralInQooViewer:
             workspace.setLine(field, of: book.id, at: line, to: value, inserting: true)
         default: break
         }
@@ -1086,8 +1077,8 @@ struct MetadataEditorSheetView: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .field(let field, _):
-            if field.holdsSeveral {
-                // 1 行に 1 つの値(値をいくつも持てる欄。qooMeta 0.3.0)。
+            if field.holdsSeveralInQooViewer {
+                // 1 行に 1 つの値(値をいくつも持てる欄 ―― 著者・原作・情報。qooMeta 0.3.0)。
                 TextEditor(text: $text)
                     .font(.body)
                     .frame(height: 90)
@@ -1125,7 +1116,7 @@ struct MetadataEditorSheetView: View {
     private func prepare() {
         guard case .field(let field, let ids) = sheet else { return }
         let values = Set(ids.compactMap { workspace.row($0)?.metadata.values(field) })
-        if values.count == 1, let value = values.first { text = value.joined(separator: field.holdsSeveral ? "\n" : "、") }
+        if values.count == 1, let value = values.first { text = value.joined(separator: field.holdsSeveralInQooViewer ? "\n" : "、") }
     }
 
     private func apply() {

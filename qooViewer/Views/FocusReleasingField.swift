@@ -129,3 +129,98 @@ private final class FieldAnchorNSView: NSView {
     /// (WindowMouseExitAccessorのhitTestと同じ理由)。
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
+
+// MARK: - 領域の余白のクリックで外す(ホームのインスペクタ。2026-10-01)
+
+extension View {
+    /// この領域の中の**入力を受けない所**(余白・文字・絵)をクリックしたら、この領域の中で編集中の入力欄のフォーカスを外す。
+    ///
+    /// ホームのインスペクタのメタデータの欄は、欄を離れたときに書き、「＋」で足したまま空の入力欄は離れたときに消す
+    /// (HomeInspectorMetadataSection)。ところが AppKit は、クリックされたビューがファーストレスポンダを受け取れるときしか
+    /// フォーカスを移さないので、インスペクタの余白をクリックしても入力欄のフォーカスは残り、空の入力欄も消えなかった
+    /// (利用者の指摘)。`releasesFocusOnOutsideClick` は 1 つの欄に付けてウインドウのどこのクリックでも外すが、こちらは
+    /// 領域に 1 つ付け、**その領域の中のクリックだけ**を見る(一覧のクリックなどは AppKit のふつうのフォーカス移動に任せる)。
+    ///
+    /// ボタン・ほかの入力欄・スクロールバー(`NSControl`)と、編集中の入力欄そのもの(フィールドエディタ `NSText`)へのクリックでは
+    /// 外さない ―― 「上へ」「下へ」はフォーカスのある入力欄を動かすボタンで、押す前に外すと動かす相手が無くなる。
+    /// イベントは消費しない。
+    func releasesFieldFocusOnBackgroundClick() -> some View {
+        background(RegionAnchorView())
+    }
+}
+
+@MainActor
+private final class RegionAnchor {
+    weak var view: NSView?
+    private var clickMonitor: Any?
+
+    func installClickMonitorIfNeeded() {
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            guard let view = self?.view, let window = view.window, event.window === window,
+                  let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSView
+            else { return event }
+            let region = view.convert(view.bounds, to: nil)
+            // この領域の中の入力欄を編集していて、クリックもこの領域の中のときだけ。
+            guard region.contains(event.locationInWindow),
+                  region.intersects(field.convert(field.bounds, to: nil)) else { return event }
+            if let content = window.contentView, let frameView = content.superview,
+               let hit = content.hitTest(frameView.convert(event.locationInWindow, from: nil)) {
+                var current: NSView? = hit
+                while let candidate = current {
+                    if candidate is NSControl || candidate is NSText { return event }
+                    current = candidate.superview
+                }
+            }
+            window.makeFirstResponder(nil)
+            return event
+        }
+    }
+
+    func removeClickMonitor() {
+        if let clickMonitor {
+            NSEvent.removeMonitor(clickMonitor)
+        }
+        clickMonitor = nil
+    }
+}
+
+/// 領域の背後に敷く、何も描かないビュー。`RegionAnchor`(クリックのモニタの持ち主)は Coordinator として持つ
+/// (描き直しをまたいで 1 つ)。
+private struct RegionAnchorView: NSViewRepresentable {
+    func makeCoordinator() -> RegionAnchor { RegionAnchor() }
+
+    func makeNSView(context: Context) -> RegionAnchorNSView {
+        let view = RegionAnchorNSView()
+        view.anchor = context.coordinator
+        context.coordinator.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: RegionAnchorNSView, context: Context) {
+        nsView.anchor = context.coordinator
+        context.coordinator.view = nsView
+    }
+
+    static func dismantleNSView(_ nsView: RegionAnchorNSView, coordinator: RegionAnchor) {
+        coordinator.removeClickMonitor()
+    }
+}
+
+/// `RegionAnchorView` の実体。ウインドウに載ったらモニタを張り、外れたら外す(FieldAnchorNSView と同じ)。
+private final class RegionAnchorNSView: NSView {
+    weak var anchor: RegionAnchor?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            anchor?.removeClickMonitor()
+        } else {
+            anchor?.installClickMonitorIfNeeded()
+        }
+    }
+
+    /// 背景として敷くだけのビューなので、クリックなどの操作は一切受け取らない。
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}

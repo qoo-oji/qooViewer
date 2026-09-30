@@ -36,8 +36,8 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     let fileRank: Int
     /// 中身の見分け(1 冊につき 1 度だけ作る)。
     private let contentID: Int
-    /// 2 段以上になる欄の段の数(1 段の欄は入れない。ほとんどの本は空)。シリーズは足したシリーズを含めた組の数で、
-    /// 巻数(表示・並べ替え用)の列も同じ段の数になる。一覧の行の高さを、欄の値を組み立てずに決めるため(qooMeta の `BookRow`)。
+    /// 2 段以上になる欄の段の数(1 段の欄は入れない。ほとんどの本は空)。一覧の行の高さを、欄の値を組み立てずに決めるため
+    /// (qooMeta の `BookRow`)。段を持つのは著者・原作・情報だけ(`holdsSeveralInQooViewer`)。
     let tallFields: [QMBookMetadata.Field: Int]
 
     static func == (a: MetadataBookRow, b: MetadataBookRow) -> Bool { a.id == b.id && a.contentID == b.contentID }
@@ -64,8 +64,7 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
         }
         seriesKey = proposal.metadata.series.isEmpty
             ? "\u{10FFFF}" + proposal.metadata.title : proposal.metadata.series + "\u{1}" + volumeKey
-        searchText = ([proposal.name] + QMBookMetadata.Field.allCases.flatMap { proposal.metadata.values($0) }
-            + proposal.metadata.alternateSeries.flatMap { [$0.name, $0.volume] })
+        searchText = ([proposal.name] + QMBookMetadata.Field.allCases.flatMap { proposal.metadata.values($0) })
             .joined(separator: "\u{1}")
         tallFields = Self.tallFields(of: proposal.metadata)
         var hasher = Hasher()
@@ -112,27 +111,18 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
 
     nonisolated private static func tallFields(of metadata: QMBookMetadata) -> [QMBookMetadata.Field: Int] {
         var tall: [QMBookMetadata.Field: Int] = [:]
-        for field in QMBookMetadata.Field.allCases where field.holdsSeveral {
+        for field in QMBookMetadata.Field.allCases where field.holdsSeveralInQooViewer {
             let count = metadata.values(field).count
             if count > 1 { tall[field] = count }
         }
-        if !metadata.alternateSeries.isEmpty { tall[.series] = 1 + metadata.alternateSeries.count }
         return tall
     }
 
     /// 利用者が直した(確定した)欄。
     var edited: Set<QMBookMetadata.Field> { Set(confirmation.fields.values.keys) }
 
-    /// 直した欄がある、ロックしていない本か(一覧で青く出す)。足したシリーズも直したもの。
-    var hasUnlockedEdits: Bool {
-        !isLocked && (!edited.isEmpty || hasConfirmedSeries || hasConfirmedVolumeSort || hasAlternateSeries)
-    }
-
-    /// 利用者が足したシリーズ(巻数(並べ替え用)は、確定していなければ読んだ数)。
-    var alternateSeries: [QMBookMetadata.AlternateSeries] { metadata.alternateSeries }
-
-    /// 足したシリーズを持つか。
-    var hasAlternateSeries: Bool { !metadata.alternateSeries.isEmpty }
+    /// 直した欄がある、ロックしていない本か(一覧で青く出す)。
+    var hasUnlockedEdits: Bool { !isLocked && (!edited.isEmpty || hasConfirmedSeries || hasConfirmedVolumeSort) }
 
     /// 巻数(並べ替え用)を利用者が確定しているか。
     var hasConfirmedVolumeSort: Bool { confirmation.fields.volumeSort != nil }
@@ -243,12 +233,10 @@ final class MetadataWorkspace {
         var index: Int
     }
 
-    /// 段を持つ欄。シリーズ・巻数(表示)・巻数(並べ替え用)は、同じ高さの段が組なので 1 つにまとめる。
+    /// 段を持つ欄(値をいくつも持てる欄 ―― 著者・原作・情報)。qooMeta はシリーズと巻数の組も段にする(足したシリーズ)が、
+    /// qooViewer はシリーズを 1 つに固定したので持たない(利用者の判断 2026-10-01)。
     enum LineColumn: Hashable {
-        /// 値をいくつも持てる欄(タイトル・著者・ジャンル・イベント・原作・情報)。
         case field(QMBookMetadata.Field)
-        /// シリーズと巻数の組(一番上が主のシリーズ、その下が足したシリーズ)。
-        case series
     }
     /// 「この本を見える位置へ」の頼み(画面が受けて一覧をスクロールする。`reveal`)。同じ本へ 2 度頼めるよう通し番号を持つ
     /// (スマートライブラリの `SmartLibraryViewState.RevealRequest` と同じ形)。
@@ -611,7 +599,9 @@ final class MetadataWorkspace {
     // MARK: - まとめて書き換える
 
     func set(_ field: QMBookMetadata.Field, to newValues: [String], for ids: Set<MetadataBookRow.ID>) {
-        let values = newValues.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let list = newValues.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        // 1 つに固定した欄(タイトル・ジャンル・イベント・シリーズ・巻数)は先頭だけ(`holdsSeveralInQooViewer`)。
+        let values = field.holdsSeveralInQooViewer ? list : Array(list.prefix(1))
         edit("Change %@".ui(field.labelKey.ui), ids) { input in
             var fields = input.confirmation.fields
             fields[field] = values
@@ -723,25 +713,18 @@ final class MetadataWorkspace {
 
     func revertSeries(_ ids: Set<MetadataBookRow.ID>) {
         edit("Revert the series to the proposal".ui, ids) { input in
-            // 巻数(並べ替え用)もシリーズの中の位置なので、一緒に提案へ戻す。足したシリーズも捨てる(提案 = 中核が作ったとおり。
-            // qooMeta 0.3.0 と同じ)。
-            var fields = Self.fieldsForNewVolume(input.confirmation)
-            fields.alternateSeries = []
+            // 巻数(並べ替え用)もシリーズの中の位置なので、一緒に提案へ戻す。
+            let fields = Self.fieldsForNewVolume(input.confirmation)
             input.confirmation = fields.isEmpty ? .none : .fields(fields)
         }
     }
 
-    // MARK: - 段(値をいくつも持てる欄と、足したシリーズ。qooMeta 0.3.0 の Workspace から移した)
+    // MARK: - 段(値をいくつも持てる欄。qooMeta 0.3.0 の Workspace から移した。足したシリーズの操作は持たない)
 
     /// その本の欄の今の値。直した値は行の形から取る ―― 一覧の行はメタデータ生成の読み直しが届くまで古いので、続けて直した
     /// (Option+Return で次の段を足した)ときに、前の直しを上書きしないため。
     func currentValues(_ field: QMBookMetadata.Field, of id: MetadataBookRow.ID) -> [String] {
         states[id]?.edits.fields[field] ?? row(id)?.metadata.values(field) ?? []
-    }
-
-    /// その本の足したシリーズ(足したものは、いつも直した欄にある)。
-    func currentAlternates(of id: MetadataBookRow.ID) -> [QMBookMetadata.AlternateSeries] {
-        states[id]?.edits.fields.alternateSeries ?? []
     }
 
     /// 欄の 1 段を書き換える(`inserting` なら、その位置に段を足す)。空にした段は消える(下の段が繰り上がる)。
@@ -767,65 +750,19 @@ final class MetadataWorkspace {
         return pieces.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// 足したシリーズを書き換える 1 歩。名前が空になった組は消える(名前の無いシリーズは持たない)。
-    private func editAlternates(of id: MetadataBookRow.ID, _ change: (inout [QMBookMetadata.AlternateSeries]) -> Void) {
-        edit("Change the added series".ui, [id]) { input in
-            var fields = input.confirmation.fields
-            change(&fields.alternateSeries)
-            fields.alternateSeries.removeAll { $0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-            input.confirmation = input.confirmation.withFields(fields)
-        }
-    }
-
-    /// 足したシリーズの名前(`index` は足したシリーズの中の番号。`inserting` なら、そこに組を足す)。空にすると組ごと消える。
-    func setAlternateName(of id: MetadataBookRow.ID, at index: Int, to text: String, inserting: Bool = false) {
-        let name = text.trimmingCharacters(in: .whitespaces)
-        editAlternates(of: id) { list in
-            let at = min(max(index, 0), list.count)
-            if inserting || at == list.count {
-                if !name.isEmpty { list.insert(.init(name: name), at: at) }
-            } else {
-                list[at].name = name
-            }
-        }
-    }
-
-    /// 足したシリーズの巻数(表示用)。変えると、確定した巻数(並べ替え用)は外す(表記から読み直す)。
-    func setAlternateVolume(of id: MetadataBookRow.ID, at index: Int, to text: String) {
-        let volume = text.trimmingCharacters(in: .whitespaces)
-        editAlternates(of: id) { list in
-            guard list.indices.contains(index), list[index].volume != volume else { return }
-            list[index].volume = volume
-            list[index].volumeSort = nil
-        }
-    }
-
-    /// 足したシリーズの巻数(並べ替え用)を確定する(nil なら確定を外し、表記から読む)。
-    func setAlternateVolumeSort(of id: MetadataBookRow.ID, at index: Int, to value: Double?) {
-        editAlternates(of: id) { list in
-            guard list.indices.contains(index) else { return }
-            list[index].volumeSort = value
-        }
-    }
-
     /// その段の数(今の値で。段が 1 つも無い欄も、見た目は空の 1 段)。
     private func lineCount(_ column: LineColumn, of id: MetadataBookRow.ID) -> Int {
         switch column {
         case .field(let field): max(1, currentValues(field, of: id).count)
-        case .series: 1 + currentAlternates(of: id).count
         }
     }
 
-    /// その段を、その本の中で上 / 下へ動かせるか。シリーズの組の一番上(主のシリーズ)は動かさず、ほかの組と入れ替えない
-    /// (中核が組み分けと錨に使う段なので。qooMeta と同じ)。ロックした本は動かさない。
+    /// その段を、その本の中で上 / 下へ動かせるか。ロックした本は動かさない。
     func canMoveLine(_ line: LineSelection, up: Bool) -> Bool {
         guard let row = row(line.id), !row.isLocked else { return false }
         let count = lineCount(line.column, of: line.id)
         let target = line.index + (up ? -1 : 1)
-        switch line.column {
-        case .field: return line.index < count && (0..<count).contains(target)
-        case .series: return line.index >= 1 && target >= 1 && target < count
-        }
+        return line.index < count && (0..<count).contains(target)
     }
 
     /// 選んだ段を、その本の中で 1 つ上 / 下へ動かす(取り消せる 1 歩)。動いた先を選び直す。
@@ -837,8 +774,6 @@ final class MetadataWorkspace {
             var list = currentValues(field, of: line.id)
             list.swapAt(line.index, target)
             set(field, to: list, for: [line.id])
-        case .series:
-            editAlternates(of: line.id) { list in list.swapAt(line.index - 1, target - 1) }
         }
         lineSelection?.index = target
     }
@@ -1149,8 +1084,7 @@ final class MetadataWorkspace {
         switch genreFilter {
         case nil: true
         case .empty?: book.metadata.genre.isEmpty
-        // ジャンルを 2 つ以上持つ本は、どれかが当たれば出す(値ごとの冊数も、そう数えている)。
-        case .value(let genre)?: book.metadata.genre == genre || book.metadata.values(.genre).contains(genre)
+        case .value(let genre)?: book.metadata.genre == genre
         }
     }
 

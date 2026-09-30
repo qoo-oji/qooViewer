@@ -888,68 +888,47 @@ extension MetadataWorkspaceTests {
         #expect(workspace.row(second)?.metadata.values(.info) == [])
     }
 
-    @Test("足したシリーズは主のシリーズを変えず、巻数(並べ替え用)は表記から読まれ、シリーズを提案に戻すと消える")
-    func alternateSeriesAreLabelsBelowTheMainSeries() async throws {
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-        let workspace = await open(library, [first, second])
-
-        workspace.setAlternateName(of: first, at: 0, to: "架空の外伝", inserting: true)
-        workspace.setAlternateVolume(of: first, at: 0, to: "第3巻")
-        await workspace.settle()
-        let row = try #require(workspace.row(first))
-        #expect(row.metadata.series == "月の庭")
-        #expect(row.alternateSeries.map(\.name) == ["架空の外伝"])
-        #expect(row.alternateSeries.first?.volumeSort == 3)
-        #expect(row.tallFields[.series] == 2)
-        #expect(row.hasUnlockedEdits)
-        #expect(workspace.row(second)?.metadata.series == "月の庭")
-        let stored = try #require(library.metadata.record(forBookID: first))
-        #expect(stored.values.alternateSeries == [AlternateSeriesValue(name: "架空の外伝", volume: "第3巻", volumeSort: 3)])
-        // 主のシリーズの段は動かせない。
-        #expect(!workspace.canMoveLine(.init(id: first, column: .series, index: 0), up: false))
-
-        // 鍵を掛けて外しても残る。
-        workspace.setLocked([first], true)
-        await workspace.settle()
-        #expect(library.metadata.record(forBookID: first)?.values.alternateSeries.map(\.name) == ["架空の外伝"])
-        workspace.setLocked([first], false)
-        await workspace.settle()
-        #expect(workspace.row(first)?.alternateSeries.map(\.name) == ["架空の外伝"])
-
-        workspace.revertSeries([first])
-        await workspace.settle()
-        #expect(workspace.row(first)?.alternateSeries.isEmpty == true)
-        #expect(library.metadata.record(forBookID: first)?.values.alternateSeries.isEmpty == true)
-    }
-
-    @Test("名前を空にした足したシリーズは組ごと消える")
-    func emptyingAnAlternateNameRemovesThePair() async throws {
+    @Test("1 つに固定した欄(タイトル・ジャンル・イベント・シリーズ)は、並びで渡しても先頭だけになり、段にならない")
+    func singleFieldsKeepOnlyTheFirstValue() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         let workspace = await open(library, [first])
-        workspace.setAlternateName(of: first, at: 0, to: "架空の外伝", inserting: true)
-        workspace.setAlternateName(of: first, at: 1, to: "架空の別編", inserting: true)
+        workspace.set(.genre, to: ["架空ジャンル", "別の架空ジャンル"], for: [first])
         await workspace.settle()
-        workspace.setAlternateName(of: first, at: 0, to: "")
-        await workspace.settle()
-        #expect(workspace.row(first)?.alternateSeries.map(\.name) == ["架空の別編"])
+        #expect(workspace.row(first)?.metadata.values(.genre) == ["架空ジャンル"])
+        #expect(workspace.row(first)?.tallFields.isEmpty == true)
+        #expect(library.metadata.record(forBookID: first)?.edits.fields[.genre] == ["架空ジャンル"])
+    }
+
+    @Test("qooMeta の形のまま複数の値・足したシリーズを持つ直した欄は、qooViewer の欄の形に揃えて読む")
+    func storedEditsAreRestrictedToQooViewerFields() {
+        let fields = ConfirmedFields([.title: ["題名", "別題"], .info: ["付記1", "付記2"]],
+                                     alternateSeries: [.init(name: "架空の外伝", volume: "2")])
+        let restricted = Confirmation.fields(fields).restrictedToQooViewerFields
+        #expect(restricted.fields[.title] == ["題名"])
+        #expect(restricted.fields[.info] == ["付記1", "付記2"])
+        #expect(restricted.fields.alternateSeries.isEmpty)
+        #expect(BookMetadataValues(QMBookMetadata(title: "題名", moreValues: [.title: ["別題"], .info: ["付記2"]],
+                                                   alternateSeries: [.init(name: "架空の外伝")]))
+            .moreValues == ["info": ["付記2"]])
     }
 }
 
-/// 値をいくつも持つ欄の、値の形(`BookMetadataValues`)の約束(2026-10-01、qooMeta 0.3.0)。
+/// 値をいくつも持つ欄の、値の形(`BookMetadataValues`)の約束(2026-10-01、qooMeta 0.3.0。qooViewer では著者・原作・情報だけ)。
 struct BookMetadataSeveralValuesTests {
-    @Test("先頭を空にすると 2 つ目が繰り上がり、名前の無い足したシリーズは落ちる")
+    @Test("先頭を空にすると 2 つ目が繰り上がり、原作・情報のほかの鍵は落ちる")
     func trimmingPromotesTheSecondValue() {
         var values = BookMetadataValues(title: "題名")
         values.setAllValues("info", to: ["付記1", "付記2", "付記3"])
         values.info = "  "
-        values.alternateSeries = [AlternateSeriesValue(name: " 外伝 ", volume: " 2 "), AlternateSeriesValue(name: " ")]
+        values.moreValues["title"] = ["別題"]
+        values.setAllValues("source", to: ["架空の原作A", "架空の原作B"])
         let trimmed = values.trimmed
         #expect(trimmed.info == "付記2")
         #expect(trimmed.values(.info) == ["付記2", "付記3"])
-        #expect(trimmed.alternateSeries == [AlternateSeriesValue(name: "外伝", volume: "2")])
-        #expect(!BookMetadataValues(alternateSeries: [AlternateSeriesValue(name: "外伝")]).isEmpty)
+        #expect(trimmed.values(.title) == ["題名"])
+        #expect(trimmed.values(.source) == ["架空の原作A", "架空の原作B"])
+        #expect(trimmed.moreValues == ["info": ["付記3"], "source": ["架空の原作B"]])
     }
 
     @Test("前の版の JSON(新しい鍵が無い)も読め、1 つずつの値は前と同じ形で書く")
@@ -957,28 +936,22 @@ struct BookMetadataSeveralValuesTests {
         let old = Data(#"{"title":"題名","authors":["著者"],"genre":"","event":"","source":"","info":"","series":"","volume":""}"#.utf8)
         #expect(try JSONDecoder().decode(BookMetadataValues.self, from: old) == BookMetadataValues(title: "題名", authors: ["著者"]))
         let plain = String(decoding: try JSONEncoder().encode(BookMetadataValues(title: "題名")), as: UTF8.self)
-        #expect(!plain.contains("moreValues") && !plain.contains("alternateSeries"))
+        #expect(!plain.contains("moreValues"))
         var several = BookMetadataValues(title: "題名")
-        several.setAllValues("genre", to: ["一", "二"])
-        several.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "1", volumeSort: 1)]
+        several.setAllValues("info", to: ["一", "二"])
         #expect(try JSONDecoder().decode(BookMetadataValues.self, from: JSONEncoder().encode(several)) == several)
     }
 
-    @Test("先頭だけを直しても(インスペクタ)、2 つ目からの値と足したシリーズは直した欄に残る")
+    @Test("先頭だけを直しても、2 つ目からの値は直した欄に残る。ロックした行の確定した内容も並びごと")
     func editingTheFirstValueKeepsTheRest() {
         var old = BookMetadataValues(title: "題名", series: "シリーズ", volume: "1")
         old.setAllValues("info", to: ["付記1", "付記2"])
-        old.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "2")]
         var new = old
         new.info = "直した付記"
         let edits = MetadataParsing.edits(changing: old, to: new, in: .none)
         #expect(edits.fields[.info] == ["直した付記", "付記2"])
         #expect(edits.fields[.title] == nil)
-        // 足したシリーズを変えていなければ、直した欄に足さない(読みのまま)。
-        #expect(edits.fields.alternateSeries.isEmpty)
-        // ロックした行の確定した内容は、2 つ目からの値と足したシリーズを含む。
-        let confirmed = old.confirmation.fields
-        #expect(confirmed[.info] == ["付記1", "付記2"])
-        #expect(confirmed.alternateSeries.map(\.name) == ["外伝"])
+        #expect(old.confirmation.fields[.info] == ["付記1", "付記2"])
+        #expect(old.confirmation.fields[.title] == ["題名"])
     }
 }

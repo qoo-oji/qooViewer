@@ -86,19 +86,19 @@
         }
       }
     },
-    "Change the added series" : {
+    "Add a value" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Change the added series"
+            "value" : "Add a value"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "足したシリーズの書き換え"
+            "value" : "値を足す"
           }
         }
       }
@@ -184,6 +184,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選んだ段を、その本の中で 1 つ上へ動かします(Option+Command+↑)"
+          }
+        }
+      }
+    },
+    "Moves the value down (Option-Command-Down Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the value down (Option-Command-Down Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この値を 1 つ下へ動かします(Option+Command+↓)"
+          }
+        }
+      }
+    },
+    "Moves the value up (Option-Command-Up Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the value up (Option-Command-Up Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この値を 1 つ上へ動かします(Option+Command+↑)"
           }
         }
       }
@@ -10851,7 +10885,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ダブルクリックでシリーズの中の位置を決めます。空にすると巻数(表記)から読んだ数に戻ります"
+            "value" : "ダブルクリックでシリーズの中の位置を決めます。空にすると巻数(表示)から読んだ数に戻ります"
           }
         }
       }
@@ -11539,7 +11573,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "空にすると巻数(表記)から読んだ数に戻ります"
+            "value" : "空にすると巻数(表示)から読んだ数に戻ります"
           }
         }
       }

@@ -51,7 +51,7 @@ nonisolated enum StoreSchemaGuard {
     ///   リリースするまでは、この行の指紋を書き換えてよい**(まだ誰のストアもこの世代を記録していない)。1.66 でリリース済み
     /// - 3: `BookLibrary.coverFitRaw`(ライブラリの「形の合わせ方」。切り取る/余白を付ける)を足した時点(2026-09-24)。
     ///   1.71 でリリース済み(**この行の指紋はもう書き換えない**。モデルを変えたら 4 を足す)
-    /// - 4: `BookMetadata.extraValuesData`(欄の 2 つ目からの値と、利用者が足したシリーズ。qooMeta 0.3.0)を足した時点
+    /// - 4: `BookMetadata.extraValuesData`(原作・情報の 2 つ目からの値。qooMeta 0.3.0)を足した時点
     ///   (2026-10-01)。**リリースするまでは、この行の指紋を書き換えてよい**
     static let generations: [Int: String] = [
         1: "82a1fb6d0d07bdc10cc4f297ac78096f48f6d101c0d8ec685ede6c0e803429d2",

@@ -24,10 +24,11 @@ import SwiftUI
 /// - 実体の無い本は灰色、ファイル名フォーマットと合致しなかった本はファイル名をオレンジで出す(合致しなかった本は上にまとめる)。
 ///
 /// ■ 1 つの欄の値を 1 段ずつ(qooMeta 0.3.0 の `BookTable` から移した。2026-10-01、利用者の指示)
-/// 値をいくつも持つ欄は、値ごとに段を分けて縦に並べ、**行の高さを段の数だけ伸ばす**(列を横に増やすと読みにくいので)。
-/// シリーズ・巻数(表示)・巻数(並べ替え用)は、同じ高さの段が組(一番上が主のシリーズ、その下が足したシリーズ)。
+/// 値をいくつも持つ欄(qooViewer では著者・原作・情報だけ。`holdsSeveralInQooViewer`)は、値ごとに段を分けて縦に並べ、**行の高さを段の数
+/// だけ伸ばす**(列を横に増やすと読みにくいので)。qooMeta の「足したシリーズ」(シリーズ・巻数の列の 2 段目から)は持たない
+/// (シリーズは巻数と同じく 1 つ。利用者の判断 2026-10-01)。
 /// - 段を押すとその段が選ばれ(枠が付く)、絞り込みの帯の「上へ」「下へ」でその本の中で動かせる。
-/// - 2 回押しでその段だけを書き換える。空にして確定するとその段が消える(主のシリーズの段は消えず、空の値になる)。
+/// - 2 回押しでその段だけを書き換える。空にして確定するとその段が消える。
 /// - 書き換えの最中の **Option+Return** で、その下に空の段を足してそのまま書ける(右クリックの「段を足す」でも)。
 /// - Tab / ⇧Tab は、同じ欄の次 / 前の段、端まで来たら隣の欄へ。
 /// ほかの列の文字・鍵・表紙は、各行の上端に揃える(1 段目と同じ高さに並ぶ)。
@@ -91,37 +92,29 @@ struct MetadataBookTable: NSViewRepresentable {
         /// 隠せない列(どの本の行か分からなくなる・ロックの切り替えが無くなる)。
         var isHideable: Bool { self != .fileName && self != .lock }
 
-        /// 段を持つ欄としての見分け(段の選択と「上へ」「下へ」に使う)。ファイル名・鍵・表紙は段を持たない。
+        /// 段を持つ欄としての見分け(段の選択と「上へ」「下へ」に使う)。値をいくつも持てる欄(著者・原作・情報)だけ。
         var lineColumn: MetadataWorkspace.LineColumn? {
-            switch self {
-            case .lock, .fileName, .cover: nil
-            case .field(.series), .field(.volume), .volumeSort: .series
-            case .field(let field): .field(field)
-            }
+            if case .field(let field) = self, field.holdsSeveralInQooViewer { return .field(field) }
+            return nil
         }
 
-        /// セルに出す段(上から)。値の無い欄も空の 1 段。シリーズと巻数は、主のシリーズの段の下に足したシリーズの段。
+        /// セルに出す段(上から)。値の無い欄も空の 1 段。段を持たない欄は 1 段(先頭の値)。
         func lines(of book: MetadataBookRow) -> [String] {
             switch self {
             case .fileName: return [book.fileName]
-            case .field(.series): return [book.metadata.series] + book.alternateSeries.map(\.name)
-            case .field(.volume): return [book.metadata.volume] + book.alternateSeries.map(\.volume)
-            case .volumeSort:
-                return [book.volumeSortText] + book.alternateSeries.map { $0.volumeSort.map(QMBookMetadata.volumeSortText) ?? "" }
-            case .field(let field):
+            case .volumeSort: return [book.volumeSortText]
+            case .field(let field) where field.holdsSeveralInQooViewer:
                 let values = book.metadata.values(field)
                 return values.isEmpty ? [""] : values
+            case .field(let field): return [book.metadata[field]]
             case .lock, .cover: return [""]
             }
         }
 
         /// 段の数(行の高さを決める。値を組み立てずに、行が作り置いた数から引く)。
         func lineCount(of book: MetadataBookRow) -> Int {
-            switch self {
-            case .lock, .fileName, .cover: 1
-            case .field(.series), .field(.volume), .volumeSort: book.tallFields[.series] ?? 1
-            case .field(let field): book.tallFields[field] ?? 1
-            }
+            guard case .field(let field) = self else { return 1 }
+            return book.tallFields[field] ?? 1
         }
 
         /// 並べ替えの比べ方(鍵は `MetadataBookRow` が 1 冊につき 1 度だけ作ってある)。鍵と表紙の列は並べ替えない。
@@ -725,19 +718,11 @@ struct MetadataBookTable: NSViewRepresentable {
 
         /// Tab / ⇧Tab の行き先へ書き換えを移す。行き先の候補は、同じ欄の残りの段、その先の列の段(前へ戻るときは下の段から)。
         /// 直せない段は飛ばし、直せる段が端まで無ければ表へ戻る。
-        private func moveEditing(from column: Column, line: Int, of bookID: String, forward: Bool, attempts: Int = 20) {
+        private func moveEditing(from column: Column, line: Int, of bookID: String, forward: Bool) {
             guard let table, editing == nil, let row = index(of: bookID) else { return }
             let visible = table.tableColumns.indices.filter { !table.tableColumns[$0].isHidden }
             guard let start = visible.firstIndex(where: { Column(table.tableColumns[$0].identifier) == column }) else { return }
             let book = book(row)
-            // 足したばかりのシリーズの段から隣の列へ移るとき、その段がまだ行に届いていない(計算し直しの最中)なら、
-            // 届くのを少し待つ ―― 待たずに進むと、主のシリーズの段に入り、そこを書き換えてしまう(qooMeta で実機で確かめた)。
-            if column.lineColumn == .series, line >= 1, attempts > 0, line >= Column.volumeSort.lineCount(of: book) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    self?.moveEditing(from: column, line: line, of: bookID, forward: forward, attempts: attempts - 1)
-                }
-                return
-            }
             var candidates: [(column: Int, line: Int)] = []
             for position in forward ? Array(start..<visible.count) : Array((0...start).reversed()) {
                 let columnIndex = visible[position]
@@ -746,9 +731,6 @@ struct MetadataBookTable: NSViewRepresentable {
                 var lines = forward ? Array(0..<count) : Array((0..<count).reversed())
                 if position == start {
                     lines = lines.filter { forward ? $0 > line : $0 < line }
-                } else if column.lineColumn == .series, target?.lineColumn == .series, line < count {
-                    // シリーズと巻数の組の中で隣の列へ移るときは、同じ段(同じ足したシリーズ)へ。
-                    lines = [line]
                 }
                 candidates += lines.map { (columnIndex, $0) }
             }
@@ -774,18 +756,18 @@ struct MetadataBookTable: NSViewRepresentable {
             return true
         }
 
-        /// 段を足して、そのまま書き換えに入る。シリーズと巻数の組は、名前の列に組を足す(名前の無い組は持たないため)。
+        /// 段を足して、そのまま書き換えに入る(値をいくつも持てる欄 ―― 著者・原作・情報 ―― だけ)。
         /// - Parameters:
         ///   - line: この段の下に足す(nil なら一番下に)。
         ///   - currentLines: いま見えている段(直したばかりの値を含む。計算し直しが届く前でも、見た目を合わせるため)。
         ///   - value: 直したばかりの段の値(著者を「、」で分けたときは、分けた数だけ下に足す)。
         func startInsertion(after line: Int?, of bookID: String, column: Column, currentLines: [String]? = nil,
                             value: String? = nil) {
-            guard let table, editing == nil, let row = index(of: bookID) else { return }
-            let target: Column = column.lineColumn == .series ? .field(.series) : column
+            guard let table, editing == nil, let row = index(of: bookID), column.lineColumn != nil else { return }
+            let target = column
             var lines = target.lines(of: book(row))
             var at = line.map { $0 + 1 } ?? lines.count
-            if target == column, let currentLines, let line, currentLines.indices.contains(line) {
+            if let currentLines, let line, currentLines.indices.contains(line) {
                 // 直したばかりの段を、書いた値で見せる(著者は分けた数だけ段が増え、空にした段は消える)。
                 lines = currentLines
                 let text = (value ?? "").trimmingCharacters(in: .whitespaces)
@@ -799,25 +781,13 @@ struct MetadataBookTable: NSViewRepresentable {
                         lines.replaceSubrange(line...line, with: pieces)
                         at = line + pieces.count
                     }
-                case .series?:
-                    // 主のシリーズの段は消えない(空の値になる)。足したシリーズの段は、名前を空にすると組ごと消える。
-                    lines[line] = text
-                    if line >= 1, text.isEmpty {
-                        lines.remove(at: line)
-                        at = line
-                    }
                 case nil:
                     break
                 }
             }
-            if target == .field(.series) {
-                // シリーズの組は、主のシリーズの段より上には足さない。
-                at = min(max(1, at), lines.count)
-            } else {
-                // 値の無い欄(空の 1 段)に足すときは、その空の段に書く。
-                if lines == [""] { lines = [] }
-                at = min(at, lines.count)
-            }
+            // 値の無い欄(空の 1 段)に足すときは、その空の段に書く。
+            if lines == [""] { lines = [] }
+            at = min(at, lines.count)
             lines.insert("", at: at)
             insertion = (bookID, target, lines)
             guard let columnIndex = table.tableColumns.firstIndex(where: { $0.identifier == target.identifier }),
@@ -896,15 +866,14 @@ struct MetadataBookTable: NSViewRepresentable {
         private func fillRowMenu(_ menu: NSMenu, in table: NSTableView) {
             let ids = clickedIDs(in: table)
             guard !ids.isEmpty, let parent else { return }
-            // 押した列に段を足す(1 冊だけ、直せる本のとき)。シリーズと巻数の列では、足したシリーズの組を足す。
+            // 押した列に段を足す(値をいくつも持てる欄 ―― 著者・原作・情報 ―― で、1 冊だけ、直せる本のとき)。
             if table.clickedColumn >= 0, let column = Column(table.tableColumns[table.clickedColumn].identifier),
-               column.isEditable {
-                let target: Column = column.lineColumn == .series ? .field(.series) : column
+               column.lineColumn != nil {
                 let book = book(table.clickedRow)
                 let bookID = book.id
-                let item = MenuItem(title: "Add a Line to “%@”".ui(target.titleKey.ui),
-                                    isEnabled: ids.count == 1 && parent.canEdit(target, book, 1)) { [weak self] in
-                    self?.startInsertion(after: nil, of: bookID, column: target)
+                let item = MenuItem(title: "Add a Line to “%@”".ui(column.titleKey.ui),
+                                    isEnabled: ids.count == 1 && parent.canEdit(column, book, 1)) { [weak self] in
+                    self?.startInsertion(after: nil, of: bookID, column: column)
                 }
                 menu.addItem(makeItem(item))
                 menu.addItem(.separator())

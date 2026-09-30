@@ -52,6 +52,9 @@ struct HomeInspectorPane: View {
         content(for: subject, width: max(0, paneWidth - Self.horizontalPadding * 2))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { paneWidth = $0 }
+            // 余白のクリックで入力欄を離れる(欄を離れたときに書き、足したまま空の入力欄を消すため。
+            // releasesFieldFocusOnBackgroundClick のコメント)。
+            .releasesFieldFocusOnBackgroundClick()
             .homeInspectorDropTarget(coverDrop, appState: appState)
     }
 

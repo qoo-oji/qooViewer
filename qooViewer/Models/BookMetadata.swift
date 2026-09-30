@@ -68,12 +68,14 @@ final class BookMetadata {
     /// いまの欄の版。
     static let currentFieldsVersion = 1
 
-    /// 欄の 2 つ目からの値と、利用者が足したシリーズ(`BookMetadataExtraValues` の JSON。どちらも無ければ nil)。
+    /// 原作・情報の 2 つ目からの値(`BookMetadataExtraValues` の JSON。無ければ nil)。
     ///
-    /// qooMeta 0.3.0(2026-09-27)で、シリーズと巻数のほかの欄が値をいくつも持てるようになり、主のシリーズの下にシリーズを
-    /// 足せるようになった(`QooMetaKit.BookMetadata.moreValues`・`alternateSeries`)。メタデータの編集ウインドウでそれを直せる
-    /// ようにしたとき(2026-10-01)に足した。**先頭の値は今までどおり `title` `genre` … の列** ―― 先頭だけを読む表示・書き出し・
-    /// 古い版は、そのまま正しい値を読める。ほとんどの本は nil(ほとんどの本は 1 つずつしか持たない)。
+    /// qooMeta 0.3.0(2026-09-27)で、シリーズと巻数のほかの欄が値をいくつも持てるようになった(`QooMetaKit.BookMetadata.moreValues`)。
+    /// メタデータの編集ウインドウでそれを直せるようにしたとき(2026-10-01)に足した。qooViewer で値をいくつも持てるのは**著者・
+    /// 原作・情報だけ**(利用者の判断 2026-10-01: タイトル・ジャンル・イベントを複数必要とする状況が思い浮かばない。原作は「よろず」と
+    /// 書かれた本に複数の原作が混ざっていることがあるので複数。シリーズは巻数と同じく 1 つ ―― qooMeta の「足したシリーズ」は将来の問題に
+    /// なりそうなので持たない)。著者は前からの `additionalAuthorsRaw`。**先頭の値は今までどおり `source` `info` の列** ―― 先頭だけを読む表示・書き出し・古い版は、そのまま正しい値を読める。
+    /// ほとんどの本は nil(ほとんどの本は 1 つずつしか持たない)。
     var extraValuesData: Data?
 
     // MARK: ロックと解析の状態(2026-09-22 追加)
@@ -155,11 +157,11 @@ final class BookMetadata {
             let extras = extraValuesData.flatMap { try? JSONDecoder().decode(BookMetadataExtraValues.self, from: $0) }
             return BookMetadataValues(title: title, authors: authors, genre: genre, event: event, source: source, info: info,
                                       series: series, volume: seriesIndex, volumeSort: volumeSort,
-                                      moreValues: extras?.moreValues ?? [:], alternateSeries: extras?.alternateSeries ?? [])
+                                      moreValues: extras?.moreValues ?? [:])
         }
         set {
             let v = newValue.trimmed
-            let extras = BookMetadataExtraValues(moreValues: v.moreValues, alternateSeries: v.alternateSeries)
+            let extras = BookMetadataExtraValues(moreValues: v.moreValues)
             extraValuesData = extras.isEmpty ? nil : try? JSONEncoder().encode(extras)
             title = v.title
             authors = v.authors
@@ -243,10 +245,11 @@ final class BookMetadata {
 /// qooMeta の欄とは名前を合わせてある(`volume` = qooViewer の `seriesIndex`)。**空の欄は空の文字列・空の並び**で表す
 /// (「無い」と「空」を分けない。qooMeta と同じ)。
 ///
-/// **シリーズと巻数のほかの欄は、値をいくつも持てる**(qooMeta 0.3.0。2026-10-01 にメタデータの編集ウインドウへ取り込んだ)。
-/// 先頭の値が `title` `genre` …、2 つ目からが `moreValues`(著者は前から `authors` の並び)。シリーズと巻数は中核が導く
-/// 主のシリーズ 1 つで、利用者が足したシリーズは `alternateSeries` に組で持つ。先頭しか受けない所(表示・書き出し・
-/// 並べ替え・絞り込み)は、今までどおり先頭の欄を読む。
+/// **著者・原作・情報は、値をいくつも持てる**(qooMeta 0.3.0。2026-10-01 にメタデータの編集ウインドウとインスペクタへ取り込んだ)。
+/// 先頭の値が `source` `info`、2 つ目からが `moreValues`(著者は前から `authors` の並び)。qooMeta はタイトル・ジャンル・イベントにも
+/// 許すが、qooViewer では 1 つに固定する(利用者の判断 2026-10-01。`QMBookMetadata.Field.holdsSeveralInQooViewer`)。シリーズと巻数も
+/// 1 つ(qooMeta の「足したシリーズ」`alternateSeries` は持たない)。先頭しか受けない所(表示・書き出し・並べ替え・絞り込み)は、
+/// 今までどおり先頭の欄を読む。
 nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
     var title: String = ""
     var authors: [String] = []
@@ -259,18 +262,16 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
     var volume: String = ""
     /// 巻数(並べ替え用)。
     var volumeSort: Double?
-    /// タイトル・ジャンル・イベント・原作・情報の 2 つ目からの値。鍵は qooMeta の欄の名前(`moreValueKeys`)。
+    /// 原作・情報の 2 つ目からの値。鍵は qooMeta の欄の名前(`moreValueKeys`)。
     /// 先頭の欄が空のまま、ここにだけ値があることはない(`trimmed` が詰める)。
     var moreValues: [String: [String]] = [:]
-    /// 利用者が足したシリーズ(主のシリーズ `series` の下に並ぶ。中核は読まない ―― 組み分けにも錨にもならない)。
-    var alternateSeries: [AlternateSeriesValue] = []
 
     /// `moreValues` の鍵になる欄(qooMeta の `Field` の rawValue。著者は `authors` の並びそのもの)。
-    static let moreValueKeys = ["title", "genre", "event", "source", "info"]
+    static let moreValueKeys = ["source", "info"]
 
     init(title: String = "", authors: [String] = [], genre: String = "", event: String = "", source: String = "",
          info: String = "", series: String = "", volume: String = "", volumeSort: Double? = nil,
-         moreValues: [String: [String]] = [:], alternateSeries: [AlternateSeriesValue] = []) {
+         moreValues: [String: [String]] = [:]) {
         self.title = title
         self.authors = authors
         self.genre = genre
@@ -281,7 +282,6 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
         self.volume = volume
         self.volumeSort = volumeSort
         self.moreValues = moreValues
-        self.alternateSeries = alternateSeries
     }
 
     /// 先頭の著者(1 人だけを書く所 ―― 表示・PDF の Author の既定・古い保存データ)。
@@ -289,29 +289,13 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
 
     var isEmpty: Bool {
         title.isEmpty && authors.isEmpty && genre.isEmpty && event.isEmpty && source.isEmpty && info.isEmpty
-            && series.isEmpty && volume.isEmpty && moreValues.values.allSatisfy(\.isEmpty) && alternateSeries.isEmpty
+            && series.isEmpty && volume.isEmpty && moreValues.values.allSatisfy(\.isEmpty)
     }
 
     /// 欄の先頭の値(`moreValueKeys` の欄)。
     private subscript(first key: String) -> String {
-        get {
-            switch key {
-            case "title": title
-            case "genre": genre
-            case "event": event
-            case "source": source
-            default: info
-            }
-        }
-        set {
-            switch key {
-            case "title": title = newValue
-            case "genre": genre = newValue
-            case "event": event = newValue
-            case "source": source = newValue
-            default: info = newValue
-            }
-        }
+        get { key == "source" ? source : info }
+        set { if key == "source" { source = newValue } else { info = newValue } }
     }
 
     /// 値をいくつも持てる欄の、すべての値(`moreValueKeys` の欄。空の先頭は含めない)。
@@ -332,14 +316,13 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
     var trimmed: BookMetadataValues {
         func t(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
         var v = self
+        v.title = t(title)
         v.authors = authors.map(t).filter { !$0.isEmpty }
-        // 先頭が空になった欄は、2 つ目の値が先頭へ繰り上がる(qooMeta の `BookMetadata.set` と同じ)。
+        v.genre = t(genre)
+        v.event = t(event)
+        // 先頭が空になった欄は、2 つ目の値が先頭へ繰り上がる(qooMeta の `BookMetadata.set` と同じ)。ほかの欄の鍵は落とす。
         v.moreValues = [:]
         for key in Self.moreValueKeys { v.setAllValues(key, to: ([self[first: key]] + (moreValues[key] ?? [])).map(t)) }
-        v.alternateSeries = alternateSeries.compactMap { series in
-            let name = t(series.name)
-            return name.isEmpty ? nil : AlternateSeriesValue(name: name, volume: t(series.volume), volumeSort: series.volumeSort)
-        }
         v.series = t(series)
         v.volume = t(volume)
         // 並べ替え用の数はシリーズの中の位置なので、シリーズも巻の表記も無い本には持たせない。巻の表記が空でもシリーズが
@@ -349,10 +332,10 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
         return v
     }
 
-    // 2 つ目からの値・足したシリーズは、あるときだけ書く(スマートライブラリの catalog.json が前の版の形のまま読めるように。
+    // 2 つ目からの値は、あるときだけ書く(スマートライブラリの catalog.json が前の版の形のまま読めるように。
     // 前の版が書いたファイルも読める)。
     private enum CodingKeys: String, CodingKey {
-        case title, authors, genre, event, source, info, series, volume, volumeSort, moreValues, alternateSeries
+        case title, authors, genre, event, source, info, series, volume, volumeSort, moreValues
     }
 
     init(from decoder: any Decoder) throws {
@@ -366,8 +349,7 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
                   series: try c.decodeIfPresent(String.self, forKey: .series) ?? "",
                   volume: try c.decodeIfPresent(String.self, forKey: .volume) ?? "",
                   volumeSort: try c.decodeIfPresent(Double.self, forKey: .volumeSort),
-                  moreValues: try c.decodeIfPresent([String: [String]].self, forKey: .moreValues) ?? [:],
-                  alternateSeries: try c.decodeIfPresent([AlternateSeriesValue].self, forKey: .alternateSeries) ?? [])
+                  moreValues: try c.decodeIfPresent([String: [String]].self, forKey: .moreValues) ?? [:])
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -382,37 +364,14 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
         try c.encode(volume, forKey: .volume)
         try c.encodeIfPresent(volumeSort, forKey: .volumeSort)
         if !moreValues.isEmpty { try c.encode(moreValues, forKey: .moreValues) }
-        if !alternateSeries.isEmpty { try c.encode(alternateSeries, forKey: .alternateSeries) }
     }
 }
 
-/// 利用者が足したシリーズ 1 つ(名前・巻数(表示用)・巻数(並べ替え用)の組。qooMeta の `BookMetadata.AlternateSeries` と同じ形)。
-nonisolated struct AlternateSeriesValue: Hashable, Sendable, Codable {
-    var name: String
-    var volume: String = ""
-    /// 巻数(並べ替え用)。確定した内容では、nil なら巻数(表示用)から読む。
-    var volumeSort: Double?
-}
-
-/// `BookMetadata.extraValuesData` の中身(2 つ目からの値と、足したシリーズ)。
+/// `BookMetadata.extraValuesData` の中身(2 つ目からの値)。
 nonisolated struct BookMetadataExtraValues: Hashable, Sendable, Codable {
     var moreValues: [String: [String]] = [:]
-    var alternateSeries: [AlternateSeriesValue] = []
 
-    var isEmpty: Bool { moreValues.isEmpty && alternateSeries.isEmpty }
-
-    private enum CodingKeys: String, CodingKey { case moreValues, alternateSeries }
-
-    init(moreValues: [String: [String]] = [:], alternateSeries: [AlternateSeriesValue] = []) {
-        self.moreValues = moreValues
-        self.alternateSeries = alternateSeries
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        moreValues = try c.decodeIfPresent([String: [String]].self, forKey: .moreValues) ?? [:]
-        alternateSeries = try c.decodeIfPresent([AlternateSeriesValue].self, forKey: .alternateSeries) ?? []
-    }
+    var isEmpty: Bool { moreValues.isEmpty }
 }
 
 /// 書誌メタデータの追加・変更・削除が、変更した側(BookMetadataStore、または今開いている

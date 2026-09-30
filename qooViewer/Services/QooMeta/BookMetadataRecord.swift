@@ -43,7 +43,9 @@ extension BookMetadata {
 
     /// 直した欄(`editsData` を読んだもの。読めなければ無し)。
     var edits: Confirmation {
-        get { editsData.flatMap { try? JSONDecoder().decode(Confirmation.self, from: $0) } ?? .none }
+        get {
+            editsData.flatMap { try? JSONDecoder().decode(Confirmation.self, from: $0) }?.restrictedToQooViewerFields ?? .none
+        }
         set { editsData = newValue == .none ? nil : try? JSONEncoder().encode(newValue) }
     }
 
@@ -90,8 +92,6 @@ nonisolated enum MetadataParsing {
             let newValues = new.values(field)
             if old.values(field) != newValues { fields[field] = newValues }
         }
-        // 足したシリーズは、いつも確定した内容にある(利用者が足したものなので)。
-        if old.alternateSeries != new.alternateSeries { fields.alternateSeries = new.qmAlternateSeries }
         // 巻数(並べ替え用)を変えたら、その数を確定する(無しにしたら確定を外し、表記から読んだ数に戻す)。変えずに巻の表記を
         // 変えたら、確定した数は外す(新しい表記と食い違った数を残さない)。
         if old.volumeSort != new.volumeSort, !new.series.isEmpty {
@@ -154,7 +154,9 @@ nonisolated struct MetadataEdits: Codable, Hashable, Sendable {
 
     /// 読めない形(qooMeta の版が上がって `Confirmation` の形が変わった、など)は「直した欄は無い」として読む
     /// (ファイル全体の読み込みを止めない)。
-    init(from decoder: any Decoder) throws { confirmation = (try? Confirmation(from: decoder)) ?? .none }
+    init(from decoder: any Decoder) throws {
+        confirmation = (try? Confirmation(from: decoder))?.restrictedToQooViewerFields ?? .none
+    }
 
     func encode(to encoder: any Encoder) throws { try confirmation.encode(to: encoder) }
 }

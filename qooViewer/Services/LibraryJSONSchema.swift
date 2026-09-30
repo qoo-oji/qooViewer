@@ -192,11 +192,9 @@ struct ExportedBookMetadataEntry: Codable {
     /// true を書く)。2026-09-22 の 2 回目の監査の 7: 書き出していなかったので、読み込んだあと、ロックしていない本は次に開いた
     /// ときにファイルの書誌をもう一度重ね、「メタデータを再生成」でファイル名の読みに戻した欄が戻された。
     var importedSourceMetadata: Bool?
-    /// タイトル・ジャンル・イベント・原作・情報の 2 つ目からの値(`BookMetadataValues.moreValues`)と、利用者が足したシリーズ
-    /// (`alternateSeries`)。2026-10-01 に足した(qooMeta 0.3.0 の、1 つの欄に値をいくつも。formatVersion は据え置き。
-    /// Optional なので前のファイルも読める)。あるときだけ書く。
+    /// 原作・情報の 2 つ目からの値(`BookMetadataValues.moreValues`)。2026-10-01 に足した(qooMeta 0.3.0 の、1 つの欄に値を
+    /// いくつも。formatVersion は据え置き。Optional なので前のファイルも読める)。あるときだけ書く。
     var moreValues: [String: [String]]?
-    var alternateSeries: [AlternateSeriesValue]?
 
     /// 取り込む行のロックと直した欄。
     var importedState: BookMetadataRowState {
@@ -228,7 +226,7 @@ struct ExportedBookMetadataEntry: Codable {
         let allAuthors = (authors?.isEmpty == false ? authors! : [author]).filter { !$0.isEmpty }
         return BookMetadataValues(title: title, authors: allAuthors, genre: genre ?? "", event: event ?? "",
                                   source: source ?? "", info: info ?? "", series: series, volume: seriesIndex,
-                                  volumeSort: volumeSort, moreValues: moreValues ?? [:], alternateSeries: alternateSeries ?? [])
+                                  volumeSort: volumeSort, moreValues: moreValues ?? [:])
     }
 }
 
@@ -248,8 +246,7 @@ extension ExportedBookMetadataEntry {
             edits: .exporting(metadata),
             ruleSet: metadata.ruleSet,
             importedSourceMetadata: metadata.didImportSourceMetadata ? true : nil,
-            moreValues: values.moreValues.isEmpty ? nil : values.moreValues,
-            alternateSeries: values.alternateSeries.isEmpty ? nil : values.alternateSeries
+            moreValues: values.moreValues.isEmpty ? nil : values.moreValues
         )
     }
 }

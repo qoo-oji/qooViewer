@@ -339,6 +339,10 @@ survives. Design and the reasons are in `docs/14-library-collections.md`.
 **Metadata (qooMeta, 2026-09-21)**: `BookMetadata` holds title, authors (`author` = first, `additionalAuthorsRaw` = the
 rest), genre, event, source, info, series, volume (as written) and `volumeSort`, plus `fieldsVersion` (0 = registered before
 these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
+**Only authors, source and info hold several values** (qooMeta 0.3.0 allows every field but series/volume and adds "alternate
+series"; user decision 2026-10-01: title, genre, event, series and volume stay single, alternate series are not kept —
+`QMBookMetadata.Field.holdsSeveralInQooViewer`, second-and-later source/info values in `BookMetadata.extraValuesData`; stored edits are
+read through `Confirmation.restrictedToQooViewerFields`). Both the table and the Home inspector show them one line/field per value.
 Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
 bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
 page 3. The Edit menu's "Edit Metadata…" **always opens that window** (2026-09-23; the context menus' "Edit Metadata…"

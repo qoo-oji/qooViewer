@@ -15,8 +15,18 @@ import SwiftUI
 /// DB が変わったら(`BookMetadataStore.revision`。メタデータの生成が読み直した・ウインドウで直した)、**打ちかけの欄が無ければ**
 /// 読み直す。打ちかけがあれば残す(書くときに、開いたあとで鍵が変わっていたら書かずに読み直す ―― シートと同じ)。
 ///
+/// ■ 1 つの欄に値をいくつも(2026-10-01、利用者の指示。メタデータの編集ウインドウの一覧と同じく qooMeta 0.3.0 に合わせた)
+/// 値をいくつも持てる欄(著者・原作・情報。`holdsSeveralInQooViewer`)は、**値ごとに入力欄を縦に並べる**。ほかの欄は 1 つに固定
+/// (タイトル・ジャンル・イベント・シリーズ・巻数。利用者の判断 2026-10-01 ―― qooMeta の「足したシリーズ」も持たない)。
+/// - 欄の名前の右の「＋」で下に入力欄を足し、そこへ焦点を入れる。空にした入力欄は、焦点が離れたときに消える(一覧で段を空にしたのと同じ)。
+/// - 2 つ以上ある欄の入力欄に焦点があるあいだは、名前の右に「上へ」「下へ」が出る(⌥⌘↑ / ⌥⌘↓。一覧の帯のボタンと同じ)。
+///   先頭の値が、1 つしか受けない所(表示・書き出し)へ渡る。
+/// 著者の入力欄は、前からの書き方どおり「、」で区切っても何人かに分かれる。
+///
+/// 欄の名前はメタデータの編集ウインドウの列の見出しと同じ言葉にする(巻数は「巻数(表示)」。2026-10-01、利用者の指摘)。
+///
 /// ■ すりガラス面
-/// 見出しと欄の名前は面に直に置く文字なので輪郭を掛ける。入力欄は不透明な地を持つので掛けない。
+/// 見出しと欄の名前・「＋」などのアイコンは面に直に置くので輪郭を掛ける。入力欄は不透明な地を持つので掛けない。
 struct HomeInspectorMetadataSection: View {
     /// 本の id(パス。BookLoader が付ける id)。
     let bookID: String
@@ -31,20 +41,35 @@ struct HomeInspectorMetadataSection: View {
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @Environment(MetadataRulesStore.self) private var rulesStore
 
+    /// 値をいくつも持てる欄(著者・原作・情報)。鍵は著者のほかは `BookMetadataValues.moreValueKeys` と同じ qooMeta の欄の名前。
+    private enum LineKey: String, CaseIterable, Hashable {
+        case authors, source, info
+
+        var label: LocalizedStringKey {
+            switch self {
+            case .authors: "Authors"
+            case .source: "Source work"
+            case .info: "Info"
+            }
+        }
+    }
+
     private enum Field: Hashable {
-        case title, authors, genre, source, event, info, series, volume, volumeSort
+        /// 値をいくつも持てる欄の、上から `Int` 番目の入力欄。
+        case line(LineKey, Int)
+        case title, genre, event, series, volume, volumeSort
     }
 
     @FocusState private var focusedField: Field?
 
-    /// 編集中の欄(著者は `authorsText`、巻数(並べ替え用)は `volumeSortText` で持つ)。
+    /// 編集中の欄のうち、1 つに固定した欄(値をいくつも持てる欄は `lines`、巻数(並べ替え用)は `volumeSortText` で持つ)。
     @State private var draft = BookMetadataValues()
-    /// 著者の欄の文字(「、」で区切って複数。qooMeta の一覧のセルと同じ書き方)。
-    @State private var authorsText = ""
+    /// 値をいくつも持てる欄の入力欄の文字(欄ごとに上から。無い欄は空の並び ―― 画面には空の入力欄を 1 つ出す)。
+    @State private var lines: [LineKey: [String]] = [:]
     @State private var volumeSortText = ""
     /// 読み込んだ(または最後に書いた)ときの値。変えた欄だけを「直した欄」にする基準で、打ちかけかどうかの判定にも使う。
     @State private var openedValues = BookMetadataValues()
-    @State private var openedAuthorsText = ""
+    @State private var openedLines: [LineKey: [String]] = [:]
     @State private var openedVolumeSortText = ""
     /// ロックしている本か(欄を変えさせない)。
     @State private var isLocked = false
@@ -120,18 +145,20 @@ struct HomeInspectorMetadataSection: View {
     private var fields: some View {
         VStack(alignment: .leading, spacing: 8) {
             field("Title", text: $draft.title, focus: .title)
-            field("Authors", text: $authorsText, focus: .authors, prompt: Text("Separate several authors with 、"))
+            lineField(.authors)
             field("Genre", text: $draft.genre, focus: .genre)
-            field("Source work", text: $draft.source, focus: .source)
+            lineField(.source)
             field("Event", text: $draft.event, focus: .event)
-            field("Info", text: $draft.info, focus: .info)
+            lineField(.info)
             field("Series", text: $draft.series, focus: .series)
             // 巻はシリーズの中の番号なので、シリーズ名の無い間は入れさせない(メタデータの編集ウインドウの列と同じ。
             // 利用者の指示 2026-09-22)。以前に登録した「シリーズの無い巻」は、シリーズを空にしない限り消さずに残す。
-            field("Volume", text: $draft.volume, focus: .volume, isEnabled: hasSeries,
+            // 名前はウインドウの列の見出しと同じ「巻数(表示)」(2026-10-01、利用者の指摘。以前は「巻数」だけで食い違っていた)。
+            field("Volume (as written)", text: $draft.volume, focus: .volume, isEnabled: hasSeries,
                   help: hasSeries ? "" : "Give the book a series name first".ui)
             // 巻数(並べ替え用)は、シリーズ名のある本だけ(巻の表記は空でもよい)。空にすると、巻の表記から読んだ数に戻る。
-            field("Volume (for sorting)", text: $volumeSortText, focus: .volumeSort, prompt: Text(verbatim: "1.5"),
+            // 入力例(「1.5」)は出さない(2026-10-01、利用者の指摘: 巻数の無い本で値が入っているように見えた。一覧の列にも無い)。
+            field("Volume (for sorting)", text: $volumeSortText, focus: .volumeSort,
                   isEnabled: canEditVolumeSort,
                   help: canEditVolumeSort ? "Empty goes back to the number read from the volume".ui
                       : "Give the book a series name first".ui)
@@ -148,15 +175,77 @@ struct HomeInspectorMetadataSection: View {
         .onSubmit { commit() }
     }
 
+    /// 欄の名前の行(名前と、右端に置くボタン)。
+    private func labelRow(_ label: LocalizedStringKey, @ViewBuilder trailing: () -> some View = { EmptyView() }) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .panelOutlinedContent()
+            Spacer(minLength: 0)
+            trailing()
+        }
+    }
+
+    /// 欄の名前の右の小さなアイコンのボタン(「＋」「上へ」「下へ」)。面に直に置くので輪郭を掛ける。
+    private func iconButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .frame(width: 16, height: 14)
+                .contentShape(Rectangle())
+                .panelOutlinedContent()
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+
+    private func addButton(help: String, action: @escaping () -> Void) -> some View {
+        iconButton("plus", help: help, action: action).accessibilityLabel(Text(verbatim: help))
+    }
+
+    /// 焦点のある入力欄を上 / 下へ動かすボタン(⌥⌘↑ / ⌥⌘↓。焦点のある欄の名前の行にだけ出すので、同じ鍵が 2 つ出ることはない)。
+    @ViewBuilder
+    private func moveButtons(canMoveUp: Bool, canMoveDown: Bool, move: @escaping (Bool) -> Void) -> some View {
+        iconButton("chevron.up", help: "Moves the value up (Option-Command-Up Arrow)".ui) { move(true) }
+            .keyboardShortcut(.upArrow, modifiers: [.option, .command])
+            .disabled(!canMoveUp)
+            .accessibilityLabel(Text("Move Up"))
+        iconButton("chevron.down", help: "Moves the value down (Option-Command-Down Arrow)".ui) { move(false) }
+            .keyboardShortcut(.downArrow, modifiers: [.option, .command])
+            .disabled(!canMoveDown)
+            .accessibilityLabel(Text("Move Down"))
+    }
+
+    /// 値をいくつも持てる欄: 名前の行(「＋」と、焦点があれば「上へ」「下へ」)と、値ごとの入力欄。
+    private func lineField(_ key: LineKey) -> some View {
+        let shown = shownLines(key)
+        let focusedIndex: Int? = if case .line(key, let index)? = focusedField { index } else { nil }
+        return VStack(alignment: .leading, spacing: 3) {
+            labelRow(key.label) {
+                if let focusedIndex, shown.count > 1 {
+                    moveButtons(canMoveUp: focusedIndex > 0, canMoveDown: focusedIndex < shown.count - 1) { up in
+                        moveLine(key, from: focusedIndex, up: up)
+                    }
+                }
+                addButton(help: "Add a value".ui) { addLine(key) }
+            }
+            ForEach(shown.indices, id: \.self) { index in
+                TextField("", text: lineBinding(key, index),
+                          prompt: key == .authors && shown.count == 1 ? Text("Separate several authors with 、") : nil)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .line(key, index))
+                    .accessibilityLabel(Text(key.label))
+            }
+        }
+    }
+
     private func field(
         _ label: LocalizedStringKey, text: Binding<String>, focus: Field, prompt: Text? = nil,
         isEnabled: Bool = true, help: String = ""
     ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .panelOutlinedContent()
+            labelRow(label)
             // 欄そのものにラベルは持たせない(上の見出しが名前になる)。読み上げのために同じ文字列の名前だけ与える。
             TextField("", text: text, prompt: prompt)
                 .textFieldStyle(.roundedBorder)
@@ -169,17 +258,30 @@ struct HomeInspectorMetadataSection: View {
 
     // MARK: - 状態
 
-    /// 打ちかけの欄があるか(読み込んだ・最後に書いた値と違う)。
+    /// 打ちかけの欄があるか(読み込んだ・最後に書いた値と違う。足しただけの空の入力欄も打ちかけ ―― その間に DB が変わって
+    /// 読み直すと、足した入力欄が消えるので)。
     private var isDirty: Bool {
-        draft != openedValues || authorsText != openedAuthorsText || volumeSortText != openedVolumeSortText
+        draft != openedValues || lines != openedLines || volumeSortText != openedVolumeSortText
+    }
+
+    /// 入力欄から組み立てた値(巻数(並べ替え用)は `draft` のまま。`commit` が決める)。
+    private var editedValues: BookMetadataValues {
+        var values = draft
+        for key in LineKey.allCases {
+            let list = lines[key] ?? []
+            if key == .authors {
+                values.authors = list.flatMap { Self.authors(from: $0) }
+            } else {
+                values.setAllValues(key.rawValue, to: list.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            }
+        }
+        return values
     }
 
     /// 鍵を掛けられるか(全欄が空なら行を作れないので掛けられない ―― `BookMetadataStore.applyUpsert`。メタデータの編集
     /// ウインドウの `setLocked` と同じ)。
     private var canLock: Bool {
-        var values = draft
-        values.authors = Self.authors(from: authorsText)
-        return !values.trimmed.isEmpty && !isVolumeSortInvalid
+        !editedValues.trimmed.isEmpty && !isVolumeSortInvalid
     }
 
     private var hasSeries: Bool { !draft.series.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -198,6 +300,69 @@ struct HomeInspectorMetadataSection: View {
         text.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
     }
 
+    // MARK: - 値ごとの入力欄
+
+    /// 画面に出す入力欄(値の無い欄も空の入力欄を 1 つ)。
+    private func shownLines(_ key: LineKey) -> [String] {
+        let list = lines[key] ?? []
+        return list.isEmpty ? [""] : list
+    }
+
+    private func lineBinding(_ key: LineKey, _ index: Int) -> Binding<String> {
+        Binding(
+            get: { shownLines(key).indices.contains(index) ? shownLines(key)[index] : "" },
+            set: { text in
+                var list = lines[key] ?? []
+                while list.count <= index { list.append("") }
+                list[index] = text
+                lines[key] = list
+            }
+        )
+    }
+
+    /// 入力欄を一番下に足して焦点を入れる。先に今の打ちかけを書く(書くと読み直すので、足した入力欄が消えないように)。
+    /// 値の無い欄なら、出ている空の入力欄へ焦点を入れるだけ。
+    private func addLine(_ key: LineKey) {
+        commit()
+        var list = lines[key] ?? []
+        if list.isEmpty || list.contains(where: { $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+            // 空の入力欄が既にあれば、そこへ入れる(空の入力欄を重ねない)。
+            let index = list.firstIndex { $0.trimmingCharacters(in: .whitespaces).isEmpty } ?? 0
+            return focusedField = .line(key, index)
+        }
+        list.append("")
+        lines[key] = list
+        // 焦点は次の周回で入れる ―― 足した入力欄は、この更新ではまだ画面に無く、焦点を受けられない(使い捨てボリュームでの実機検証
+        // 2026-10-01: 値のある欄で「＋」を押すと、入力欄は増えたが焦点が入らず、打った文字がどこにも入らなかった)。その間に欄が
+        // 消えていたら何もしない。
+        let target = Field.line(key, list.count - 1)
+        DispatchQueue.main.async {
+            guard isVisible, (lines[key]?.count ?? 0) > list.count - 1 else { return }
+            focusedField = target
+        }
+    }
+
+    /// 入力欄を 1 つ上 / 下へ動かし、焦点も付いていく(焦点が動くので、`onChange(of: focusedField)` が書く)。
+    private func moveLine(_ key: LineKey, from index: Int, up: Bool) {
+        var list = shownLines(key)
+        let target = index + (up ? -1 : 1)
+        guard list.indices.contains(index), list.indices.contains(target) else { return }
+        list.swapAt(index, target)
+        lines[key] = list
+        focusedField = .line(key, target)
+    }
+
+    /// 空の入力欄を片付ける(焦点のある所は残す ―― 足したばかりで、これから書く所なので)。
+    private func pruneEmptyLines() {
+        for key in LineKey.allCases {
+            guard let list = lines[key] else { continue }
+            let kept = list.indices.filter { index in
+                !list[index].trimmingCharacters(in: .whitespaces).isEmpty || focusedField == .line(key, index)
+            }.map { list[$0] }
+            if kept != list { lines[key] = kept }
+        }
+    }
+
     // MARK: - 読み込み
 
     /// 登録済みなら DB の値、未登録なら qooMeta で 1 冊だけ読んだ提案(同じ書き手のほかの本とは見比べないので、番号の無い
@@ -209,8 +374,10 @@ struct HomeInspectorMetadataSection: View {
         openedValues = draft
         isLocked = row?.isLocked == true
         openedIsLocked = isLocked
-        authorsText = draft.authors.joined(separator: "、")
-        openedAuthorsText = authorsText
+        lines = Dictionary(uniqueKeysWithValues: LineKey.allCases.map { key in
+            (key, key == .authors ? draft.authors : draft.allValues(key.rawValue))
+        })
+        openedLines = lines
         volumeSortText = draft.volumeSort.map(MetadataWorkspace.volumeSortText) ?? ""
         openedVolumeSortText = volumeSortText
         didLoad = true
@@ -257,15 +424,15 @@ struct HomeInspectorMetadataSection: View {
         let invalidVolumeSortText = isVolumeSortInvalid ? self.volumeSortText : nil
         // ここから先は、読めない巻数(並べ替え用)を「変えていない」として扱う。
         let volumeSortText = invalidVolumeSortText == nil ? self.volumeSortText : openedVolumeSortText
-        // 読めない巻数のほかに変えたものが無ければ書かない(行の無い本に、提案の値そのままの行を作らない)。
-        guard draft != openedValues || authorsText != openedAuthorsText || volumeSortText != openedVolumeSortText
-                || isLocked != openedIsLocked else { return }
+        var values = editedValues
+        // 読めない巻数のほかに変えたものが無ければ書かない(行の無い本に、提案の値そのままの行を作らない)。足しただけの空の
+        // 入力欄・入れ替えて戻しただけの並びも「変えていない」(値の並びで比べる)。その片付けだけをする。
+        guard values.trimmed != openedValues.trimmed || volumeSortText != openedVolumeSortText
+                || isLocked != openedIsLocked else { return pruneEmptyLines() }
         let storedLocked = metadataStore.metadata(forBookID: bookID)?.isLocked == true
         // 読み込んだあとにほかの画面で鍵が変わっていたら書かない(その画面の操作を上書きしない)。読み直して合わせる。
         guard storedLocked == openedIsLocked else { return load() }
         guard !(storedLocked && isLocked) else { return }
-        var values = draft
-        values.authors = Self.authors(from: authorsText)
         // シリーズ名を空にしたら、巻も外す(シリーズの無い巻は持たせない。欄は入れられなくなっているが値は残っているので)。
         // シリーズ名を別の名前に変えたら、巻は新しいシリーズ名で読み直す(巻はシリーズの中の番号。2026-09-22、利用者の指示。
         // 表記だけを直したときは残す ―― `MetadataWorkspace.sameSeriesName`)。同じ書き込みで巻も入れ直していたら、入れた巻を使う。

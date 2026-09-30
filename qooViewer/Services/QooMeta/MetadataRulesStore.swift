@@ -626,8 +626,9 @@ nonisolated extension BookMetadataValues {
         self.init(title: metadata.title, authors: metadata.authors, genre: metadata.genre, event: metadata.event,
                   source: metadata.source, info: metadata.info, series: metadata.series, volume: metadata.volume,
                   volumeSort: metadata.volumeSort,
-                  moreValues: Dictionary(uniqueKeysWithValues: metadata.moreValues.map { ($0.key.rawValue, $0.value) }),
-                  alternateSeries: metadata.alternateSeries.map(AlternateSeriesValue.init))
+                  // qooViewer で値をいくつも持てる欄の分だけ(情報のほかの欄の 2 つ目と、足したシリーズは受け取らない)。
+                  moreValues: Dictionary(uniqueKeysWithValues: metadata.moreValues
+                      .filter { $0.key.holdsSeveralInQooViewer }.map { ($0.key.rawValue, $0.value) }))
     }
 
     /// 欄の値の並び(qooMeta の `BookMetadata.values(_:)` と同じ形。シリーズと巻数は主のシリーズの 1 つ)。
@@ -636,13 +637,11 @@ nonisolated extension BookMetadataValues {
         case .authors: authors
         case .series: series.isEmpty ? [] : [series]
         case .volume: volume.isEmpty ? [] : [volume]
-        default: allValues(field.rawValue)
+        case .source, .info: allValues(field.rawValue)
+        case .title: title.isEmpty ? [] : [title]
+        case .genre: genre.isEmpty ? [] : [genre]
+        case .event: event.isEmpty ? [] : [event]
         }
-    }
-
-    /// 足したシリーズを qooMeta の形で。
-    var qmAlternateSeries: [QMBookMetadata.AlternateSeries] {
-        alternateSeries.map { QMBookMetadata.AlternateSeries(name: $0.name, volume: $0.volume, volumeSort: $0.volumeSort) }
     }
 
     /// 登録済みの本を qooMeta へ渡すときの確定した内容。**登録済み = すべての欄が確定**
@@ -655,8 +654,8 @@ nonisolated extension BookMetadataValues {
     /// 巻の無い値で書き直された。qooMeta は確定した欄を名前の読みに重ね、シリーズに入らない本の巻はそのまま残す。
     var confirmation: Confirmation {
         // 巻数(並べ替え用)も確定する(ロックした本の数が、表記から読み直した数に変わらないように。2026-09-22)。
-        // 2 つ目からの値と足したシリーズも確定する(ロックした本の値が、鍵を掛けたときのまま残るように)。
-        var fields = ConfirmedFields(volumeSort: volumeSort, alternateSeries: qmAlternateSeries)
+        // 2 つ目からの値も確定する(ロックした本の値が、鍵を掛けたときのまま残るように)。
+        var fields = ConfirmedFields(volumeSort: volumeSort)
         for field in QMBookMetadata.Field.allCases where field.holdsSeveral { fields[field] = values(field) }
         guard !series.isEmpty else {
             fields[.volume] = volume.isEmpty ? [] : [volume]
@@ -666,8 +665,30 @@ nonisolated extension BookMetadataValues {
     }
 }
 
-nonisolated extension AlternateSeriesValue {
-    init(_ series: QMBookMetadata.AlternateSeries) {
-        self.init(name: series.name, volume: series.volume, volumeSort: series.volumeSort)
+nonisolated extension QooMetaKit.BookMetadata.Field {
+    /// qooViewer で値をいくつも持てる欄(著者・原作・情報)。qooMeta 0.3.0 はシリーズと巻数のほか全部に許す(`holdsSeveral`)が、
+    /// qooViewer ではタイトル・ジャンル・イベントを 1 つに固定する(利用者の判断 2026-10-01: 複数必要とする状況が思い浮かばない。
+    /// 原作は「よろず」と書かれた本に複数の原作が混ざっていることがあるので複数)。
+    var holdsSeveralInQooViewer: Bool { self == .authors || self == .source || self == .info }
+}
+
+nonisolated extension Confirmation {
+    /// qooViewer の欄の形に揃えた直した欄: 1 つに固定した欄(タイトル・ジャンル・イベント)は先頭の値だけ、足したシリーズは持たない。
+    /// 保存データの JSON や、以前の作業で DB に入った直した欄に、qooMeta の形のまま複数の値・足したシリーズがあっても、画面に出ない
+    /// 値として qooMeta へ渡り続けないように(`BookMetadata.edits`・`MetadataEdits` が読むときに通す)。
+    var restrictedToQooViewerFields: Confirmation {
+        var fields = self.fields
+        var changed = false
+        for field in QooMetaKit.BookMetadata.Field.allCases where field.holdsSeveral && !field.holdsSeveralInQooViewer {
+            if let values = fields[field], values.count > 1 {
+                fields[field] = Array(values.prefix(1))
+                changed = true
+            }
+        }
+        if !fields.alternateSeries.isEmpty {
+            fields.alternateSeries = []
+            changed = true
+        }
+        return changed ? withFields(fields) : self
     }
 }
