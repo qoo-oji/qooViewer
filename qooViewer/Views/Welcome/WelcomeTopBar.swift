@@ -133,6 +133,8 @@ struct WelcomeTopBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: Self.height)
+        // 後ろのウインドウでは帯ごと薄くする(InactiveWindowDimming)。チップの並べ替えの落とし先が出ている間は濃いまま。
+        .dimsInInactiveWindow(unless: dropTargetLibraryID != nil)
         .sheet(
             isPresented: Binding(
                 get: { librarySheet != nil },

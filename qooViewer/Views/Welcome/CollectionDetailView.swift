@@ -329,6 +329,8 @@ struct CollectionDetailView: View {
             )
         }
         .padding(.trailing, 16)
+        // 後ろのウインドウでは操作列を薄くする(InactiveWindowDimming)。
+        .dimsInInactiveWindow()
         // 「コレクションから削除」は確認を出さない(2026-09-27、監査 34。⌘Z で取り消せるようになったので、Finder の「ゴミ箱に入れる」と
         // 同じく確認なしでその場で外す。以前は 1 冊でも確認を出していた)。
     }

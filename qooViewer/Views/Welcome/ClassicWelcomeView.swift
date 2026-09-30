@@ -145,6 +145,8 @@ struct ClassicWelcomeView: View {
         // (WelcomeTopBar の型コメント)。中央の塊とは重ならない位置なので overlay でよい。
         .overlay(alignment: .topLeading) {
             HomeLastBookButton()
+                // 帯の左端の代わりなので、後ろのウインドウでは帯と同じく薄くする(InactiveWindowDimming)。
+                .dimsInInactiveWindow()
                 .padding(12)
         }
         // 列幅の上限に使うウインドウ幅。測っているのは「画面いっぱいに広がる外枠」なので、

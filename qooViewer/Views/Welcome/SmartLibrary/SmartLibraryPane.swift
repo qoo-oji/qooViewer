@@ -117,11 +117,13 @@ struct SmartLibrarySidebar: View {
 
     var body: some View {
         ScrollView {
+            // 後ろのウインドウでは左ペインを薄くする(InactiveWindowDimming。ファイルブラウザのツリーと同じ扱い)。節ごとに掛けるのは、
+            // 対象フォルダの欄がドロップの受け口だから ―― ドラッグが乗っている間は、その節だけ濃く戻す。
             VStack(alignment: .leading, spacing: 14) {
-                foldersSection
-                shelvesSection
-                browseSection
-                filterSection
+                foldersSection.dimsInInactiveWindow(unless: isFolderDropTargeted)
+                shelvesSection.dimsInInactiveWindow()
+                browseSection.dimsInInactiveWindow()
+                filterSection.dimsInInactiveWindow()
             }
             .padding(12)
         }
@@ -912,6 +914,8 @@ struct SmartLibraryContent: View {
             header
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                // 後ろのウインドウでは操作列を薄くする(InactiveWindowDimming)。
+                .dimsInInactiveWindow()
             WelcomeSeparator(axis: .horizontal)
             // まだ一度も集め終えていない・集めている最中で並べる本がまだ無い間は、「本がありません」ではなく読み込み中
             // (SmartLibraryCatalog.hasLoaded のコメント)。

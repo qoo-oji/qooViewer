@@ -252,6 +252,8 @@ struct FileBrowserPane: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // 後ろのウインドウでは操作列を薄くする(InactiveWindowDimming。左のツリーは AppKit が同じ濃さにする)。
+        .dimsInInactiveWindow()
     }
 
     /// いまの場所の名前(コンピュータなら「コンピュータ」、最近の項目なら「最近の項目」)。すりガラス面に直に置く文字なので輪郭を掛ける。

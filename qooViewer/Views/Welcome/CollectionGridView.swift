@@ -117,6 +117,8 @@ struct CollectionGridView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            // 後ろのウインドウでは操作列を薄くする(InactiveWindowDimming)。
+            .dimsInInactiveWindow()
 
             if collections.isEmpty {
                 if searchQuery != nil, !library.collections.isEmpty {

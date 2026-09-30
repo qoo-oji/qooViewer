@@ -572,6 +572,11 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   A selection or "current item" highlight takes its colour from `SelectionEmphasis` (accent only while the window is
   key — and, for AppKit lists, while that list is first responder — grey otherwise, as in macOS; 2026-09-19), never
   `Color.accentColor` directly; drop-target highlights and state colours stay accent (docs/15「選択の強調」).
+  **In a window that is not key, Home's bars and left panes are dimmed to 50% and its content is not** (Finder's split, user
+  decision 2026-09-30): a new top bar, control row or left pane on Home gets `.dimsInInactiveWindow()` on its container
+  (`unless:` while a drop target inside it is hovered); covers, captions, list rows and the path bar get nothing. Measured on
+  macOS 27: only a `.sourceList` outline dims by itself (cells at 50%) — SwiftUI buttons, menus and text never do
+  (docs/15「後ろのウインドウで薄くするもの」).
   Content inside a context menu, sheet, alert or popover needs nothing — macOS draws those opaquely
   and they are unaffected. Forgetting the call only means no outline appears (it never leaks onto the
   wrong part), so the failure is quiet: check it against a panel filled 100% with the text colour

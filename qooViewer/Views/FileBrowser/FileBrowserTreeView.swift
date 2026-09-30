@@ -1294,5 +1294,25 @@ struct FileBrowserTreeView: NSViewRepresentable {
             addButton.target = target
             addButton.action = action
         }
+
+        // 後ろのウインドウでは「＋」も薄くする(InactiveWindowDimming)。`.sourceList` の一覧は、後ろのウインドウでセルの
+        // `textField` / `imageView`(行の名前とアイコン、この見出しの文字)を自分で 50% にするが、セルに足したボタンには
+        // 手を出さないので、見出しの「＋」だけが濃いまま残った(実機 2026-09-30)。AppKit が薄くする契機はキーウインドウの出入り。
+        // セレクタ形式の購読にする(解放時に自動で外れる。閉包形式だと、ウインドウごと捨てられたセルの購読が残る)。
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let center = NotificationCenter.default
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+                center.removeObserver(self, name: name, object: nil)
+                if let window {
+                    center.addObserver(self, selector: #selector(applyWindowDimming), name: name, object: window)
+                }
+            }
+            applyWindowDimming()
+        }
+
+        @objc private func applyWindowDimming() {
+            addButton.alphaValue = window?.isKeyWindow ?? true ? 1 : InactiveWindowDimming.opacity
+        }
     }
 }
