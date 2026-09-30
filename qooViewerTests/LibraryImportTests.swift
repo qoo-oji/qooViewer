@@ -598,6 +598,31 @@ struct LibraryImportTests {
         #expect(entry(authors: ["著者", "二人目"]).importedFieldsVersion == BookMetadata.currentFieldsVersion)
     }
 
+    @Test("欄の 2 つ目からの値と足したシリーズは、書き出して読み込んでも残る(2026-10-01、qooMeta 0.3.0)")
+    func extraMetadataValuesRoundTrip() async throws {
+        let origin = try InMemoryLibrary(label: "origin-extra")
+        defer { origin.close() }
+        let destination = try InMemoryLibrary(label: "destination-extra")
+        defer { destination.close() }
+        var values = BookMetadataValues(title: "題名", authors: ["著者1", "著者2"], series: "題名", volume: "1")
+        values.setAllValues("title", to: ["題名", "別題"])
+        values.setAllValues("source", to: ["原作1", "原作2"])
+        values.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "上")]
+        origin.metadata.upsert(bookID: "/nowhere/extra.cbz", values: values)
+        origin.metadata.upsert(bookID: "/nowhere/plain.cbz", values: BookMetadataValues(title: "題名だけ"))
+
+        let entries = try [
+            ExportedBookMetadataEntry(#require(origin.metadata.metadata(forBookID: "/nowhere/extra.cbz"))),
+            ExportedBookMetadataEntry(#require(origin.metadata.metadata(forBookID: "/nowhere/plain.cbz"))),
+        ]
+        // 1 つずつしか持たない本の行は、前の版と同じ形のまま(新しい鍵を書かない)。
+        #expect(!encoded(entries[1]).contains("moreValues") && !encoded(entries[1]).contains("alternateSeries"))
+        let decoded = try JSONDecoder().decode([ExportedBookMetadataEntry].self, from: JSONEncoder().encode(entries))
+        await destination.apply(QooLibraryExportFile(metadata: decoded), policies: .all(.merge))
+        #expect(destination.metadata.metadata(forBookID: "/nowhere/extra.cbz")?.values == values)
+        #expect(destination.metadata.metadata(forBookID: "/nowhere/plain.cbz")?.values == BookMetadataValues(title: "題名だけ"))
+    }
+
     // MARK: - ignore
 
     @Test("ignore の指定があるカテゴリは、キーがあっても何も変えない")

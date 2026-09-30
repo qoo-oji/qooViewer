@@ -625,7 +625,24 @@ nonisolated extension BookMetadataValues {
     init(_ metadata: QMBookMetadata) {
         self.init(title: metadata.title, authors: metadata.authors, genre: metadata.genre, event: metadata.event,
                   source: metadata.source, info: metadata.info, series: metadata.series, volume: metadata.volume,
-                  volumeSort: metadata.volumeSort)
+                  volumeSort: metadata.volumeSort,
+                  moreValues: Dictionary(uniqueKeysWithValues: metadata.moreValues.map { ($0.key.rawValue, $0.value) }),
+                  alternateSeries: metadata.alternateSeries.map(AlternateSeriesValue.init))
+    }
+
+    /// 欄の値の並び(qooMeta の `BookMetadata.values(_:)` と同じ形。シリーズと巻数は主のシリーズの 1 つ)。
+    func values(_ field: QMBookMetadata.Field) -> [String] {
+        switch field {
+        case .authors: authors
+        case .series: series.isEmpty ? [] : [series]
+        case .volume: volume.isEmpty ? [] : [volume]
+        default: allValues(field.rawValue)
+        }
+    }
+
+    /// 足したシリーズを qooMeta の形で。
+    var qmAlternateSeries: [QMBookMetadata.AlternateSeries] {
+        alternateSeries.map { QMBookMetadata.AlternateSeries(name: $0.name, volume: $0.volume, volumeSort: $0.volumeSort) }
     }
 
     /// 登録済みの本を qooMeta へ渡すときの確定した内容。**登録済み = すべての欄が確定**
@@ -638,17 +655,19 @@ nonisolated extension BookMetadataValues {
     /// 巻の無い値で書き直された。qooMeta は確定した欄を名前の読みに重ね、シリーズに入らない本の巻はそのまま残す。
     var confirmation: Confirmation {
         // 巻数(並べ替え用)も確定する(ロックした本の数が、表記から読み直した数に変わらないように。2026-09-22)。
-        var fields = ConfirmedFields(volumeSort: volumeSort)
-        fields[.title] = title.isEmpty ? [] : [title]
-        fields[.authors] = authors
-        fields[.genre] = genre.isEmpty ? [] : [genre]
-        fields[.event] = event.isEmpty ? [] : [event]
-        fields[.source] = source.isEmpty ? [] : [source]
-        fields[.info] = info.isEmpty ? [] : [info]
+        // 2 つ目からの値と足したシリーズも確定する(ロックした本の値が、鍵を掛けたときのまま残るように)。
+        var fields = ConfirmedFields(volumeSort: volumeSort, alternateSeries: qmAlternateSeries)
+        for field in QMBookMetadata.Field.allCases where field.holdsSeveral { fields[field] = values(field) }
         guard !series.isEmpty else {
             fields[.volume] = volume.isEmpty ? [] : [volume]
             return .notInSeries(fields: fields)
         }
         return .series(name: series, volume: volume, fields: fields)
+    }
+}
+
+nonisolated extension AlternateSeriesValue {
+    init(_ series: QMBookMetadata.AlternateSeries) {
+        self.init(name: series.name, volume: series.volume, volumeSort: series.volumeSort)
     }
 }

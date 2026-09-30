@@ -118,6 +118,30 @@ struct StorePersistenceTests {
         #expect(row.author == "著者1")
     }
 
+    @Test("メタデータの 2 つ目からの値と足したシリーズは、開き直しても残る(2026-10-01、qooMeta 0.3.0)")
+    func metadataExtraValuesSurviveReopening() throws {
+        let store = try DisposableStore("metadata-extra-values")
+        var values = BookMetadataValues(title: "題名", authors: ["著者1"], info: "付記1", series: "題名", volume: "2")
+        values.setAllValues("info", to: ["付記1", "付記2"])
+        values.setAllValues("genre", to: ["ジャンル1", "ジャンル2"])
+        values.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "3", volumeSort: 3)]
+        do {
+            let container = try store.openCurrent()
+            let metadata = BookMetadataStore(modelContext: container.mainContext)
+            metadata.upsert(bookID: "/books/extra", values: values)
+            metadata.upsert(bookID: "/books/plain", values: BookMetadataValues(title: "題名だけ"))
+        }
+        let container = try store.openCurrent()
+        let metadata = BookMetadataStore(modelContext: container.mainContext)
+        let row = try #require(metadata.metadata(forBookID: "/books/extra"))
+        #expect(row.values == values)
+        // 先頭の値は従来の列にある(先頭だけを読む書き出し・古い版のため)。
+        #expect(row.info == "付記1")
+        #expect(row.genre == "ジャンル1")
+        // 1 つずつしか持たない本は、新しい列を使わない。
+        #expect(metadata.metadata(forBookID: "/books/plain")?.extraValuesData == nil)
+    }
+
     @Test("読書位置の「最後のページが写っていた」は、開き直しても残る")
     func readingStateLastPageSurvivesReopening() throws {
         let store = try DisposableStore("reading-last-page")

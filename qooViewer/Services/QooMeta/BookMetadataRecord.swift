@@ -85,12 +85,13 @@ nonisolated enum MetadataParsing {
         func single(_ field: QooMetaKit.BookMetadata.Field, _ old: String, _ new: String) {
             if old != new { fields[field] = new.isEmpty ? [] : [new] }
         }
-        single(.title, old.title, new.title)
-        if old.authors != new.authors { fields[.authors] = new.authors }
-        single(.genre, old.genre, new.genre)
-        single(.event, old.event, new.event)
-        single(.source, old.source, new.source)
-        single(.info, old.info, new.info)
+        // 値をいくつも持てる欄は並びごと比べる(2 つ目からの値も残る。qooMeta 0.3.0)。
+        for field in QooMetaKit.BookMetadata.Field.allCases where field.holdsSeveral {
+            let newValues = new.values(field)
+            if old.values(field) != newValues { fields[field] = newValues }
+        }
+        // 足したシリーズは、いつも確定した内容にある(利用者が足したものなので)。
+        if old.alternateSeries != new.alternateSeries { fields.alternateSeries = new.qmAlternateSeries }
         // 巻数(並べ替え用)を変えたら、その数を確定する(無しにしたら確定を外し、表記から読んだ数に戻す)。変えずに巻の表記を
         // 変えたら、確定した数は外す(新しい表記と食い違った数を残さない)。
         if old.volumeSort != new.volumeSort, !new.series.isEmpty {

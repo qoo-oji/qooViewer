@@ -838,3 +838,147 @@ extension MetadataWorkspaceTests {
         #expect(workspace.revealRequest == nil)
     }
 }
+
+// MARK: - 1 つの欄に値をいくつも・足したシリーズ(qooMeta 0.3.0。2026-10-01)
+
+extension MetadataWorkspaceTests {
+    @Test("欄の段を足す・動かす・消すと DB に届き、鍵を掛けても外しても段は残る")
+    func linesOfAFieldReachTheStoreAndSurviveLocking() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+
+        workspace.setLine(.info, of: first, at: 0, to: "架空の付記A")
+        workspace.setLine(.info, of: first, at: 1, to: "架空の付記B", inserting: true)
+        await workspace.settle()
+        #expect(workspace.row(first)?.metadata.values(.info) == ["架空の付記A", "架空の付記B"])
+        #expect(workspace.row(first)?.tallFields[.info] == 2)
+        var stored = try #require(library.metadata.record(forBookID: first))
+        #expect(stored.values.info == "架空の付記A")
+        #expect(stored.values.values(.info) == ["架空の付記A", "架空の付記B"])
+
+        // 2 段目を選んで上へ。
+        workspace.selection = [first]
+        workspace.lineSelection = .init(id: first, column: .field(.info), index: 1)
+        #expect(workspace.canMoveLine(try #require(workspace.lineSelection), up: true))
+        #expect(!workspace.canMoveLine(try #require(workspace.lineSelection), up: false))
+        workspace.moveLine(up: true)
+        await workspace.settle()
+        #expect(workspace.lineSelection?.index == 0)
+        #expect(library.metadata.record(forBookID: first)?.values.values(.info) == ["架空の付記B", "架空の付記A"])
+
+        // 鍵を掛けても外しても、2 段目の値は落ちない(ロックした行は値そのものを確定する)。
+        workspace.setLocked([first], true)
+        await workspace.settle()
+        stored = try #require(library.metadata.record(forBookID: first))
+        #expect(stored.isLocked)
+        #expect(stored.values.values(.info) == ["架空の付記B", "架空の付記A"])
+        #expect(workspace.row(first)?.metadata.values(.info) == ["架空の付記B", "架空の付記A"])
+        #expect(!workspace.canMoveLine(.init(id: first, column: .field(.info), index: 1), up: true))
+        workspace.setLocked([first], false)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.values.values(.info) == ["架空の付記B", "架空の付記A"])
+
+        // 空にした段は消え、下の段が繰り上がる。
+        workspace.setLine(.info, of: first, at: 0, to: "")
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.values.values(.info) == ["架空の付記A"])
+        #expect(workspace.row(first)?.tallFields[.info] == nil)
+        // ほかの本は変わらない。
+        #expect(workspace.row(second)?.metadata.values(.info) == [])
+    }
+
+    @Test("足したシリーズは主のシリーズを変えず、巻数(並べ替え用)は表記から読まれ、シリーズを提案に戻すと消える")
+    func alternateSeriesAreLabelsBelowTheMainSeries() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+
+        workspace.setAlternateName(of: first, at: 0, to: "架空の外伝", inserting: true)
+        workspace.setAlternateVolume(of: first, at: 0, to: "第3巻")
+        await workspace.settle()
+        let row = try #require(workspace.row(first))
+        #expect(row.metadata.series == "月の庭")
+        #expect(row.alternateSeries.map(\.name) == ["架空の外伝"])
+        #expect(row.alternateSeries.first?.volumeSort == 3)
+        #expect(row.tallFields[.series] == 2)
+        #expect(row.hasUnlockedEdits)
+        #expect(workspace.row(second)?.metadata.series == "月の庭")
+        let stored = try #require(library.metadata.record(forBookID: first))
+        #expect(stored.values.alternateSeries == [AlternateSeriesValue(name: "架空の外伝", volume: "第3巻", volumeSort: 3)])
+        // 主のシリーズの段は動かせない。
+        #expect(!workspace.canMoveLine(.init(id: first, column: .series, index: 0), up: false))
+
+        // 鍵を掛けて外しても残る。
+        workspace.setLocked([first], true)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.values.alternateSeries.map(\.name) == ["架空の外伝"])
+        workspace.setLocked([first], false)
+        await workspace.settle()
+        #expect(workspace.row(first)?.alternateSeries.map(\.name) == ["架空の外伝"])
+
+        workspace.revertSeries([first])
+        await workspace.settle()
+        #expect(workspace.row(first)?.alternateSeries.isEmpty == true)
+        #expect(library.metadata.record(forBookID: first)?.values.alternateSeries.isEmpty == true)
+    }
+
+    @Test("名前を空にした足したシリーズは組ごと消える")
+    func emptyingAnAlternateNameRemovesThePair() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first])
+        workspace.setAlternateName(of: first, at: 0, to: "架空の外伝", inserting: true)
+        workspace.setAlternateName(of: first, at: 1, to: "架空の別編", inserting: true)
+        await workspace.settle()
+        workspace.setAlternateName(of: first, at: 0, to: "")
+        await workspace.settle()
+        #expect(workspace.row(first)?.alternateSeries.map(\.name) == ["架空の別編"])
+    }
+}
+
+/// 値をいくつも持つ欄の、値の形(`BookMetadataValues`)の約束(2026-10-01、qooMeta 0.3.0)。
+struct BookMetadataSeveralValuesTests {
+    @Test("先頭を空にすると 2 つ目が繰り上がり、名前の無い足したシリーズは落ちる")
+    func trimmingPromotesTheSecondValue() {
+        var values = BookMetadataValues(title: "題名")
+        values.setAllValues("info", to: ["付記1", "付記2", "付記3"])
+        values.info = "  "
+        values.alternateSeries = [AlternateSeriesValue(name: " 外伝 ", volume: " 2 "), AlternateSeriesValue(name: " ")]
+        let trimmed = values.trimmed
+        #expect(trimmed.info == "付記2")
+        #expect(trimmed.values(.info) == ["付記2", "付記3"])
+        #expect(trimmed.alternateSeries == [AlternateSeriesValue(name: "外伝", volume: "2")])
+        #expect(!BookMetadataValues(alternateSeries: [AlternateSeriesValue(name: "外伝")]).isEmpty)
+    }
+
+    @Test("前の版の JSON(新しい鍵が無い)も読め、1 つずつの値は前と同じ形で書く")
+    func codableKeepsTheOldShape() throws {
+        let old = Data(#"{"title":"題名","authors":["著者"],"genre":"","event":"","source":"","info":"","series":"","volume":""}"#.utf8)
+        #expect(try JSONDecoder().decode(BookMetadataValues.self, from: old) == BookMetadataValues(title: "題名", authors: ["著者"]))
+        let plain = String(decoding: try JSONEncoder().encode(BookMetadataValues(title: "題名")), as: UTF8.self)
+        #expect(!plain.contains("moreValues") && !plain.contains("alternateSeries"))
+        var several = BookMetadataValues(title: "題名")
+        several.setAllValues("genre", to: ["一", "二"])
+        several.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "1", volumeSort: 1)]
+        #expect(try JSONDecoder().decode(BookMetadataValues.self, from: JSONEncoder().encode(several)) == several)
+    }
+
+    @Test("先頭だけを直しても(インスペクタ)、2 つ目からの値と足したシリーズは直した欄に残る")
+    func editingTheFirstValueKeepsTheRest() {
+        var old = BookMetadataValues(title: "題名", series: "シリーズ", volume: "1")
+        old.setAllValues("info", to: ["付記1", "付記2"])
+        old.alternateSeries = [AlternateSeriesValue(name: "外伝", volume: "2")]
+        var new = old
+        new.info = "直した付記"
+        let edits = MetadataParsing.edits(changing: old, to: new, in: .none)
+        #expect(edits.fields[.info] == ["直した付記", "付記2"])
+        #expect(edits.fields[.title] == nil)
+        // 足したシリーズを変えていなければ、直した欄に足さない(読みのまま)。
+        #expect(edits.fields.alternateSeries.isEmpty)
+        // ロックした行の確定した内容は、2 つ目からの値と足したシリーズを含む。
+        let confirmed = old.confirmation.fields
+        #expect(confirmed[.info] == ["付記1", "付記2"])
+        #expect(confirmed.alternateSeries.map(\.name) == ["外伝"])
+    }
+}
