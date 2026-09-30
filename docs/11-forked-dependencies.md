@@ -50,6 +50,7 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `35800eb` Merge upstream v0.4.0 | 上の4件が upstream に入ったので取り込み。参照循環の直し方は upstream の案(`Entry.archive` 削除)に寄せ、フォーク側の回避策は捨てた(下記) |
 | `f93e3eb` Add reading an archive through a caller-supplied positional reader | `Archive(reader:)` / `Archive.PositionalReader`。`7zMemInStream.c` に「呼び出し側の関数から読む」`ISeekInStream`(`CCallbackInStream`)を足した。ネットワークボリューム上の 7z を qooViewer の読み込み層(`StagedFileSource`)経由で読むため(2026-09-24。[plans/network-volume-study.md](plans/network-volume-study.md))。短い読みを返してよい(LZMA SDK が繰り返す)。`Archive` が reader を保持する |
 | `0b4c1b9` Add a limit on whole-block decoding in the BCJ2 fallback | `Archive.maxWholeBlockBytes`。フォールバック(`extract`)の前にブロックの宣言の伸長後の大きさ(`SzAr_GetFolderUnpackSize`)と比べ、超えたら何も確保せずに `LZMAError.blockTooLarge` を投げる。既定は nil(従来どおり)。qooViewer はファイルブラウザの一覧の絵(BookThumbnailer)だけが 64MB を付ける(2026-09-14 の 2 回目の監査 20) |
+| `4db7571` Merge upstream v0.4.1 | upstream の LZMA SDK v26.03 への更新の取り込み(2026-10-01)。先に fork の `main` を `upstream/main` へ早送りし、その `main` を `streaming-extract` へ merge した。`7zFolderStream.c` が使う SDK の入口のシグネチャは変わっていない |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
 
