@@ -319,6 +319,23 @@ class FileBrowserOutlineView: NSOutlineView {
     var outlineWidth: CGFloat = 0
     /// 出し口が移動を許すかを尋ねる相手(読み取り専用モード。`fileBrowserDragSourceMask`)。
     weak var editResponder: (any FileBrowserEditResponding)?
+    /// Tab / ⇧Tab を押した(ファイルブラウザのツリーでは右ペインへ焦点を移す。`isFileBrowserPaneSwitchKey`)。
+    /// nil なら `NSOutlineView` の標準のまま(スマートライブラリのリスト表示)。
+    var onTabKey: (() -> Void)?
+    /// Return / Enter を押した(ファイルブラウザのツリーでは行の開閉。`isFileBrowserReturnKey`)。nil なら標準のまま。
+    var onReturnKey: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if let onTabKey, isFileBrowserPaneSwitchKey(event) {
+            onTabKey()
+            return
+        }
+        if let onReturnKey, isFileBrowserReturnKey(event) {
+            onReturnKey()
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     override func draggingSession(
         _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
@@ -426,6 +443,21 @@ class FileBrowserOutlineView: NSOutlineView {
         result.isTemplate = false
         return result
     }
+}
+
+/// Tab / ⇧Tab(修飾キーは ⇧ だけ)か。ファイルブラウザの左右のペインの間で焦点を移すキー(2026-09-30、ユーザー要望。
+/// docs/15「Tab でのペインの行き来」)。AppKit の一覧は Tab を「次のキービューへ」に使うが、SwiftUI に載せた
+/// `NSViewRepresentable` の間ではどこへも移らず、何も起きなかった。
+nonisolated func isFileBrowserPaneSwitchKey(_ event: NSEvent) -> Bool {
+    guard event.type == .keyDown, event.keyCode == 48 else { return false }
+    return event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.shift).isEmpty
+}
+
+/// Return / Enter(修飾キー無し。テンキーの Enter の `numericPad` / `function` は修飾と見ない)か。リスト・アイコン表示の
+/// `keyDown` と同じ判定(そちらは ⌘↓ も「開く」にするが、ツリーの Return は行の開閉なので ⌘↓ は含めない)。
+nonisolated func isFileBrowserReturnKey(_ event: NSEvent) -> Bool {
+    guard event.type == .keyDown, event.keyCode == 36 || event.keyCode == 76 else { return false }
+    return event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty
 }
 
 /// 名前の欄。`editingName`を入れると編集できる欄になり、編集を始めた瞬間に**表示名ではなく実際の名前**へ

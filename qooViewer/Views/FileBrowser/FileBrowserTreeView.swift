@@ -62,6 +62,17 @@ import SwiftUI
 /// **ふつうのフォルダの行だけ** ―― ボリューム・ホーム・よく使う項目の行を動かすと、ツリーの根そのものが
 /// 消える(よく使う項目は登録したパスを失う)。
 ///
+/// ■ Tab でのペインの行き来(2026-09-30、ユーザー要望)
+/// Tab / ⇧Tab で右ペイン(リスト・アイコン表示)へ焦点を移す(`FileBrowserOutlineView.onTabKey` → `FileBrowserState.requestFocus`)。
+/// 右ペインからの Tab はこちらへ来る(`focusRequest`): 現在のフォルダの行が見えていればそれを選んで焦点を受け、見えていなければ
+/// 「現在のフォルダまで開く」と同じ道筋(`reveal`)で開いて選んでから受ける(設定が OFF でも。開き終える前に利用者が別の行を
+/// クリックした・別のフォルダへ移ったら受けない ―― `focusRevealGeneration`)。道筋が切れた(隠しフォルダの下など)ときも焦点だけは受ける。
+///
+/// ■ Return で行を開閉する(2026-09-30、ユーザー要望)
+/// 選ばれている行で Return / Enter を押すと、開いていればたたみ、閉じていれば開く(三角の無い行では何もしない)。画像フォルダ
+/// (**直下に画像があるフォルダだけ**)は右ペインの Return と同じ設定に従う(`FileBrowserActions.openTreeRow`): 本として開く側なら
+/// 調べて本なら開き、そうでなければ開閉。グループの見出しと「最近の項目」では何もしない。
+///
 /// ■ よく使う項目の並べ替え(2026-09-14、ユーザー要望)
 /// よく使う項目の行は**並べ替えのためだけに**掴める。運ぶのは項目の id だけ(`fileBrowserFavoriteLocationPasteboardType`。
 /// ファイルの URL は書かないので、フォルダの行・リスト・Finder へ落としても何も起きない)。落とせるのはよく使う項目の
@@ -116,6 +127,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         configureFileBrowserDragSource(outline)
         outline.registerForDraggedTypes([.fileURL, fileBrowserFavoriteLocationPasteboardType])
         outline.editResponder = actions
+        outline.onTabKey = { [weak coordinator] in coordinator?.state?.requestFocus(.content) }
+        outline.onReturnKey = { [weak coordinator] in coordinator?.handleReturn() }
         let menu = NSMenu()
         menu.delegate = coordinator
         outline.menu = menu
@@ -132,6 +145,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         coordinator.scrollView = scroll
         // 前のツリーの開き具合と位置(型コメント「作り直しても開き具合と位置は残す」)。ボリュームの一覧を読み終えてから戻す。
         coordinator.pendingRestore = state.takeSavedTreeState()
+        coordinator.appliedFocusRequest = state.focusRequest
         coordinator.concealUntilRestored()
         coordinator.update(from: self)
         coordinator.start()
@@ -154,6 +168,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             outline.delegate = nil
             outline.unregisterDraggedTypes()
             outline.editResponder = nil
+            outline.onTabKey = nil
+            outline.onReturnKey = nil
             outline.menu?.delegate = nil
             outline.menu = nil
         }
@@ -277,6 +293,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var pendingRevealFolderID: String?
         /// 「現在のフォルダまで開く」の世代(型コメントの「途中でやめる」)。
         private var revealGeneration = 0
+        /// 取り込んだ「焦点を移して」(`FileBrowserState.focusRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
+        var appliedFocusRequest: FileBrowserState.FocusRequest?
+        /// 開き終えたら焦点を受ける展開の世代(型コメント「Tab でのペインの行き来」)。世代が進めば受けない。
+        private var focusRevealGeneration: Int?
         /// 開いている行の見張り(型コメント「外での変更」)。
         private var watcher: FolderChangeWatcher?
         private var watchUpdateScheduled = false
@@ -464,7 +484,58 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 appliedFolderID = folderID
                 applySelection(folderID: folderID)
             }
+            // 右ペインからの Tab(型コメント「Tab でのペインの行き来」)。
+            if let request = view.state.focusRequest, request.pane == .tree, request != appliedFocusRequest {
+                appliedFocusRequest = request
+                focusTree(folderID: folderID)
+            }
             startPendingRevealIfReady()
+        }
+
+        // MARK: Return で行を開閉する
+
+        /// 選ばれている行の Return(型コメント「Return で行を開閉する」)。
+        func handleReturn() {
+            guard let outline, outline.selectedRow >= 0, let node = outline.item(atRow: outline.selectedRow) as? Node,
+                  node.loadsChildren, let entry = node.entry, let actions
+            else { return }
+            actions.openTreeRow(entry) { [weak self, weak node] in
+                guard let self, let outline = self.outline, let node else { return }
+                // 調べている間に別の行へ移っていたら、その行は触らない。
+                guard outline.selectedRow >= 0, outline.item(atRow: outline.selectedRow) as? Node === node else { return }
+                if outline.isItemExpanded(node) {
+                    outline.collapseItem(node)
+                } else if node.hasSubfolders != false {
+                    outline.expandItem(node)
+                }
+            }
+        }
+
+        // MARK: Tab でのペインの行き来
+
+        /// 焦点を受ける。現在のフォルダの行が見えていなければ、そこまで開いてから(`reveal` の終わりで受ける)。
+        private func focusTree(folderID: String?) {
+            guard let outline else { return }
+            if folderID == nil || row(forSelectionKey: folderID) >= 0 {
+                applySelection(folderID: folderID)
+                // SwiftUI の更新の中から呼ばれる(`update`)ので、焦点は更新の外で動かす。
+                DispatchQueue.main.async { [weak outline] in
+                    guard let outline, let window = outline.window else { return }
+                    window.makeFirstResponder(outline)
+                }
+                return
+            }
+            revealGeneration += 1
+            focusRevealGeneration = revealGeneration
+            pendingRevealFolderID = folderID
+        }
+
+        /// 開き終えた(または開けなかった)展開の世代で焦点を受ける。世代が進んでいれば(別の行をクリックした・別のフォルダへ移った)受けない。
+        private func takeFocusIfRequested(for generation: Int) {
+            guard focusRevealGeneration == generation, revealGeneration == generation else { return }
+            focusRevealGeneration = nil
+            guard let outline, let window = outline.window else { return }
+            window.makeFirstResponder(outline)
         }
 
         // MARK: 作り直しても開き具合と位置は残す
@@ -602,6 +673,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard let target = pendingRevealFolderID, let state else { return }
             guard FileBrowserState.id(of: state.currentFolder) == target, state.loadError == nil else {
                 pendingRevealFolderID = nil
+                // 開けないが、焦点は受ける(Tab から。型コメント「Tab でのペインの行き来」)。
+                takeFocusIfRequested(for: revealGeneration)
                 return
             }
             guard !state.isLoading, hasLoadedVolumes else { return }
@@ -611,6 +684,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         private func reveal(_ target: String, generation: Int) async {
+            // 出口はどれも、Tab から頼まれていれば焦点を受ける。
+            defer { takeFocusIfRequested(for: generation) }
             let roots = groups.flatMap { $0.children ?? [] }.compactMap { node in node.url.map { (node, $0.path) } }
             guard let plan = FileBrowserTreePath.plan(to: target, roots: roots.map(\.1)) else { return }
             var node = roots[plan.rootIndex].0
@@ -660,18 +735,19 @@ struct FileBrowserTreeView: NSViewRepresentable {
             return node.children
         }
 
+        /// 右ペインの場所の鍵を持つ行(無ければ -1)。
+        private func row(forSelectionKey folderID: String?) -> Int {
+            guard let outline, let folderID else { return -1 }
+            for row in 0..<outline.numberOfRows {
+                if let node = outline.item(atRow: row) as? Node, node.selectionKey == folderID { return row }
+            }
+            return -1
+        }
+
         /// 右ペインのフォルダの行を選ぶ(見えていなければ選択を外す)。
         private func applySelection(folderID: String?) {
             guard let outline else { return }
-            var target = -1
-            if let folderID {
-                for row in 0..<outline.numberOfRows {
-                    if let node = outline.item(atRow: row) as? Node, node.selectionKey == folderID {
-                        target = row
-                        break
-                    }
-                }
-            }
+            let target = row(forSelectionKey: folderID)
             let indexes = target >= 0 ? IndexSet(integer: target) : IndexSet()
             guard indexes != outline.selectedRowIndexes else { return }
             isApplyingSelection = true

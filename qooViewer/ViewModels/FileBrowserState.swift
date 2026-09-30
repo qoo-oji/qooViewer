@@ -253,6 +253,37 @@ final class FileBrowserState: ObservableObject {
         searchFocusRequest &+= 1
     }
 
+    /// Tab で焦点を移す先(2026-09-30、ユーザー要望。docs/15「Tab でのペインの行き来」)。
+    enum FocusPane: Equatable {
+        /// 左のツリー。現在のフォルダの行が見えていなければ、そこまで開いてから選ぶ(FileBrowserTreeView の Coordinator)。
+        case tree
+        /// 右のリスト・アイコン表示。
+        case content
+    }
+
+    struct FocusRequest: Equatable {
+        let pane: FocusPane
+        let serial: Int
+    }
+
+    /// 焦点を移してほしい(Tab / ⇧Tab。AppKit の一覧が `update` で変化を拾い、`makeFirstResponder` する)。
+    @Published private(set) var focusRequest: FocusRequest?
+    private var focusSerial = 0
+
+    /// 焦点をもう一方のペインへ移す。右ペインへ移すとき何も選ばれていなければ先頭の項目を選ぶ ―― 焦点が移ったことが
+    /// 見えるように(ツリーへ移すときは現在のフォルダの行が選ばれる)。
+    func requestFocus(_ pane: FocusPane) {
+        if pane == .content, selection.isEmpty, let first = entries.first {
+            selection = [first.id]
+            selectionRangeOrigin = nil
+            selectionAnchor = first.id
+            scrollSerial += 1
+            scrollRequest = ScrollRequest(id: first.id, serial: scrollSerial)
+        }
+        focusSerial += 1
+        focusRequest = FocusRequest(pane: pane, serial: focusSerial)
+    }
+
     /// アイコンの大きさを 1 段変える(メニューバーの「拡大」「縮小」。2026-09-15)。
     func stepIconSize(larger: Bool) {
         let next = Self.clamp(iconSize * (larger ? 1.25 : 0.8), to: Self.iconSizeRange)

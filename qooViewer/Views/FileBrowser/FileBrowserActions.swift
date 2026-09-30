@@ -452,6 +452,34 @@ final class FileBrowserActions {
         return nil
     }
 
+    /// ツリーの行の Return(2026-09-30、ユーザー要望。docs/15「ツリーの Return」)。右ペインの Return と同じ設定
+    /// (`fileBrowserImageFolderOpenAction`)に従う: 画像フォルダを本として開く側なら調べて、本なら開く。本として開かなかった
+    /// (中へ移動する側の設定・画像フォルダではない)ときは `otherwise`(行の開閉)。ツリーの行はもう現在のフォルダなので、
+    /// 「中へ移動」に当たるものは無い。返す Task は調べて開くまで(調べないときは nil)。
+    ///
+    /// **本とみなすのは直下に画像があるフォルダだけ**(規則 1。`DirectoryBrowser.directlyContainsImageFile`)。右ペインの「開く」が
+    /// 使う `isSingleBookFolder` は章ごとに画像フォルダを分けた本(規則 2)も本とするが、ツリーでそれを使うと、画像入りのサブフォルダを
+    /// 持つだけの棚のフォルダ(よく使う項目の根など)が Return で本として開き、展開できなかった(使い捨てボリュームでの実機検証、
+    /// 2026-09-30。利用者の指示で規則 1 だけにした)。
+    @discardableResult
+    func openTreeRow(_ entry: FileBrowserEntry, otherwise: @escaping @MainActor () -> Void) -> Task<Void, Never>? {
+        guard state != nil else { return nil }
+        let action = preferences?.fileBrowserImageFolderOpenAction ?? .openFolder
+        guard action.opensAsBook(fromMenu: false) else {
+            otherwise()
+            return nil
+        }
+        return Task { [weak self] in
+            let isBook = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(entry.url) }
+            guard let self, self.state != nil else { return }
+            if isBook {
+                self.appState?.open(url: entry.url)
+            } else {
+                otherwise()
+            }
+        }
+    }
+
     /// 画像フォルダ(それ自体が1冊の本)か。棚への登録と同じ規則を、子フォルダの中を全部読まず、保護下の場所にも入らずに
     /// FileIOの上で(ShelfFolderResolver.isSingleBookFolder。2026-09-14 の 2 回目の監査 15 ―― 以前は `role` がホームで
     /// 「書類」などの中まで読み、ダブルクリックや右クリックの「開く」だけで許可のダイアログが出た)。

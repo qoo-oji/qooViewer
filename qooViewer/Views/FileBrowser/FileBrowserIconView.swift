@@ -105,6 +105,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         // 前の一覧のスクロール位置へ戻す(リスト表示の makeNSView と同じ。FileBrowserState.savedScrollOrigins)。
         let savedOrigin = state.takeSavedScrollOrigin(for: .icons)
         if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        coordinator.appliedFocusRequest = state.focusRequest
         coordinator.update(from: self)
         if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
@@ -270,6 +271,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         private var appliedRename: FileBrowserState.ScrollRequest?
         /// 取り込んだ「名前の編集を取りやめて」の通し番号(`FileBrowserState.nameEditingCancelSerial`)。
         private var appliedNameEditingCancelSerial = 0
+        /// 取り込んだ「焦点を移して」(`FileBrowserState.focusRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
+        var appliedFocusRequest: FileBrowserState.FocusRequest?
         private var iconSize: CGFloat = 0
         private var outlineWidth: CGFloat = -1
         private var thumbnailRevision: UInt64 = 0
@@ -316,6 +319,14 @@ struct FileBrowserIconView: NSViewRepresentable {
             onWholeViewDropTargetChange = view.onWholeViewDropTargetChange
             collection.editResponder = view.actions
             locale = view.locale
+            // ツリーからの Tab(FileBrowserState.requestFocus)。焦点を動かすので SwiftUI の更新の外で。
+            if let request = view.state.focusRequest, request.pane == .content, request != appliedFocusRequest {
+                appliedFocusRequest = request
+                DispatchQueue.main.async { [weak collection] in
+                    guard let collection, let window = collection.window else { return }
+                    window.makeFirstResponder(collection)
+                }
+            }
             var needsReconfigure = false
             if view.state.iconSize != iconSize {
                 iconSize = view.state.iconSize
@@ -645,6 +656,10 @@ struct FileBrowserIconView: NSViewRepresentable {
             actions.open(state.selection.contains(entry.id) ? state.selectedEntries : [entry])
         }
 
+        func focusTree() {
+            state?.requestFocus(.tree)
+        }
+
         func openSelection() {
             guard let actions, let state else { return }
             let targets = state.selectedEntries
@@ -804,6 +819,8 @@ protocol FileBrowserCollectionViewHandling: AnyObject {
     func noteInteraction()
     func openItem(at index: Int)
     func openSelection()
+    /// Tab / ⇧Tab(左のツリーへ焦点を移す)。
+    func focusTree()
     func typeSelect(_ characters: String)
     func moveSelection(_ direction: GridKeyboardNavigation.Direction, extending: Bool)
     func magnify(by magnification: CGFloat)
@@ -919,6 +936,10 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
         if (event.keyCode == 36 || event.keyCode == 76) && flags.subtracting([.numericPad, .function]).isEmpty
             || (event.keyCode == 125 && flags.contains(.command)) {
             handler?.openSelection()
+            return
+        }
+        if isFileBrowserPaneSwitchKey(event) {
+            handler?.focusTree()
             return
         }
         if let command = FileBrowserEditCommand.forKey(event), let editResponder {

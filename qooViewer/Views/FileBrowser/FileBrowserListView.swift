@@ -89,6 +89,7 @@ struct FileBrowserListView: NSViewRepresentable {
         table.target = coordinator
         table.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
         table.onReturn = { [weak coordinator] in coordinator?.openSelection() }
+        table.onTabKey = { [weak coordinator] in coordinator?.state?.requestFocus(.tree) }
         table.onInteraction = { [weak coordinator] in coordinator?.nameClickRename.cancel() }
         table.onNameClick = { [weak coordinator] row in coordinator?.nameClicked(row: row) }
         table.editResponder = actions
@@ -125,6 +126,7 @@ struct FileBrowserListView: NSViewRepresentable {
         // 動いてしまう)。
         let savedOrigin = state.takeSavedScrollOrigin(for: .list)
         if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        coordinator.appliedFocusRequest = state.focusRequest
         coordinator.update(from: self)
         if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
@@ -147,6 +149,7 @@ struct FileBrowserListView: NSViewRepresentable {
             table.target = nil
             table.doubleAction = nil
             table.onReturn = nil
+            table.onTabKey = nil
             table.onInteraction = nil
             table.onNameClick = nil
             table.editResponder = nil
@@ -249,6 +252,8 @@ struct FileBrowserListView: NSViewRepresentable {
         let nameClickRename = FileBrowserNameClickRename()
         /// 取り込んだ「名前の編集を取りやめて」の通し番号(`FileBrowserState.nameEditingCancelSerial`)。
         private var appliedNameEditingCancelSerial = 0
+        /// 取り込んだ「焦点を移して」(`FileBrowserState.focusRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
+        var appliedFocusRequest: FileBrowserState.FocusRequest?
         private lazy var dateFormatter: DateFormatter = makeDateFormatter()
         private let sizeFormatter: ByteCountFormatter = {
             let formatter = ByteCountFormatter()
@@ -270,6 +275,14 @@ struct FileBrowserListView: NSViewRepresentable {
             guard let table else { return }
             state = view.state
             actions = view.actions
+            // ツリーからの Tab(FileBrowserState.requestFocus)。焦点を動かすので SwiftUI の更新の外で。
+            if let request = view.state.focusRequest, request.pane == .content, request != appliedFocusRequest {
+                appliedFocusRequest = request
+                DispatchQueue.main.async { [weak table] in
+                    guard let table, let window = table.window else { return }
+                    window.makeFirstResponder(table)
+                }
+            }
             var needsReload = false
             if view.locale != locale {
                 locale = view.locale
@@ -771,6 +784,8 @@ struct FileBrowserListView: NSViewRepresentable {
 /// ファイルブラウザのキー(⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑)を`editResponder`へ渡す(段階4)。
 final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
     var onReturn: (() -> Void)?
+    /// Tab / ⇧Tab(左のツリーへ焦点を移す。`isFileBrowserPaneSwitchKey`)。
+    var onTabKey: (() -> Void)?
     /// 押し下げ・キー・右クリック(名前のクリックから編集を始める予約を取りやめる)。
     var onInteraction: (() -> Void)?
     /// 選ばれている 1 行の名前の文字を、修飾キー無しで 1 回クリックした(引数は行)。
@@ -832,6 +847,10 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
         if (event.keyCode == 36 || event.keyCode == 76) && flags.subtracting([.numericPad, .function]).isEmpty
             || (event.keyCode == 125 && flags.contains(.command)) {
             onReturn?()
+            return
+        }
+        if isFileBrowserPaneSwitchKey(event) {
+            onTabKey?()
             return
         }
         if let command = FileBrowserEditCommand.forKey(event), let editResponder {

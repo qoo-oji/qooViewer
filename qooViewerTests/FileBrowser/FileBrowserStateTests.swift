@@ -686,6 +686,35 @@ struct FileBrowserStateTests {
         #expect(state.nameEditingCancelSerial == start + 2)
     }
 
+    /// Tab でのペインの行き来(2026-09-30、ユーザー要望。docs/15「Tab でのペインの行き来」)。焦点を動かすのは AppKit の一覧なので、
+    /// ここで見るのは頼みの形だけ: 右ペインへ移すとき何も選ばれていなければ先頭の項目を選び、選ばれていれば触らない。
+    @Test("右ペインへ焦点を移す頼みは、何も選ばれていなければ先頭の項目を選ぶ")
+    func focusingTheContentPaneSelectsTheFirstItemWhenNothingIsSelected() async throws {
+        let fixture = try Fixture("fb-focus-request")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        #expect(state.focusRequest == nil)
+
+        state.requestFocus(.content)
+        let first = try #require(state.focusRequest)
+        #expect(first.pane == .content)
+        #expect(state.selection == [fixture.id(fixture.aFolder)], "先頭の項目(フォルダを上にした名前順)を選ぶ")
+
+        // 選ばれていれば触らない。頼みは毎回新しい値になる(同じキーを続けて押しても一覧が拾える)。
+        state.selection = [fixture.id(fixture.bFolder)]
+        state.requestFocus(.content)
+        let second = try #require(state.focusRequest)
+        #expect(second != first && second.pane == .content)
+        #expect(state.selection == [fixture.id(fixture.bFolder)])
+
+        // ツリーへ移すときは右ペインの選択に触らない。
+        state.selection = []
+        state.requestFocus(.tree)
+        #expect(state.focusRequest?.pane == .tree)
+        #expect(state.selection.isEmpty)
+    }
+
     @Test("つながる前に画面から外れたら、つながっても始めない")
     func deactivationCancelsTheAwaitedActivation() async throws {
         let fixture = try Fixture("fb-await-deactivate")

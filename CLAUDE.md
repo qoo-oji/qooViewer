@@ -237,7 +237,11 @@ moves/renames/deletes user files must go through `FileOperationService`, and new
 each state gets a private center/clipboard and `AppStores` does not subscribe. Operations on a book open in any viewer are refused
 (`FileBrowserOperations.refusesBecauseOpenInViewer`), and a book whose bookmark resolves into the Trash counts as missing
 (`BookLocationResolver.isInTrash`). Audit and rationale: `docs/plans/fs-ui-consistency-audit.md`, docs/15「アプリ自身の変更の知らせ」.
-Inline rename (list and icon view) is started only by the app, never by AppKit: name
+Tab / ⇧Tab moves keyboard focus between the tree and the list/icon view through `FileBrowserState.requestFocus`
+(the AppKit lists never reached each other through the key view loop; a Tab from the right pane reveals the current folder's row through
+the same `reveal` as "expand to current folder"), and Return in the tree toggles the selected row — an image folder (rule 1 only,
+`directlyContainsImageFile`, never `isSingleBookFolder`: a shelf folder holding one image subfolder would open as a book) follows
+`fileBrowserImageFolderOpenAction` (2026-09-30, verified on a disposable volume). Inline rename (list and icon view) is started only by the app, never by AppKit: name
 fields are not editable at rest (NSTableView's own click-to-edit ran from a private delayed perform that ignored drags and
 started editing a file that had just been moved, 2026-09-19); every start goes through `FileBrowserNameEditing.canBegin`
 (item still listed and on disk), clicks wait in `FileBrowserNameClickRename`, and an edit whose item vanishes is cancelled.
