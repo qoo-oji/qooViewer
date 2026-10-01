@@ -69,208 +69,6 @@
         }
       }
     },
-    "Add a Line to “%@”" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add a Line to “%@”"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」に段を足す"
-          }
-        }
-      }
-    },
-    "Add a value" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add a value"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "値を足す"
-          }
-        }
-      }
-    },
-    "Double-click a line to edit it. Option-Return adds a line below" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Double-click a line to edit it. Option-Return adds a line below"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "段を 2 回押すと、その段を直せます。直している最中に Option+Return で下に段を足せます"
-          }
-        }
-      }
-    },
-    "Make Alias" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Make Alias"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "エイリアスを作成"
-          }
-        }
-      }
-    },
-    "Move Down" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move Down"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下へ"
-          }
-        }
-      }
-    },
-    "Move Up" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move Up"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上へ"
-          }
-        }
-      }
-    },
-    "Moves the selected line down within its book (Option-Command-Down Arrow)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moves the selected line down within its book (Option-Command-Down Arrow)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選んだ段を、その本の中で 1 つ下へ動かします(Option+Command+↓)"
-          }
-        }
-      }
-    },
-    "Moves the selected line up within its book (Option-Command-Up Arrow)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moves the selected line up within its book (Option-Command-Up Arrow)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選んだ段を、その本の中で 1 つ上へ動かします(Option+Command+↑)"
-          }
-        }
-      }
-    },
-    "Moves the value down (Option-Command-Down Arrow)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moves the value down (Option-Command-Down Arrow)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この値を 1 つ下へ動かします(Option+Command+↓)"
-          }
-        }
-      }
-    },
-    "Moves the value up (Option-Command-Up Arrow)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moves the value up (Option-Command-Up Arrow)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この値を 1 つ上へ動かします(Option+Command+↑)"
-          }
-        }
-      }
-    },
-    "Quick Look" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quick Look"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クイックルック"
-          }
-        }
-      }
-    },
-    "Write one value per line." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Write one value per line."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 行に 1 つの値を書きます。"
-          }
-        }
-      }
-    },
     "—" : {
       "comment" : "A placeholder text for a value that is not available.",
       "isCommentAutoGenerated" : true
@@ -1098,23 +896,6 @@
         }
       }
     },
-    "%lld items" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld items"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 項目"
-          }
-        }
-      }
-    },
     "(%lld / %lld)" : {
       "localizations" : {
         "en" : {
@@ -1894,6 +1675,23 @@
         }
       }
     },
+    "%lld items" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目"
+          }
+        }
+      }
+    },
     "%lld items are locked. Do you want to delete them anyway?" : {
       "localizations" : {
         "en" : {
@@ -2247,167 +2045,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⇥(タブ)"
-          }
-        }
-      }
-    },
-    "Calculating…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Calculating…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "計算中…"
-          }
-        }
-      }
-    },
-    "Collection" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collection"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクション"
-          }
-        }
-      }
-    },
-    "Hide Inspector" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hide Inspector"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "インスペクタを隠す"
-          }
-        }
-      }
-    },
-    "Information" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Information"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "情報"
-          }
-        }
-      }
-    },
-    "Inspector" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inspector"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "インスペクタ"
-          }
-        }
-      }
-    },
-    "Lock the values in the fields." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lock the values in the fields."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "欄の値をロックします。"
-          }
-        }
-      }
-    },
-    "Locked: the fields can’t be changed. Unlock to edit them." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked: the fields can’t be changed. Unlock to edit them."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ロック中: 欄は変えられません。変えるにはロックを外してください。"
-          }
-        }
-      }
-    },
-    "More than %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More than %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 以上"
-          }
-        }
-      }
-    },
-    "No Selection" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Selection"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択されていません"
-          }
-        }
-      }
-    },
-    "Show Inspector" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Inspector"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "インスペクタを表示"
           }
         }
       }
@@ -3425,6 +3062,23 @@
         }
       }
     },
+    "Add a Line to “%@”" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a Line to “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」に段を足す"
+          }
+        }
+      }
+    },
     "Add a rule" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3470,6 +3124,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "トリガーを追加"
+          }
+        }
+      }
+    },
+    "Add a value" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a value"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "値を足す"
           }
         }
       }
@@ -3986,6 +3657,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "追加した語"
+          }
+        }
+      }
+    },
+    "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左のツリーの「ボリューム」の上に「最近の項目」を加えます。qooViewer で開いた本が新しい順に並びます(メニューバー「ファイル」の「最近使った項目を開く」と同じ一覧)。履歴のボタンが無いホームからも、開いた本へ戻れます。シークレットウインドウでは表示しません。"
           }
         }
       }
@@ -4640,22 +4327,6 @@
         }
       }
     },
-    "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メニューバー「ファイル」の「最近使った項目を開く」と、サイドパネルの「履歴」モードに効きます。すでに本を表示しているときだけ適用されます。ホームから開く場合は、常に現在のウインドウで開きます。"
-          }
-        }
-      }
-    },
     "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4734,6 +4405,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "システムのライト/ダークの設定に関わらず、qooViewerだけをこの外観にします。ビューアの背景色は別の設定です。"
+          }
+        }
+      }
+    },
+    "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニューバー「ファイル」の「最近使った項目を開く」と、サイドパネルの「履歴」モードに効きます。すでに本を表示しているときだけ適用されます。ホームから開く場合は、常に現在のウインドウで開きます。"
           }
         }
       }
@@ -6326,6 +6013,22 @@
         }
       }
     },
+    "Calculating…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "計算中…"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "en" : {
@@ -7716,6 +7419,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "閉じ括弧 → 開き括弧"
+          }
+        }
+      }
+    },
+    "Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション"
           }
         }
       }
@@ -10855,6 +10574,23 @@
         }
       }
     },
+    "Double-click a line to edit it. Option-Return adds a line below" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-click a line to edit it. Option-Return adds a line below"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "段を 2 回押すと、その段を直せます。直している最中に Option+Return で下に段を足せます"
+          }
+        }
+      }
+    },
     "Double-Click or Return" : {
       "localizations" : {
         "en" : {
@@ -11169,6 +10905,7 @@
       }
     },
     "Drop an image file on the cover, or right-click it to choose a page." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -14945,6 +14682,22 @@
         }
       }
     },
+    "Hide Inspector" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Inspector"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インスペクタを隠す"
+          }
+        }
+      }
+    },
     "Hide Progress Bar" : {
       "localizations" : {
         "en" : {
@@ -15816,6 +15569,22 @@
         }
       }
     },
+    "Information" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Information"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報"
+          }
+        }
+      }
+    },
     "Input" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15829,6 +15598,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "入力"
+          }
+        }
+      }
+    },
+    "Inspector" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inspector"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インスペクタ"
           }
         }
       }
@@ -17418,6 +17203,23 @@
         }
       }
     },
+    "Lock the values in the fields." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lock the values in the fields."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欄の値をロックします。"
+          }
+        }
+      }
+    },
     "Lock the values in the fields. The change is saved with Save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17512,6 +17314,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ロックされた項目と、ロックされた項目を含むフォルダは、ロックを外してから削除されます。"
+          }
+        }
+      }
+    },
+    "Locked: the fields can’t be changed. Unlock to edit them." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked: the fields can’t be changed. Unlock to edit them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロック中: 欄は変えられません。変えるにはロックを外してください。"
           }
         }
       }
@@ -17763,6 +17582,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本編のシリーズがあれば、総集編が 1 冊でもシリーズにする"
+          }
+        }
+      }
+    },
+    "Make Alias" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make Alias"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エイリアスを作成"
           }
         }
       }
@@ -18216,6 +18051,23 @@
         }
       }
     },
+    "More than %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More than %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 以上"
+          }
+        }
+      }
+    },
     "Mouse" : {
       "localizations" : {
         "en" : {
@@ -18277,6 +18129,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本の移動をブラウザの並び順に合わせる"
+          }
+        }
+      }
+    },
+    "Move Down" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Down"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下へ"
           }
         }
       }
@@ -18517,6 +18386,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ゴミ箱に入れる"
+          }
+        }
+      }
+    },
+    "Move Up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Up"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上へ"
+          }
+        }
+      }
+    },
+    "Moves the selected line down within its book (Option-Command-Down Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the selected line down within its book (Option-Command-Down Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んだ段を、その本の中で 1 つ下へ動かします(Option+Command+↓)"
+          }
+        }
+      }
+    },
+    "Moves the selected line up within its book (Option-Command-Up Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the selected line up within its book (Option-Command-Up Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んだ段を、その本の中で 1 つ上へ動かします(Option+Command+↑)"
+          }
+        }
+      }
+    },
+    "Moves the value down (Option-Command-Down Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the value down (Option-Command-Down Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この値を 1 つ下へ動かします(Option+Command+↓)"
+          }
+        }
+      }
+    },
+    "Moves the value up (Option-Command-Up Arrow)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves the value up (Option-Command-Up Arrow)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この値を 1 つ上へ動かします(Option+Command+↑)"
           }
         }
       }
@@ -19266,6 +19220,22 @@
         }
       }
     },
+    "No books have been opened yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No books have been opened yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだ本を開いていません。"
+          }
+        }
+      }
+    },
     "No books in this collection" : {
       "localizations" : {
         "en" : {
@@ -19530,22 +19500,6 @@
         }
       }
     },
-    "No books have been opened yet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No books have been opened yet."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "まだ本を開いていません。"
-          }
-        }
-      }
-    },
     "No items match your search." : {
       "localizations" : {
         "en" : {
@@ -19713,6 +19667,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拡大縮小しない"
+          }
+        }
+      }
+    },
+    "No Selection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Selection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択されていません"
           }
         }
       }
@@ -22836,6 +22806,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前回、次の項目を置き換えている途中で qooViewer が終了しました。元の項目は同じフォルダの中に隠し項目として残っています。次に qooViewer を開いたときにもう一度戻します(同じ名前の項目があるときは、先にそれを別の場所へ移してください):"
+          }
+        }
+      }
+    },
+    "Quick Look" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Look"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クイックルック"
           }
         }
       }
@@ -26682,6 +26668,22 @@
         }
       }
     },
+    "Show Inspector" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Inspector"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インスペクタを表示"
+          }
+        }
+      }
+    },
     "Show Left Page at Actual Size" : {
       "localizations" : {
         "en" : {
@@ -26758,6 +26760,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近のお気に入りを表示する"
+          }
+        }
+      }
+    },
+    "Show Recents at the Top of the Tree" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Recents at the Top of the Tree"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツリーの先頭に「最近の項目」を表示"
           }
         }
       }
@@ -27321,22 +27339,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並び順"
-          }
-        }
-      }
-    },
-    "Show Recents at the Top of the Tree" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Recents at the Top of the Tree"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ツリーの先頭に「最近の項目」を表示"
           }
         }
       }
@@ -27927,22 +27929,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "計測を停止"
-          }
-        }
-      }
-    },
-    "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "左のツリーの「ボリューム」の上に「最近の項目」を加えます。qooViewer で開いた本が新しい順に並びます(メニューバー「ファイル」の「最近使った項目を開く」と同じ一覧)。履歴のボタンが無いホームからも、開いた本へ戻れます。シークレットウインドウでは表示しません。"
           }
         }
       }
@@ -32217,6 +32203,7 @@
       }
     },
     "Volume" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -33681,6 +33668,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "悪化"
+          }
+        }
+      }
+    },
+    "Write one value per line." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Write one value per line."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 行に 1 つの値を書きます。"
           }
         }
       }
