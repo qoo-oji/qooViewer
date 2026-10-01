@@ -479,6 +479,20 @@ final class FileBrowserOperations: ObservableObject {
         }
     }
 
+    /// 「エイリアスを作成」(2026-10-01)。選んだ項目のそれぞれの隣に Finder と同じ名前で作り(`FinderAliasName`)、作ったものを選ぶ
+    /// (Finder と同じく名前の編集は始めない)。全体で 1 回の取り消し(作ったエイリアスをゴミ箱へ)。ボリュームそのものは外す。
+    @discardableResult
+    func makeAliases(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
+        let items = entries.filter { !$0.isVolume }.map(\.url)
+        return enqueue { [weak self] in
+            guard let self, !items.isEmpty else { return }
+            let command = MakeAliasesCommand(items: items, fileOps: self.fileOps)
+            let affected = Array(Set(items.map { $0.deletingLastPathComponent() }))
+            await self.run(command, title: nil, cancellation: nil, affected: affected) { _ in command.receipts.map(\.destination) }
+        }
+    }
+
     /// 名前の変更(インラインの編集が確定したとき)。同じ名前なら何もしない。
     @discardableResult
     func rename(_ entry: FileBrowserEntry, to newName: String) -> Task<Void, Never> {

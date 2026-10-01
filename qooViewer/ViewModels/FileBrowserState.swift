@@ -284,6 +284,22 @@ final class FileBrowserState: ObservableObject {
         focusRequest = FocusRequest(pane: pane, serial: focusSerial)
     }
 
+    struct QuickLookRequest: Equatable {
+        /// 出ていれば閉じる(メニューバーの ⌘Y。右クリックは閉じずに出す)。
+        let toggles: Bool
+        let serial: Int
+    }
+
+    /// クイックルックを出してほしい(右クリック・メニューバーの「クイックルック」。2026-10-01)。パネルの受け手は一覧(リスト・アイコン)の
+    /// AppKit のビューなので、一覧が `update` で変化を拾って出す(FileBrowserQuickLook.show)。見せるのはいまの選択。
+    @Published private(set) var quickLookRequest: QuickLookRequest?
+    private var quickLookSerial = 0
+
+    func requestQuickLook(toggles: Bool) {
+        quickLookSerial += 1
+        quickLookRequest = QuickLookRequest(toggles: toggles, serial: quickLookSerial)
+    }
+
     /// アイコンの大きさを 1 段変える(メニューバーの「拡大」「縮小」。2026-09-15)。
     func stepIconSize(larger: Bool) {
         let next = Self.clamp(iconSize * (larger ? 1.25 : 0.8), to: Self.iconSizeRange)

@@ -769,6 +769,40 @@ final class DeleteFilesImmediatelyCommand: FileCommand {
     }
 }
 
+/// エイリアスを作成(2026-10-01)。取り消しは**作ったエイリアスをゴミ箱へ**(Finder の ⌘Z と同じ。圧縮の取り消しと同じく、作ったそのもの
+/// でなくなった項目には触らない)。元の項目には触っていない。
+@MainActor
+final class MakeAliasesCommand: FileCommand {
+    private let items: [URL]
+    private let localization: String
+    private let fileOps: FileOperationService
+    private(set) var receipts: [TransferReceipt] = []
+
+    init(items: [URL], localization: String = FinderAliasName.finderLocalization(), fileOps: FileOperationService = .shared) {
+        self.items = items
+        self.localization = localization
+        self.fileOps = fileOps
+    }
+
+    var displayName: String {
+        String(localized: "Make Alias", language: AppLanguage.currentLocale)
+    }
+
+    let isUndoable = true
+
+    func execute() async throws -> FileCommandResult {
+        let outcome = await fileOps.makeAliases(of: items, localization: localization)
+        receipts = outcome.receipts
+        if outcome.failures.isEmpty { return .success }
+        // 1 つも作れなければ積まない(`hasEffect`)。失敗は「一部だけ済んだ」の知らせに並ぶ。
+        return .partial(succeeded: receipts.count, failures: outcome.failures, wasCancelled: false)
+    }
+
+    func undo() async throws -> FileUndoResult {
+        await TransferUndo.trashCreated(receipts, fileOps: fileOps)
+    }
+}
+
 /// 新規フォルダ。取り消しは**空のときだけ**ゴミ箱へ(中に何か入れたあとで ⌘Z しても、入れたものを巻き込まない)。
 @MainActor
 final class CreateFolderCommand: FileCommand {

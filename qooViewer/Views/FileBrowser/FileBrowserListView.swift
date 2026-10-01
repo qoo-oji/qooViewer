@@ -127,6 +127,7 @@ struct FileBrowserListView: NSViewRepresentable {
         let savedOrigin = state.takeSavedScrollOrigin(for: .list)
         if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
         coordinator.appliedFocusRequest = state.focusRequest
+        coordinator.appliedQuickLookRequest = state.quickLookRequest
         coordinator.update(from: self)
         if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
@@ -254,6 +255,8 @@ struct FileBrowserListView: NSViewRepresentable {
         private var appliedNameEditingCancelSerial = 0
         /// 取り込んだ「焦点を移して」(`FileBrowserState.focusRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
         var appliedFocusRequest: FileBrowserState.FocusRequest?
+        /// 取り込んだ「クイックルックを出して」(`FileBrowserState.quickLookRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
+        var appliedQuickLookRequest: FileBrowserState.QuickLookRequest?
         private lazy var dateFormatter: DateFormatter = makeDateFormatter()
         private let sizeFormatter: ByteCountFormatter = {
             let formatter = ByteCountFormatter()
@@ -282,6 +285,11 @@ struct FileBrowserListView: NSViewRepresentable {
                     guard let table, let window = table.window else { return }
                     window.makeFirstResponder(table)
                 }
+            }
+            // 右クリック・メニューバーの「クイックルック」(FileBrowserState.requestQuickLook)。選択が表へ写った後で、更新の外で出す。
+            if let request = view.state.quickLookRequest, request != appliedQuickLookRequest {
+                appliedQuickLookRequest = request
+                DispatchQueue.main.async { [weak table] in table?.showQuickLook(toggles: request.toggles) }
             }
             var needsReload = false
             if view.locale != locale {
@@ -910,6 +918,11 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         quickLook.endControl(panel)
+    }
+
+    /// 右クリックメニュー・メニューバーの「クイックルック」(`FileBrowserState.requestQuickLook`、`FileBrowserQuickLook.show`)。
+    func showQuickLook(toggles: Bool) {
+        currentQuickLook().show(toggles: toggles)
     }
 
     @objc func copy(_ sender: Any?) { editResponder?.perform(.copy) }

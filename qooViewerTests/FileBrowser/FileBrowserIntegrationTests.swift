@@ -381,7 +381,7 @@ struct FileBrowserIntegrationTests {
         ]
         let keeping: [FileBrowserMenuCommand] = [
             .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .copyPathname,
-            .editMetadata, .exportBook, .showInFinder, .getInfo,
+            .editMetadata, .exportBook, .showInFinder, .getInfo, .quickLook,
         ]
         for command in changing + keeping { #expect(enabled(command), "OFF: \(command)") }
         #expect(enabled(.newFolder, kind: .background))
@@ -624,6 +624,77 @@ struct FileBrowserIntegrationTests {
             #expect(!NSObject.instancesRespond(to: action), "\(NSStringFromSelector(action))")
             #expect(target.responds(to: action))
         }
+    }
+
+    @Test("右クリックの「クイックルック」は一覧(ファイル・フォルダ)だけに出て、題は名前か件数。押すと右クリックした項目を選んで一覧へ頼む")
+    func quickLookMenuItem() throws {
+        let fixture = try Fixture("fb-menu-quick-look")
+        defer { fixture.close() }
+        let first = fixture.entry(try fixture.archive("book.cbz"))
+        let second = fixture.entry(try fixture.archive("other.cbz"))
+        let english = Locale(identifier: "en")
+        #expect(FileBrowserMenuCommand.groups(for: .file).joined().contains(.quickLook))
+        #expect(FileBrowserMenuCommand.groups(for: .folder).joined().contains(.quickLook))
+        // ツリーはパネルの受け手にならない。空きスペースには対象が無い。
+        #expect(!FileBrowserMenuCommand.groups(for: .tree).joined().contains(.quickLook))
+        #expect(!FileBrowserMenuCommand.groups(for: .background).joined().contains(.quickLook))
+
+        // 項目の target は弱い参照なので、組む側を生かしておく。
+        let builder = FileBrowserMenuBuilder()
+        let menu = NSMenu()
+        func item(_ entries: [FileBrowserEntry]) throws -> NSMenuItem {
+            builder.rebuild(
+                menu, for: FileBrowserMenuContext(kind: .file, entries: entries, folder: nil),
+                actions: fixture.actions, locale: english
+            )
+            return try #require(menu.items.first { $0.title.hasPrefix("Quick Look") })
+        }
+        #expect(try item([first]).title == "Quick Look “\(first.displayName)”")
+        #expect(try item([first, second]).title == "Quick Look 2 Items")
+
+        // 押すと、選択の外を右クリックしていてもその項目を選び、一覧へ「出して」と頼む(閉じない)。
+        fixture.state.selection = [first.id]
+        let before = fixture.state.quickLookRequest
+        let pressed = try item([second])
+        #expect(pressed.isEnabled)
+        #expect(NSApp.sendAction(try #require(pressed.action), to: pressed.target, from: pressed))
+        #expect(fixture.state.selection == [second.id])
+        let request = try #require(fixture.state.quickLookRequest)
+        #expect(request != before && !request.toggles)
+
+        // メニューバーの ⌘Y は開け閉めの頼み。
+        fixture.actions.toggleQuickLook()
+        #expect(fixture.state.quickLookRequest?.toggles == true)
+
+        // 読み取り専用モードでも使える(何も書き換えない)。
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(try item([first]).isEnabled)
+    }
+
+    @Test("右クリックの「エイリアスを作成」は一覧(ファイル・フォルダ)だけ。読み取り専用・別のフォルダの項目の混在では淡色、開いている本では押せる")
+    func makeAliasMenuItem() throws {
+        let fixture = try Fixture("fb-menu-make-alias")
+        defer { fixture.close() }
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let elsewhere = fixture.entry(try fixture.archive("sub/other.cbz"))
+        #expect(FileBrowserMenuCommand.groups(for: .file).joined().contains(.makeAlias))
+        #expect(FileBrowserMenuCommand.groups(for: .folder).joined().contains(.makeAlias))
+        #expect(!FileBrowserMenuCommand.groups(for: .tree).joined().contains(.makeAlias))
+        #expect(!FileBrowserMenuCommand.groups(for: .background).joined().contains(.makeAlias))
+
+        func enabled(_ entries: [FileBrowserEntry]) -> Bool {
+            FileBrowserMenuCommand.makeAlias.isEnabled(
+                in: FileBrowserMenuContext(kind: .file, entries: entries, folder: nil), actions: fixture.actions
+            )
+        }
+        #expect(enabled([book]))
+        #expect(!enabled([book, elsewhere]))
+        // 元の項目は変えないので、ビューアで開いている本でも作れる(名前の変更・ゴミ箱は淡色になる)。
+        fixture.state.operations.openBookPaths = { [book.url.path] }
+        #expect(enabled([book]))
+        #expect(!fixture.actions.canChange([book]))
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(!enabled([book]))
     }
 
     @Test("右クリックの「コピー」「このアプリケーションで開く」「ゴミ箱に入れる」のすぐ後ろに、⌥ で入れ替わる項目が付く(見えている項目の数は変わらない)")

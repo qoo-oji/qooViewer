@@ -247,6 +247,10 @@ started editing a file that had just been moved, 2026-09-19); every start goes t
 (item still listed and on disk), clicks wait in `FileBrowserNameClickRename`, and an edit whose item vanishes is cancelled.
 Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder.
+So does **Make Alias** (2026-10-01; `Models/FinderAliasName.swift`, `MakeAliasesCommand`): Finder's shown name + Finder's wording in the *OS* language
+(read from the global `AppleLanguages`, never the app's own, which the display-language setting rewrites), ` 2`… at the very end, 255 UTF-16 units;
+it writes a hidden temp file and places it with `exclusiveRename` because `URL.writeBookmarkData` overwrites. Quick Look from the context menu and ⌘Y
+is a `FileBrowserState.requestQuickLook` that the list/icon coordinator picks up — the panel's controller is the AppKit list view.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
 started under tests, pauses in read-only mode, never touches a target until its current contents are confirmed, waits for writes to settle

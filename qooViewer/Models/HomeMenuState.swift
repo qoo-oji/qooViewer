@@ -187,6 +187,11 @@ struct FileBrowserMenuSelection: Equatable {
     var extractFolderName: String?
     var canAddToFavoriteLocations = false
     var canShowInFinder = false
+    var canMakeAlias = false
+    var canQuickLook = false
+    /// 「クイックルック」の題に出す名前(1 つ選んでいるときだけ)と件数(右クリックと同じ題。FileBrowserMenuCommand.title(in:locale:))。
+    var quickLookName: String?
+    var quickLookCount = 0
     var canUseAsBooks = false
     var canEditMetadata = false
     var canExportBook = false

@@ -106,6 +106,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         let savedOrigin = state.takeSavedScrollOrigin(for: .icons)
         if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
         coordinator.appliedFocusRequest = state.focusRequest
+        coordinator.appliedQuickLookRequest = state.quickLookRequest
         coordinator.update(from: self)
         if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
@@ -273,6 +274,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         private var appliedNameEditingCancelSerial = 0
         /// 取り込んだ「焦点を移して」(`FileBrowserState.focusRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
         var appliedFocusRequest: FileBrowserState.FocusRequest?
+        /// 取り込んだ「クイックルックを出して」(`FileBrowserState.quickLookRequest`)。作った時点のものは済んだことにする(`makeNSView`)。
+        var appliedQuickLookRequest: FileBrowserState.QuickLookRequest?
         private var iconSize: CGFloat = 0
         private var outlineWidth: CGFloat = -1
         private var thumbnailRevision: UInt64 = 0
@@ -326,6 +329,11 @@ struct FileBrowserIconView: NSViewRepresentable {
                     guard let collection, let window = collection.window else { return }
                     window.makeFirstResponder(collection)
                 }
+            }
+            // 右クリック・メニューバーの「クイックルック」(FileBrowserState.requestQuickLook)。選択がセルへ写った後で、更新の外で出す。
+            if let request = view.state.quickLookRequest, request != appliedQuickLookRequest {
+                appliedQuickLookRequest = request
+                DispatchQueue.main.async { [weak collection] in collection?.showQuickLook(toggles: request.toggles) }
             }
             var needsReconfigure = false
             if view.state.iconSize != iconSize {
@@ -992,6 +1000,11 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         quickLook.endControl(panel)
+    }
+
+    /// 右クリックメニュー・メニューバーの「クイックルック」(`FileBrowserState.requestQuickLook`、`FileBrowserQuickLook.show`)。
+    func showQuickLook(toggles: Bool) {
+        currentQuickLook().show(toggles: toggles)
     }
 
     /// type-select に使う文字。⌘・⌃・⌥ 付き、制御文字(Return / Tab / Esc / Delete)、矢印などの機能キー(U+F700〜U+F8FF)は受けない。

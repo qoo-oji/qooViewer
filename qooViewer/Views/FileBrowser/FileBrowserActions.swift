@@ -272,6 +272,34 @@ final class FileBrowserActions {
         state?.operations.newFolder(in: folder)
     }
 
+    /// 「エイリアスを作成」できるか(2026-10-01)。作る場所は項目の隣なので、圧縮と同じく同じフォルダの項目だけ・ボリュームそのものは
+    /// 淡色、そのフォルダへ書けること(読み取り専用モード・読めていない表示中のフォルダは淡色)。元の項目は変えないので、
+    /// ビューアで開いている本でもよい。
+    func canMakeAlias(_ entries: [FileBrowserEntry]) -> Bool {
+        canCompress(entries) && canWriteInto(entries.first?.url.deletingLastPathComponent())
+    }
+
+    func makeAliases(_ entries: [FileBrowserEntry]) {
+        guard canMakeAlias(entries) else { return }
+        state?.operations.makeAliases(entries)
+    }
+
+    /// クイックルック(右クリックメニュー。2026-10-01)。パネルは**選択**を見せる(FileBrowserQuickLook)ので、選択の外の項目を
+    /// 右クリックしたときはその項目を選んでから出す(ダブルクリックで選択の外の行を開くときと同じ考え)。パネルを出すのは一覧の
+    /// ビュー(`FileBrowserState.requestQuickLook` を拾う)。
+    func quickLook(_ entries: [FileBrowserEntry]) {
+        guard let state, !entries.isEmpty else { return }
+        let ids = Set(entries.map(\.id))
+        if state.selection != ids { state.selection = ids }
+        state.requestQuickLook(toggles: false)
+    }
+
+    /// メニューバーの「クイックルック」(⌘Y)。Finder と同じく、出ていれば閉じ、出ていなければいまの選択で出す。
+    func toggleQuickLook() {
+        guard let state, !state.selection.isEmpty else { return }
+        state.requestQuickLook(toggles: true)
+    }
+
     /// 圧縮できるか(段階 6)。同じフォルダの項目だけ(1 つの zip の置き場所が決まらない)。
     func canCompress(_ entries: [FileBrowserEntry]) -> Bool {
         guard canWrite(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
@@ -626,6 +654,11 @@ enum FileBrowserMenuCommand {
     case showInFinder
     /// Finder の「情報を見る」(FileBrowserActions.showInfo。2026-09-18)。
     case getInfo
+    /// Finder の「クイックルック」(2026-10-01、利用者の要望)。スペースキーと同じパネルを出す(FileBrowserActions.quickLook)。
+    /// ツリーには出さない(ツリーはパネルの受け手にならない。Finder のサイドバーにも無い)。
+    case quickLook
+    /// Finder の「エイリアスを作成」(2026-10-01、利用者の要望。FileBrowserActions.makeAliases)。名前は Finder と同じ(FinderAliasName)。
+    case makeAlias
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
     ///
@@ -659,18 +692,18 @@ enum FileBrowserMenuCommand {
              [.openWith],
              [.rename, .copy, .cut, .paste, .newFolder],
              [.moveToTrash],
-             [.compress],
+             [.compress, .makeAlias],
              [.editMetadata, .exportBook],
-             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo]]
+             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo, .quickLook]]
         case .file:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.createCollection, .addToCollection],
              [.openWith],
              [.rename, .copy, .cut, .paste],
              [.moveToTrash],
-             [.compress, .extract],
+             [.compress, .extract, .makeAlias],
              [.editMetadata, .exportBook],
-             [.showInFinder, .getInfo]]
+             [.showInFinder, .getInfo, .quickLook]]
         case .tree:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.openWith],
@@ -726,6 +759,8 @@ enum FileBrowserMenuCommand {
         case .autoRename: "Auto Rename"
         case .showInFinder: "Show in Finder"
         case .getInfo: "Get Info"
+        case .quickLook: "Quick Look"
+        case .makeAlias: "Make Alias"
         }
     }
 
@@ -743,6 +778,15 @@ enum FileBrowserMenuCommand {
                 )
             }
             return String(localized: "Extract Each to Its Own Folder", language: locale)
+        }
+        // Finder と同じく、何を見せるかを題に出す(1 件なら名前、複数なら件数)。
+        if self == .quickLook {
+            if context.entries.count == 1, let entry = context.entries.first {
+                return String(format: String(localized: "Quick Look “%@”", language: locale), entry.displayName)
+            }
+            if context.entries.count > 1 {
+                return String(format: String(localized: "Quick Look %lld Items", language: locale), context.entries.count)
+            }
         }
         return String(localized: title, language: locale)
     }
@@ -800,8 +844,10 @@ enum FileBrowserMenuCommand {
         case .autoRename:
             // 親はフォルダ 1 つ・保存できるウインドウなら開ける。中の項目は autoRenameMenuNodes が 1 つずつ決める(2026-09-19)。
             return actions.canShowAutoRenameMenu(entries)
-        case .showInFinder, .getInfo:
+        case .showInFinder, .getInfo, .quickLook:
             return !entries.isEmpty
+        case .makeAlias:
+            return actions.canMakeAlias(entries)
         }
     }
 
@@ -834,6 +880,8 @@ enum FileBrowserMenuCommand {
         case .addToSmartLibrary: actions.addToSmartLibrary(entries)
         case .showInFinder: actions.showInFinder(entries)
         case .getInfo: actions.showInfo(entries)
+        case .quickLook: actions.quickLook(entries)
+        case .makeAlias: actions.makeAliases(entries)
         }
     }
 }

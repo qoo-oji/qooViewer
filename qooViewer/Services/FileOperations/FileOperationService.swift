@@ -68,6 +68,74 @@ actor FileOperationService {
         return created
     }
 
+    // MARK: - エイリアス
+
+    /// Finder の「エイリアスを作成」(2026-10-01)。`items` のそれぞれの**隣に**、Finder と同じ名前(`FinderAliasName`)のエイリアスを置く。
+    /// 1 つが失敗しても残りは続ける(失敗は結果に並べる)。
+    ///
+    /// エイリアスはブックマークのファイル(`URL.writeBookmarkData`)。Finder が作るものと種類・作成者・フラグが同じになる
+    /// (`alis` / `fdrp`(フォルダ)/ `fapa`(アプリ)、作成者 `MACS`、エイリアスのフラグ。使い捨てのボリュームで Finder のものと比べた)。
+    /// サンドボックスの中から書ける(テストホストで実測)。元の項目には触らないので、ビューアで開いている本でもよい。
+    /// - Parameter localization: 名前の言葉の言語(`FinderAliasName.finderLocalization`)。テストが渡す。
+    func makeAliases(of items: [URL], localization: String = FinderAliasName.finderLocalization()) async -> TransferOutcome {
+        let outcome = await FileIO.perform { () -> TransferOutcome in
+            var outcome = TransferOutcome()
+            for item in items {
+                do {
+                    let placed = try Self.makeAlias(of: item, localization: localization)
+                    outcome.receipts.append(TransferReceipt(
+                        source: item, destination: placed, replacedItemInTrash: nil, identity: FileIdentity.of(placed)
+                    ))
+                } catch {
+                    outcome.failures.append(FailedItem(url: item, reason: error.localizedDescription))
+                }
+            }
+            return outcome
+        }
+        if !outcome.receipts.isEmpty {
+            changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination)))
+        }
+        return outcome
+    }
+
+    /// エイリアスを書く途中の一時ファイルの名前の頭(`FileBrowserListing.appWorkingItemPrefix` で始まるので一覧に出ない)。
+    nonisolated static let aliasTemporaryFilePrefix = ".qooViewer-alias-"
+
+    /// 1 つぶん(`makeAliases`)。**名前を決めてから書かない**: `URL.writeBookmarkData` は宛先にあるファイルを黙って置き換えるので、
+    /// 決めてから書くまでの間に誰かが同じ名前を作ると上書きする。隠した一時ファイルへ書いてから、宛先があれば失敗する改名
+    /// (`exclusiveRename`)で置き、塞がっていれば次の番号で試す(圧縮の `ZipCompressor.compress` と同じ)。
+    nonisolated static func makeAlias(of item: URL, localization: String) throws -> URL {
+        let folder = item.deletingLastPathComponent()
+        guard itemExists(at: item) else { throw FileOperationError.itemMissing(item) }
+        try FileOperationPreflight.checkWritable(folder)
+        let data = try item.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil)
+        // 基は Finder に見えている名前(拡張子を隠していれば無し。FinderAliasName の型コメント)。
+        let shownName = (try? item.resourceValues(forKeys: [.localizedNameKey]))?.localizedName
+        let displayName = shownName.flatMap { $0.isEmpty ? nil : $0 } ?? item.lastPathComponent
+        let base = FinderAliasName.baseName(displayName: displayName, localization: localization)
+        let temporary = folder.appendingPathComponent("\(aliasTemporaryFilePrefix)\(UUID().uuidString)")
+        do {
+            try URL.writeBookmarkData(data, to: temporary)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+        var tried: Set<String> = []
+        while true {
+            let name = FinderAliasName.firstAvailable(base: base) { candidate in
+                tried.contains(candidate) || itemExists(at: folder.appendingPathComponent(candidate))
+            }
+            let target = folder.appendingPathComponent(name)
+            let code = exclusiveRename(from: temporary, to: target)
+            if code == 0 { return target }
+            guard code == EEXIST else {
+                try? FileManager.default.removeItem(at: temporary)
+                throw FileOperationError.posixFailure(item: target, errnoCode: code)
+            }
+            tried.insert(name)
+        }
+    }
+
     // MARK: - コピー・移動
 
     func copy(_ items: [URL], to folder: URL, options: FileOperationOptions = .init()) async throws -> TransferOutcome {

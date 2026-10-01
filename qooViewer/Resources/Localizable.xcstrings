@@ -120,6 +120,22 @@
         }
       }
     },
+    "Make Alias" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make Alias"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エイリアスを作成"
+          }
+        }
+      }
+    },
     "Move Down" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -218,6 +234,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この値を 1 つ上へ動かします(Option+Command+↑)"
+          }
+        }
+      }
+    },
+    "Quick Look" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Look"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クイックルック"
+          }
+        }
+      }
+    },
+    "Quick Look %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Look %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目をクイックルック"
+          }
+        }
+      }
+    },
+    "Quick Look “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Look “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をクイックルック"
           }
         }
       }

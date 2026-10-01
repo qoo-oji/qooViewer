@@ -400,6 +400,20 @@ struct FileBrowserFileMenuItems: View {
         }
         .disabled(selection?.canExtract != true)
 
+        // Finder の「エイリアスを作成」⌃⌘A・「クイックルック」⌘Y(2026-10-01、利用者の要望「Finder に合わせて」)。淡色の条件は右クリックと同じ。
+        // クイックルックは Finder と同じく、出ていれば閉じる(FileBrowserActions.toggleQuickLook)。
+        Button("Make Alias") { [weak appState] in
+            Self.perform(appState) { actions, entries in actions.makeAliases(entries) }
+        }
+        .homeMenuShortcut("a", modifiers: [.command, .control], isActive: isShown)
+        .disabled(selection?.canMakeAlias != true)
+
+        Button(quickLookTitle) { [weak appState] in
+            Self.perform(appState) { actions, _ in actions.toggleQuickLook() }
+        }
+        .homeMenuShortcut("y", modifiers: .command, isActive: isShown)
+        .disabled(selection?.canQuickLook != true)
+
         Button("Add to Favorite Locations") { [weak appState] in
             Self.perform(appState) { actions, entries in actions.addToFavoriteLocations(entries) }
         }
@@ -414,6 +428,16 @@ struct FileBrowserFileMenuItems: View {
         return count > 1
             ? String(format: String(localized: "Rename %lld Items…", language: locale), count)
             : String(localized: "Rename", language: locale)
+    }
+
+    private var quickLookTitle: String {
+        if let name = selection?.quickLookName {
+            return String(format: String(localized: "Quick Look “%@”", language: locale), name)
+        }
+        if let count = selection?.quickLookCount, count > 1 {
+            return String(format: String(localized: "Quick Look %lld Items", language: locale), count)
+        }
+        return String(localized: "Quick Look", language: locale)
     }
 
     private var extractToFolderTitle: String {

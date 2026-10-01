@@ -889,6 +889,61 @@ struct FileBrowserOperationsTests {
         #expect(fixture.state.selection.isEmpty)
     }
 
+    // MARK: - エイリアスを作成(2026-10-01)
+
+    @Test("エイリアスは元の隣に Finder と同じ名前で作り、元を指す。作ったものを選び、取り消すとゴミ箱へ。2 つ目は番号付き")
+    func makeAliasPlacesFinderNamedAliasesAndUndoes() async throws {
+        let fixture = try Fixture("fbops-alias")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        // 言葉は OS の言語で変わるので、作る言語を決めて確かめる(名前の規則は FinderAliasNameTests)。
+        let command = MakeAliasesCommand(items: [file, fixture.sub], localization: "ja", fileOps: fixture.state.operations.fileOps)
+        _ = try await fixture.state.commandStack.run(command)
+        let fileAlias = fixture.root.appendingPathComponent("a.txtのエイリアス")
+        let folderAlias = fixture.root.appendingPathComponent("subのエイリアス")
+        #expect(command.receipts.map(\.destination.lastPathComponent) == [fileAlias.lastPathComponent, folderAlias.lastPathComponent])
+        for (alias, original) in [(fileAlias, file), (folderAlias, fixture.sub)] {
+            let values = try alias.resourceValues(forKeys: [.isAliasFileKey, .isSymbolicLinkKey])
+            #expect(values.isAliasFile == true && values.isSymbolicLink == false)
+            let target = try URL(resolvingAliasFileAt: alias, options: [.withoutUI, .withoutMounting])
+            #expect(target.standardizedFileURL.path == original.standardizedFileURL.path)
+        }
+        // 書く途中の一時ファイルは残さない。
+        #expect(!fixture.names(in: fixture.root).contains { $0.hasPrefix(FileOperationService.aliasTemporaryFilePrefix) })
+
+        // 窓口から: 作ったものが選ばれ、取り消すと作ったものだけがゴミ箱へ(元はそのまま)。
+        fixture.state.operations.makeAliases([fixture.entry(file)])
+        await fixture.finish()
+        let second = try #require(fixture.names(in: fixture.root).first {
+            $0.hasPrefix("a.txt") && $0 != "a.txt" && $0 != fileAlias.lastPathComponent
+        })
+        #expect(second.hasSuffix(" 2"))
+        #expect(fixture.state.selection == [FileBrowserState.id(for: fixture.root.appendingPathComponent(second))])
+        #expect(fixture.presenter.problems.isEmpty)
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(!fixture.exists(fixture.root.appendingPathComponent(second)))
+        #expect(fixture.exists(file) && fixture.exists(fileAlias))
+        #expect(fixture.names(in: fixture.trash).count == 1)
+    }
+
+    @Test("エイリアスを作れなかった項目は報告し、作れたものは残す")
+    func makeAliasReportsMissingItems() async throws {
+        let fixture = try Fixture("fbops-alias-missing")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let gone = fixture.root.appendingPathComponent("gone.txt")
+        let command = MakeAliasesCommand(items: [gone, file], localization: "en", fileOps: fixture.state.operations.fileOps)
+        let result = try await fixture.state.commandStack.run(command)
+        guard case let .partial(succeeded, failures, _) = result else {
+            Issue.record("一部だけ済んだことにならなかった: \(String(describing: result))")
+            return
+        }
+        #expect(succeeded == 1)
+        #expect(failures.map(\.name) == ["gone.txt"])
+        #expect(fixture.exists(fixture.root.appendingPathComponent("a.txt alias")))
+    }
+
     // MARK: - 一括リネーム(段階 5)
 
     /// フォーマット「名前とカウンタ」の答え。
@@ -1071,7 +1126,7 @@ struct FileBrowserOperationsTests {
         #expect(FileBrowserOperations().isReadOnly)
     }
 
-    @Test("読み取り専用モードでは、ペースト・カット・ドロップ・ゴミ箱・新規フォルダ・名前の変更・一括リネーム・圧縮・展開が何もしない")
+    @Test("読み取り専用モードでは、ペースト・カット・ドロップ・ゴミ箱・新規フォルダ・名前の変更・一括リネーム・圧縮・展開・エイリアスの作成が何もしない")
     func readOnlyRefusesEveryFileChange() async throws {
         let fixture = try Fixture("fbops-readonly")
         await fixture.showRoot()
@@ -1103,6 +1158,7 @@ struct FileBrowserOperationsTests {
         fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })
         fixture.state.operations.compress([fixture.entry(fixture.sub)])
         fixture.state.operations.extract([fixture.entry(archive)], placement: .ownFolder)
+        fixture.state.operations.makeAliases([fixture.entry(file)])
         await fixture.finish()
 
         #expect(fixture.names(in: fixture.root) == before.root)

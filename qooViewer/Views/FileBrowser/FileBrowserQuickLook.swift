@@ -2,7 +2,8 @@ import AppKit
 import Combine
 import Quartz
 
-/// ファイルブラウザのスペースキーのクイックルック(2026-09-27、監査 27。Finder の基本操作)。
+/// ファイルブラウザのスペースキーのクイックルック(2026-09-27、監査 27。Finder の基本操作)。右クリックメニューの
+/// 「クイックルック」・メニューバーの ⌘Y(2026-10-01)も同じパネルを出す(`show(toggles:)`)。
 ///
 /// ■ 仕組み
 /// `QLPreviewPanel` はアプリで 1 枚の共有のパネルで、誰が中身を渡すかは responder chain で決まる: パネルを出す・キーウインドウが
@@ -69,6 +70,27 @@ final class FileBrowserQuickLook: NSObject {
             return
         }
         guard !selectedURLs().isEmpty, let panel = QLPreviewPanel.shared() else { return }
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// 右クリックメニュー・メニューバーの「クイックルック」(`FileBrowserState.requestQuickLook`)。出ていなければ出し、出ていれば
+    /// 右クリックはこの一覧の選択へ差し替え(閉じない)、メニューバーの ⌘Y(`toggles`)は Finder と同じく閉じる。
+    /// 選択は呼ぶ側が先に右クリックした項目へ揃えておく(FileBrowserActions.quickLook)。
+    ///
+    /// パネルの受け手はキーウインドウのファーストレスポンダから探される(型コメント)。右クリックのメニューは後ろのウインドウ・
+    /// 前面でないアプリでも開き、⌘Y はツリーに焦点があっても届くので、この一覧のウインドウをキーにし、一覧を焦点にしてから出す。
+    /// 出ているパネルは `updateController()` で受け手を探し直させる(別のウインドウの一覧が受け手のままにならないように)。
+    func show(toggles: Bool) {
+        if toggles, QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible {
+            panel.orderOut(nil)
+            return
+        }
+        guard let view = keyTarget, let window = view.window, !selectedURLs().isEmpty, let panel = QLPreviewPanel.shared()
+        else { return }
+        if !NSApp.isActive { NSApp.activate() }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
+        if panel.isVisible { panel.updateController() }
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -157,8 +179,14 @@ extension FileBrowserQuickLook {
         panel.orderOut(nil)
     }
 
-    /// スペースキー(修飾キー無し)か。
+    /// スペースキー(修飾キー無し)か、⌘Y か。
+    ///
+    /// ⌘Y はメニューバーの「クイックルック」のキー(2026-10-01)で、ふつうはメニューが先に受ける。メニューの項目が受けなかった
+    /// とき(パネルがキーウインドウでメニューバーがこのウインドウの選択を読めないなど)は、キーがパネルから一覧へ回ってくる
+    /// (`previewPanel(_:handle:)`)ので、ここでも開け閉めする(Finder と同じく ⌘Y で閉じる)。
     static func isToggleKey(_ event: NSEvent) -> Bool {
-        event.keyCode == 49 && event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift])
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if event.keyCode == 49 && flags.isEmpty { return true }
+        return flags == .command && event.charactersIgnoringModifiers?.lowercased() == "y"
     }
 }
