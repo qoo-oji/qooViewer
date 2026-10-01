@@ -441,8 +441,10 @@ struct MetadataBookTable: NSViewRepresentable {
         /// 書き換えの最中に届いた中身(入力を途中で消さないよう、終わってから入れる)。
         private var pendingRows: (books: [MetadataBookRow], positions: [Int])?
         /// 値を変えて Tab / ⇧Tab で抜けたときの、行き先へ移る頼み。直した値の行(段の数)が届いてから移る(`controlTextDidEndEditing`)。
-        /// `stale` は確定した時点の行(これと違う行が届いたら移る)、`serial` は待ちきれないときの打ち切りの突き合わせ。
-        private var pendingTabMove: (column: Column, line: Int, span: Int, bookID: String, forward: Bool, stale: MetadataBookRow,
+        /// `expectedLineCount` は書いたあとのその欄の段の数(これだけの段の行が届いたら移る)、`serial` は待ちきれないときの打ち切りの
+        /// 突き合わせ。**「行が変わったら」では待たない** ―― 確定するとまず直した欄の印だけが変わった行(値はまだ前のまま)が届き、
+        /// それを見て古い段の数で移っていた(2026-10-01 の実機検証)。
+        private var pendingTabMove: (column: Column, line: Int, span: Int, bookID: String, forward: Bool, expectedLineCount: Int,
                                      serial: Int)?
         private var tabMoveSerial = 0
         /// 見えている列(行の高さは、見えている列の段の数で決める。隠した列の段で行を伸ばさない)。
@@ -717,7 +719,9 @@ struct MetadataBookTable: NSViewRepresentable {
             // (著者は「、」で分かれ、空にした段・空のまま足した段は消える)。Tab の行き先は、書いたあとの段で数える。
             var changesRow = false
             var lineSpan = 1
+            var isInserting = false
             if let edit = editing {
+                isInserting = edit.inserting
                 let value = (edit.cell.label(at: edit.line)?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
                 changesRow = edit.inserting ? !value.isEmpty : value != edit.original
                 if changesRow || edit.inserting, case .field(let field)? = edit.column.lineColumn {
@@ -738,7 +742,12 @@ struct MetadataBookTable: NSViewRepresentable {
                 if changesRow, let row = index(of: edited.bookID) {
                     tabMoveSerial &+= 1
                     let serial = tabMoveSerial
-                    pendingTabMove = (edited.column, edited.line, lineSpan, edited.bookID, forward, book(row), serial)
+                    // 書いたあとの段の数: 今の値の数から、直した段(足した段なら無し)を除いて、書いた値の数を足す。値の無い欄は空の 1 段に見える。
+                    let shown = edited.column.lines(of: book(row))
+                    let values = shown == [""] ? 0 : shown.count
+                    let replaced = isInserting || values == 0 ? 0 : 1
+                    let expected = max(1, values - replaced + lineSpan)
+                    pendingTabMove = (edited.column, edited.line, lineSpan, edited.bookID, forward, expected, serial)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                         guard let self, let move = self.pendingTabMove, move.serial == serial else { return }
                         self.pendingTabMove = nil
@@ -762,7 +771,7 @@ struct MetadataBookTable: NSViewRepresentable {
                 pendingTabMove = nil
                 return
             }
-            guard book(row) != move.stale else { return }
+            guard move.column.lines(of: book(row)).count == move.expectedLineCount else { return }
             pendingTabMove = nil
             // 入れたばかりの行の高さ・セルが整ってから入る(次の回)。
             DispatchQueue.main.async { [weak self] in
@@ -772,7 +781,7 @@ struct MetadataBookTable: NSViewRepresentable {
 
         /// Tab / ⇧Tab の行き先へ書き換えを移す。行き先の候補は、同じ欄の残りの段、その先の列の段(前へ戻るときは下の段から)。
         /// 直せない段は飛ばし、直せる段が端まで無ければ表へ戻る。`span` は、確定した段が書いたあとに占める段の数(分かれた著者は
-        /// 2 以上、消えた段は 0)。次の段はその下から数える。
+        /// 2 以上、消えた段は 0)。次の段は書いたあとの並びで数える: 分かれた著者なら 2 人目の段、消えた段なら繰り上がった下の段。
         private func moveEditing(from column: Column, line: Int, span: Int = 1, of bookID: String, forward: Bool) {
             guard let table, editing == nil, let row = index(of: bookID) else { return }
             let visible = table.tableColumns.indices.filter { !table.tableColumns[$0].isHidden }
@@ -787,7 +796,7 @@ struct MetadataBookTable: NSViewRepresentable {
                 if position == start {
                     // 唯一の段を空にしたときは、残った空の 1 段(値の無い欄の見た目)へ戻らない。
                     let onlyEmptyLeft = span == 0 && target?.lines(of: book) == [""]
-                    lines = lines.filter { forward ? $0 >= line + span && !onlyEmptyLeft : $0 < line }
+                    lines = lines.filter { forward ? $0 >= line + min(span, 1) && !onlyEmptyLeft : $0 < line }
                 }
                 candidates += lines.map { (columnIndex, $0) }
             }

@@ -413,7 +413,10 @@ It shows the selection (`HomeInspectorSubject`): a book's collection cover with 
 non-books get Finder-like previews (thumbnail provider → QuickLook → system icon, never reading unentered/remote locations). Private
 windows only look. **A SwiftUI `.onDrop` inside the inspector's ScrollView never fires** — the window-wide "open book" target wins
 (measured 2026-09-30; cause unknown) — so the cover's image drop is routed by one drop target on the inspector column
-(`HomeInspectorCoverDrop`: the cover registers its frame; outside it the drop goes to `AppState.openDroppedFiles`, the window's own path).
+(`HomeInspectorCoverDrop`: the cover registers its frame; outside it the drop goes to `AppState.openDroppedFiles`, the window's own path, and
+the column lights the window's drop border through `AppState.isInnerFileDropTargeted`). `onGeometryChange` reports the cover's frame *before*
+`onAppear` registers it, so the frame is passed again on registration, and `dropUpdated` arriving after `performDrop` is ignored (both
+measured on device 2026-10-01: drops on the cover opened the image as a book, and highlights stayed on).
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
 books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).

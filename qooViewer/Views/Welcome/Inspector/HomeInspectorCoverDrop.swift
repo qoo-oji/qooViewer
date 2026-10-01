@@ -26,6 +26,9 @@ final class HomeInspectorCoverDrop {
     @ObservationIgnored private var receive: ((URL) -> Void)?
     /// ドラッグが表紙の上にある(表紙の強調)。
     private(set) var isTargeted = false
+    /// いまのドラッグを受け取り終えた(`performDrop` の後)。受け取った後にも位置の知らせが 1 回届き、表紙の強調・ウインドウの縁を
+    /// 点け直して残していた(2026-10-01 の実機検証)ので、次のドラッグが入ってくるまで位置の知らせを無視する。
+    @ObservationIgnored var hasDropped = false
 
     func register(_ id: UUID, receive: @escaping (URL) -> Void) {
         ownerID = id
@@ -80,7 +83,12 @@ struct HomeInspectorDropDelegate: DropDelegate {
         info.hasItemsConforming(to: [.fileURL]) && !HomeBookDragTracker.isDragging(from: appState)
     }
 
+    func dropEntered(info: DropInfo) {
+        coverDrop.hasDropped = false
+    }
+
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard !coverDrop.hasDropped else { return DropProposal(operation: .copy) }
         let onCover = coverDrop.accepts(at: info.location)
         coverDrop.setTargeted(onCover)
         setWindowTargeted(!onCover)
@@ -94,6 +102,7 @@ struct HomeInspectorDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         let onCover = coverDrop.accepts(at: info.location)
+        coverDrop.hasDropped = true
         coverDrop.setTargeted(false)
         setWindowTargeted(false)
         let providers = info.itemProviders(for: [.fileURL])
@@ -137,14 +146,21 @@ struct CoverImageDropModifier: ViewModifier {
 
     @Environment(\.homeInspectorCoverDrop) private var coverDrop
     @State private var id = UUID()
+    /// 最後に測った表紙の枠。**枠の最初の知らせは `onAppear` より先に届く**ので、登録するときにここから渡す(2026-10-01 の実機検証:
+    /// 登録前の知らせが捨てられ、枠が変わらない限り二度と届かないので、表紙の枠が空のまま ―― 表紙に落とした画像が本として開いていた)。
+    @State private var frame: CGRect = .null
 
     func body(content: Content) -> some View {
         if let coverDrop {
             content
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeInspectorCoverDrop.coordinateSpace)) } action: {
+                    frame = $0
                     coverDrop.updateFrame($0, for: id)
                 }
-                .onAppear { coverDrop.register(id, receive: onDropImage) }
+                .onAppear {
+                    coverDrop.register(id, receive: onDropImage)
+                    coverDrop.updateFrame(frame, for: id)
+                }
                 .onDisappear { coverDrop.unregister(id) }
                 .onChange(of: coverDrop.isTargeted(by: id)) { _, targeted in isTargeted = targeted }
         } else {
