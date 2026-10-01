@@ -254,38 +254,6 @@
         }
       }
     },
-    "Quick Look %lld Items" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quick Look %lld Items"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 項目をクイックルック"
-          }
-        }
-      }
-    },
-    "Quick Look “%@”" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quick Look “%@”"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」をクイックルック"
-          }
-        }
-      }
-    },
     "Write one value per line." : {
       "extractionState" : "manual",
       "localizations" : {

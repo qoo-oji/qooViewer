@@ -307,6 +307,8 @@ struct FileBrowserFileMenuItems: View {
 
     private var isShown: Bool { selection != nil }
 
+    /// 並びは右クリックと同じ方針(FileBrowserMenuCommand.groups(for:) のコメント)で、Finder のファイルメニューの群の順:
+    /// 開く ─ 情報を見る・名前・圧縮・展開・エイリアス・クイックルック ─ よく使う項目に登録(Finder の「サイドバーに追加」)─ ゴミ箱(2026-10-01)。
     var body: some View {
         Button("Open") { [weak appState] in
             guard HomeMenuKeyRouting.shouldPerformOnSelection(
@@ -336,6 +338,8 @@ struct FileBrowserFileMenuItems: View {
         }
         .disabled(selection?.canOpenWith != true)
 
+        Divider()
+
         // Finder と同じ「情報を見る」⌘I(2026-09-27。監査 18 ―― それまでは右クリックにしか無かった)。Finder の情報ウインドウを開く
         // (選んだ項目ごとに 1 枚。FileBrowserActions.showInfo)。淡色の条件は右クリックと同じ(何か選んでいれば押せる)。
         Button("Get Info") { [weak appState] in
@@ -348,28 +352,6 @@ struct FileBrowserFileMenuItems: View {
             Self.perform(appState) { actions, entries in actions.beginRename(entries) }
         }
         .disabled(selection?.canRename != true)
-
-        Button("Move to Trash") { [weak appState] in
-            guard HomeMenuKeyRouting.shouldPerformOnSelection(
-                forwardingTextAction: #selector(NSResponder.deleteToBeginningOfLine(_:))
-            ) else { return }
-            Self.perform(appState) { actions, entries in actions.moveToTrash(entries) }
-        }
-        .homeMenuShortcut(.delete, modifiers: .command, isActive: isShown)
-        .disabled(selection?.canMoveToTrash != true)
-        // Finder の「すぐに削除…」(⌥⌘⌫。2026-09-23)。Finder と同じく ⌥ を押している間だけ「ゴミ箱に入れる」と入れ替わる、AppKit の
-        // 代わりの項目(NSMenuItem.isAlternate)。2026-09-27 までは「SwiftUI のメニューバーでは代わりの項目を作れない」として、すぐ下に
-        // 並べて常に見せていた(監査 16)が、macOS 15 からは `.modifierKeyAlternate` で作れる(移動メニューの「ライブラリ」も同じ)。
-        // キーは元の項目の ⌘⌫ に ⌥ を足したものになるが、ホームの外ではキーを外すので、元の項目と同じ条件で明示する。必ず確認してから消す。
-        .modifierKeyAlternate(.option) {
-            Button("Delete Immediately…") { [weak appState] in
-                // テキストの欄を編集中の ⌥⌘⌫ には欄の標準の意味が無いので、何も返さずに捨てる。
-                guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil) else { return }
-                Self.perform(appState) { actions, entries in actions.deleteImmediately(entries) }
-            }
-            .homeMenuShortcut(.delete, modifiers: [.command, .option], isActive: isShown)
-            .disabled(selection?.canDeleteImmediately != true)
-        }
 
         Menu("Compress") {
             Button("Compress Here") { [weak appState] in
@@ -408,11 +390,13 @@ struct FileBrowserFileMenuItems: View {
         .homeMenuShortcut("a", modifiers: [.command, .control], isActive: isShown)
         .disabled(selection?.canMakeAlias != true)
 
-        Button(quickLookTitle) { [weak appState] in
+        Button("Quick Look") { [weak appState] in
             Self.perform(appState) { actions, _ in actions.toggleQuickLook() }
         }
         .homeMenuShortcut("y", modifiers: .command, isActive: isShown)
         .disabled(selection?.canQuickLook != true)
+
+        Divider()
 
         Button("Add to Favorite Locations") { [weak appState] in
             Self.perform(appState) { actions, entries in actions.addToFavoriteLocations(entries) }
@@ -420,6 +404,30 @@ struct FileBrowserFileMenuItems: View {
         // Finder の「サイドバーに追加」と同じ ⌃⌘T(2026-09-27、監査 25)。
         .homeMenuShortcut("t", modifiers: [.command, .control], isActive: isShown)
         .disabled(selection?.canAddToFavoriteLocations != true)
+
+        Divider()
+
+        Button("Move to Trash") { [weak appState] in
+            guard HomeMenuKeyRouting.shouldPerformOnSelection(
+                forwardingTextAction: #selector(NSResponder.deleteToBeginningOfLine(_:))
+            ) else { return }
+            Self.perform(appState) { actions, entries in actions.moveToTrash(entries) }
+        }
+        .homeMenuShortcut(.delete, modifiers: .command, isActive: isShown)
+        .disabled(selection?.canMoveToTrash != true)
+        // Finder の「すぐに削除…」(⌥⌘⌫。2026-09-23)。Finder と同じく ⌥ を押している間だけ「ゴミ箱に入れる」と入れ替わる、AppKit の
+        // 代わりの項目(NSMenuItem.isAlternate)。2026-09-27 までは「SwiftUI のメニューバーでは代わりの項目を作れない」として、すぐ下に
+        // 並べて常に見せていた(監査 16)が、macOS 15 からは `.modifierKeyAlternate` で作れる(移動メニューの「ライブラリ」も同じ)。
+        // キーは元の項目の ⌘⌫ に ⌥ を足したものになるが、ホームの外ではキーを外すので、元の項目と同じ条件で明示する。必ず確認してから消す。
+        .modifierKeyAlternate(.option) {
+            Button("Delete Immediately…") { [weak appState] in
+                // テキストの欄を編集中の ⌥⌘⌫ には欄の標準の意味が無いので、何も返さずに捨てる。
+                guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil) else { return }
+                Self.perform(appState) { actions, entries in actions.deleteImmediately(entries) }
+            }
+            .homeMenuShortcut(.delete, modifiers: [.command, .option], isActive: isShown)
+            .disabled(selection?.canDeleteImmediately != true)
+        }
     }
 
     /// 右クリックと同じ題(複数なら「N 項目の名前を変更…」。FileBrowserMenuCommand.title(in:locale:))。
@@ -428,16 +436,6 @@ struct FileBrowserFileMenuItems: View {
         return count > 1
             ? String(format: String(localized: "Rename %lld Items…", language: locale), count)
             : String(localized: "Rename", language: locale)
-    }
-
-    private var quickLookTitle: String {
-        if let name = selection?.quickLookName {
-            return String(format: String(localized: "Quick Look “%@”", language: locale), name)
-        }
-        if let count = selection?.quickLookCount, count > 1 {
-            return String(format: String(localized: "Quick Look %lld Items", language: locale), count)
-        }
-        return String(localized: "Quick Look", language: locale)
     }
 
     private var extractToFolderTitle: String {

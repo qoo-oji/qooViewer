@@ -626,7 +626,29 @@ struct FileBrowserIntegrationTests {
         }
     }
 
-    @Test("右クリックの「クイックルック」は一覧(ファイル・フォルダ)だけに出て、題は名前か件数。押すと右クリックした項目を選んで一覧へ頼む")
+    @Test("右クリックの並びは、上に Finder 由来の項目、下にアプリ固有の項目(FileBrowserMenuCommand.groups のコメント)")
+    func appSpecificItemsComeAfterFinderItems() {
+        let appSpecific: Set<FileBrowserMenuCommand> = [
+            .createCollection, .addToCollection, .editMetadata, .exportBook, .addToSmartLibrary, .autoRename,
+        ]
+        for kind in [FileBrowserMenuKind.file, .folder, .tree] {
+            let groups = FileBrowserMenuCommand.groups(for: kind)
+            // 1 つの群にアプリ固有と Finder 由来を混ぜない。
+            for group in groups {
+                #expect(group.allSatisfy(appSpecific.contains) || !group.contains(where: appSpecific.contains), "\(kind): \(group)")
+            }
+            // アプリ固有の群は最後に続けて並ぶ。
+            let flags = groups.map { $0.contains(where: appSpecific.contains) }
+            if let first = flags.firstIndex(of: true) {
+                #expect(flags[first...].allSatisfy { $0 }, "\(kind)")
+            }
+        }
+        // Finder と同じく、情報を見る・名前を変更・圧縮・エイリアスを作成・クイックルックは 1 つの群に並ぶ。
+        #expect(FileBrowserMenuCommand.groups(for: .file).contains([.getInfo, .rename, .compress, .extract, .makeAlias, .quickLook]))
+        #expect(FileBrowserMenuCommand.groups(for: .folder).contains([.getInfo, .rename, .compress, .makeAlias, .quickLook]))
+    }
+
+    @Test("右クリックの「クイックルック」は一覧(ファイル・フォルダ)だけに出る。押すと右クリックした項目を選んで一覧へ頼む")
     func quickLookMenuItem() throws {
         let fixture = try Fixture("fb-menu-quick-look")
         defer { fixture.close() }
@@ -647,10 +669,10 @@ struct FileBrowserIntegrationTests {
                 menu, for: FileBrowserMenuContext(kind: .file, entries: entries, folder: nil),
                 actions: fixture.actions, locale: english
             )
-            return try #require(menu.items.first { $0.title.hasPrefix("Quick Look") })
+            return try #require(menu.items.first { $0.title == "Quick Look" })
         }
-        #expect(try item([first]).title == "Quick Look “\(first.displayName)”")
-        #expect(try item([first, second]).title == "Quick Look 2 Items")
+        // 題は Finder(macOS 27)と同じく名前を入れない。
+        #expect(try item([first, second]).isEnabled)
 
         // 押すと、選択の外を右クリックしていてもその項目を選び、一覧へ「出して」と頼む(閉じない)。
         fixture.state.selection = [first.id]

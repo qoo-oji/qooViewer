@@ -488,8 +488,6 @@ struct ContentView: View {
             canShowInFinder: enabled(.showInFinder),
             canMakeAlias: enabled(.makeAlias),
             canQuickLook: enabled(.quickLook),
-            quickLookName: entries.count == 1 ? entries.first?.displayName : nil,
-            quickLookCount: entries.count,
             canUseAsBooks: enabled(.addToCollection),
             canEditMetadata: enabled(.editMetadata),
             canExportBook: enabled(.exportBook),

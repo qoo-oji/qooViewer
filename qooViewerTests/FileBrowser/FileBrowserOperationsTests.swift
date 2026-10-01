@@ -896,11 +896,14 @@ struct FileBrowserOperationsTests {
         let fixture = try Fixture("fbops-alias")
         await fixture.showRoot()
         let file = fixture.root.appendingPathComponent("a.txt")
-        // 言葉は OS の言語で変わるので、作る言語を決めて確かめる(名前の規則は FinderAliasNameTests)。
-        let command = MakeAliasesCommand(items: [file, fixture.sub], localization: "ja", fileOps: fixture.state.operations.fileOps)
+        // 言葉は OS の言語で変わる(CI の機械は英語)。窓口(下の 2 つ目)と同じく OS の言語で作り、名前は規則から求める
+        // (言語ごとの名前の規則は FinderAliasNameTests)。
+        let localization = FinderAliasName.finderLocalization()
+        let command = MakeAliasesCommand(items: [file, fixture.sub], localization: localization, fileOps: fixture.state.operations.fileOps)
         _ = try await fixture.state.commandStack.run(command)
-        let fileAlias = fixture.root.appendingPathComponent("a.txtのエイリアス")
-        let folderAlias = fixture.root.appendingPathComponent("subのエイリアス")
+        let fileAliasName = FinderAliasName.baseName(displayName: "a.txt", localization: localization)
+        let fileAlias = fixture.root.appendingPathComponent(fileAliasName)
+        let folderAlias = fixture.root.appendingPathComponent(FinderAliasName.baseName(displayName: "sub", localization: localization))
         #expect(command.receipts.map(\.destination.lastPathComponent) == [fileAlias.lastPathComponent, folderAlias.lastPathComponent])
         for (alias, original) in [(fileAlias, file), (folderAlias, fixture.sub)] {
             let values = try alias.resourceValues(forKeys: [.isAliasFileKey, .isSymbolicLinkKey])
@@ -914,10 +917,8 @@ struct FileBrowserOperationsTests {
         // 窓口から: 作ったものが選ばれ、取り消すと作ったものだけがゴミ箱へ(元はそのまま)。
         fixture.state.operations.makeAliases([fixture.entry(file)])
         await fixture.finish()
-        let second = try #require(fixture.names(in: fixture.root).first {
-            $0.hasPrefix("a.txt") && $0 != "a.txt" && $0 != fileAlias.lastPathComponent
-        })
-        #expect(second.hasSuffix(" 2"))
+        let second = FinderAliasName.candidate(base: fileAliasName, number: 2)
+        #expect(fixture.exists(fixture.root.appendingPathComponent(second)))
         #expect(fixture.state.selection == [FileBrowserState.id(for: fixture.root.appendingPathComponent(second))])
         #expect(fixture.presenter.problems.isEmpty)
         fixture.state.operations.undo()

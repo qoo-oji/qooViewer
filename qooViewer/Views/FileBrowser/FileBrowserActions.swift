@@ -662,6 +662,12 @@ enum FileBrowserMenuCommand {
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
     ///
+    /// **並びの方針(2026-10-01、利用者の決定)**: 上は Finder 由来の項目を Finder の群の並びで(開く ─ ゴミ箱 ─ 情報を見る・名前・圧縮・
+    /// エイリアス・クイックルック ─ コピー ─ 場所)、**アプリ固有の項目は下にまとめる**(コレクション ─ メタデータ・書き出し ─
+    /// スマートライブラリ・自動リネーム。Finder がクイックアクション・サービスを下に置くのと同じ)。Finder にそろえ切ることはしない
+    /// (群として適切に並んでいればよい): 新規タブ・ウインドウで開くは開くの群、展開は圧縮の隣、よく使う項目に登録(Finder の
+    /// 「サイドバーに追加」)は Finder で表示の隣。項目を足すときもこの方針で置き場所を決める(docs/15「右クリック」)。
+    ///
     /// - Parameters:
     ///   - includesLibrary: false なら「コレクションを作成」「コレクションに登録」の群を省く(環境設定「ライブラリを有効にする」がOFF。
     ///     2026-09-21)。選択の状態で項目の数を変えない決まりとは別の話 ―― 機能そのものが無いので、淡色で残さずに消す。
@@ -687,28 +693,28 @@ enum FileBrowserMenuCommand {
     private static func allGroups(for kind: FileBrowserMenuKind) -> [[FileBrowserMenuCommand]] {
         switch kind {
         case .folder:
-            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
-             [.createCollection, .addToCollection],
-             [.openWith],
-             [.rename, .copy, .cut, .paste, .newFolder],
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
              [.moveToTrash],
-             [.compress, .makeAlias],
+             [.getInfo, .rename, .compress, .makeAlias, .quickLook],
+             [.copy, .cut, .paste, .newFolder],
+             [.showInFinder, .addToFavoriteLocations],
+             [.createCollection, .addToCollection],
              [.editMetadata, .exportBook],
-             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo, .quickLook]]
+             [.addToSmartLibrary, .autoRename]]
         case .file:
-            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
-             [.createCollection, .addToCollection],
-             [.openWith],
-             [.rename, .copy, .cut, .paste],
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
              [.moveToTrash],
-             [.compress, .extract, .makeAlias],
-             [.editMetadata, .exportBook],
-             [.showInFinder, .getInfo, .quickLook]]
+             [.getInfo, .rename, .compress, .extract, .makeAlias, .quickLook],
+             [.copy, .cut, .paste],
+             [.showInFinder],
+             [.createCollection, .addToCollection],
+             [.editMetadata, .exportBook]]
         case .tree:
-            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
-             [.openWith],
-             [.newFolder, .paste],
-             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo]]
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
+             [.getInfo],
+             [.paste, .newFolder],
+             [.showInFinder, .addToFavoriteLocations],
+             [.addToSmartLibrary, .autoRename]]
         case .background:
             // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder)。
             [[.paste, .newFolder]]
@@ -778,15 +784,6 @@ enum FileBrowserMenuCommand {
                 )
             }
             return String(localized: "Extract Each to Its Own Folder", language: locale)
-        }
-        // Finder と同じく、何を見せるかを題に出す(1 件なら名前、複数なら件数)。
-        if self == .quickLook {
-            if context.entries.count == 1, let entry = context.entries.first {
-                return String(format: String(localized: "Quick Look “%@”", language: locale), entry.displayName)
-            }
-            if context.entries.count > 1 {
-                return String(format: String(localized: "Quick Look %lld Items", language: locale), context.entries.count)
-            }
         }
         return String(localized: title, language: locale)
     }

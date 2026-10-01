@@ -251,6 +251,10 @@ So does **Make Alias** (2026-10-01; `Models/FinderAliasName.swift`, `MakeAliases
 (read from the global `AppleLanguages`, never the app's own, which the display-language setting rewrites), ` 2`… at the very end, 255 UTF-16 units;
 it writes a hidden temp file and places it with `exclusiveRename` because `URL.writeBookmarkData` overwrites. Quick Look from the context menu and ⌘Y
 is a `FileBrowserState.requestQuickLook` that the list/icon coordinator picks up — the panel's controller is the AppKit list view.
+**Context-menu and File-menu order** (2026-10-01, user decision): Finder-derived items first in Finder's group order, app-specific items
+(collections, metadata/export, smart library, auto rename) in groups at the end, never mixed in one group — not slavishly Finder's exact order,
+just sensible groups (`FileBrowserMenuCommand.groups(for:)`, pinned by `appSpecificItemsComeAfterFinderItems`; docs/15「右クリック」). New items
+are placed by this rule.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
 started under tests, pauses in read-only mode, never touches a target until its current contents are confirmed, waits for writes to settle
