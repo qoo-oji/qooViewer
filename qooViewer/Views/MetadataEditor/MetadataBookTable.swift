@@ -152,6 +152,8 @@ struct MetadataBookTable: NSViewRepresentable {
     var revealRequest: MetadataWorkspace.RevealRequest?
     /// 選んだ段(`MetadataWorkspace.lineSelection`)。
     @Binding var lineSelection: MetadataWorkspace.LineSelection?
+    /// セルを書き換えている最中か(`MetadataWorkspace.isEditingCell`。表が書く)。
+    @Binding var isEditingCell: Bool
     /// その段を直せるか(段の番号つき)。直せる列は欄の列と巻数(並べ替え用)の列(2026-09-22、利用者の要望で巻数(並べ替え用)も
     /// 直せるようにした)。
     var canEdit: (Column, MetadataBookRow, Int) -> Bool
@@ -438,6 +440,11 @@ struct MetadataBookTable: NSViewRepresentable {
         private var insertion: (bookID: String, column: Column, lines: [String])?
         /// 書き換えの最中に届いた中身(入力を途中で消さないよう、終わってから入れる)。
         private var pendingRows: (books: [MetadataBookRow], positions: [Int])?
+        /// 値を変えて Tab / ⇧Tab で抜けたときの、行き先へ移る頼み。直した値の行(段の数)が届いてから移る(`controlTextDidEndEditing`)。
+        /// `stale` は確定した時点の行(これと違う行が届いたら移る)、`serial` は待ちきれないときの打ち切りの突き合わせ。
+        private var pendingTabMove: (column: Column, line: Int, span: Int, bookID: String, forward: Bool, stale: MetadataBookRow,
+                                     serial: Int)?
+        private var tabMoveSerial = 0
         /// 見えている列(行の高さは、見えている列の段の数で決める。隠した列の段で行を伸ばさない)。
         private var visibleColumns: [Column] = Column.all
         /// 最後に表へ入れた、選んだ段(変わったら、前と今の行を描き直す)。
@@ -476,6 +483,7 @@ struct MetadataBookTable: NSViewRepresentable {
                 pendingRows = (parent.books, parent.positions)
             } else {
                 setRows(parent.books, parent.positions, in: table)
+                runPendingTabMoveIfRowArrived()
             }
             select(parent.selection, in: table)
             // 書き換えの最中は描き直さない(入力を消さない)。終わってからの次の回で描き直す。
@@ -690,6 +698,9 @@ struct MetadataBookTable: NSViewRepresentable {
             guard let cell = table.view(atColumn: column, row: row, makeIfNecessary: true) as? CellView,
                   let label = cell.label(at: line) else { return false }
             editing = (book(row).id, target, line, label.stringValue, cell, inserting)
+            // ほかの段の書き換えを始めたら、待っていた Tab の行き先へは移らない。
+            pendingTabMove = nil
+            if parent.isEditingCell == false { parent.isEditingCell = true }
             cell.setEditing(line)
             label.delegate = self
             guard table.window?.makeFirstResponder(label) == true else {
@@ -702,23 +713,67 @@ struct MetadataBookTable: NSViewRepresentable {
         func controlTextDidEndEditing(_ notification: Notification) {
             let movement = notification.userInfo?["NSTextMovement"] as? Int
             let edited = editing.map { (bookID: $0.bookID, column: $0.column, line: $0.line) }
+            // 値を変えたか(確定すると、計算し直した行が後から届く ―― `finishEditing`)と、確定したこの段が書いたあと何段になるか
+            // (著者は「、」で分かれ、空にした段・空のまま足した段は消える)。Tab の行き先は、書いたあとの段で数える。
+            var changesRow = false
+            var lineSpan = 1
+            if let edit = editing {
+                let value = (edit.cell.label(at: edit.line)?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
+                changesRow = edit.inserting ? !value.isEmpty : value != edit.original
+                if changesRow || edit.inserting, case .field(let field)? = edit.column.lineColumn {
+                    lineSpan = MetadataWorkspace.linePieces(field, value).count
+                }
+            }
             finishEditing(keeping: true)
             // Return で入れたときは、表へ戻る(矢印で次の行へ行ける)。ほかを押して抜けたときは、押した先を邪魔しない。
             if movement == NSTextMovement.return.rawValue, let table { table.window?.makeFirstResponder(table) }
             // Tab / ⇧Tab は、同じ欄の次 / 前の段、端まで来たら隣の欄へ(2026-09-27、監査 38。表計算・Finder の一覧と同じ。
             // 以前は Tab でも書き換えを終えるだけだった)。並びは見えている列の並び(利用者が並べ替えた順)。入れた値の計算し直しで
             // 行が並び直すことがあるので、本の id で行を引き直し、書き換えを終えた後の次の回で入る。
+            // **値を変えたときは、計算し直した行が届いてから移る**(2026-10-01 のレビュー: 行はメタデータ生成の読み直しの後に届くので、
+            // 次の回ではまだ古い行のまま。著者の 1 段に「A、B」と書いて Tab を押すと、2 段に分かれる前の段の数で行き先を決め、
+            // B の段へ行かずに隣の列へ飛んでいた)。届かないまま(読み直しても行が同じ)なら、少し待って古い行のまま移る。
             if let edited, movement == NSTextMovement.tab.rawValue || movement == NSTextMovement.backtab.rawValue {
                 let forward = movement == NSTextMovement.tab.rawValue
-                DispatchQueue.main.async { [weak self] in
-                    self?.moveEditing(from: edited.column, line: edited.line, of: edited.bookID, forward: forward)
+                if changesRow, let row = index(of: edited.bookID) {
+                    tabMoveSerial &+= 1
+                    let serial = tabMoveSerial
+                    pendingTabMove = (edited.column, edited.line, lineSpan, edited.bookID, forward, book(row), serial)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                        guard let self, let move = self.pendingTabMove, move.serial == serial else { return }
+                        self.pendingTabMove = nil
+                        self.moveEditing(from: move.column, line: move.line, span: move.span, of: move.bookID,
+                                         forward: move.forward)
+                    }
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.moveEditing(from: edited.column, line: edited.line, span: lineSpan, of: edited.bookID,
+                                          forward: forward)
+                    }
                 }
             }
         }
 
+        /// 待っていた Tab / ⇧Tab の行き先へ、直した本の行が届いていたら移る(`apply` が行を入れたあと)。
+        private func runPendingTabMoveIfRowArrived() {
+            guard let move = pendingTabMove else { return }
+            guard editing == nil, let row = index(of: move.bookID) else {
+                // 書き換えをほかで始めた・本が一覧から外れたら、移らない。
+                pendingTabMove = nil
+                return
+            }
+            guard book(row) != move.stale else { return }
+            pendingTabMove = nil
+            // 入れたばかりの行の高さ・セルが整ってから入る(次の回)。
+            DispatchQueue.main.async { [weak self] in
+                self?.moveEditing(from: move.column, line: move.line, span: move.span, of: move.bookID, forward: move.forward)
+            }
+        }
+
         /// Tab / ⇧Tab の行き先へ書き換えを移す。行き先の候補は、同じ欄の残りの段、その先の列の段(前へ戻るときは下の段から)。
-        /// 直せない段は飛ばし、直せる段が端まで無ければ表へ戻る。
-        private func moveEditing(from column: Column, line: Int, of bookID: String, forward: Bool) {
+        /// 直せない段は飛ばし、直せる段が端まで無ければ表へ戻る。`span` は、確定した段が書いたあとに占める段の数(分かれた著者は
+        /// 2 以上、消えた段は 0)。次の段はその下から数える。
+        private func moveEditing(from column: Column, line: Int, span: Int = 1, of bookID: String, forward: Bool) {
             guard let table, editing == nil, let row = index(of: bookID) else { return }
             let visible = table.tableColumns.indices.filter { !table.tableColumns[$0].isHidden }
             guard let start = visible.firstIndex(where: { Column(table.tableColumns[$0].identifier) == column }) else { return }
@@ -730,7 +785,9 @@ struct MetadataBookTable: NSViewRepresentable {
                 let count = target?.lines(of: book).count ?? 1
                 var lines = forward ? Array(0..<count) : Array((0..<count).reversed())
                 if position == start {
-                    lines = lines.filter { forward ? $0 > line : $0 < line }
+                    // 唯一の段を空にしたときは、残った空の 1 段(値の無い欄の見た目)へ戻らない。
+                    let onlyEmptyLeft = span == 0 && target?.lines(of: book) == [""]
+                    lines = lines.filter { forward ? $0 >= line + span && !onlyEmptyLeft : $0 < line }
                 }
                 candidates += lines.map { (columnIndex, $0) }
             }
@@ -812,6 +869,7 @@ struct MetadataBookTable: NSViewRepresentable {
         private func finishEditing(keeping: Bool) {
             guard let edit = editing else { return }
             editing = nil
+            if parent?.isEditingCell == true { parent?.isEditingCell = false }
             let label = edit.cell.label(at: edit.line)
             let value = label?.stringValue ?? ""
             label?.delegate = nil

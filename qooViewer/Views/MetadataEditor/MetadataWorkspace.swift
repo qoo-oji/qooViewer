@@ -224,6 +224,10 @@ final class MetadataWorkspace {
     private(set) var selectionToken = 0
     /// 何段もあるセルで選んだ段(絞り込みの帯の「上へ」「下へ」が動かす)。その本が選ばれていなくなったら外す。
     var lineSelection: LineSelection?
+    /// 一覧のセルを書き換えている最中か(表が知らせる)。その間は段を動かさない ―― 書き換えている段は番号で覚えているので、
+    /// 動かしたあとに確定すると、別の値を書き換えてしまう(2026-10-01 のレビュー: 著者 [A, B, C] の B を直しかけて ⌥⌘↑ を押し、
+    /// Return で確定すると [B, X, C] になり A が消えた)。
+    var isEditingCell = false
 
     /// 1 冊の中の、ある欄の 1 段。
     struct LineSelection: Hashable {
@@ -757,9 +761,9 @@ final class MetadataWorkspace {
         }
     }
 
-    /// その段を、その本の中で上 / 下へ動かせるか。ロックした本は動かさない。
+    /// その段を、その本の中で上 / 下へ動かせるか。ロックした本と、セルを書き換えている最中(`isEditingCell`)は動かさない。
     func canMoveLine(_ line: LineSelection, up: Bool) -> Bool {
-        guard let row = row(line.id), !row.isLocked else { return false }
+        guard !isEditingCell, let row = row(line.id), !row.isLocked else { return false }
         let count = lineCount(line.column, of: line.id)
         let target = line.index + (up ? -1 : 1)
         return line.index < count && (0..<count).contains(target)

@@ -11,9 +11,14 @@ import SwiftUI
 /// 名前・コメントと同じ)。鍵のボタンは押したときに書く。
 /// 書き方の規則はシートのまま(`commit`): 変えた欄だけを「直した欄」にし、ほかの欄はファイル名の読みに付いていく。
 ///
+/// 欄を離れずにウインドウを閉じた・アプリを終えたときも書く(`.onDisappear` はウインドウごと閉じると呼ばれないことがある ――
+/// `FocusReleasingField` の型コメント。2026-10-01 のレビュー: 打ちかけの題が ⌘W・⌘Q で黙って消えうるので、閉じる・終わる知らせでも書く)。
+///
 /// ■ ほかの画面で変わったとき
-/// DB が変わったら(`BookMetadataStore.revision`。メタデータの生成が読み直した・ウインドウで直した)、**打ちかけの欄が無ければ**
-/// 読み直す。打ちかけがあれば残す(書くときに、開いたあとで鍵が変わっていたら書かずに読み直す ―― シートと同じ)。
+/// DB が変わったら(`BookMetadataStore.revision`。メタデータの生成が読み直した・ウインドウで直した)、**打ちかけの欄が無く、この本の
+/// 行が変わっていれば**読み直す。打ちかけがあれば残す(書くときに、開いたあとで鍵が変わっていたら書かずに読み直す ―― シートと同じ)。
+/// ほかの本の書き込みでは読み直さない(行の無い本は読み直すたびにファイル名をメインで解析するので、スマートライブラリの集め直しや
+/// メタデータ生成が何千冊も書く間、そのたびに同じ解析を繰り返していた。2026-10-01 のレビュー)。
 ///
 /// ■ 1 つの欄に値をいくつも(2026-10-01、利用者の指示。メタデータの編集ウインドウの一覧と同じく qooMeta 0.3.0 に合わせた)
 /// 値をいくつも持てる欄(著者・原作・情報。`holdsSeveralInQooViewer`)は、**値ごとに入力欄を縦に並べる**。ほかの欄は 1 つに固定
@@ -78,6 +83,21 @@ struct HomeInspectorMetadataSection: View {
     @State private var didLoad = false
     /// 欄が出ているか(遅らせて焦点を入れるときに、もう消えた欄へ入れない)。
     @State private var isVisible = false
+    /// 最後に読み込んだときのこの本の行(行が無ければ nil)。DB の変化がこの本に関わるかを見る(型コメント「ほかの画面で変わったとき」)。
+    @State private var loadedRow: LoadedRow?
+    /// この欄のあるウインドウ(閉じる知らせを、このウインドウのものだけ受ける)。
+    @State private var hostWindow = WeakWindowBox()
+
+    private struct LoadedRow: Equatable {
+        let values: BookMetadataValues
+        let isLocked: Bool
+
+        init?(_ row: BookMetadata?) {
+            guard let row else { return nil }
+            values = row.values
+            isLocked = row.isLocked
+        }
+    }
 
     var body: some View {
         let isExcluded = rulesStore.isExcluded(bookID: bookID)
@@ -100,14 +120,30 @@ struct HomeInspectorMetadataSection: View {
         }
         .onChange(of: home.inspectorFocusRequest) { _, _ in takeFocusRequest() }
         // 欄を離れたら書く(型コメント「いつ書くか」)。欄から欄へ移ったときも、離れた欄のぶんを書く。
-        .onChange(of: focusedField) { old, _ in
-            if old != nil { commit() }
+        // 書くと DB から読み直し、空にした入力欄が詰まる・著者が「、」で分かれるので、移った先の入力欄を書いたあとの並びで
+        // 指し直す(`LineAnchor`)。
+        .onChange(of: focusedField) { old, new in
+            guard old != nil else { return }
+            let anchor = lineAnchor(new)
+            commit()
+            if let anchor { refocus(anchor) }
         }
         .onChange(of: metadataStore.revision) { _, _ in
-            if !isDirty { load() }
+            guard didLoad, !isDirty, LoadedRow(metadataStore.metadata(forBookID: bookID)) != loadedRow else { return }
+            load()
         }
         .onDisappear {
             isVisible = false
+            commit()
+        }
+        .background(WindowAccessor { window in
+            if hostWindow.window !== window { hostWindow.window = window }
+        })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            guard let window = hostWindow.window, (note.object as? NSWindow) === window else { return }
+            commit()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             commit()
         }
     }
@@ -352,6 +388,54 @@ struct HomeInspectorMetadataSection: View {
         focusedField = .line(key, target)
     }
 
+    /// 焦点が移った先の入力欄の目印: 欄と、その入力欄より上にある値の数(書いたあとの並びでの位置)。
+    private struct LineAnchor {
+        let key: LineKey
+        /// 移った先の入力欄の、書く前の番号。
+        let index: Int
+        /// その入力欄より上にある値の数(空の入力欄は数えず、著者は「、」で分かれた数)。
+        let valuesAbove: Int
+        /// 移った先が空の入力欄か(書くと消えるので、同じ位置に空の入力欄を残す)。
+        let isEmpty: Bool
+    }
+
+    private func lineAnchor(_ field: Field?) -> LineAnchor? {
+        guard case .line(let key, let index)? = field else { return nil }
+        let shown = shownLines(key)
+        let above = shown.prefix(index).reduce(0) { $0 + valueCount(key, $1) }
+        let isEmpty = !shown.indices.contains(index) || valueCount(key, shown[index]) == 0
+        return LineAnchor(key: key, index: index, valuesAbove: above, isEmpty: isEmpty)
+    }
+
+    /// 1 つの入力欄が書く値の数(`editedValues` と同じ分け方)。
+    private func valueCount(_ key: LineKey, _ text: String) -> Int {
+        let pieces = key == .authors ? Self.authors(from: text) : [text]
+        return pieces.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+    }
+
+    /// 書いたあとの並びで、移った先の入力欄を指し直す(2026-10-01 のレビュー: 著者 [A, B, C, D] の B を空にして C を押すと、
+    /// 書いて詰まった [A, C, D] の 3 番目 ―― D ―― に焦点が残り、C を直すつもりで D を書き換えていた。末尾なら焦点が消えていた)。
+    private func refocus(_ anchor: LineAnchor) {
+        // 書いているあいだに焦点がほかへ移っていたら触らない。
+        guard focusedField == .line(anchor.key, anchor.index) else { return }
+        var list = lines[anchor.key] ?? []
+        let target: Int
+        if anchor.isEmpty {
+            target = min(anchor.valuesAbove, list.count)
+            // 値の無い欄は空の入力欄を 1 つ出している(`shownLines`)。それ以外で空の入力欄が消えていたら、同じ位置に戻す
+            // (足しただけの空の入力欄は打ちかけ ―― `isDirty`)。
+            let isShownEmpty = list.isEmpty && target == 0
+            let isKept = list.indices.contains(target) && valueCount(anchor.key, list[target]) == 0
+            if !isShownEmpty, !isKept {
+                list.insert("", at: target)
+                lines[anchor.key] = list
+            }
+        } else {
+            target = min(anchor.valuesAbove, max(list.count - 1, 0))
+        }
+        if target != anchor.index { focusedField = .line(anchor.key, target) }
+    }
+
     /// 空の入力欄を片付ける(焦点のある所は残す ―― 足したばかりで、これから書く所なので)。
     private func pruneEmptyLines() {
         for key in LineKey.allCases {
@@ -380,6 +464,7 @@ struct HomeInspectorMetadataSection: View {
         openedLines = lines
         volumeSortText = draft.volumeSort.map(MetadataWorkspace.volumeSortText) ?? ""
         openedVolumeSortText = volumeSortText
+        loadedRow = LoadedRow(row)
         didLoad = true
     }
 

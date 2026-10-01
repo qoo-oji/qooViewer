@@ -194,8 +194,10 @@ final class WelcomeLibraryState: ObservableObject {
 
     /// インスペクタが焦点を取りにいっている最中か。コレクションの中のグリッドは、選択が変わると焦点を自分へ移す
     /// (CollectionDetailView)ので、「メタデータの編集…」で選び直したときはそれを控えてもらう(控えないと題の欄から焦点を奪う)。
+    /// 拾われないまま古くなった頼みは数えない(`focusRequestLifetime`。2026-10-01 のレビュー: 数えていたので、拾われなかった頼みが
+    /// 残ると、モードを移るかインスペクタを隠すまで、選び直してもグリッドへ焦点が戻らず ⌘C・矢印キーが届かなかった)。
     func isInspectorTakingFocus(now: Date = Date()) -> Bool {
-        if inspectorFocusRequest != nil { return true }
+        if let request = inspectorFocusRequest, now.timeIntervalSince(request.date) < Self.focusRequestLifetime { return true }
         guard let taken = inspectorFocusTakenAt else { return false }
         return now.timeIntervalSince(taken) < 1
     }

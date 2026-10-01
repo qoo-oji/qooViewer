@@ -648,6 +648,27 @@ extension MetadataWorkspaceTests {
         #expect(!row.info.isEmpty)
         #expect(library.metadata.outdatedFieldBookIDs.isEmpty)
     }
+
+    @Test("以前の版の欄の行を埋めるとき、原作・情報の 2 つ目からの値も埋める")
+    func outdatedRowsGetEverySourceAndInfoValue() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let book = "/書庫/[架空工房] 月の庭.zip"
+        library.metadata.upsert(bookID: book, author: "架空工房", title: "手で直した題", series: "", seriesIndex: "")
+        #expect(library.metadata.outdatedFieldBookIDs == [book])
+
+        library.metadata.fillMissingFields(of: [book]) { _ in
+            var read = BookMetadataValues(title: "読んだ題", authors: ["架空工房"])
+            read.setAllValues("source", to: ["作品A", "作品B"])
+            read.setAllValues("info", to: ["付記A", "付記B", "付記C"])
+            return read
+        }
+        let values = try #require(library.metadata.metadata(forBookID: book)).values
+        #expect(values.title == "手で直した題")
+        #expect(values.allValues("source") == ["作品A", "作品B"])
+        #expect(values.allValues("info") == ["付記A", "付記B", "付記C"])
+        #expect(library.metadata.outdatedFieldBookIDs.isEmpty)
+    }
 }
 
 /// 画面を持たない登録の口(メタデータ生成・`BookMetadataStore.importSourceMetadata`、2026-09-22)。
@@ -862,6 +883,12 @@ extension MetadataWorkspaceTests {
         workspace.lineSelection = .init(id: first, column: .field(.info), index: 1)
         #expect(workspace.canMoveLine(try #require(workspace.lineSelection), up: true))
         #expect(!workspace.canMoveLine(try #require(workspace.lineSelection), up: false))
+        // セルを書き換えている最中は動かさない(書き換えている段は番号で覚えているので、動かすと確定が別の値に入る)。
+        workspace.isEditingCell = true
+        #expect(!workspace.canMoveLine(try #require(workspace.lineSelection), up: true))
+        workspace.moveLine(up: true)
+        #expect(workspace.lineSelection?.index == 1)
+        workspace.isEditingCell = false
         workspace.moveLine(up: true)
         await workspace.settle()
         #expect(workspace.lineSelection?.index == 0)

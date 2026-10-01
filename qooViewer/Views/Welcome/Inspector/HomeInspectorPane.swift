@@ -216,6 +216,9 @@ private struct HomeInspectorFileBrowserItem: View {
 
     /// 本かどうか。ファイルは名前で決まり、フォルダは画像フォルダかを 1 回だけ調べる(調べる間は nil)。
     @State private var isBook: Bool?
+    /// 「メタデータの編集…」の頼みで本と分かったフォルダのパス。調べ終わりが後から「本でない」を書いても、これを優先する
+    /// (頼みは欄が拾うと消えるので、頼みそのものは後で見られない)。
+    @State private var bookPathConfirmedByRequest: String?
 
     var body: some View {
         Group {
@@ -236,6 +239,19 @@ private struct HomeInspectorFileBrowserItem: View {
         }
         // リンクの先が後から解けて `effective` が変わったら決め直す(一覧はリンクの先を読み込みの後で解く ―― FileBrowserState.resolveLinkTargets)。
         .task(id: effective) { await decide() }
+        // 選んだままのフォルダに「メタデータの編集…」の頼みだけが置かれたときも本として出し直す。選択が変わらないので
+        // `effective` も変わらず、上の決め直しは走らない(2026-10-01 のレビュー: ネットワーク越し・TCC の保護下の画像フォルダを
+        // 選んだまま右クリックの「メタデータの編集…」を押すと、本でない形のまま欄が出ず、頼みも拾われずに残っていた)。
+        // `home` は購読しない(ほかの値の変化でこの面を描き直さない)ので、頼みだけを受け取る。
+        .onReceive(home.$inspectorFocusRequest) { _ in noteFocusRequest() }
+    }
+
+    /// 選んでいるフォルダへの頼みが来ていたら、本として出す(頼みを置いた入り口が、本であることを確かめている ―― `decide`)。
+    private func noteFocusRequest() {
+        guard effective.isDirectory, !effective.isVolume, !effective.isPackage,
+              home.hasInspectorFocusRequest(for: effective.url.path) else { return }
+        bookPathConfirmedByRequest = effective.url.path
+        if isBook != true { isBook = true }
     }
 
     private func decide() async {
@@ -243,7 +259,7 @@ private struct HomeInspectorFileBrowserItem: View {
             isBook = false
         } else if !effective.isDirectory {
             isBook = effective.isBookFile
-        } else if home.hasInspectorFocusRequest(for: effective.url.path) {
+        } else if home.hasInspectorFocusRequest(for: effective.url.path) || bookPathConfirmedByRequest == effective.url.path {
             // 右クリックの「メタデータの編集…」から来た: その入り口が画像フォルダであることを確かめてから頼みを置いている
             // (FileBrowserActions.editMetadata)。読み直さない(ネットワーク越しのフォルダでも本として出せる)。
             isBook = true
@@ -261,7 +277,8 @@ private struct HomeInspectorFileBrowserItem: View {
             isBook = nil
             let result = await FileIO.perform { ShelfFolderResolver.isSingleBookFolder(url) }
             guard !Task.isCancelled else { return }
-            isBook = result
+            // 調べている間に「メタデータの編集…」で本と分かっていたら、そちらを残す(欄が出て頼みを拾ったあとで消さない)。
+            isBook = result || bookPathConfirmedByRequest == url.path
         }
     }
 }

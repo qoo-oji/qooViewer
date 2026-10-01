@@ -70,6 +70,8 @@ struct HomeInspectorTests {
         let late = WelcomeLibraryState.focusRequestLifetime + 1
         state.revealInspector(editingMetadataOf: "/books/a.cbz", now: start)
         #expect(!state.hasInspectorFocusRequest(for: "/books/a.cbz", now: start.addingTimeInterval(late)))
+        #expect(!state.isInspectorTakingFocus(now: start.addingTimeInterval(late)),
+                "拾われないまま古くなった頼みで、一覧が焦点を取り返すのを止め続けない")
         #expect(!state.takeInspectorFocusRequest(for: "/books/a.cbz", now: start.addingTimeInterval(late)))
         #expect(state.inspectorFocusRequest == nil, "古い頼みは拾おうとした時点で捨てる")
 

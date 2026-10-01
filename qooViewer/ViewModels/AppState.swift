@@ -306,6 +306,10 @@ final class AppState: ObservableObject {
         open(urls: urls)
     }
 
+    /// ウインドウ全体の受け口より手前の受け口(インスペクタの列 HomeInspectorDropDelegate)が、`openDroppedFiles` へ回すドラッグを
+    /// 受けている最中か。その間ウインドウ全体の受け口は反応しないので、ContentView がこれを見て同じ縁の強調を出す。
+    @Published var isInnerFileDropTargeted = false
+
     /// 現在開いている本のブックマーク一覧。メニューバーの「ブックマーク」メニュー下部に
     /// 一覧表示するために、ViewerViewが自分自身のViewerViewModelの内容をここへ反映する
     /// (performViewerActionと同じ、本を表示している間だけ登録する仕組み)。

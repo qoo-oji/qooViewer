@@ -452,7 +452,7 @@ final class BookMetadataStore: ObservableObject {
     }
 
     /// 以前の版の欄で登録した行の、**空の欄だけ**をファイル名から読んだ値で埋める(登録した値はそのまま)。
-    /// 埋める欄: ジャンル・イベント・原作・情報と、2 人目以降の著者(先頭の著者が同じときだけ)。埋めたら今の版にする。
+    /// 埋める欄: ジャンル・イベント・原作・情報(2 つ目からの値も)と、2 人目以降の著者(先頭の著者が同じときだけ)。埋めたら今の版にする。
     /// - Returns: 版を上げた行の数。
     @discardableResult
     func fillMissingFields(of bookIDs: some Sequence<String>, reading: (String) -> BookMetadataValues) -> Int {
@@ -463,8 +463,11 @@ final class BookMetadataStore: ObservableObject {
             var values = row.values
             if values.genre.isEmpty { values.genre = read.genre }
             if values.event.isEmpty { values.event = read.event }
-            if values.source.isEmpty { values.source = read.source }
-            if values.info.isEmpty { values.info = read.info }
+            // 原作・情報は値をいくつも持てるので、2 つ目からの値(`moreValues`)ごと埋める(2026-10-01 のレビュー: 先頭だけを写して
+            // 版を上げていたので、2 つ目からの値は二度と埋まらなかった)。
+            for key in BookMetadataValues.moreValueKeys where values.allValues(key).isEmpty {
+                values.setAllValues(key, to: read.allValues(key))
+            }
             if values.authors.count <= 1, read.authors.count > 1, read.authors.first == values.authors.first ?? read.authors.first {
                 values.authors = read.authors
             }

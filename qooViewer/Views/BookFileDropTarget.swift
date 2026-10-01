@@ -36,7 +36,8 @@ extension View {
     /// - インスペクタの表紙(BookCoverEditAreas.swift。2026-09-30 まではメタデータ編集シートの表紙) ―― 落とされた画像1枚を
     ///   カバーにする。ウインドウ本体の受け口(本を開く)より手前で受ける
     ///
-    /// NSItemProviderからURLを取り出すところはこうして1か所に残してある。
+    /// NSItemProviderからURLを取り出すところは`loadDroppedFileURLs`の1か所に残してある(`DropDelegate`で受ける
+    /// インスペクタの列 ―― HomeInspectorDropDelegate ―― もそれを使う)。
     func fileURLDropTarget(
         isTargeted: Binding<Bool>, refusesDrop: @escaping () -> Bool = { false },
         receiveURLs: @escaping ([URL]) -> Void
@@ -53,17 +54,24 @@ extension View {
             // (大量選択の主な経路はFinder/Dockからのapplication(_:open:)で、そちらはそもそも
             // NSItemProviderを経由しない)。
             Task { @MainActor in
-                var droppedURLs: [URL] = []
-                for provider in providers {
-                    if let url = await loadFileURL(from: provider) {
-                        droppedURLs.append(url)
-                    }
-                }
-                receiveURLs(droppedURLs)
+                receiveURLs(await loadDroppedFileURLs(from: providers))
             }
             return true
         }
     }
+}
+
+/// 落とされたNSItemProviderの束から、URLを1つも捨てずに取り出す(取り出せなかったものは飛ばす。並びは束の順)。
+/// **ドロップからURLを取り出すのはここだけ**(`fileURLDropTarget`の型コメント)。
+@MainActor
+func loadDroppedFileURLs(from providers: [NSItemProvider]) async -> [URL] {
+    var droppedURLs: [URL] = []
+    for provider in providers {
+        if let url = await loadFileURL(from: provider) {
+            droppedURLs.append(url)
+        }
+    }
+    return droppedURLs
 }
 
 /// NSItemProvider.loadObjectのコールバックをasyncで待てるようにした薄いラッパー。

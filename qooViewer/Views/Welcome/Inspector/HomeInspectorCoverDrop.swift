@@ -69,6 +69,9 @@ extension EnvironmentValues {
 /// インスペクタの列の受け口(`HomeInspectorCoverDrop` の型コメント)。表紙の外に落ちたものは、ウインドウ全体の受け口と同じく
 /// 開く(編集モードの本棚なら登録する)。ホームから運び出している本を同じウインドウへ落としたときは受け取らない
 /// (ウインドウ全体の受け口と同じ。HomeBookDragTracker)。
+/// 表紙の外の上にある間は、ウインドウ全体の受け口と同じ縁の強調を出してもらう(`AppState.isInnerFileDropTargeted`。この列が
+/// 受けている間、ウインドウ全体の受け口は反応しないので、出さないと開くのか分からない。2026-10-01 のレビュー)。
+/// URL の取り出しは `loadDroppedFileURLs`(BookFileDropTarget.swift)の 1 か所に任せる。
 struct HomeInspectorDropDelegate: DropDelegate {
     let coverDrop: HomeInspectorCoverDrop
     let appState: AppState
@@ -78,26 +81,27 @@ struct HomeInspectorDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        coverDrop.setTargeted(coverDrop.accepts(at: info.location))
+        let onCover = coverDrop.accepts(at: info.location)
+        coverDrop.setTargeted(onCover)
+        setWindowTargeted(!onCover)
         return DropProposal(operation: .copy)
     }
 
     func dropExited(info: DropInfo) {
         coverDrop.setTargeted(false)
+        setWindowTargeted(false)
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let onCover = coverDrop.accepts(at: info.location)
         coverDrop.setTargeted(false)
+        setWindowTargeted(false)
         let providers = info.itemProviders(for: [.fileURL])
         guard !providers.isEmpty else { return false }
         let coverDrop = coverDrop
         let appState = appState
         Task { @MainActor in
-            var urls: [URL] = []
-            for provider in providers {
-                if let url = await Self.loadFileURL(from: provider) { urls.append(url) }
-            }
+            let urls = await loadDroppedFileURLs(from: providers)
             if onCover {
                 // 表紙へは画像 1 枚だけ(以前のシートの表紙と同じ)。画像が無ければ何もしない。
                 if let image = urls.first(where: { isImageFile($0.lastPathComponent) }) { coverDrop.deliver(image) }
@@ -108,12 +112,8 @@ struct HomeInspectorDropDelegate: DropDelegate {
         return true
     }
 
-    private static func loadFileURL(from provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { continuation in
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                continuation.resume(returning: url)
-            }
-        }
+    private func setWindowTargeted(_ targeted: Bool) {
+        if appState.isInnerFileDropTargeted != targeted { appState.isInnerFileDropTargeted = targeted }
     }
 }
 
@@ -123,6 +123,10 @@ extension View {
         environment(\.homeInspectorCoverDrop, coverDrop)
             .coordinateSpace(.named(HomeInspectorCoverDrop.coordinateSpace))
             .onDrop(of: [.fileURL], delegate: HomeInspectorDropDelegate(coverDrop: coverDrop, appState: appState))
+            // ドラッグの最中に列が消えたら(本を開いた・インスペクタを隠した)、離れた知らせが来ないことがあるので、縁の強調を下ろす。
+            .onDisappear { [weak appState] in
+                if appState?.isInnerFileDropTargeted == true { appState?.isInnerFileDropTargeted = false }
+            }
     }
 }
 

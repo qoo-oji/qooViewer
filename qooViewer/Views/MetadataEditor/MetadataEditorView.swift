@@ -709,7 +709,7 @@ struct MetadataBookTableView: View {
         let controller = model.coverController
         MetadataBookTable(books: workspace.books, positions: workspace.visiblePositions, selection: $workspace.selection,
                           sortOrder: $workspace.sortOrder, revealRequest: workspace.revealRequest,
-                          lineSelection: $workspace.lineSelection,
+                          lineSelection: $workspace.lineSelection, isEditingCell: $workspace.isEditingCell,
                           canEdit: canEdit, isEdited: isEdited, help: help, commit: commit, insert: insert,
                           contextMenu: contextMenu,
                           toggleLock: { [workspace] id in workspace.setLocked([id], !workspace.isLocked(id)) },

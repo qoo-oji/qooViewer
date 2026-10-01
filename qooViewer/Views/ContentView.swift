@@ -318,13 +318,14 @@ struct ContentView: View {
             // 表示中の画像やパネルの見え方を変えたくないので、背景を染めるのではなく縁だけを
             // 強調する。
             .overlay {
-                if isFileDropTargeted, !HomeBookDragTracker.isDragging(from: appState) {
+                // インスペクタの列(表紙の外)の上にある間も同じ縁を出す(そこではこの受け口が反応しない。AppState.isInnerFileDropTargeted)。
+                if isFileDropTargeted || appState.isInnerFileDropTargeted, !HomeBookDragTracker.isDragging(from: appState) {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(Color.accentColor, lineWidth: 4)
                         .allowsHitTesting(false)
                 }
             }
-            .animation(.easeInOut(duration: 0.12), value: isFileDropTargeted)
+            .animation(.easeInOut(duration: 0.12), value: isFileDropTargeted || appState.isInnerFileDropTargeted)
     }
 
     /// サイドパネルのブラウザモードが画面に出た・隠れた(パネルの表示・ホバー・モードの切り替え・機能の ON/OFF)ことを、
