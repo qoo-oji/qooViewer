@@ -46,20 +46,21 @@ final class ViewerHandoff: ObservableObject {
             return
         }
         // 同じ本(ページの並べ替え・除外で中身だけ変わった、同じ本の開き直し)は、今までどおり同じ ViewerView のまま
-        // (`.id(book.id)` が同じなので、ビューモデルも作り直されない)。
-        if let shown, shown.book.id == book.id {
+        // (`.id(viewIdentity)` が同じなので、ビューモデルも作り直されない)。シークレットフォルダかが変わった開き直しは別の本と
+        // して作り直す(ビューモデルの `skipsPersistence` は作るときに決まるので、外観だけ替わって書き込みが残る食い違いになる)。
+        if let shown, Self.viewIdentity(of: shown.book) == Self.viewIdentity(of: book) {
             discardPending()
             self.shown = Entry(book: book, model: shown.model)
             return
         }
-        if let pending, pending.book.id == book.id {
+        if let pending, Self.viewIdentity(of: pending.book) == Self.viewIdentity(of: book) {
             self.pending = Entry(book: book, model: pending.model)
             return
         }
         discardPending()
         let model = makeModel(book)
         pending = Entry(book: book, model: model)
-        let bookID = book.id
+        let bookID = Self.viewIdentity(of: book)
         readinessSubscription = model.$currentImages
             .first { !$0.isEmpty }
             .sink { [weak self] _ in
@@ -73,10 +74,15 @@ final class ViewerHandoff: ObservableObject {
     }
 
     private func showPending(bookID: String) {
-        guard let pending, pending.book.id == bookID else { return }
+        guard let pending, Self.viewIdentity(of: pending.book) == bookID else { return }
         stopWaiting()
         self.pending = nil
         shown = pending
+    }
+
+    /// ビューア(ViewerView とビューモデル)を作り直す単位。本の id に、シークレットフォルダの本かを足したもの。
+    static func viewIdentity(of book: MangaBook) -> String {
+        book.isInSecretFolder ? book.id + "\u{0}secret" : book.id
     }
 
     private func stopWaiting() {

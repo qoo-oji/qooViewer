@@ -54,8 +54,18 @@ final class AppState: ObservableObject {
     /// ただし**フォルダのアクセス権(FolderAccessStore)だけは例外**で、本の記録ではなく
     /// サンドボックスの権限そのものなので、どちらの場合も従来どおり付与・保存してよい。
     ///
-    /// 一方、次の2つは**シークレットウインドウ固有**で、その場限りの本には適用しない
-    /// (混同すると、通常ウインドウでその場限りの本を開いた瞬間に履歴が消える):
+    /// ■ シークレットフォルダの本も同じ扱いになる(2026-10-03。SecretFolderStore)
+    /// シークレットフォルダの中の本(MangaBook.isInSecretFolder。開いた時点の値)も`leavesNoRecord`に入り、どの窓で
+    /// 開いても上と同じものを書かない。本を開かずに書く所(ホームの絵のディスクキャッシュ・コレクションへの追加・
+    /// スマートライブラリの一覧・メタデータ生成・表紙の抽出・動画の絵の先作り・書き出しや編集ウインドウのキャッシュ)は、
+    /// 窓ではなく場所で決めるので`SecretFolderStore.isSecretAppWide`で断る(docs/plans/secret-folder-plan.md §3.2)。
+    /// 窓の性質(履歴の表示・サイドパネル・ほかの本やフォルダへの操作)は**元のモードのまま**で、変わるのは
+    /// 見た目だけ ―― ビューアに出ている間、外観一式とタイトルの「(シークレット)」がシークレットウインドウと同じになる
+    /// (ContentView.showsAsPrivate)。
+    ///
+    /// 一方、次の2つは**シークレットウインドウ固有**で、その場限りの本・シークレットフォルダの本には適用しない
+    /// (混同すると、通常ウインドウでその場限りの本を開いた瞬間に履歴が消える。タイトルの表記だけはシークレットフォルダの
+    /// 本にも付ける ―― 上の段落):
     /// - 履歴の**表示**を隠すこと(ウェルカム画面・サイドパネル・File › 最近開いたファイル)
     /// - ウインドウタイトルの「(シークレット)」表記、主ウインドウの資格判定
     ///
@@ -1222,11 +1232,11 @@ final class AppState: ObservableObject {
 
         openTask = Task { [weak self] in
             do {
-                let book: MangaBook
+                var loaded: MangaBook
                 if request.bundlesMultipleImages {
                     // その場限りの本。ページ一覧のキャッシュは意味を持たないためそもそも引数が無い
                     // (BookLoader.load(imageFiles:)のコメント参照)。
-                    book = try await BookLoader.load(imageFiles: request.urls)
+                    loaded = try await BookLoader.load(imageFiles: request.urls)
                 } else if let url = request.primaryURL {
                     // 本が並んでいるだけのフォルダ(棚)は、その先頭の1冊を開く ―― そのファイルを
                     // 直接開いたときと同じ状態にする(ユーザー要望。ShelfFolderResolver参照)。
@@ -1260,9 +1270,11 @@ final class AppState: ObservableObject {
                     var skipped = 0
                     while true {
                         do {
-                            book = try await BookLoader.load(
+                            loaded = try await BookLoader.load(
                                 from: candidate,
-                                cachesPageList: cachesPageList,
+                                // シークレットフォルダの本はページ一覧のキャッシュも読み書きしない(シークレットウインドウと同じ。
+                                // SecretFolderStore)。棚を読み替えた先で決める(棚の外にシークレットフォルダの本だけがある形もある)。
+                                cachesPageList: cachesPageList && !SecretFolderStore.isSecretAppWide(candidate),
                                 nestedArchiveMemoryLimitBytes: nestedArchiveMemoryLimitBytes,
                                 onProgress: onProgress
                             )
@@ -1278,6 +1290,11 @@ final class AppState: ObservableObject {
                 } else {
                     throw BookLoaderError.notFound
                 }
+                // シークレットフォルダの本か(開いた時点の値。MangaBook.isInSecretFolder)。真なら記録の残らない本になり
+                // (leavesNoRecord)、表示している間この窓はシークレットウインドウの見た目になる(showsAsPrivate)。
+                loaded.isInSecretFolder = SecretFolderStore.isSecretAppWide(loaded.sourceURL)
+                    || request.urls.contains(where: SecretFolderStore.isSecretAppWide)
+                let book = loaded
                 // 本の識別子(iノード・ボリューム)と「フォルダか」は、**反映の前にメインの外で**求めておく(2026-09-27、表示の切り替えの
                 // 監査の 11)。どちらもボリュームへの問い合わせで、以前は下の反映(メイン)の中で求めていた ―― FileNodeIdentifier.current の
                 // コメントのとおり、遅い・眠っているボリュームでは秒単位で止まりうる。本は読み終えたところなので、ここで求めても同じ値に

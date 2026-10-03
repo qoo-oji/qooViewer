@@ -108,6 +108,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | `ComicInfoXMLTests` / `ComicInfoResolverTests` | ComicInfo.xml の生成・解析・往復・XXE の遮断、探し方 |
 | `MetadataWorkspaceTests` / `MetadataRulesStoreTests` / `MetadataRegistrationTests` / `MetadataDraftStoreTests` | メタデータの編集ウインドウの中身(並べた本の登録・直した欄の書き込み・ロック・再生成・削除・ルールセットの切り替え・取り消し)、画面を持たない登録(本を開いたとき・ファイルの書誌情報の取り込み・規則を変えたときの読み直し)、以前の下書きの引き継ぎ、規則の保存と以前の規則の引き継ぎ・除外フォルダ(qooMeta。2026-09-21、登録の作り直しは 2026-09-22) |
 | `SmartLibraryTests` | スマートライブラリの条件・絞り込み・ブラウザ・並べ替え・束ね方・保存・フォルダの探し方・qooMeta の差分の読み・保存した一覧・ON/OFF(2026-09-21/22) |
+| `SecretFolderTests` | シークレットフォルダの判定(中とサブフォルダ)・保存と付け替え・取り込みは足すだけ・保存データの JSON の往復・記録の残らない本になること(2026-10-03) |
 | `PagePixelCacheTests` | 厳密な LRU、`peek` が昇格しないこと、上限を瞬間的にも超えないこと |
 | `CacheHousekeepingTests` | 構造キャッシュの JSON(旧版含む)、刈り込みの境目、一時ファイルの残骸の判定 |
 | `ImageDecoderTests` / `ContrastCorrectorTests` | 対応形式・EXIF の回転・壊れた入力、カラー判定とオートレベル |

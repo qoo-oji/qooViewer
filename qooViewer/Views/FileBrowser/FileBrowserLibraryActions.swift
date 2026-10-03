@@ -28,6 +28,13 @@ extension FileBrowserActions {
         }
     }
 
+    /// コレクションに入れられる本を含むか: シークレットフォルダの外の項目が 1 つでもあるか(SecretFolderStore。中の本は
+    /// `CollectionStore.makePendingItems` が断るので、全部が中なら「コレクションを作成/に登録」を淡色にする)。
+    func canAddToCollections(_ entries: [FileBrowserEntry]) -> Bool {
+        canUseAsBooks(entries)
+            && entries.contains { secretFolderStore?.contains(path: effective($0).url.path) != true }
+    }
+
     /// 1 冊だけを相手にする操作(メタデータ・書き出し)の対象になりうるか。
     func canUseAsSingleBook(_ entries: [FileBrowserEntry]) -> Bool {
         entries.count == 1 && canUseAsBooks(entries)
@@ -43,7 +50,7 @@ extension FileBrowserActions {
     /// - Returns: 振り分けの Task(**テストのための口**。待ち合わせに使う)。
     @discardableResult
     func createCollection(from entries: [FileBrowserEntry], libraryID: UUID? = nil) -> Task<Void, Never>? {
-        guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
+        guard isLibraryFeatureEnabled, allowsSaving, canAddToCollections(entries) else { return nil }
         let urls = entries.map { effective($0).url }
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
@@ -74,7 +81,7 @@ extension FileBrowserActions {
     /// - Returns: 登録の Task(**テストのための口**)。
     @discardableResult
     func addToCollection(_ entries: [FileBrowserEntry], collectionID: UUID) -> Task<Void, Never>? {
-        guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
+        guard isLibraryFeatureEnabled, allowsSaving, canAddToCollections(entries) else { return nil }
         let urls = entries.map { effective($0).url }
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
@@ -95,7 +102,8 @@ extension FileBrowserActions {
             self.state?.showToast(Self.addedToCollectionMessage(
                 addedTitles: result.addedTitles, requestedCount: result.requestedCount,
                 collectionName: result.collectionName,
-                locale: self.preferences?.effectiveLocale ?? .autoupdatingCurrent
+                locale: self.preferences?.effectiveLocale ?? .autoupdatingCurrent,
+                skippedSecretCount: result.skippedSecretCount
             ))
         }
     }
@@ -103,8 +111,16 @@ extension FileBrowserActions {
     /// 「コレクションに登録」の後の知らせの文。1 冊なら本の名前、複数なら冊数。既に入っていて足さなかった本
     /// (CollectionStore.add が弾いたもの)があれば、それも分かるようにする。
     static func addedToCollectionMessage(
-        addedTitles: [String], requestedCount: Int, collectionName: String, locale: Locale
+        addedTitles: [String], requestedCount: Int, collectionName: String, locale: Locale, skippedSecretCount: Int = 0
     ) -> String {
+        // シークレットフォルダの本を入れなかったことを添える(CollectionStore.makePendingItems)。
+        guard skippedSecretCount == 0 else {
+            let secret = CollectionStore.secretBooksNotAddedMessage(count: skippedSecretCount, locale: locale)
+            guard requestedCount > 0 else { return secret }
+            return addedToCollectionMessage(
+                addedTitles: addedTitles, requestedCount: requestedCount, collectionName: collectionName, locale: locale
+            ) + " " + secret
+        }
         let addedCount = addedTitles.count
         if addedCount == 0 {
             return String(

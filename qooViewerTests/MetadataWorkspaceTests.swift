@@ -584,23 +584,34 @@ extension MetadataRulesStoreTests {
         #expect(store.unreadableRulesDiff == nil)
     }
 
-    @Test("対象外のフォルダの中とサブフォルダの本は対象外、保存して読み直しても残る")
-    func excludedFolders() throws {
-        let url = FileManager.default.temporaryDirectory
+    @Test("以前の「対象外のフォルダ」は読むだけで、シークレットフォルダへ 1 度だけ移して空にする(SecretFolderStore)")
+    func legacyExcludedFoldersMoveToSecretFolders() throws {
+        let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("qooViewerTests.excluded.\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("settings.json")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = MetadataRulesStore(url: url, legacyDefaults: nil)
-        store.addExcludedFolder(URL(fileURLWithPath: "/架空/除外", isDirectory: true))
-        #expect(store.isExcluded(bookID: "/架空/除外/本.zip"))
-        #expect(store.isExcluded(bookID: "/架空/除外/下の階/本.zip"))
-        #expect(!store.isExcluded(bookID: "/架空/除外しない/本.zip"))
+        let url = directory.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // 以前の版が書いた設定ファイル(対象外のフォルダを持つ)。
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"rulesDiff":"","stamps":[],"excludedFolders":["/架空/除外"]}"#.utf8).write(to: url)
+        let rules = MetadataRulesStore(url: url, legacyDefaults: nil)
+        #expect(rules.legacyExcludedFolders == ["/架空/除外"])
 
-        var change = FileSystemChange()
-        change.relocations = [.init(from: URL(fileURLWithPath: "/架空/除外"), to: URL(fileURLWithPath: "/架空/移した"))]
-        store.relocate(using: change)
-        let reopened = MetadataRulesStore(url: url, legacyDefaults: nil)
-        #expect(reopened.excludedFolders == ["/架空/移した"])
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let secret = SecretFolderStore(defaults: suite.defaults)
+        #expect(secret.migrateLegacyExcludedFolders(from: rules) == 1)
+        #expect(secret.folders == ["/架空/除外"])
+        #expect(secret.hasPendingMigrationNotice)
+        // 移した後は設定ファイルからも消える(読み直しても戻らない)。
+        #expect(rules.legacyExcludedFolders.isEmpty)
+        #expect(MetadataRulesStore(url: url, legacyDefaults: nil).legacyExcludedFolders.isEmpty)
+        // 2 度目は何もしない(利用者が外したフォルダを戻さない)。
+        secret.remove("/架空/除外")
+        secret.markMigrationNoticeShown()
+        try Data(#"{"rulesDiff":"","stamps":[],"excludedFolders":["/架空/除外"]}"#.utf8).write(to: url)
+        #expect(secret.migrateLegacyExcludedFolders(from: MetadataRulesStore(url: url, legacyDefaults: nil)) == 0)
+        #expect(secret.folders.isEmpty)
+        #expect(!secret.hasPendingMigrationNotice)
     }
 }
 

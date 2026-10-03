@@ -787,7 +787,9 @@ class BookExportViewModel: ObservableObject {
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
         defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
 
-        let book = try await BookLoader.load(from: sourceURL, cachesPageList: usesPageListCache)
+        // シークレットフォルダの本はページ一覧のキャッシュを読み書きしない(SecretFolderStore)。
+        let book = try await BookLoader.load(
+            from: sourceURL, cachesPageList: usesPageListCache && !SecretFolderStore.isSecretAppWide(sourceURL))
         try await write(prepare(row: row, book: book, displayState: openBookDisplayState), to: destinationFolder)
     }
 

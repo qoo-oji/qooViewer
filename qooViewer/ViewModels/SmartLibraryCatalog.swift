@@ -242,6 +242,12 @@ final class SmartLibraryCatalog: ObservableObject {
         store.$folders.dropFirst().removeDuplicates().sink { _ in rebuild(true) }.store(in: &subscriptions)
         // メタデータ生成が読み終えた(行がまだ無い本の読みが変わる。値は DB へ書かれ、上の `revision` でも届く)。
         generator?.updates.sink { _ in rebuild(false) }.store(in: &subscriptions)
+        // シークレットフォルダが変わった(探し直さずに絞り直す。rebuild の中)。知らせはアプリに 1 つのストアのものだけを受ける
+        // (テストが作ったストアの知らせで動かない)。
+        NotificationCenter.default.publisher(for: SecretFolderStore.didChange)
+            .filter { ($0.object as? SecretFolderStore)?.isAppWideStore == true }
+            .sink { _ in rebuild(false) }
+            .store(in: &subscriptions)
         // 読書位置は通知が無い。本を開くとホームのペインは消え(deactivate)、戻ると出る(activate)ので、そこで読み直される。
     }
 
@@ -288,6 +294,13 @@ final class SmartLibraryCatalog: ObservableObject {
                 if let self, epoch == self.scanEpoch, roots == self.scanRoots() { self.scanned = (roots, scan) }
             }
             guard let self, !Task.isCancelled, generation == self.generation else { return }
+            // シークレットフォルダの本は並べない・記録しない・保存しない(catalog.json と corpus.json は本のパスを持つ。
+            // SecretFolderStore)。探した結果(`scanned`)には残し、一覧が変わったら探し直さずにここで絞り直す。
+            let unfilteredScan = scan
+            let secretFolders = SecretFolderStore.currentAppWideFolders
+            if !secretFolders.isEmpty {
+                scan.books.removeAll { SecretFolderStore.contains(path: $0.path, in: secretFolders) }
+            }
             // 2. 探した本の一覧を記録する(メタデータを作るのはメタデータ生成。記録の残るウインドウが出ている間だけ ――
             //    シークレットウインドウだけで出した本は記録しない。`persistingCount`)。
             if self.persistingCount > 0 {
@@ -301,7 +314,8 @@ final class SmartLibraryCatalog: ObservableObject {
             }.value
             guard !Task.isCancelled, generation == self.generation else { return }
             // 組み立てている間に探し直しを頼まれていたら、古い結果で上書きしない(頼まれた探し直しが前の結果を使ってしまう)。
-            if epoch == self.scanEpoch { self.scanned = (roots, scan) }
+            // 覚えるのは絞る前の結果。絞った結果を覚えると、シークレットフォルダから外した本が探し直すまで戻らない。
+            if epoch == self.scanEpoch { self.scanned = (roots, unfilteredScan) }
             // 集め直した一覧が今出しているものと同じなら、差し替えも `revision` も進めない(2026-09-25 の監査)。`revision` は
             // ペインを出している全ウインドウの絞り込み・並べ替え・棚ごとの冊数の数え直し(SmartLibraryViewState.update)を呼ぶ。
             // メタデータの行が変わるたび(対象フォルダの外の本でも)・メタデータ生成が読み終えるたび・ホームへ戻るたびに
@@ -366,7 +380,10 @@ final class SmartLibraryCatalog: ObservableObject {
             guard let cached, self.isFeatureEnabled, epoch == self.restoreEpoch, cached.roots == self.scanRoots(),
                   !self.hasLoaded, self.books.isEmpty
             else { return }
-            self.books = cached.books
+            // 前回の一覧にシークレットフォルダの本があれば出さない(その後に足したフォルダ。保存し直すのは集め直したとき)。
+            let secretFolders = SecretFolderStore.currentAppWideFolders
+            self.books = secretFolders.isEmpty ? cached.books
+                : cached.books.filter { !SecretFolderStore.contains(path: $0.id, in: secretFolders) }
             self.isTruncated = cached.isTruncated
             self.revision += 1
             // 読んだものは保存してあるものそのもの。最初の集め直しが同じ一覧なら書き直さない(2026-09-25 の監査。以前は起動のたびに

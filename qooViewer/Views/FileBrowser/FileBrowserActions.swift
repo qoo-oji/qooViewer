@@ -33,6 +33,8 @@ final class FileBrowserActions {
     weak var autoRenameService: AutoRenameService?
     /// 「スマートライブラリの対象に追加」(2026-09-23。FileBrowserLibraryActions.swift)。
     weak var smartLibraryStore: SmartLibraryStore?
+    /// 「シークレットフォルダに追加/から外す」(2026-10-03。FileBrowserSecretFolderActions.swift)。
+    weak var secretFolderStore: SecretFolderStore?
 
     /// シークレットウインドウでは保存を伴う操作(よく使う項目の登録・削除)を塞ぐ(決定事項 Q8)。
     var allowsSaving: Bool { !(appState?.isPrivateWindow ?? true) }
@@ -659,6 +661,9 @@ enum FileBrowserMenuCommand {
     case quickLook
     /// Finder の「エイリアスを作成」(2026-10-01、利用者の要望。FileBrowserActions.makeAliases)。名前は Finder と同じ(FinderAliasName)。
     case makeAlias
+    /// 「シークレットフォルダに追加」/「シークレットフォルダから外す」(2026-10-03。FileBrowserSecretFolderActions.swift)。
+    /// アプリ固有の項目なので一番下の群。フォルダとツリーだけ。
+    case secretFolder
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
     ///
@@ -700,7 +705,8 @@ enum FileBrowserMenuCommand {
              [.showInFinder, .addToFavoriteLocations],
              [.createCollection, .addToCollection],
              [.editMetadata, .exportBook],
-             [.addToSmartLibrary, .autoRename]]
+             [.addToSmartLibrary, .autoRename],
+             [.secretFolder]]
         case .file:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
              [.moveToTrash],
@@ -714,7 +720,8 @@ enum FileBrowserMenuCommand {
              [.getInfo],
              [.paste, .newFolder],
              [.showInFinder, .addToFavoriteLocations],
-             [.addToSmartLibrary, .autoRename]]
+             [.addToSmartLibrary, .autoRename],
+             [.secretFolder]]
         case .background:
             // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder)。
             [[.paste, .newFolder]]
@@ -767,12 +774,17 @@ enum FileBrowserMenuCommand {
         case .getInfo: "Get Info"
         case .quickLook: "Quick Look"
         case .makeAlias: "Make Alias"
+        case .secretFolder: "Add to Secret Folders"
         }
     }
 
     /// 項目の表示名。複数を選んで右クリックしたときの「名前を変更」だけ、件数入りの「N 項目の名前を変更…」にする
     /// (Finder の「^0項目の名称変更…」。押すと一括リネームのシートが出る)。項目の数は変わらない。
-    func title(in context: FileBrowserMenuContext, locale: Locale) -> String {
+    func title(in context: FileBrowserMenuContext, locale: Locale, actions: FileBrowserActions? = nil) -> String {
+        // 一覧にそのまま載っているフォルダなら「外す」(項目の数は変わらない)。
+        if self == .secretFolder, actions?.isListedSecretFolder(context.entries) == true {
+            return String(localized: "Remove from Secret Folders", language: locale)
+        }
         if self == .rename, context.entries.count > 1 {
             return String(format: String(localized: "Rename %lld Items…", language: locale), context.entries.count)
         }
@@ -810,7 +822,8 @@ enum FileBrowserMenuCommand {
             return actions.canOpenInNewWindow(entries)
         case .createCollection, .addToCollection:
             // 保存データへの書き込みなので、シークレットウインドウでは淡色(決定事項 Q8)。ライブラリ機能がOFFなら項目ごと出ない。
-            return actions.isLibraryFeatureEnabled && actions.allowsSaving && actions.canUseAsBooks(entries)
+            // シークレットフォルダの本だけなら淡色(入れられない。FileBrowserActions.canAddToCollections)。
+            return actions.isLibraryFeatureEnabled && actions.allowsSaving && actions.canAddToCollections(entries)
         case .openWith:
             return !entries.isEmpty && !entries.contains(where: \.isVolume)
         case .alwaysOpenWith:
@@ -845,6 +858,8 @@ enum FileBrowserMenuCommand {
             return !entries.isEmpty
         case .makeAlias:
             return actions.canMakeAlias(entries)
+        case .secretFolder:
+            return actions.canToggleSecretFolder(entries)
         }
     }
 
@@ -875,6 +890,7 @@ enum FileBrowserMenuCommand {
         case .deleteImmediately: actions.deleteImmediately(entries)
         case .addToFavoriteLocations: actions.addToFavoriteLocations(entries)
         case .addToSmartLibrary: actions.addToSmartLibrary(entries)
+        case .secretFolder: actions.toggleSecretFolder(entries)
         case .showInFinder: actions.showInFinder(entries)
         case .getInfo: actions.showInfo(entries)
         case .quickLook: actions.quickLook(entries)
@@ -973,7 +989,7 @@ final class FileBrowserMenuBuilder: NSObject {
 
     private func menuItem(for command: FileBrowserMenuCommand, locale: Locale, actions: FileBrowserActions) -> NSMenuItem {
         let item = NSMenuItem(
-            title: command.title(in: context, locale: locale),
+            title: command.title(in: context, locale: locale, actions: actions),
             action: #selector(performCommand(_:)), keyEquivalent: ""
         )
         item.target = self

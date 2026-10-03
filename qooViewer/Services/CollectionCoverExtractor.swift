@@ -498,6 +498,9 @@ final class CollectionCoverExtractor: ObservableObject {
     private func extract(itemID: UUID) async {
         guard let item = collectionStore.item(withID: itemID) else { return }
         let bookID = item.bookID
+        // シークレットフォルダの本の表紙は作らない(表紙の JPEG とページ一覧のキャッシュが残る。SecretFolderStore)。
+        // `.pending` のまま置く(シークレットフォルダから外せば、次の抽出の契機で作られる)。
+        guard !SecretFolderStore.isSecretAppWide(path: bookID) else { return }
         extractionAttemptCount += 1
         // 抽出に使う条件はここでだけ組み立てる。控えに要るのは「どの画像か」を表す2列だけなので、
         // 控えのほうは本を解決せずにDBの値から作る(signature(forBookID:)参照)。

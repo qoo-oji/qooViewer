@@ -230,6 +230,8 @@ enum CollectionBookAdding {
         let addedTitles: [String]
         let requestedCount: Int
         let collectionName: String
+        /// シークレットフォルダの本で、入れなかった数(CollectionStore.makePendingItems)。
+        var skippedSecretCount = 0
     }
 
     /// - Returns: 登録した結果。コレクションが待っている間に消された・入れる本が無ければ nil。
@@ -244,13 +246,20 @@ enum CollectionBookAdding {
         // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
         let pending = await CollectionStore.makePendingItems(for: books)
         guard isStillEnabled() else { return nil }
+        let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
         // 待っている間に消されたコレクションには足さない(idで引き直す。WelcomeDropHandling.handle と同じ)。
-        guard let collectionStore, let collection = collectionStore.collection(withID: collectionID), !pending.isEmpty
-        else { return nil }
+        guard let collectionStore, let collection = collectionStore.collection(withID: collectionID) else { return nil }
+        guard !pending.isEmpty else {
+            // 全部シークレットフォルダの本だった(何も足さなかったことを知らせる)。
+            return skippedSecret > 0
+                ? Result(addedTitles: [], requestedCount: 0, collectionName: collection.name, skippedSecretCount: skippedSecret)
+                : nil
+        }
         // 足してから表紙の抽出を頼む。`coverExtractor?.enqueue(store.add(...))` と 1 行で書くと、抽出役が居ないときに
         // 引数ごと評価されず、本が足されない(テストで踏んだ)。
         let added = collectionStore.add(pending, to: collection)
         coverExtractor?.enqueue(added)
-        return Result(addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name)
+        return Result(addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name,
+                      skippedSecretCount: skippedSecret)
     }
 }

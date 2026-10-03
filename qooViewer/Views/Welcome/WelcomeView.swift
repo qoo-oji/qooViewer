@@ -276,6 +276,12 @@ struct WelcomeView: View {
             }
             // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
             let pending = await CollectionStore.makePendingItems(for: books)
+            // シークレットフォルダの本は入れない(makePendingItems が外す)。入れなかったことを知らせる。
+            let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
+            if skippedSecret > 0 {
+                appState.postViewerNotice(CollectionStore.secretBooksNotAddedMessage(
+                    count: skippedSecret, locale: preferences.effectiveLocale))
+            }
             // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
             // 1冊目が入った時点でCollectionStore.createCollectionが行を作る ―― 選ばれていた
             // 自動登録フォルダも、そのときに書き込めるようパネルへ持たせる。
@@ -430,11 +436,18 @@ enum WelcomeDropHandling {
         // コメント参照)。待っている間に消されたコレクションには足さないよう、戻ってから
         // idで引き直す。
         let pending = await CollectionStore.makePendingItems(for: books)
-        guard let collection = collectionStore.collection(withID: collectionID), !pending.isEmpty else { return }
+        // シークレットフォルダの本は入れない(makePendingItems が外す)。
+        let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
+        guard let collection = collectionStore.collection(withID: collectionID) else { return }
+        guard !pending.isEmpty else {
+            if skippedSecret > 0 { notify(CollectionStore.secretBooksNotAddedMessage(count: skippedSecret, locale: locale)) }
+            return
+        }
         let added = collectionStore.add(pending, to: collection)
         coverExtractor.enqueue(added)
         var message = FileBrowserActions.addedToCollectionMessage(
-            addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name, locale: locale
+            addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name, locale: locale,
+            skippedSecretCount: skippedSecret
         )
         if skipped > 0 { message += " " + skippedMessage(skipped, locale: locale) }
         notify(message)

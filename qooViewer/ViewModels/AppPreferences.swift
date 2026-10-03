@@ -1650,7 +1650,7 @@ extension AppPreferences {
                 Keys.smartLibraryCoverFit,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
-        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
+        case .keyboard, .mouse, .modeInput, .access, .secretFolders, .dataTransfer, .reset:
             return []
         }
     }
@@ -1778,7 +1778,7 @@ extension AppPreferences {
             smartLibraryCoverShape = source.smartLibraryCoverShape
             smartLibraryCoverCropAnchor = source.smartLibraryCoverCropAnchor
             smartLibraryCoverFit = source.smartLibraryCoverFit
-        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
+        case .keyboard, .mouse, .modeInput, .access, .secretFolders, .dataTransfer, .reset:
             break
         }
     }

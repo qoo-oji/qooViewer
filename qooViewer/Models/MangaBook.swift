@@ -141,9 +141,17 @@ struct MangaBook: Identifiable, Hashable {
                         isAtOrUnder: MountTable.normalized(TemporaryFileStore.sessionDirectory.path))
     }
 
-    /// 保存データに何も残さない本(その場限りの本と、一時フォルダに書き出した入れ子の書庫)。シークレットウインドウと
-    /// ORして使う(`isTransient` は「画像を直接開いた本」の意味でメニューの可否にも使うので、そちらは広げない)。
-    var leavesNoRecord: Bool { isTransient || isTemporaryCopy }
+    /// シークレットフォルダ(`SecretFolderStore`)の中の本か。**開いた時点の値**で、`AppState.open` が読み込んだ直後に入れる
+    /// (表示している間に一覧が変わっても揺れない ―― 次に開いたときから効く。利用者の決定 2026-10-03)。
+    /// 真の本は保存データに何も残さず(`leavesNoRecord`)、表示している間はその窓をシークレットウインドウの見た目にする
+    /// (`AppState.showsAsPrivate`)。
+    var isInSecretFolder: Bool = false
+
+    /// 保存データに何も残さない本(その場限りの本と、一時フォルダに書き出した入れ子の書庫と、シークレットフォルダの中の本)。
+    /// シークレットウインドウとORして使う(`isTransient` は「画像を直接開いた本」の意味でメニューの可否にも使うので、そちらは広げない)。
+    /// シークレットウインドウと違い、窓そのものの性質(履歴の表示・サイドパネル・ほかの本への操作)は変えない ―― 止めるのは
+    /// **この本への書き込みだけ**(シークレットフォルダについての利用者の決定 2026-10-03)。
+    var leavesNoRecord: Bool { isTransient || isTemporaryCopy || isInSecretFolder }
 
     /// `sourceURL`がこの本そのものを指しているかどうか。
     ///

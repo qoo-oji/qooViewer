@@ -80,12 +80,12 @@ struct MetadataGeneratorTests {
         #expect(library.metadata.record(forBookID: second)?.isLocked == true)
     }
 
-    @Test("対象外のフォルダの本は並べない。消した本は作り直さず、開き直す・窓を開き直すと登録し直す")
+    @Test("シークレットフォルダの本は並べない。消した本は作り直さず、開き直す・窓を開き直すと登録し直す")
     func excludedAndDeletedBooks() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         let generator = library.makeMetadataGenerator(books: [first, "/対象外/[架空工房] 星の本.zip"])
-        library.metadataRules.addExcludedFolder(URL(fileURLWithPath: "/対象外"))
+        library.secretFolders.add(URL(fileURLWithPath: "/対象外"))
         await generator.update()
         #expect(generator.listedBookIDs == [first])
 

@@ -69,6 +69,16 @@ final class MetadataCorpusStore {
         didChange()
     }
 
+    /// 条件に合う本を記録から外す(シークレットフォルダの本。AppStores.startMetadataGeneration)。
+    func removeBooks(where isRemoved: (String) -> Bool) {
+        var next = record
+        next.collectionBookIDs.removeAll(where: isRemoved)
+        next.smartLibrary = record.smartLibrary.mapValues { $0.filter { !isRemoved($0) } }
+        guard next != record else { return }
+        record = next
+        didChange()
+    }
+
     /// 対象フォルダの設定に合わせる(外した対象フォルダの一覧を外す)。機能が OFF でも呼ぶ(設定の変化なので)。
     func keepSmartLibraryRoots(_ roots: [String]) {
         let kept = record.smartLibrary.filter { roots.contains($0.key) }

@@ -21,6 +21,9 @@ struct ContentView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// シークレットフォルダ(2026-10-03)。ここで読むのは、以前の除外フォルダから移したことの 1 度きりの知らせだけ。
+    @EnvironmentObject private var secretFolderStore: SecretFolderStore
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.modelContext) private var modelContext
     /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
     /// 編集ウインドウを開くために使う(sidePanelView参照)。
@@ -216,7 +219,8 @@ struct ContentView: View {
                 baseName: $0.displayName(locale: preferences.effectiveLocale), bookID: $0.id
             )
         } ?? welcomeTitle
-        guard isPrivateWindow else { return base }
+        // シークレットフォルダの本を開いている間も同じ表記(SecretFolderStore。窓はシークレットウインドウの見た目になる)。
+        guard isPrivateWindow || appState.currentBook?.isInSecretFolder == true else { return base }
         return preferences.privateWindowTitle(for: base)
     }
 
@@ -527,7 +531,15 @@ struct ContentView: View {
     /// このウインドウが使う外観の揃い(ノーマル/シークレット。AppearanceSettings の型コメント)。シークレットウインドウでも、
     /// 環境設定「シークレットウインドウに固有の外観を適用」が OFF ならノーマルの揃い。
     private var effectiveAppearance: AppearanceSettings {
-        preferences.appearance(forPrivateWindow: appState.isPrivateWindow)
+        preferences.appearance(forPrivateWindow: showsAsPrivate)
+    }
+
+    /// シークレットウインドウの見た目で出すか。シークレットウインドウか、**ビューアに出ている本**がシークレットフォルダの本
+    /// (SecretFolderStore。2026-10-03、利用者の決定: 外観もすべてシークレット用にしないと切り替わったのか分からない)。
+    /// `currentBook` ではなく出ている本で見る ―― 次の本の最初の見開きが揃うまでは前の本を出しておくので(ViewerHandoff)、
+    /// `currentBook` で替えると前の本が一瞬新しい外観で見える。ホームへ戻れば元の見た目。
+    private var showsAsPrivate: Bool {
+        isPrivateWindow || viewerHandoff.shown?.book.isInSecretFolder == true
     }
 
     var body: some View {
@@ -692,6 +704,7 @@ struct ContentView: View {
             installSidePanelHoverMonitorIfNeeded()
             updateOutsideWindowMonitor()
             installMenuTrackingObserversIfNeeded()
+            scheduleSecretFolderMigrationNotice()
         }
         .onDisappear {
             removeSidePanelHoverMonitor()
@@ -1270,7 +1283,7 @@ struct ContentView: View {
                     // フルスクリーンのまま本を替えても、最初のフレームからフルスクリーンの配置で描く(ViewerView.isFullScreen)。
                     startsInFullScreen: appState.hostWindow?.styleMask.contains(.fullScreen) ?? false
                 )
-                    .id(shown.book.id)
+                    .id(ViewerHandoff.viewIdentity(of: shown.book))
             } else if awaitsInitialBook {
                 // 本を開くために作ったウインドウの、最初の本が出るまで(awaitsInitialBook のコメント)。
                 effectiveAppearance.effectiveBackgroundColor
@@ -1295,9 +1308,16 @@ struct ContentView: View {
             if isShown { awaitsInitialBook = false }
         }
         // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
-        .onChange(of: appState.currentBook?.id, initial: true) { _, _ in
+        .onChange(of: appState.currentBook.map(ViewerHandoff.viewIdentity(of:)), initial: true) { _, _ in
             viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
         }
+        .modifier(SecretFolderNotice(
+            isSecretBookShown: viewerHandoff.shown?.book.isInSecretFolder == true, isPrivateWindow: isPrivateWindow,
+            post: { [appState, preferences] in
+                appState.postViewerNotice(String(
+                    localized: "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown.",
+                    language: preferences.effectiveLocale))
+            }))
     }
 
     /// ViewerHandoff が先に作る、本のビューモデル(以前は ViewerView の init が作っていた。引数はそのとき渡していたもの)。
@@ -2204,5 +2224,59 @@ private extension View {
             folderPendingDeletion: folderPendingDeletion,
             bookPendingDeletion: bookPendingDeletion
         ))
+    }
+}
+
+
+extension ContentView {
+    /// 移行の知らせを出している最中か(窓をまたいで 1 つ。ほかの窓は出さない)。
+    @MainActor fileprivate static var isPresentingSecretFolderMigrationNotice = false
+
+    /// 以前の「メタデータの登録の対象外のフォルダ」をシークレットフォルダへ移したことを、1 度だけ知らせる(利用者の決定 2026-10-03:
+    /// 対象が履歴まで広がるので)。窓ができてから 1 秒待ち、**見えている窓**だけが出す。済んだ印は利用者が答えたときに付ける ――
+    /// Finder から開いた起動では最初の窓が隠れたまま閉じられるので、出す前に印を付けると誰も見ないまま終わる(コードレビューの指摘)。
+    /// 窓を閉じてシートが取り消された(Cancel)ときは印を付けず、次に出た窓が出し直す。
+    fileprivate func scheduleSecretFolderMigrationNotice() {
+        guard secretFolderStore.hasPendingMigrationNotice else { return }
+        let locale = preferences.effectiveLocale
+        Task { @MainActor [weak appState, secretFolderStore, openSettings] in
+            // 窓が出来上がってから(シートの親が要る)。
+            try? await Task.sleep(for: .seconds(1))
+            guard secretFolderStore.hasPendingMigrationNotice, !Self.isPresentingSecretFolderMigrationNotice,
+                  let window = appState?.hostWindow, window.isVisible
+            else { return }
+            Self.isPresentingSecretFolderMigrationNotice = true
+            defer { Self.isPresentingSecretFolderMigrationNotice = false }
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Excluded folders are now secret folders", language: locale)
+            alert.informativeText = String(
+                localized: "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders.",
+                language: locale)
+            alert.addButton(withTitle: String(localized: "OK", language: locale))
+            alert.addButton(withTitle: String(localized: "Open Settings…", language: locale))
+            let response = await WindowSheet.run(alert, for: window)
+            guard response == .alertFirstButtonReturn || response == .alertSecondButtonReturn else { return }
+            secretFolderStore.markMigrationNoticeShown()
+            if response == .alertSecondButtonReturn {
+                SettingsNavigator.shared.preparePane(.secretFolders)
+                openSettings()
+            }
+        }
+    }
+}
+
+/// シークレットフォルダの本がビューアに出たら知らせる(ノーマルの窓で、シークレットの見た目へ切り替わったとき。
+/// SecretFolderStore)。シークレットフォルダの中で次の本へ進んだときは出さない。
+/// ContentView.bookOrHome の式を短くするため切り出してある(そこのコメント: CI の Xcode 26.6 が型を決めきれずに止まる)。
+private struct SecretFolderNotice: ViewModifier {
+    let isSecretBookShown: Bool
+    let isPrivateWindow: Bool
+    let post: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: isSecretBookShown) { wasSecret, isSecret in
+            guard isSecret, !wasSecret, !isPrivateWindow else { return }
+            post()
+        }
     }
 }

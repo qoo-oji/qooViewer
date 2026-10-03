@@ -30,10 +30,10 @@ final class MetadataRulesStore {
     /// スタンプ(qooMeta のアプリの機能)。**画面からは外した**(利用者の指示 2026-09-21: 欄をまとめて変更で足りる)が、
     /// 保存してあるものは読み書きし続ける(また使うことになったときに消えていないように)。
     var stamps: [MetadataStamp] = []
-    /// メタデータの登録の対象外にするフォルダ(末尾の `/` を持たないパス。その中とサブフォルダの本が対象外)。
-    /// 2026-09-21、利用者の指示。メタデータの編集ウインドウに並べず、1 冊ぶんのシートで登録させず、本を開いたときの
-    /// EPUB/PDF/ComicInfo からの取り込みもしない。**既に登録してあるメタデータは消さない**(並べないだけ)。
-    private(set) var excludedFolders: [String] = []
+    /// 以前の「メタデータの登録の対象外のフォルダ」(2026-09-21〜2026-10-03)。**読むだけ**で、起動時に 1 度だけ
+    /// シークレットフォルダへ移して空にする(`SecretFolderStore.migrateLegacyExcludedFolders`)。2026-10-03 に、履歴・保存データ・
+    /// メタデータ全般を残さないシークレットフォルダとして作り直した(docs/plans/secret-folder-plan.md)。
+    @ObservationIgnored private(set) var legacyExcludedFolders: [String] = []
 
     /// 規則の差分を組み立てた結果(誤りがあれば既定のまま使い、理由を持つ)。
     private(set) var rules: CompiledRules = .builtin
@@ -44,8 +44,6 @@ final class MetadataRulesStore {
 
     /// 規則が変わった知らせ(`BookTitleResolver` などの作り置きを捨てる合図)。
     static let rulesDidChange = Notification.Name("qooViewer.metadataRulesDidChange")
-    /// 対象外のフォルダが変わった(`MetadataGenerator` が母体を集め直す)。
-    static let excludedFoldersDidChange = Notification.Name("qooViewer.metadataExcludedFoldersDidChange")
 
     /// 既定の保存先(コンテナの Application Support)。
     nonisolated static var defaultURL: URL {
@@ -63,10 +61,7 @@ final class MetadataRulesStore {
         self.isAppWide = isAppWide
         load()
         if let legacyDefaults { migrateLegacyFormatsIfNeeded(from: legacyDefaults) }
-        if isAppWide {
-            Self.appWideRules.withLock { $0 = rules }
-            Self.appWideExcludedFolders.withLock { [excludedFolders] in $0 = excludedFolders }
-        }
+        if isAppWide { Self.appWideRules.withLock { $0 = rules } }
     }
 
     @ObservationIgnored private let isAppWide: Bool
@@ -76,52 +71,12 @@ final class MetadataRulesStore {
     nonisolated static let appWideRules = Mutex<CompiledRules>(.builtin)
     /// アプリの規則の写しの、いまの値。
     nonisolated static var currentAppWideRules: CompiledRules { appWideRules.withLock { $0 } }
-    /// 対象外のフォルダの写し(本を開いたときの取り込みが読む。ストアを受け取れないため)。
-    nonisolated static let appWideExcludedFolders = Mutex<[String]>([])
 
-    // MARK: - 対象外のフォルダ
-
-    /// その本がメタデータの登録の対象外か(対象外のフォルダの中かサブフォルダにある)。
-    func isExcluded(bookID: String) -> Bool { Self.isExcluded(bookID: bookID, in: excludedFolders) }
-
-    nonisolated static func isExcluded(bookID: String, in folders: [String]) -> Bool {
-        guard !folders.isEmpty else { return false }
-        let path = MountTable.normalized(bookID)
-        return folders.contains { MountTable.path(path, isAtOrUnder: $0) }
-    }
-
-    /// アプリの設定の写しで確かめる(ストアを持たない所から)。
-    nonisolated static func isExcludedAppWide(bookID: String) -> Bool {
-        isExcluded(bookID: bookID, in: appWideExcludedFolders.withLock { $0 })
-    }
-
-    func addExcludedFolder(_ url: URL) {
-        let path = MountTable.normalized(url.standardizedFileURL.path)
-        guard !excludedFolders.contains(path) else { return }
-        setExcludedFolders(excludedFolders + [path])
-    }
-
-    func removeExcludedFolder(_ path: String) {
-        setExcludedFolders(excludedFolders.filter { $0 != path })
-    }
-
-    /// アプリ自身が名前を変えた・移したフォルダの登録を付け替える(FavoriteLocationStore.relocate と同じ規則)。
-    func relocate(using change: FileSystemChange) {
-        guard !change.relocations.isEmpty else { return }
-        var seen = Set<String>()
-        let relocated = excludedFolders.compactMap { path -> String? in
-            let new = change.relocatedPath(for: path).map(MountTable.normalized) ?? path
-            return seen.insert(new).inserted ? new : nil
-        }
-        if relocated != excludedFolders { setExcludedFolders(relocated) }
-    }
-
-    private func setExcludedFolders(_ folders: [String]) {
-        excludedFolders = folders
-        if isAppWide { Self.appWideExcludedFolders.withLock { $0 = folders } }
+    /// 以前の一覧を空にする(シークレットフォルダへ移し終えた後)。
+    func clearLegacyExcludedFolders() {
+        guard !legacyExcludedFolders.isEmpty else { return }
+        legacyExcludedFolders = []
         save()
-        // メタデータ生成が母体を集め直す(対象外になった本を外し、対象に戻った本を加える)。
-        NotificationCenter.default.post(name: Self.excludedFoldersDidChange, object: self)
     }
 
     /// 辞書(英単語)。規則が名前で指す。初めて読むときに /usr/share/dict/words を読む(約 24 万語)ので、
@@ -428,6 +383,7 @@ final class MetadataRulesStore {
     private struct Stored: Codable {
         var rulesDiff: String = ""
         var stamps: [MetadataStamp] = []
+        /// 以前の対象外のフォルダ(読むだけ。`legacyExcludedFolders`)。
         var excludedFolders: [String] = []
 
         init(rulesDiff: String, stamps: [MetadataStamp], excludedFolders: [String]) {
@@ -497,7 +453,7 @@ final class MetadataRulesStore {
             let stored = try JSONDecoder().decode(Stored.self, from: Data(contentsOf: url))
             if stored.skippedSomething { keepCopy(partly: true) }
             stamps = stored.stamps
-            excludedFolders = stored.excludedFolders
+            legacyExcludedFolders = stored.excludedFolders
             setRulesDiff(stored.rulesDiff, keepingUnreadable: true, saving: false)
             // 差分としても読めない差分を持ち続けるなら、書き直される前に写しを残す(`unparsableDiffIssue`)。
             if !stored.skippedSomething, unparsableDiffIssue != nil { keepCopy(partly: true) }
@@ -532,7 +488,7 @@ final class MetadataRulesStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
-            let data = try encoder.encode(Stored(rulesDiff: rulesDiff, stamps: stamps, excludedFolders: excludedFolders))
+            let data = try encoder.encode(Stored(rulesDiff: rulesDiff, stamps: stamps, excludedFolders: legacyExcludedFolders))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
         } catch {

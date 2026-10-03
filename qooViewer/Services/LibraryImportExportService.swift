@@ -55,6 +55,8 @@ enum LibraryImportExportService {
         var keyBindings: KeyBindingStore
         /// 環境設定の保存先。テストは専用の suite を渡す。
         var defaults: UserDefaults = .standard
+        /// シークレットフォルダ(formatVersion 7。「環境設定」のカテゴリと一緒に運ぶ)。nil なら書き出さない・取り込まない。
+        var secretFolders: SecretFolderStore? = nil
     }
 
     struct ExportResult {
@@ -142,6 +144,7 @@ enum LibraryImportExportService {
             }
             if selection.includeSettings {
                 file.settings = SettingsBackup.export(from: backupStores.defaults)
+                file.secretFolders = backupStores.secretFolders?.folders
             }
         }
         return (file, result)
@@ -583,6 +586,8 @@ enum LibraryImportExportService {
         var fileBrowserImportedAutoRenameRules = 0
         /// 取り込んだ環境設定の数(`UserDefaults` のキーの数)。
         var importedSettingsCount = 0
+        /// 新しく足したシークレットフォルダの数(formatVersion 7)。
+        var importedSecretFolderCount = 0
     }
 
     /// - Parameter cachesPageList: 取り込み/書き出しの途中で読み直す本を、ページ一覧の
@@ -686,6 +691,10 @@ enum LibraryImportExportService {
                 summary.fileBrowserImportedAutoRenameRules += backupStores.autoRename.importBackup(
                     rules: browser.autoRenameRules.map(\.rule), replacingExisting: replacing
                 )
+            }
+            // シークレットフォルダは足すだけ(上書きでも外さない。QooLibraryExportFile.secretFolders のコメント)。
+            if let secretFolders = file.secretFolders, policies.settings != .ignore, let store = backupStores.secretFolders {
+                summary.importedSecretFolderCount = store.importBackup(paths: secretFolders, replacingExisting: false)
             }
             if let settings = file.settings, policies.settings != .ignore {
                 summary.importedSettingsCount = SettingsBackup.apply(settings, to: backupStores.defaults)

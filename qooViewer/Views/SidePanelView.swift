@@ -48,6 +48,8 @@ struct SidePanelView: View {
     /// フォルダブラウザの右クリックの「スマートライブラリの対象に追加」(2026-09-23)。
     @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
+    /// フォルダの行の「シークレットフォルダに追加/から外す」と、シークレットフォルダの本の「コレクションに登録」の淡色(2026-10-03)。
+    @EnvironmentObject private var secretFolderStore: SecretFolderStore
     /// 右クリックの「コレクションに登録」などの結果をビューアのトーストへ(2026-09-23)。
     @Environment(\.windowNotice) private var windowNotice
     @ObservedObject var folderState: SidePanelBrowserState
@@ -803,13 +805,34 @@ struct SidePanelView: View {
         let isBook = !entry.isDirectory || entry.containsImageFile
         if isBook, preferences.libraryFeatureEnabled {
             Divider()
+            // シークレットフォルダの本はコレクションに入れない(SecretFolderStore。CollectionStore.makePendingItems が断る)。
             AddToCollectionMenu(
-                books: [entry.url], isEnabled: !isPrivateWindow, report: { [windowNotice] in windowNotice($0) }
+                books: [entry.url], isEnabled: !isPrivateWindow && !secretFolderStore.contains(path: entry.url.path),
+                report: { [windowNotice] in windowNotice($0) }
             )
         } else if !isBook, preferences.smartLibraryFeatureEnabled {
             Divider()
             Button("Add to Smart Library Targets") { addToSmartLibrary(entry) }
                 .disabled(isPrivateWindow || smartLibraryStore.containsFolder(entry.url))
+        }
+        if entry.isDirectory {
+            Divider()
+            secretFolderItem(for: entry)
+        }
+    }
+
+    /// 「シークレットフォルダに追加」/「シークレットフォルダから外す」(2026-10-03。ファイルブラウザの右クリックと同じ規則 ――
+    /// FileBrowserSecretFolderActions)。元からシークレットウインドウなら淡色、別のシークレットフォルダの中なら追加は淡色。
+    @ViewBuilder
+    private func secretFolderItem(for entry: DirectoryBrowser.Entry) -> some View {
+        if secretFolderStore.isListed(entry.url) {
+            Button("Remove from Secret Folders") { [secretFolderStore] in
+                secretFolderStore.remove(entry.url.standardizedFileURL.path)
+            }
+            .disabled(isPrivateWindow)
+        } else {
+            Button("Add to Secret Folders") { [secretFolderStore] in secretFolderStore.add(entry.url) }
+                .disabled(isPrivateWindow || secretFolderStore.contains(path: entry.url.path))
         }
     }
 

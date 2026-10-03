@@ -217,6 +217,9 @@ struct AddBooksPanel: View {
             }
             // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
             let pending = await CollectionStore.makePendingItems(for: books)
+            // シークレットフォルダの本は入れない(makePendingItems が外す)。入れなかったことを知らせる。
+            let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
+            if skippedSecret > 0 { notice = CollectionStore.secretBooksNotAddedMessage(count: skippedSecret, locale: locale) }
             guard !pending.isEmpty else { return }
 
             let added: [CollectionItem]

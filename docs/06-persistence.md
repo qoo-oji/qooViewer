@@ -23,7 +23,8 @@
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す。**保存データの書き出しには入らない**(書き出した端末でしか意味を持たないブックマーク) |
 | 最後に開いていた本 | UserDefaults | `LastActiveBookStore` | 1件 |
 | キー・マウスの割り当て | UserDefaults(JSON、`*.v1` キー) | `KeyBindingStore` | 保存データの書き出しに入る(2026-09-23。環境設定と同じカテゴリ) |
-| メタデータの規則・除外フォルダ | Application Support/qooMeta/settings.json | `MetadataRulesStore` | ― |
+| メタデータの規則 | Application Support/qooMeta/settings.json | `MetadataRulesStore` | 以前の除外フォルダ(`excludedFolders`)は読むだけで、起動時に 1 度だけシークレットフォルダへ移して空にする |
+| シークレットフォルダ | UserDefaults(`qooViewer.secretFolders`、パスの配列。移行の印 `qooViewer.secretFolders.didMigrateLegacy` / 知らせの印 `…migrationNoticePending`) | `SecretFolderStore` | **`qooViewer.pref.*` には置かない**(「初期設定に戻す」で黙って消えると記録が再開する)。保存データの書き出しには「環境設定」のカテゴリと一緒に入る(取り込みは足すだけ。→ [08](08-export-and-import.md#シークレットフォルダformatversion-7)) |
 | メタデータの下書き(ロックしていない値) | Application Support/qooMeta/drafts.json | `MetadataDraftStore` | ― |
 | スマートライブラリ(対象フォルダ・スマートコレクション・ピン留め) | UserDefaults(JSON、`qooViewer.smartLibrary.store`) | `SmartLibraryStore` | 保存データの書き出しに入る(2026-09-23。対象フォルダはパスだけ) |
 | スマートライブラリの前回の一覧(写し。消えても集め直せる) | Application Support/SmartLibrary/catalog.json | `SmartLibraryCatalog` | ― |
@@ -215,7 +216,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 - **メタデータだけは「移った先に行がある」の例外**: 移った先の行が読みだけ(`isParsedOnly`)で、元の行がそうでなければ、元の行で置き換える
   (`reconcileBookIDIfMoved` と `applyBookRelocation` の両方)。
 - ブックマークを持たない記録(読書位置だけの本)は追えない。
-- **パスだけで覚えているフォルダの設定**(メタデータの除外フォルダ・スマートライブラリの対象フォルダ・コレクションの自動登録フォルダ)も
+- **パスだけで覚えているフォルダの設定**(シークレットフォルダ ―― 2026-10-03 より前はメタデータの除外フォルダ ―― ・スマートライブラリの対象フォルダ・コレクションの自動登録フォルダ)も
   付いていく(2026-09-22、利用者の指示)。設定の保存形式は変えず、パス → ブックマークの控え(`FolderSettingBookmarks`、UserDefaults)を
   別に持ち、起動時・アプリに戻ったとき・ボリュームを付けたときに解決して、動いていればアプリの中での移動と同じ `relocate(using:)` に通す
   (その中の本の保存データも同じ組で付け替える)。控えはアプリから離れるときと確かめた後に作る(ファイル選択のパネルで選んだ場所は
@@ -389,7 +390,36 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   (決定事項 Q8)。絵のディスクキャッシュ(`FileBrowserThumbnailDiskCache`)も書かない(読むのは許す。2026-09-14 まではシークレット
   ウインドウでも書いていた。→ [15](15-file-browser.md#シークレットウインドウ))。
 - 新しい永続化経路を足すときは、`isPrivateWindow` のコメントに列挙したうえで同じガードを入れる
-  (`grep -rn "skipsPersistence\|isPrivateWindow"`)。
+  (`grep -rn "skipsPersistence\|isPrivateWindow"`)。本を開かずに本のパスや中身を書く経路なら、シークレットフォルダの判定
+  (`SecretFolderStore.isSecretAppWide`)も入れる(下の節)。
+
+### シークレットフォルダ(2026-10-03)
+
+利用者の要望で、メタデータの編集ウインドウの「除外フォルダ設定」(メタデータの登録だけを止めていた)を作り直した。調査・決定事項の
+全体は [plans/secret-folder-plan.md](plans/secret-folder-plan.md)。
+
+- **指定したフォルダの中(サブフォルダを含む)の本は、どの窓で開いても保存データに何も残さない。** 判定は窓ではなく本の場所で、
+  開いた時点の値を本に持たせる(`MangaBook.isInSecretFolder`。`AppState.open` が読み込んだ直後に入れる)。表示している間に一覧が
+  変わっても、次に開いたときから効く。
+- 開いた本への書き込みは **`MangaBook.leavesNoRecord` に入れるだけ**で止まる。既存のコードは「窓がシークレット」(`isPrivateWindow`
+  ―― 履歴の表示・ほかの本やフォルダへの操作)と「表示中の本が何も残さない」(`leavesNoRecord` ―― その本への書き込み)を既に分けて
+  いた(その場限りの本のため)ので、窓の性質は**元のモードのまま**になる(利用者の決定: サイドパネルの履歴も隠さない)。
+  `isPrivateWindow` を可変にする案は、約 180 か所の仕分けが要り、この振る舞いにも合わないので採らなかった。
+- 見た目だけは実効の値で切り替える: 外観の揃い(`ContentView.showsAsPrivate` ―― **ビューアに出ている本**で決める。次の本の最初の
+  見開きが揃うまで前の本を出しておくので、`currentBook` で替えると前の本が一瞬新しい外観になる)、タイトルの「(シークレット)」
+  (こちらは題の本の名前と揃えて `currentBook` で決める)、ノーマルの窓で切り替わったときの知らせ。
+- 同じ本の開き直しでシークレットかが変わったときは、ビューアを作り直す(`ViewerHandoff.viewIdentity` ―― ビューモデルの
+  `skipsPersistence` は作るときに決まる)。
+- 本を開かずに書く所は場所で断る(`SecretFolderStore.isSecretAppWide`。アプリの一覧の写しで、テストの作ったストアは書かない):
+  `BookLoader.load` のページ一覧キャッシュ(全経路が通る 1 か所)、ファイルブラウザの絵のディスクキャッシュ
+  (`FileBrowserThumbnailProvider`)、動画の絵の先作り、コレクションへの追加(`CollectionStore.makePendingItems` と自動登録フォルダ。
+  保存データの読み込みは特別扱いしない)、表紙の抽出、表紙の指定(`CoverOverrideController.allowsCoverChanges`)、スマートライブラリの
+  一覧と `catalog.json`、メタデータ生成の母体と `MetadataCorpusStore`、書き出し・「ブックマーク・レイアウトの編集」のキャッシュ。
+- 既存の保存データは**読むが書かない**(シークレットウインドウと同じ)。移動への追従・保存データの読み込みも特別扱いしない。
+  環境設定のペイン(`SecretFolderSettingsView`)でフォルダごとの冊数を出し、`BookSavedDataEraser` と履歴の削除でまとめて消せる
+  (「保存データの削除」ウインドウと同じく取り消せない。確認のアラートでそう伝える)。
+- 移行: 以前の一覧(`MetadataRulesStore` の settings.json の `excludedFolders`)は起動時に 1 度だけ移し、最初に**見えている窓**へ
+  知らせる。済んだ印は利用者が答えたときに付ける(Finder から開いた起動では最初の窓が隠れたまま閉じられるので)。
 
 ## 削除とリセット
 

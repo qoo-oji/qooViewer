@@ -20,6 +20,7 @@ struct LibraryExportWindow: View {
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
     @EnvironmentObject private var autoRenameStore: AutoRenameStore
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    @EnvironmentObject private var secretFolderStore: SecretFolderStore
     /// 読書位置(`BookReadingState`)を読むための、アプリ全体で 1 つの `ModelContext`。
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -209,7 +210,7 @@ struct LibraryExportWindow: View {
         return LibraryImportExportService.BackupStores(
             modelContext: modelContext, smartLibrary: smartLibraryStore,
             favoriteLocations: favoriteLocations, autoRename: autoRenameStore,
-            preferences: preferences, keyBindings: keyBindingStore
+            preferences: preferences, keyBindings: keyBindingStore, secretFolders: secretFolderStore
         )
     }
 

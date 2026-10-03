@@ -26,6 +26,7 @@ struct LibraryImportWindow: View {
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
     @EnvironmentObject private var autoRenameStore: AutoRenameStore
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    @EnvironmentObject private var secretFolderStore: SecretFolderStore
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -66,7 +67,9 @@ struct LibraryImportWindow: View {
     private var hasReadingStates: Bool { loadedFile?.readingStates?.isEmpty == false }
     private var hasSmartLibrary: Bool { loadedFile?.smartLibrary != nil }
     private var hasFileBrowser: Bool { loadedFile?.fileBrowser != nil }
-    private var hasSettings: Bool { loadedFile?.settings?.values.isEmpty == false }
+    private var hasSettings: Bool {
+        loadedFile?.settings?.values.isEmpty == false || loadedFile?.secretFolders?.isEmpty == false
+    }
 
     // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
     // Form(スクロール領域)の外側、VStack(spacing: 0)の中でDivider()の下に独立させ、
@@ -370,6 +373,11 @@ struct LibraryImportWindow: View {
             Text(String(format: String(localized: "Settings: %d setting(s) imported.", language: locale),
                         summary.importedSettingsCount))
                 .font(.caption)
+            if summary.importedSecretFolderCount > 0 {
+                Text(String(format: String(localized: "Secret Folders: %d folder(s) added.", language: locale),
+                            summary.importedSecretFolderCount))
+                    .font(.caption)
+            }
             // メニューバーと表示言語は起動し直すまで切り替わらない(AppLanguage の型コメント)。
             Text("The menu bar follows the imported display language from the next launch.")
                 .font(.caption)
@@ -431,7 +439,7 @@ struct LibraryImportWindow: View {
                 backupStores: LibraryImportExportService.BackupStores(
                     modelContext: modelContext, smartLibrary: smartLibraryStore,
                     favoriteLocations: favoriteLocations, autoRename: autoRenameStore,
-                    preferences: preferences, keyBindings: keyBindingStore
+                    preferences: preferences, keyBindings: keyBindingStore, secretFolders: secretFolderStore
                 )
             )
             // 取り込んだ本のカバーはpendingのまま置いてある(applyCollections参照)。

@@ -185,7 +185,8 @@ final class CoverOverrideController: ObservableObject {
             layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
         )
 
-        if usesPageListCache, let cached = await BookPageListCache.shared.pageList(forBookID: bookID), !cached.pages.isEmpty {
+        if cachesPageList(forBookID: bookID),
+           let cached = await BookPageListCache.shared.pageList(forBookID: bookID), !cached.pages.isEmpty {
             // キャッシュのEntryはpageOrderSourceを持たないため、本体を読まずに分かる情報
             // (bookID=パスの拡張子)から判定する。PDF/EPUBはファイル自身が持つページ順
             // (.document)なので名前順に並べ替えてはいけない(MangaBook.pageOrderSource参照。
@@ -270,7 +271,8 @@ final class CoverOverrideController: ObservableObject {
         defer { releaseNameLoadSlot() }
         guard !Task.isCancelled else { return nil }
         return await CoverImageResolver.coverImage(
-            bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize, cachesPageList: usesPageListCache
+            bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize,
+            cachesPageList: usesPageListCache && !(bookURL.map(SecretFolderStore.isSecretAppWide) ?? false)
         )
     }
 
@@ -285,7 +287,7 @@ final class CoverOverrideController: ObservableObject {
         if pickerScopedURLByBookID[bookID] == nil, url.startAccessingSecurityScopedResource() {
             pickerScopedURLByBookID[bookID] = url
         }
-        let book = try? await BookLoader.load(from: url, cachesPageList: usesPageListCache)
+        let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList(forBookID: url.path))
         // 読み込んでいる間にピッカーが閉じられていたら(.taskが取り消される)、endCoverPickerは
         // 既に通り過ぎている。ここで閉じないと終了まで残る。
         if Task.isCancelled {
@@ -310,7 +312,12 @@ final class CoverOverrideController: ObservableObject {
         guard !Task.isCancelled, let url = resolveURL(bookID) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        return try? await BookLoader.load(from: url, cachesPageList: usesPageListCache)
+        return try? await BookLoader.load(from: url, cachesPageList: cachesPageList(forBookID: url.path))
+    }
+
+    /// その本でページ一覧のキャッシュを読み書きするか。シークレットフォルダの本は使わない(SecretFolderStore)。
+    private func cachesPageList(forBookID bookID: String) -> Bool {
+        usesPageListCache && !SecretFolderStore.isSecretAppWide(path: bookID)
     }
 
     private func acquireNameLoadSlot() async {
@@ -335,8 +342,16 @@ final class CoverOverrideController: ObservableObject {
 
     // MARK: - カバーの指定
 
+    /// その本のカバーの指定を変えてよいか。シークレットフォルダの本は変えさせない(指定はレイアウトの行と元画像の複製として
+    /// 残る。SecretFolderStore)。入り口(書き出しのカバー列・インスペクタ・1 冊の書き出しシート)は同じ判定で淡色にし、
+    /// ここでも断る(どの入り口から来ても行を作らないように)。
+    func allowsCoverChanges(forBookID bookID: String) -> Bool {
+        !SecretFolderStore.isSecretAppWide(path: bookID)
+    }
+
     /// 本に含まれる既存ページをカバーに指定する。
     func setCover(forBookID bookID: String, book: MangaBook, page: PageRef) {
+        guard allowsCoverChanges(forBookID: bookID) else { return }
         // 表示名は、書庫の中のフォルダ・入れ子の書庫まで含めた本の中での相対パスで持つ
         // (ファイル名だけでは、章ごとに001.jpgから振り直されている本でどのページを
         // カバーにしたのか分からないため。PageLocation参照)。
@@ -367,6 +382,7 @@ final class CoverOverrideController: ObservableObject {
     /// 元ファイルのURLを一緒に渡すが、解決できなくても指定自体は成立する
     /// (LayoutStore.existingOrNewSettings(forBookID:sourceURL:)参照)。
     func setCoverFile(forBookID bookID: String, fileURL: URL) async {
+        guard allowsCoverChanges(forBookID: bookID) else { return }
         switch target {
         case .coverImage:
             guard (try? layoutStore.setExternalCover(
@@ -392,6 +408,7 @@ final class CoverOverrideController: ObservableObject {
     /// 「その画像のどこを見せるか」という本の属性で、カバーを既定に戻しても意味を失わない
     /// (LayoutStore.setCoverCropAnchorのコメント参照)。
     func resetCover(forBookID bookID: String) {
+        guard allowsCoverChanges(forBookID: bookID) else { return }
         switch target {
         case .coverImage: layoutStore.clearCoverOverride(forBookID: bookID)
         case .collectionCover: layoutStore.clearShelfCover(forBookID: bookID)
@@ -419,6 +436,7 @@ final class CoverOverrideController: ObservableObject {
     }
 
     func setCropAnchor(forBookID bookID: String, _ anchor: CoverCropAnchor?) {
+        guard allowsCoverChanges(forBookID: bookID) else { return }
         layoutStore.setCoverCropAnchor(
             forBookID: bookID, sourceURL: resolveURL(bookID), anchor: anchor
         )

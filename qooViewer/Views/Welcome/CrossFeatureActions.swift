@@ -66,7 +66,7 @@ struct CollectionAddingContext {
             ) else { return }
             report(FileBrowserActions.addedToCollectionMessage(
                 addedTitles: result.addedTitles, requestedCount: result.requestedCount,
-                collectionName: result.collectionName, locale: locale
+                collectionName: result.collectionName, locale: locale, skippedSecretCount: result.skippedSecretCount
             ))
         }
     }

@@ -293,7 +293,7 @@ page-keyed persisted data must join that list (docs/06「移動・リネーム�
 (2026-09-22): the collection existence check (`CollectionStore.onBooksFoundAtNewPaths`), a post-launch `ExternalMoveSweeper` and the Edit
 Metadata window feed books whose bookmark resolves elsewhere into `BookRecordRelocator` (skipping books open in a viewer and the Trash);
 opening a moved book relocates all five stores *and* the reading position from whatever old path any store found; path-only folder settings
-(excluded folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Such found moves are a snapshot and go
+(secret folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Such found moves are a snapshot and go
 through `FileSystemChange.foundOutsideTheApp` (applied simultaneously, never chained — chaining `[1→2, 2→3]` gave volume 1's data to volume 3);
 in-app changes stay chained. Which rows move is decided after the
 move (`BookRelocationPlan.moves`), a "Replace" destination's old rows move to the replaced item's Trash path (`replacedIntoTrash`) and back
@@ -351,8 +351,8 @@ these fields existed; the Edit Metadata window offers to fill the empty fields).
 series"; user decision 2026-10-01: title, genre, event, series and volume stay single, alternate series are not kept —
 `QMBookMetadata.Field.holdsSeveralInQooViewer`, second-and-later source/info values in `BookMetadata.extraValuesData`; stored edits are
 read through `Confirmation.restrictedToQooViewerFields`). Both the table and the Home inspector show them one line/field per value.
-Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
-bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
+Rules live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the bundled rules; its old
+`excludedFolders` is read only to migrate into secret folders). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
 page 3. The Edit menu's "Edit Metadata…" **always opens that window** (2026-09-23; the context menus' "Edit Metadata…"
 selects the book and opens the Home inspector with the title field focused — the one-book sheet was removed 2026-09-30): the book selected on Home travels through `MetadataEditorReveal.shared` (value + token, taken once) to
 `MetadataWorkspace.reveal`, which selects the row, clears the filters that hide it and asks the table to scroll to it —
@@ -368,8 +368,8 @@ its scan and reads the DB; opening a book only calls `noteBookOpened`. `isLocked
 edited fields (`editsData`) and rule set; Delete Metadata removes the row and does not remember it (re-registered when the
 book or the window is opened again). Parsed-only rows (`BookMetadata.isParsedOnly`) outside the corpus are pruned at launch
 (`pruneParsedOnlyRows` — `KnownBooks` must be collected without metadata rows there, or the rows keep themselves alive). The
-old drafts file (`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books under an excluded
-folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
+old drafts file (`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books under a secret
+folder are never registered (window, inspector, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
 defaults, the inspector) read through the same rules. Details in docs/07「書誌メタデータ」.
 
 **Smart library (2026-09-21/22)**: the Home's third mode (`WelcomeMode.smart`, `Views/Welcome/SmartLibrary/`). It shows **only
@@ -575,6 +575,15 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   window (Edit Bookmarks & Layout, the Window menu can open it) take "the book being read" from
   `LaunchCoordinator.activeRecordableBookAppState`, never `activeBookAppState`; anything that loads a book on a private
   window's behalf (export, cover column) passes `cachesPageList: false`. A new persistence path joins that list and its guard.
+- **Secret folders** (2026-10-03, `SecretFolderStore`; replaced the metadata-only "excluded folders", migrated once at launch):
+  books at or under one leave no record in any window. Opened books get `MangaBook.isInSecretFolder` (snapshot at open) and so
+  `leavesNoRecord` — the window itself keeps its original mode (history display, side panel, other books), only the shown book's
+  writes stop; the appearance set and the title mark switch with the shown book (`ContentView.showsAsPrivate`). Paths that write
+  a book's path or contents **without opening it** decide by location with `SecretFolderStore.isSecretAppWide` (`BookLoader.load`'s
+  page-list cache, file-browser thumbnails, collection adds via `CollectionStore.makePendingItems`, cover extraction/overrides,
+  smart library catalog, metadata generator corpus) — a new such path must check it too. The list lives in `qooViewer.secretFolders`
+  (not `qooViewer.pref.*`: a settings reset must not silently restart recording) and joins the saved-data JSON with "Settings",
+  import only adds. docs/06「シークレットフォルダ」, docs/plans/secret-folder-plan.md.
 - **Anything drawn on a frosted-glass surface must handle the text outline.** The five surfaces
   (`PanelSurface`) let the user fill them with an arbitrary colour, so text and icons can end up the
   same colour as the panel and vanish. When you **add or change any UI on one of those surfaces**,

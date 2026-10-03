@@ -912,8 +912,17 @@ final class CollectionStore: ObservableObject {
     /// 画面の入り口だけが取り残されていた。
     ///
     /// `@concurrent`が要る理由はCollectionCoverStore.image(for:maxPixelSize:)と同じ。
+    ///
+    /// **シークレットフォルダの本は入れない**(2026-10-03。SecretFolderStore ―― コレクションの項目は本のパスを持つ保存データ)。
+    /// 画面の入り口(ドロップ・「本を追加」・「＋」・右クリックの「コレクションに登録」)はすべてここを通る。保存データの読み込みは
+    /// 1 冊ずつの `makePendingItem` を使い、ここを通らない(読み込みは特別扱いしない ―― 決定 13)。
     @concurrent nonisolated static func makePendingItems(for urls: [URL]) async -> [PendingItem] {
-        urls.compactMap(makePendingItem(for:))
+        urls.filter { !SecretFolderStore.isSecretAppWide($0) }.compactMap(makePendingItem(for:))
+    }
+
+    /// シークレットフォルダの本を入れなかったことの知らせ(入り口が結果の文に添える)。
+    nonisolated static func secretBooksNotAddedMessage(count: Int, locale: Locale) -> String {
+        String(format: String(localized: "%lld books in secret folders were not added.", language: locale), count)
     }
 
     /// CollectionItem.titleの作り方。BookLoaderがMangaBook.titleを決めるのと同じ流儀

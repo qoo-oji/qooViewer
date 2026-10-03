@@ -92,4 +92,10 @@ final class SettingsNavigator: ObservableObject {
         UserDefaults.standard.set(SettingsPane.appearance.rawValue, forKey: Self.selectedPaneDefaultsKey)
         appearanceTarget = surface
     }
+
+    /// 環境設定の画面を選んでおく(子ページを持たない画面へ飛ぶとき。インスペクタの「シークレットフォルダの設定…」など)。
+    /// 開くのは呼び出し側の `openSettings()`(順序は `prepareAppearance` と同じ)。
+    func preparePane(_ pane: SettingsPane) {
+        UserDefaults.standard.set(pane.rawValue, forKey: Self.selectedPaneDefaultsKey)
+    }
 }

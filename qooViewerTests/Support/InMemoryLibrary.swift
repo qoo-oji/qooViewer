@@ -54,6 +54,8 @@ final class InMemoryLibrary {
     private let metadataRulesSuite: TestDefaultsPool.Lease
     /// 本のタイトルを求める役(コレクションの並び順「タイトル」が使う)。
     let bookTitles: BookTitleResolver
+    /// シークレットフォルダ(メモリの上だけ。アプリの一覧の写し `SecretFolderStore.appWideFolders` には触らない)。
+    let secretFolders = SecretFolderStore(defaults: nil)
 
     // MARK: - 本ごとのデータ以外(2026-09-23 に保存データへ足したカテゴリ)
     //
@@ -125,7 +127,7 @@ final class InMemoryLibrary {
         LibraryImportExportService.BackupStores(
             modelContext: context, smartLibrary: smartLibrary, favoriteLocations: favoriteLocations,
             autoRename: autoRename, preferences: preferences, keyBindings: keyBindings,
-            defaults: backupDefaults
+            defaults: backupDefaults, secretFolders: secretFolders
         )
     }
 

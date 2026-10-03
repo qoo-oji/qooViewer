@@ -67,8 +67,7 @@ struct MetadataEditorWindow: View {
                         guard let workspace else { return }
                         MetadataEditorContent.openParsingSettings(workspace: workspace, openWindow: openWindow)
                     },
-                    openExtractionSettings: { [openWindow] in openWindow(id: SeriesRulesView.windowID) },
-                    requestExcludedFolders: { [toolbarRequests] in toolbarRequests.requestExcludedFolders() })
+                    openExtractionSettings: { [openWindow] in openWindow(id: SeriesRulesView.windowID) })
             }
             // 読み込み中は検索欄も触れないようにする(入れた文字の行き先がまだ無い)。
             .disabled(workspace == nil)
@@ -292,7 +291,7 @@ final class MetadataEditorModel {
         }
     }
 
-    /// 対象外のフォルダが変わったら、一覧を作り直す(対象に戻った本を並べ直すため。取り消しの歩みは捨てる)。
+    /// シークレットフォルダが変わったら、一覧を作り直す(外した本を並べ直すため。取り消しの歩みは捨てる)。
     func reopen() async {
         close()
         await open(reregistersDeletedBooks: false)
@@ -352,9 +351,6 @@ struct MetadataEditorContent: View {
     let toolbarRequests: MetadataEditorToolbarRequests
     @Environment(\.openWindow) private var openWindow
     @Environment(\.controlActiveState) private var controlActiveState
-    @State private var showsExcludedFolders = false
-    /// 対象外のフォルダのシートの中で一覧が変わった(閉じたら一覧を作り直す)。
-    @State private var reopensAfterExcludedFoldersSheet = false
     @State private var confirmsReparseAll = false
 
     var body: some View {
@@ -374,10 +370,9 @@ struct MetadataEditorContent: View {
             }
         }
         .hardTopScrollEdgeEffect()
-        // ツールバーの「メタデータを再生成」「対象外のフォルダ」(窓の側。MetadataEditorToolbarItems)。頼みの番号が進んだら出す。
+        // ツールバーの「メタデータを再生成」(窓の側。MetadataEditorToolbarItems)。頼みの番号が進んだら出す。
         // 作り直された中身は、それより前の頼みには応えない(onChange は最初の値では呼ばれない)。
         .onChange(of: toolbarRequests.regenerateSerial) { confirmsReparseAll = true }
-        .onChange(of: toolbarRequests.excludedFoldersSerial) { showsExcludedFolders = true }
         // 以前の版の欄(著者・タイトル・シリーズ・巻数だけ)で登録した本がある(利用者の指示 2026-09-21: 増えた欄を埋め直す)。
         .alert("Some metadata was registered before the new fields existed",
                isPresented: Binding(get: { !model.outdatedBookIDs.isEmpty }, set: { if !$0 { model.outdatedBookIDs = [] } })) {
@@ -393,22 +388,11 @@ struct MetadataEditorContent: View {
         } message: {
             Text(verbatim: "%lld unlocked books are parsed and extracted again from their file names, and the values you edited are thrown away. Locked books are left alone. You can undo this with Undo.".ui(workspace.regenerationTargets.count))
         }
-        .sheet(isPresented: $showsExcludedFolders, onDismiss: {
-            guard reopensAfterExcludedFoldersSheet else { return }
-            reopensAfterExcludedFoldersSheet = false
+        // シークレットフォルダが変わったら一覧を作り直す(その中の本は並べない。SecretFolderStore)。2026-10-03 までは、
+        // この窓のツールバーの「除外フォルダ設定」のシートで変えていた(環境設定の「シークレットフォルダ」へ移した)。
+        .onReceive(NotificationCenter.default.publisher(for: SecretFolderStore.didChange)) { note in
+            guard (note.object as? SecretFolderStore)?.isAppWideStore == true else { return }
             Task { await model.reopen() }
-        }) {
-            MetadataExcludedFoldersSheet(rulesStore: rulesStore)
-        }
-        // 対象外のフォルダが変わったら一覧を作り直す。ただし対象外のフォルダのシートが出ている間は、閉じるまで待つ:
-        // reopen は workspace をいったん nil にするので、このビュー(と @State のシート)が作り直され、フォルダを
-        // 1 つ足すたびにシートが閉じていた(2026-09-22)。
-        .onChange(of: rulesStore.excludedFolders) {
-            if showsExcludedFolders {
-                reopensAfterExcludedFoldersSheet = true
-            } else {
-                Task { await model.reopen() }
-            }
         }
         // 編集メニューの「メタデータの編集…」が指した本を、選んで見える位置まで運ぶ(2026-09-23、利用者の指示。
         // MetadataEditorReveal)。窓を開いたところ(initial)と、もう開いている窓に頼まれたとき(token の変化)の両方。
@@ -449,10 +433,8 @@ struct MetadataEditorContent: View {
 @MainActor @Observable
 final class MetadataEditorToolbarRequests {
     private(set) var regenerateSerial = 0
-    private(set) var excludedFoldersSerial = 0
 
     func requestRegenerate() { regenerateSerial += 1 }
-    func requestExcludedFolders() { excludedFoldersSerial += 1 }
 }
 
 /// 「メタデータの編集」ウインドウのツールバーの項目(表示の切り替えの監査の 17、2026-09-27)。
@@ -465,8 +447,7 @@ enum MetadataEditorToolbarItems {
         workspace: MetadataWorkspace?,
         requestRegenerate: @escaping () -> Void,
         openParsingSettings: @escaping () -> Void,
-        openExtractionSettings: @escaping () -> Void,
-        requestExcludedFolders: @escaping () -> Void
+        openExtractionSettings: @escaping () -> Void
     ) -> some ToolbarContent {
         if let workspace, workspace.isWorking {
             ToolbarItem { ProgressView().controlSize(.small) }
@@ -517,15 +498,6 @@ enum MetadataEditorToolbarItems {
             .labelStyle(.titleAndIcon)
             .disabled(workspace == nil)
             .help("Look at and correct the rules that derive the series and volume: policies, word rules and word lists")
-        }
-        ToolbarItem {
-            Button { requestExcludedFolders() } label: {
-                Label("Excluded Folders", systemImage: "folder.badge.minus")
-            }
-            .labelStyle(.titleAndIcon)
-            // シートは中身の側にある。
-            .disabled(workspace == nil)
-            .help("Folders whose books (including those in their subfolders) are left out of metadata registration")
         }
     }
 }
@@ -1140,96 +1112,3 @@ struct MetadataEditorSheetView: View {
     }
 }
 
-// MARK: - 対象外のフォルダ
-
-/// メタデータの登録の対象外にするフォルダの一覧(ツールバーの「対象外のフォルダ」)。その中とサブフォルダの本は、この窓に並ばず、
-/// 1 冊ぶんのシートで登録できず、本を開いたときの EPUB/PDF/ComicInfo からの取り込みもしない。既に登録してあるメタデータは消さない。
-struct MetadataExcludedFoldersSheet: View {
-    @Bindable var rulesStore: MetadataRulesStore
-    @EnvironmentObject private var metadataStore: BookMetadataStore
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.locale) private var locale
-    @State private var selection: String?
-    /// 削除を確かめているメタデータの本(対象外のフォルダの中に登録してあるもの。2026-09-21、利用者の指示)。
-    @State private var deleting: [String]?
-
-    /// 対象外のフォルダ(選んでいればそのフォルダだけ)の中に登録してあるメタデータの本。
-    private var registeredInExcluded: [String] {
-        let folders = selection.map { [$0] } ?? rulesStore.excludedFolders
-        return metadataStore.knownBookIDs.filter { MetadataRulesStore.isExcluded(bookID: $0, in: folders) }.sorted()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Excluded Folders").font(.headline)
-            Text("Books in these folders and in their subfolders are left out of metadata registration. Metadata already registered for them is kept.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            List(selection: $selection) {
-                ForEach(rulesStore.excludedFolders, id: \.self) { path in
-                    Label {
-                        Text(verbatim: path).lineLimit(1).truncationMode(.middle)
-                    } icon: {
-                        Image(systemName: "folder")
-                    }
-                    .tag(path)
-                }
-            }
-            .frame(minHeight: 160)
-            .overlay {
-                if rulesStore.excludedFolders.isEmpty {
-                    Text("No excluded folders").foregroundStyle(.secondary)
-                }
-            }
-            HStack(spacing: 8) {
-                Button { addFolders() } label: { Image(systemName: "plus") }
-                    .help("Add Folder…")
-                Button {
-                    if let selection { rulesStore.removeExcludedFolder(selection) }
-                    selection = nil
-                } label: { Image(systemName: "minus") }
-                .disabled(selection == nil)
-                .help("Remove This Folder")
-                Spacer()
-                let registered = registeredInExcluded
-                Button(selection == nil ? "Delete Metadata in Excluded Folders…" : "Delete Metadata in This Folder…") {
-                    deleting = registered
-                }
-                .disabled(registered.isEmpty)
-                .help("Deletes the metadata already registered for books in the excluded folders")
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 560)
-        .alert(
-            "Delete the metadata of these books?",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
-        ) {
-            Button("Cancel", role: .cancel) { deleting = nil }
-            Button("Delete", role: .destructive) {
-                if let deleting {
-                    metadataStore.upsertAll(deleting.map { BookMetadataStore.BatchEntry(bookID: $0, values: nil) })
-                }
-                deleting = nil
-            }
-        } message: {
-            Text(verbatim: "The registered metadata of %lld books in the excluded folders is deleted. The books themselves are not deleted. This can't be undone.".ui(deleting?.count ?? 0))
-        }
-    }
-
-    /// フォルダを選ぶ。**読む権限は要らない**(パスで比べるだけ)ので、FolderAccessStore には足さない。
-    private func addFolders() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Add", language: locale)
-        panel.message = String(localized: "Choose folders whose books are left out of metadata registration.", language: locale)
-        WindowSheet.begin(panel) { response in
-            guard response == .OK else { return }
-            for url in panel.urls { rulesStore.addExcludedFolder(url) }
-        }
-    }
-}

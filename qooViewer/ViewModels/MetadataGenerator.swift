@@ -14,7 +14,7 @@ import QooMetaKit
 /// ■ 母体(読む本)
 /// このアプリが知っている本(読書位置・ブックマーク・レイアウト・お気に入り ―― `knownBooks`)・メタデータの行のある本・
 /// 機能が記録した本の一覧(コレクションの本・スマートライブラリの対象フォルダの本 ―― `MetadataCorpusStore`)・この起動で開いた本。
-/// **機能の ON/OFF では変わらない**(記録は OFF の間も残る)。対象外のフォルダ(`MetadataRulesStore.excludedFolders`)の本は入れない。
+/// **機能の ON/OFF では変わらない**(記録は OFF の間も残る)。シークレットフォルダ(`SecretFolderStore`)の本は入れない。
 /// 行の無い本は、**記録どおりの場所に今あると確かめられた本だけ**を並べる(読書位置やコレクションは、アプリの外で消した・名前を
 /// 変えた本の古いパスを覚えていることがある ―― 2026-09-22 の報告)。スマートライブラリが探した本と、この起動で開いた本は確かめ済み。
 /// 確かめるのは 1 冊につき起動中に 1 度(ボリュームを付けたら、無かった本を確かめ直す)。
@@ -26,7 +26,7 @@ import QooMetaKit
 /// 作り直さない(`BookMetadataStore.deletedThisSession`)。
 ///
 /// ■ 動く契機(まとめて 1 本ずつ)
-/// 行の形の変化(`bookMetadataDidChange`。自分の書き込みの知らせは読まない)・規則・対象外のフォルダ・記録した一覧・本を開いた・
+/// 行の形の変化(`bookMetadataDidChange`。自分の書き込みの知らせは読まない)・規則・シークレットフォルダ・記録した一覧・本を開いた・
 /// ボリュームの着脱。メタデータの編集ウインドウは直したあと `update()` を待って、変わった本の提案を `updates` で受け取る。
 @MainActor
 final class MetadataGenerator {
@@ -60,6 +60,8 @@ final class MetadataGenerator {
     private let metadataStore: BookMetadataStore
     private let rulesStore: MetadataRulesStore
     private let corpusStore: MetadataCorpusStore
+    /// シークレットフォルダ(その中の本は母体に入れない)。nil なら絞らない(テスト)。
+    private let secretFolders: SecretFolderStore?
     /// このアプリが知っている本のうち、機能に属さないもの(読書位置・ブックマーク・レイアウト・お気に入り)。
     private let knownBooks: () -> Set<String>
     /// 行の無い本のうち、記録どおりの場所に今ある本を返す(ブロッキングする確かめは呼ばれた側が画面の外で)。
@@ -80,10 +82,12 @@ final class MetadataGenerator {
     private var observers: [NSObjectProtocol] = []
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, corpusStore: MetadataCorpusStore,
+         secretFolders: SecretFolderStore? = nil,
          knownBooks: @escaping () -> Set<String>, probe: @escaping ([String]) async -> Set<String>) {
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.corpusStore = corpusStore
+        self.secretFolders = secretFolders
         self.knownBooks = knownBooks
         self.probe = probe
         rules = rulesStore.rules
@@ -104,8 +108,13 @@ final class MetadataGenerator {
                                             queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.schedule() }
         })
-        for name in [MetadataRulesStore.rulesDidChange, MetadataRulesStore.excludedFoldersDidChange] {
-            observers.append(center.addObserver(forName: name, object: rulesStore, queue: .main) { [weak self] _ in
+        observers.append(center.addObserver(forName: MetadataRulesStore.rulesDidChange, object: rulesStore,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.schedule() }
+        })
+        if let secretFolders {
+            observers.append(center.addObserver(forName: SecretFolderStore.didChange, object: secretFolders,
+                                                queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.schedule() }
             })
         }
@@ -249,7 +258,7 @@ final class MetadataGenerator {
         corpus.formUnion(smart)
         corpus.formUnion(records.keys)
         corpus.formUnion(verified)
-        corpus = corpus.filter { !rulesStore.isExcluded(bookID: $0) }
+        if let secretFolders { corpus = corpus.filter { !secretFolders.contains(path: $0) } }
 
         // 行の無い本は、記録どおりの場所にあるかを確かめてから(1 冊につき起動中に 1 度)。
         let toProbe = corpus.filter {

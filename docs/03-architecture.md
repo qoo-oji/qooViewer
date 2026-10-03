@@ -53,7 +53,8 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `BookmarkStore` | SwiftData | すべての本を横断したブックマーク(「ブックマーク・レイアウトの編集」用) |
 | `LayoutStore` | SwiftData | すべての本のレイアウト設定 |
 | `BookMetadataStore` | SwiftData | 書誌メタデータ |
-| `MetadataRulesStore` | Application Support/qooMeta/settings.json | ファイル名からメタデータを読む規則(qooMeta の同梱の規則との差分)と除外フォルダ |
+| `MetadataRulesStore` | Application Support/qooMeta/settings.json | ファイル名からメタデータを読む規則(qooMeta の同梱の規則との差分)。以前の除外フォルダは読むだけ(`SecretFolderStore` へ移す) |
+| `SecretFolderStore` | UserDefaults(`qooViewer.secretFolders`) | シークレットフォルダ(その中の本は保存データに何も残さない。→ [06](06-persistence.md#シークレットフォルダ2026-10-03)) |
 | `MetadataDraftStore` | Application Support/qooMeta/drafts.json | メタデータの編集ウインドウで直したがロックしていない値 |
 | `SmartLibraryStore` | UserDefaults(JSON) | スマートライブラリの対象フォルダ・スマートコレクション・ピン留め |
 | `KeyBindingStore` | UserDefaults(JSON) | キー・マウスの割り当て(基本+表示モード別) |

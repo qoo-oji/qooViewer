@@ -39,6 +39,9 @@ final class AppStores: ObservableObject {
     /// ファイル名からメタデータを作る規則(qooMeta)の設定。2026-09-21 に `MetadataFormatStore`(3 種の正規表現の規則)
     /// から置き換えた。`@Observable` なので `allObjectWillChangePublishers` には入らない(メニューは規則を読まない)。
     let metadataRulesStore: MetadataRulesStore
+    /// シークレットフォルダ(2026-10-03。その中の本は保存データに何も残さない。SecretFolderStore の型コメント)。
+    /// メニューバーは読まないので allObjectWillChangePublishers には足さない。
+    let secretFolderStore: SecretFolderStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     let launchCoordinator: LaunchCoordinator
     /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
@@ -151,6 +154,11 @@ final class AppStores: ObservableObject {
                 .appendingPathComponent("qooViewerTestHost.rules.\(UUID().uuidString)/settings.json"),
                 legacyDefaults: nil, isAppWide: true)
             : MetadataRulesStore(isAppWide: true)
+        // テストの中で走る実物のアプリでは保存せず、以前の一覧の引き継ぎもしない(共有の状態に触らない)。
+        secretFolderStore = SecretFolderStore(defaults: RuntimeEnvironment.isRunningTests ? nil : .standard, isAppWide: true)
+        if !RuntimeEnvironment.isRunningTests {
+            secretFolderStore.migrateLegacyExcludedFolders(from: metadataRulesStore)
+        }
         // 英単語の辞書(約 24 万語)を画面の外で読んでおく(メタデータの編集ウインドウを初めて開いたときに待たない)。
         MetadataRulesStore.warmUp()
         launchCoordinator = LaunchCoordinator()
@@ -213,6 +221,7 @@ final class AppStores: ObservableObject {
         let probeStores = (metadataStore, layoutStore, bookmarkStore, favoritesStore, collectionStore, folderAccess, preferences)
         metadataGenerator = MetadataGenerator(
             metadataStore: metadataStore, rulesStore: metadataRulesStore, corpusStore: metadataCorpusStore,
+            secretFolders: secretFolderStore,
             knownBooks: { [bookmarkStore, layoutStore, favoritesStore] in
                 KnownBooks.collectWithoutFeatures(bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                                                   favoritesStore: favoritesStore, modelContext: context)
@@ -452,7 +461,7 @@ final class AppStores: ObservableObject {
 
     /// パスだけで覚えているフォルダの設定(FolderSettingBookmarks の型コメント)。
     private func folderSettingPaths() -> Set<String> {
-        var paths = Set(metadataRulesStore.excludedFolders.map(MountTable.normalized))
+        var paths = Set(secretFolderStore.folders.map(MountTable.normalized))
         paths.formUnion(smartLibraryStore.folders.map(\.path))
         paths.formUnion(collectionStore.autoFolderTargets().map { MountTable.normalized($0.folder.path) })
         return paths
@@ -475,7 +484,7 @@ final class AppStores: ObservableObject {
         let moved = await bookmarks.movedFolders()
         if !moved.isEmpty {
             let change = FileSystemChange.foundOutsideTheApp(moved)
-            metadataRulesStore.relocate(using: change)
+            secretFolderStore.relocate(using: change)
             smartLibraryStore.relocate(using: change)
             smartLibraryCatalog.handleFileSystemChange(change)
             if collectionStore.relocateAutoFolders(using: change) { collectionAutoFolderScanner.scheduleScan() }
@@ -564,6 +573,20 @@ final class AppStores: ObservableObject {
                 MainActor.assumeIsolated { self?.metadataCorpusStore.keepSmartLibraryRoots(folders.map(\.path)) }
             }
             .store(in: &metadataCorpusSubscriptions)
+        // シークレットフォルダの本は記録に残さない(corpus.json は本のパスを持つ。SecretFolderStore の型コメント)。
+        // 一覧が変わったら、記録済みの中からも外し、外したフォルダのコレクションの本は記録し直す(スマートライブラリの本は
+        // 次に集めたときに記録し直される)。
+        secretFolderStore.$folders
+            .dropFirst()
+            .sink { [weak self] folders in
+                MainActor.assumeIsolated {
+                    self?.metadataCorpusStore.removeBooks(where: { SecretFolderStore.contains(path: $0, in: folders) })
+                    self?.recordCollectionBooks()
+                }
+            }
+            .store(in: &metadataCorpusSubscriptions)
+        let secretFolders = secretFolderStore.folders
+        metadataCorpusStore.removeBooks(where: { SecretFolderStore.contains(path: $0, in: secretFolders) })
         recordCollectionBooks()
         // 画面を出すのを先に(起動直後の数秒は、母体を集めて索引を読むのに使わない)。
         metadataGenerator.start(initialDelay: .seconds(2))
@@ -572,7 +595,8 @@ final class AppStores: ObservableObject {
     /// コレクションの本の一覧を記録する(ライブラリ機能が ON の間だけ)。
     private func recordCollectionBooks() {
         guard preferences.libraryFeatureEnabled else { return }
-        metadataCorpusStore.recordCollectionBooks(collectionStore.allRegisteredBookIDs())
+        metadataCorpusStore.recordCollectionBooks(
+            collectionStore.allRegisteredBookIDs().filter { !secretFolderStore.contains(path: $0) })
     }
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
@@ -583,7 +607,7 @@ final class AppStores: ObservableObject {
         metadataCorpusStore.relocate(using: change)
         favoriteLocations.relocate(using: change)
         smartLibraryStore.relocate(using: change)
-        metadataRulesStore.relocate(using: change)
+        secretFolderStore.relocate(using: change)
         autoRenameStore.relocateExcludedPaths(using: change)
         folderAccess.handleFileSystemChange(change)
         folderSettingBookmarks?.relocate(using: change)

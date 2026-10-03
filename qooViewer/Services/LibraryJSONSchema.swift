@@ -33,12 +33,14 @@ struct QooLibraryExportFile: Codable {
     /// 自動リネーム(`fileBrowser`)・環境設定(`settings`)の 4 つ。どれも Optional なので、
     /// 5 以前のファイルはそのまま読める。
     ///
+    /// formatVersion 7(2026-10-03)で、シークレットフォルダ(`secretFolders`)を足した。Optional なので 6 以前のファイルはそのまま読める。
+    ///
     /// **意図して入れないもの**: フォルダのアクセス権(`FolderAccessStore` /
     /// `FolderSettingBookmarks`。セキュリティスコープ付きブックマークは書き出した端末でしか
     /// 意味を持たない)、最近開いた本の履歴(同じ理由。`RecentFilesStore.Entry.bookmark`)、
     /// 自動で作り直せるもの(コレクション表紙・サムネイル・スマートライブラリのカタログ・
     /// `MetadataCorpusStore`)。
-    var formatVersion: Int = 6
+    var formatVersion: Int = 7
     var favorites: ExportedFavorites?
     var bookmarks: [ExportedBookmarkEntry]?
     var layouts: [ExportedBookLayoutEntry]?
@@ -64,6 +66,10 @@ struct QooLibraryExportFile: Codable {
     var fileBrowser: ExportedFileBrowser?
     /// 環境設定(formatVersion 6)。
     var settings: ExportedSettings?
+    /// シークレットフォルダのパス(formatVersion 7。SecretFolderStore)。設定は環境設定の画面にあるので、「環境設定」の
+    /// カテゴリと一緒に書き出し・取り込む。**取り込みは足すだけ**で、手元のシークレットフォルダを外さない(上書きでも)
+    /// ―― 外すと、そのフォルダの本の記録が黙って始まる(保持件数を下げない取り込みと同じ考え方)。
+    var secretFolders: [String]?
 }
 
 // MARK: - コレクション

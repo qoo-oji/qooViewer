@@ -220,6 +220,8 @@ final class FileBrowserVideoThumbnailWarmer {
         under root: URL, protectedPrefixes: [String], isRemote: (URL) -> Bool
     ) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey]
+        // シークレットフォルダ(SecretFolderStore)の中の動画は先に作らない(絵がディスクに残る。2026-10-03、利用者の決定)。
+        guard !SecretFolderStore.isSecretAppWide(root) else { return [] }
         guard let enumerator = FileManager.default.enumerator(
             at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return [] }
@@ -234,7 +236,8 @@ final class FileBrowserVideoThumbnailWarmer {
                 let prefix = DirectoryProbe.protectedPrefix(containing: url, prefixes: protectedPrefixes)
                 // 実体が手元に無いフォルダ(iCloud などに追い出された)にも入らない ―― 中を列挙すると一覧を落としてくる
                 // (2026-09-14 の 2 回目の監査 23)。
-                if (prefix != nil && prefix != rootPrefix) || DatalessFiles.isDataless(url) || isRemote(url) {
+                if (prefix != nil && prefix != rootPrefix) || DatalessFiles.isDataless(url) || isRemote(url)
+                    || SecretFolderStore.isSecretAppWide(url) {
                     enumerator.skipDescendants()
                 }
                 continue

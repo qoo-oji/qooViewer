@@ -24,6 +24,9 @@ nonisolated enum BookLoader {
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil
     ) async throws -> MangaBook {
+        // シークレットフォルダの本(SecretFolderStore)は、どの経路から読んでもページ一覧のキャッシュを読み書きしない
+        // (本のパスとページ名が残る。保存データの書き出し・取り込み・表紙の抽出など、呼び出し元ごとに足すと漏れるのでここで)。
+        let cachesPageList = cachesPageList && !SecretFolderStore.isSecretAppWide(url)
         // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
         // ある。2回目以降はその走査ごと飛ばす(BookPageListCache.Entryの構造キャッシュの
         // コメント参照)。シークレットウインドウでは書かないだけでなく**読みもしない** ――

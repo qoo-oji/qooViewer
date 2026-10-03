@@ -135,7 +135,7 @@
 
 ## 保存データの JSON 書き出し・読み込み
 
-`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 6)。qooViewer 専用の
+`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 7)。qooViewer 専用の
 1ファイルで、コレクション(ライブラリ → コレクション → 本)・ブックマーク・レイアウト・メタデータ・
 メタデータの推測ルール・お気に入り(無効化中)・**読書位置・スマートライブラリ・ファイルブラウザ・環境設定**を
 選んで出し入れします。3 で書き出したファイルは `libraries == nil`(= コレクションを含まない)として
@@ -258,6 +258,16 @@
     (`AppPreferences.storedDouble`)。以前は `1e30` を持ったバックアップ一つで `UInt64(遅延 × 1e9)`・`Int(先読みの枚数)` が
     トラップし、値が残るので起動のたびに落ちた。保管件数の 2 つだけは、下げると消えるので上を広く取る。
   - メニューバーと表示言語は起動し直すまで切り替わらない(`AppLanguage`)。取り込みウインドウが書く。
+
+### シークレットフォルダ(formatVersion 7)
+
+2026-10-03 に足した `QooLibraryExportFile.secretFolders`(パスの配列。`SecretFolderStore`)。設定は環境設定の画面にあるので、
+新しいカテゴリを作らず**「環境設定」のカテゴリと一緒に**書き出し・取り込む(`ExportSelection.includeSettings` / `ImportPolicies.settings`)。
+`qooViewer.pref.*` に置かない(「初期設定に戻す」で消えないように)ので、`SettingsBackup` の接頭辞では拾えず、別の欄にしてある。
+
+- **取り込みは足すだけ**: 「置き換え」でも手元のシークレットフォルダを外さない(外すと、そのフォルダの本の記録が黙って始まる。
+  保管件数を下げない取り込みと同じ考え方)。無いフォルダも落とさない(繋がっていないボリュームの上かもしれず、残しても記録が減るだけ)。
+- 以前の除外フォルダ(`MetadataRulesStore` の settings.json)は、書き出しに入っていなかった(規則の差分 `metadataRules` だけ)。
 
 網羅はテスト(`LibraryBackupTests`)。「動かした設定のキーが 1 つ残らず書き出され、取り込むと保存先の
 値が 1 つ残らず一致する」を、`AppPreferencesProbe` の下ごしらえ(設定を足したら足す約束になっている)

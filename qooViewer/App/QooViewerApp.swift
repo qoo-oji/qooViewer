@@ -42,6 +42,7 @@ struct QooViewerApp: App {
     private var layoutStore: LayoutStore { stores.layoutStore }
     private var metadataStore: BookMetadataStore { stores.metadataStore }
     private var metadataRulesStore: MetadataRulesStore { stores.metadataRulesStore }
+    private var secretFolderStore: SecretFolderStore { stores.secretFolderStore }
     private var collectionStore: CollectionStore { stores.collectionStore }
     private var collectionCoverExtractor: CollectionCoverExtractor { stores.collectionCoverExtractor }
     private var collectionAutoFolderScanner: CollectionAutoFolderScanner {
@@ -608,6 +609,8 @@ struct QooViewerApp: App {
             // ホームのスマートライブラリ(2026-09-21)。
             .environmentObject(smartLibraryStore)
             .environmentObject(smartLibraryCatalog)
+            // シークレットフォルダ(2026-10-03。右クリックの追加・外す、インスペクタの注意書き)。
+            .environmentObject(secretFolderStore)
             .environmentObject(favoritesStore)
             .environmentObject(bookmarkStore)
             .environmentObject(layoutStore)
@@ -954,15 +957,23 @@ struct QooViewerApp: App {
                 // ライブラリ機能が OFF の間は出さない。シークレットウインドウ・その場限りの本・本を開いていないときは淡色
                 // (AppState.canAddCurrentBookToCollection)。名前は「ホーム」メニューと同じ写し(HomeMenuDirectoryStore)。
                 if preferences.libraryFeatureEnabled {
-                    Menu("Add to Collection") {
-                        FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
-                            for: CollectionMenuLibrary.libraries(from: stores.homeMenuDirectory.directory, locale: currentLocale),
-                            locale: currentLocale
-                        ) { [weak focusedAppState, collectionAddingContext] collectionID in
-                            focusedAppState?.addCurrentBook(toCollection: collectionID, using: collectionAddingContext)
-                        })
+                    // 判定は値の写し(MenuCheckmarkState)からも引く ―― `focusedAppState` は参照なので、同じ窓で本が替わっても
+                    // メニューが組み直されないことがある(2026-10-03、ノーマルの本からシークレットフォルダの本へ移ったときに実機で)。
+                    // 淡色は押せない Button で描く: メニューバーの `Menu` にも `.disabled` は効かず、親項目は押せる見た目のまま
+                    // だった(同日、実機の AX で確認。`.contextMenu` の中と同じ ―― FileBrowserDisabledSubmenu)。
+                    if focusedAppState?.canAddCurrentBookToCollection == true,
+                       menuCheckmarkState.map({ !$0.isPrivateWindow && !$0.currentBookLeavesNoRecord }) == true {
+                        Menu("Add to Collection") {
+                            FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
+                                for: CollectionMenuLibrary.libraries(from: stores.homeMenuDirectory.directory, locale: currentLocale),
+                                locale: currentLocale
+                            ) { [weak focusedAppState, collectionAddingContext] collectionID in
+                                focusedAppState?.addCurrentBook(toCollection: collectionID, using: collectionAddingContext)
+                            })
+                        }
+                    } else {
+                        FileBrowserDisabledSubmenu(title: String(localized: "Add to Collection", language: currentLocale))
                     }
-                    .disabled(focusedAppState?.canAddCurrentBookToCollection != true)
                 }
 
                 Divider()
@@ -1708,6 +1719,10 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                // 「シークレットフォルダ」(2026-10-03)。一覧と、フォルダの中に残っている保存データ・履歴の削除。
+                .environmentObject(secretFolderStore)
+                .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
@@ -1914,6 +1929,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoriteLocations)
                 .environmentObject(autoRenameStore)
                 .environmentObject(keyBindingStore)
+                .environmentObject(secretFolderStore)
                 .environment(metadataRulesStore)
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
@@ -1938,6 +1954,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoriteLocations)
                 .environmentObject(autoRenameStore)
                 .environmentObject(keyBindingStore)
+                .environmentObject(secretFolderStore)
                 .environment(metadataRulesStore)
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)

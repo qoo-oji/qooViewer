@@ -257,7 +257,10 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // 閉じないと解放されない)。
         securityScopedURL?.stopAccessingSecurityScopedResource()
         securityScopedURL = url.startAccessingSecurityScopedResource() ? url : nil
-        guard let loaded = try? await BookLoader.load(from: url) else {
+        // シークレットフォルダの本(既存の保存データを編集しに来た)は、ページ一覧とサムネイルのディスクキャッシュを書かない
+        // (SecretFolderStore。保存データの編集は止めないが、新しい痕跡は残さない ―― シークレットウインドウと同じ)。
+        let isSecret = SecretFolderStore.isSecretAppWide(url) || SecretFolderStore.isSecretAppWide(path: bookID)
+        guard let loaded = try? await BookLoader.load(from: url, cachesPageList: !isSecret) else {
             loadState = .failed
             return
         }
@@ -267,7 +270,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         guard !hasReleasedResources else { return }
         book = loaded
         // 本をめくる画面なので、ネットワークボリューム上の本は残りを裏で取り寄せる(PageLoader.init のコメント)。
-        pageLoader = PageLoader(book: loaded, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true)
+        pageLoader = PageLoader(book: loaded, usesThumbnailDiskCache: !isSecret,
+                                imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true)
         pageLoaderGeneration &+= 1
         isBookReady = true
 

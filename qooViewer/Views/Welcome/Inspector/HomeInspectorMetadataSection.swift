@@ -45,6 +45,9 @@ struct HomeInspectorMetadataSection: View {
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @Environment(MetadataRulesStore.self) private var rulesStore
+    /// シークレットフォルダ(その中の本はメタデータを書かない。SecretFolderStore)。
+    @EnvironmentObject private var secretFolders: SecretFolderStore
+    @Environment(\.openSettings) private var openSettings
 
     /// 値をいくつも持てる欄(著者・原作・情報)。鍵は著者のほかは `BookMetadataValues.moreValueKeys` と同じ qooMeta の欄の名前。
     private enum LineKey: String, CaseIterable, Hashable {
@@ -100,15 +103,24 @@ struct HomeInspectorMetadataSection: View {
     }
 
     var body: some View {
-        let isExcluded = rulesStore.isExcluded(bookID: bookID)
+        let isExcluded = secretFolders.contains(path: bookID)
         VStack(alignment: .leading, spacing: 8) {
             header(isExcluded: isExcluded)
             if isExcluded {
-                Label("This book is in a folder excluded from metadata registration.", systemImage: "folder.badge.minus")
+                // シークレットフォルダの本(2026-10-03。以前の「メタデータの登録の対象外のフォルダ」を作り直したもの)。
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("This book is in a secret folder, so its metadata is not saved.", systemImage: "eye.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Secret Folder Settings…") { [openSettings] in
+                        SettingsNavigator.shared.preparePane(.secretFolders)
+                        openSettings()
+                    }
+                    .buttonStyle(.link)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .panelOutlinedContent()
+                }
+                .panelOutlinedContent()
             }
             fields
                 .disabled(isExcluded || isLocked || !allowsEditing)
@@ -154,8 +166,8 @@ struct HomeInspectorMetadataSection: View {
         HStack(spacing: 6) {
             HomeInspectorSectionTitle("Metadata")
             Spacer(minLength: 0)
-            // 鍵(メタデータの編集ウインドウの鍵の列と同じ意味)。押したときに書く(型コメント)。除外フォルダの本・シークレット
-            // ウインドウでは出さない(除外フォルダの本は行を作れない。シークレットウインドウは書かない ―― 状態は欄の淡色で分かる)。
+            // 鍵(メタデータの編集ウインドウの鍵の列と同じ意味)。押したときに書く(型コメント)。シークレットフォルダの本・シークレット
+            // ウインドウでは出さない(どちらも書かない ―― 状態は欄の淡色で分かる)。
             if !isExcluded, allowsEditing {
                 Button { toggleLock() } label: {
                     Image(systemName: isLocked ? "lock.fill" : "lock.open")
@@ -504,7 +516,7 @@ struct HomeInspectorMetadataSection: View {
     /// 欄を離れるたび・消えるたびに書くので、その 1 欄のためにほかの直しまで黙って捨てることになる。読めない文字は欄に残し(赤い案内も
     /// 残る)、直せば次に書く。欄が消えたら捨てる(数でない値はもともと書けない)。
     private func commit() {
-        guard didLoad, allowsEditing, !rulesStore.isExcluded(bookID: bookID) else { return }
+        guard didLoad, allowsEditing, !secretFolders.contains(path: bookID) else { return }
         guard isDirty || isLocked != openedIsLocked else { return }
         let invalidVolumeSortText = isVolumeSortInvalid ? self.volumeSortText : nil
         // ここから先は、読めない巻数(並べ替え用)を「変えていない」として扱う。

@@ -292,7 +292,9 @@ final class CollectionAutoFolderScanner: ObservableObject {
         if !toRegister.isEmpty {
             let registrations = await Task.detached(priority: .utility) {
                 toRegister.map { entry in
-                    (id: entry.id, pending: entry.urls.compactMap(CollectionStore.makePendingItem(for:)))
+                    // シークレットフォルダの本は入れない(SecretFolderStore。画面の入り口の makePendingItems と同じ)。
+                    (id: entry.id, pending: entry.urls.filter { !SecretFolderStore.isSecretAppWide($0) }
+                        .compactMap(CollectionStore.makePendingItem(for:)))
                 }
             }.value
             for registration in registrations where !registration.pending.isEmpty {

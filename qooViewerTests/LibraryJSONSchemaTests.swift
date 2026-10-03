@@ -123,7 +123,7 @@ struct LibraryJSONSchemaTests {
         let decoded = try JSONDecoder().decode(
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
-        #expect(decoded.formatVersion == 6)
+        #expect(decoded.formatVersion == 7)
         #expect(decoded.favorites?.folders.map(\.id) == ["f1", "f2"])
         #expect(decoded.favorites?.folders.last?.parentId == "f1")
         #expect(decoded.favorites?.books.first?.folderId == "f2")
@@ -156,9 +156,19 @@ struct LibraryJSONSchemaTests {
         #expect(decoded.settings?.values["qooViewer.keyBindings.v1"] == .data(Data([0x7b, 0x7d])))
     }
 
-    @Test("既定の formatVersion は 6")
-    func theDefaultFormatVersionIsSix() {
-        #expect(QooLibraryExportFile().formatVersion == 6)
+    @Test("既定の formatVersion は 7(シークレットフォルダを足した)")
+    func theDefaultFormatVersionIsSeven() {
+        #expect(QooLibraryExportFile().formatVersion == 7)
+    }
+
+    @Test("シークレットフォルダは往復し、無いファイル(6 以前)は nil として読める")
+    func secretFoldersRoundTrip() throws {
+        var file = QooLibraryExportFile()
+        file.secretFolders = ["/架空/秘密"]
+        let decoded = try JSONDecoder().decode(QooLibraryExportFile.self, from: try JSONEncoder().encode(file))
+        #expect(decoded.secretFolders == ["/架空/秘密"])
+        let old = try JSONDecoder().decode(QooLibraryExportFile.self, from: Data(#"{"formatVersion":6}"#.utf8))
+        #expect(old.secretFolders == nil)
     }
 
     // MARK: - 旧版のファイル

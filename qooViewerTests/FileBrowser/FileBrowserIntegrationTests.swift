@@ -629,7 +629,7 @@ struct FileBrowserIntegrationTests {
     @Test("右クリックの並びは、上に Finder 由来の項目、下にアプリ固有の項目(FileBrowserMenuCommand.groups のコメント)")
     func appSpecificItemsComeAfterFinderItems() {
         let appSpecific: Set<FileBrowserMenuCommand> = [
-            .createCollection, .addToCollection, .editMetadata, .exportBook, .addToSmartLibrary, .autoRename,
+            .createCollection, .addToCollection, .editMetadata, .exportBook, .addToSmartLibrary, .autoRename, .secretFolder,
         ]
         for kind in [FileBrowserMenuKind.file, .folder, .tree] {
             let groups = FileBrowserMenuCommand.groups(for: kind)
@@ -646,6 +646,50 @@ struct FileBrowserIntegrationTests {
         // Finder と同じく、情報を見る・名前を変更・圧縮・エイリアスを作成・クイックルックは 1 つの群に並ぶ。
         #expect(FileBrowserMenuCommand.groups(for: .file).contains([.getInfo, .rename, .compress, .extract, .makeAlias, .quickLook]))
         #expect(FileBrowserMenuCommand.groups(for: .folder).contains([.getInfo, .rename, .compress, .makeAlias, .quickLook]))
+    }
+
+    @Test("右クリックの「シークレットフォルダに追加/から外す」: フォルダ 1 つだけ、載っていれば題が「外す」、中のフォルダとシークレットウインドウでは淡色")
+    func secretFolderMenuItem() throws {
+        let fixture = try Fixture("fb-menu-secret-folder")
+        defer { fixture.close() }
+        let store = SecretFolderStore(defaults: nil)
+        fixture.actions.secretFolderStore = store
+        let folder = fixture.temporary.file("秘密")
+        let inner = fixture.temporary.file("秘密/下の階")
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        let book = try fixture.archive("本.cbz")
+        let english = Locale(identifier: "en")
+        func context(_ urls: [URL]) -> FileBrowserMenuContext {
+            FileBrowserMenuContext(kind: .folder, entries: urls.map(fixture.entry), folder: nil)
+        }
+        #expect(FileBrowserMenuCommand.groups(for: .folder).joined().contains(.secretFolder))
+        #expect(FileBrowserMenuCommand.groups(for: .tree).joined().contains(.secretFolder))
+        #expect(!FileBrowserMenuCommand.groups(for: .file).joined().contains(.secretFolder))
+
+        #expect(FileBrowserMenuCommand.secretFolder.isEnabled(in: context([folder]), actions: fixture.actions))
+        #expect(FileBrowserMenuCommand.secretFolder.title(in: context([folder]), locale: english, actions: fixture.actions)
+            == "Add to Secret Folders")
+        // ファイル・複数は淡色。
+        #expect(!FileBrowserMenuCommand.secretFolder.isEnabled(in: context([book]), actions: fixture.actions))
+        #expect(!FileBrowserMenuCommand.secretFolder.isEnabled(in: context([folder, inner]), actions: fixture.actions))
+
+        FileBrowserMenuCommand.secretFolder.perform(in: context([folder]), actions: fixture.actions)
+        #expect(store.isListed(folder))
+        #expect(FileBrowserMenuCommand.secretFolder.title(in: context([folder]), locale: english, actions: fixture.actions)
+            == "Remove from Secret Folders")
+        // もうシークレットフォルダの中にあるフォルダは、足しても何も変わらないので淡色。
+        #expect(!FileBrowserMenuCommand.secretFolder.isEnabled(in: context([inner]), actions: fixture.actions))
+        FileBrowserMenuCommand.secretFolder.perform(in: context([folder]), actions: fixture.actions)
+        #expect(store.folders.isEmpty)
+
+        // 元からシークレットウインドウなら淡色(パスを保存する設定。よく使う項目と同じ)。
+        let privateFixture = try Fixture("fb-menu-secret-folder-private", isPrivate: true)
+        defer { privateFixture.close() }
+        privateFixture.actions.secretFolderStore = store
+        let privateFolder = privateFixture.temporary.file("秘密")
+        try FileManager.default.createDirectory(at: privateFolder, withIntermediateDirectories: true)
+        let privateContext = FileBrowserMenuContext(kind: .folder, entries: [privateFixture.entry(privateFolder)], folder: nil)
+        #expect(!FileBrowserMenuCommand.secretFolder.isEnabled(in: privateContext, actions: privateFixture.actions))
     }
 
     @Test("右クリックの「クイックルック」は一覧(ファイル・フォルダ)だけに出る。押すと右クリックした項目を選んで一覧へ頼む")

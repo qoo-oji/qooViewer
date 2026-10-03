@@ -72,6 +72,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case cache
     /// サンドボックス下でのフォルダアクセス許可の管理。
     case access
+    /// シークレットフォルダ(2026-10-03。その中の本は履歴・保存データ・メタデータを残さない。SecretFolderStore)。
+    /// フォルダの一覧という形が「フォルダのアクセス権」と同じなので、その隣に置く(docs/plans/secret-folder-plan.md の決定 11)。
+    case secretFolders
     /// 保存データとコレクション表紙の読み込み・書き出し。
     ///
     /// 元はファイルメニューにあったが、**どちらも実際の利用頻度がごく低い**という指摘を受けて
@@ -113,6 +116,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .modeInput: "Per Display Mode"
         case .cache: "Cache"
         case .access: "Folder Access"
+        case .secretFolders: "Secret Folders"
         case .dataTransfer: "Import & Export"
         case .reset: "Reset"
         }
@@ -152,6 +156,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         // シンボルにすると「ページ一覧の見た目の設定」と紛らわしくなる。
         case .cache: "internaldrive.fill"
         case .access: "lock.shield.fill"
+        // シークレットウインドウ ―― 見たものを残さない ―― の目印。
+        case .secretFolders: "eye.slash.fill"
         // 出し入れそのもの。上下の矢印なので、書き出し(上)と読み込み(下)の両方を1つで表せる。
         case .dataTransfer: "arrow.up.arrow.down.circle.fill"
         case .reset: "exclamationmark.triangle.fill"
@@ -216,6 +222,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         // いちばん穏やかな操作(キャッシュ)に当たる、という並びになる。
         case .cache: Color(red: 0.72, green: 0.42, blue: 0.45)
         case .access: .pink
+        // 「詳細」レッド系の 5 段目。紫寄りの赤にして、ピンク(アクセス権)・臙脂(読み込みと書き出し)・赤(リセット)と見分ける。
+        case .secretFolders: Color(red: 0.62, green: 0.26, blue: 0.48)
         // 「詳細」レッド系の4段目。いちばん暗い臙脂にしてあるので、くすんだ赤(キャッシュ)・
         // ピンク寄りの赤(アクセス権)・純粋な赤(リセット)のどれとも取り違えない。
         // 「いちばん強い赤はリセット」という関係も崩れない(暗い色は警告には見えない)。
@@ -230,7 +238,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .general, .appearance, .fileBrowser, .smartLibrary, .library: .top
         case .opening, .rendering, .reading, .layout: .books
         case .keyboard, .mouse, .modeInput: .controls
-        case .cache, .access, .dataTransfer, .reset: .advanced
+        case .cache, .access, .secretFolders, .dataTransfer, .reset: .advanced
         }
     }
 
@@ -258,6 +266,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .modeInput: ModeInputSettingsView()
         case .cache: CacheSettingsView()
         case .access: AccessPermissionsSettingsView()
+        case .secretFolders: SecretFolderSettingsView()
         case .dataTransfer: DataTransferSettingsView()
         case .reset: ResetDataSettingsView()
         }

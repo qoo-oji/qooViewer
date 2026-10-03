@@ -13,7 +13,7 @@ extension InMemoryLibrary {
                                corpus: MetadataCorpusStore? = nil) -> MetadataGenerator {
         let corpus = corpus ?? MetadataCorpusStore(url: nil)
         let generator = MetadataGenerator(
-            metadataStore: metadata, rulesStore: metadataRules, corpusStore: corpus,
+            metadataStore: metadata, rulesStore: metadataRules, corpusStore: corpus, secretFolders: secretFolders,
             knownBooks: { knownBooks }, probe: { Set($0) })
         for book in books { generator.noteBookOpened(book) }
         return generator

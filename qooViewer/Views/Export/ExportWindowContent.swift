@@ -648,7 +648,11 @@ struct ExportCoverCell: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(controller.target == .coverImage
+        // シークレットフォルダの本は変えさせない(CoverOverrideController.allowsCoverChanges)。
+        .disabled(!controller.allowsCoverChanges(forBookID: bookID))
+        .help(!controller.allowsCoverChanges(forBookID: bookID)
+            ? Text("The cover of a book in a secret folder can't be changed, because it would have to be saved.")
+            : controller.target == .coverImage
             ? Text("Change Cover Image") : Text("Change Collection Cover"))
         .onHover { hovering in
             hoverPreviewTask?.cancel()
@@ -897,7 +901,9 @@ struct ExportCoverPickerContent: View {
                 return
             }
             loadedBook = book
-            pageLoader = PageLoader(book: book, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
+            // シークレットフォルダの本はサムネイルのディスクキャッシュを書かない(SecretFolderStore)。
+            pageLoader = PageLoader(book: book, usesThumbnailDiskCache: !SecretFolderStore.isSecretAppWide(book.sourceURL),
+                                    imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
             // 開いた時点で、既に指定されているページに印を付けておく(何も指定していない本では
             // どこにも印が付かず、「選択」も押せない = 選ぶまで何も起きない)。
             selectedPageKey = controller.coverPageKey(forBookID: bookID)

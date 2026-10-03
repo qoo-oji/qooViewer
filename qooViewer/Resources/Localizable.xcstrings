@@ -896,6 +896,22 @@
         }
       }
     },
+    "%lld books in secret folders were not added." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books in secret folders were not added."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本 %lld 冊は登録しませんでした。"
+          }
+        }
+      }
+    },
     "(%lld / %lld)" : {
       "localizations" : {
         "en" : {
@@ -3482,6 +3498,22 @@
         }
       }
     },
+    "Add to Secret Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to Secret Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダに追加"
+          }
+        }
+      }
+    },
     "Add to Smart Library Targets" : {
       "localizations" : {
         "en" : {
@@ -3739,6 +3771,360 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "詳細"
+          }
+        }
+      }
+    },
+    "Appearance Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観の設定…"
+          }
+        }
+      }
+    },
+    "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダとそのサブフォルダの本は、どこから開いても履歴・保存データ・メタデータを残しません。その本を表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
+          }
+        }
+      }
+    },
+    "Delete the Saved Data and History of the Books in This Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the Saved Data and History of the Books in This Folder…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの本の保存データと履歴を削除…"
+          }
+        }
+      }
+    },
+    "Choose folders whose books should leave no history, saved data or metadata." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose folders whose books should leave no history, saved data or metadata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴・保存データ・メタデータを残さない本のフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Delete the saved data and history of the books in this folder?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the saved data and history of the books in this folder?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの本の保存データと履歴を削除しますか?"
+          }
+        }
+      }
+    },
+    "Excluded folders are now secret folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluded folders are now secret folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除外フォルダはシークレットフォルダになりました"
+          }
+        }
+      }
+    },
+    "No secret folders yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No secret folders yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダはまだありません。"
+          }
+        }
+      }
+    },
+    "Open Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定を開く…"
+          }
+        }
+      }
+    },
+    "Private window appearance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private window appearance"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの外観"
+          }
+        }
+      }
+    },
+    "Remove from Secret Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Secret Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダから外す"
+          }
+        }
+      }
+    },
+    "Secret Folder Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folder Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの設定…"
+          }
+        }
+      }
+    },
+    "Same as normal windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Same as normal windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルウインドウと同じ"
+          }
+        }
+      }
+    },
+    "Saved data remains for %1$lld books, and the history has %2$lld books." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved data remains for %1$lld books, and the history has %2$lld books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データが残っている本 %1$lld 冊・履歴 %2$lld 冊"
+          }
+        }
+      }
+    },
+    "Secret Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダ"
+          }
+        }
+      }
+    },
+    "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの登録から除外していたフォルダは、シークレットフォルダになりました。中の本は履歴・保存データ・メタデータを残さず、表示している間はウインドウがシークレットウインドウと同じ見た目になります。フォルダは 環境設定 ▸ シークレットフォルダ で変えられます。"
+          }
+        }
+      }
+    },
+    "Secret Folders: %d folder(s) added." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folders: %d folder(s) added."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダ: %d件を追加しました。"
+          }
+        }
+      }
+    },
+    "The cover of a book in a secret folder can't be changed, because it would have to be saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cover of a book in a secret folder can't be changed, because it would have to be saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本は、カバー画像を変更できません(指定を保存する必要があるためです)。"
+          }
+        }
+      }
+    },
+    "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 冊の保存データと、履歴の %2$lld 冊を削除します。本そのものは削除しません。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so its metadata is not saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so its metadata is not saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、メタデータを保存しません。"
+          }
+        }
+      }
+    },
+    "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本を表示している間、ウインドウはシークレットウインドウの外観になります。シークレットウインドウに固有の外観を適用していなければ(環境設定 ▸ 外観)、見分けられるのはタイトルのシークレットウインドウの目印だけです。"
+          }
+        }
+      }
+    },
+    "While a Book in a Secret Folder Is Shown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a Book in a Secret Folder Is Shown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本を表示している間"
           }
         }
       }
@@ -5535,23 +5921,6 @@
         }
       }
     },
-    "Books in these folders and in their subfolders are left out of metadata registration. Metadata already registered for them is kept." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in these folders and in their subfolders are left out of metadata registration. Metadata already registered for them is kept."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダとそのサブフォルダの本は、メタデータの登録の対象外になります。すでに登録してあるメタデータは残ります。"
-          }
-        }
-      }
-    },
     "Books need bookmarks, page layout settings, or metadata before they can be exported as CBZ." : {
       "localizations" : {
         "en" : {
@@ -6846,23 +7215,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "スマートライブラリに並べる本の入ったフォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose folders whose books are left out of metadata registration." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose folders whose books are left out of metadata registration."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダにするフォルダを選んでください。"
           }
         }
       }
@@ -9674,40 +10026,6 @@
         }
       }
     },
-    "Delete Metadata in Excluded Folders…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Metadata in Excluded Folders…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダのメタデータを削除…"
-          }
-        }
-      }
-    },
-    "Delete Metadata in This Folder…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Metadata in This Folder…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダのメタデータを削除…"
-          }
-        }
-      }
-    },
     "Delete Metadata…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9932,23 +10250,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "削除…"
-          }
-        }
-      }
-    },
-    "Deletes the metadata already registered for books in the excluded folders" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deletes the metadata already registered for books in the excluded folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダの本に、すでに登録してあるメタデータを削除します"
           }
         }
       }
@@ -11981,23 +12282,6 @@
         }
       }
     },
-    "Excluded Folders" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluded Folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダ設定"
-          }
-        }
-      }
-    },
     "Excluded text" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13664,23 +13948,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このルールセットを割り当てていたフォルダは、デフォルトのルールセットで読まれます。"
-          }
-        }
-      }
-    },
-    "Folders whose books (including those in their subfolders) are left out of metadata registration" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Folders whose books (including those in their subfolders) are left out of metadata registration"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダ(中の本とサブフォルダの本を、メタデータの登録の対象外にするフォルダ)を設定します"
           }
         }
       }
@@ -19398,23 +19665,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "対象の本がありません"
-          }
-        }
-      }
-    },
-    "No excluded folders" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No excluded folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダはありません"
           }
         }
       }
@@ -29487,23 +29737,6 @@
         }
       }
     },
-    "The registered metadata of %lld books in the excluded folders is deleted. The books themselves are not deleted. This can't be undone." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The registered metadata of %lld books in the excluded folders is deleted. The books themselves are not deleted. This can't be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダにある %lld 冊の登録済みのメタデータを削除します。本そのものは削除しません。この操作は取り消せません。"
-          }
-        }
-      }
-    },
     "The rule sets you saved under a name of your own are deleted, and the bundled ones go back to their bundled contents." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30273,23 +30506,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本はすでに「"
-          }
-        }
-      }
-    },
-    "This book is in a folder excluded from metadata registration." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book is in a folder excluded from metadata registration."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本は除外フォルダにあるため、メタデータを登録できません。"
           }
         }
       }

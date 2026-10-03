@@ -1909,11 +1909,11 @@ final class ViewerViewModel: ObservableObject {
         storeSourceMetadata(metadata)
     }
 
-    /// ファイルの書誌情報を取り込む必要があるか(除外フォルダの本・ロックした本・取り込み済みの本は要らない)。
-    /// シークレットウインドウでは、DB に行が無ければ(メモリに置くために)要る。
+    /// ファイルの書誌情報を取り込む必要があるか(ロックした本・取り込み済みの本は要らない)。
+    /// シークレットウインドウ・シークレットフォルダの本では、DB に行が無ければ(メモリに置くために)要る。
+    /// (2026-09-21〜10-03 の「メタデータの登録の対象外のフォルダ」は、ここでメモリにも置かなかった。シークレットフォルダへ
+    /// 作り直したときに、シークレットウインドウと同じ「メモリにだけ置く」へ揃えた。)
     private var needsSourceMetadataImport: Bool {
-        // メタデータの登録の対象外のフォルダの本は取り込まない(2026-09-21。MetadataRulesStore.excludedFolders)。
-        guard !MetadataRulesStore.isExcludedAppWide(bookID: book.id) else { return false }
         guard let row = metadataStore.metadata(forBookID: book.id) else { return true }
         return !row.isLocked && !row.didImportSourceMetadata && !skipsPersistence
     }
@@ -3057,7 +3057,9 @@ final class ViewerViewModel: ObservableObject {
             // **本来グレーアウトするはずの項目が選べてしまい、1枚目だけが入った1ページの
             // ファイルが黙って出来上がる**(sourceURLが渡された画像の1枚目でしかないため。
             // ViewerViewの.disabled(...)のコメント参照)。
-            origin: rawBook.origin
+            origin: rawBook.origin,
+            // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
+            isInSecretFolder: rawBook.isInSecretFolder
         )
         return (adjustedBook, .unaffected, settings, overridesByKey)
     }

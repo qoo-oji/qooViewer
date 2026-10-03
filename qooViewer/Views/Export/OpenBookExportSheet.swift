@@ -45,6 +45,11 @@ struct OpenBookExportSheet: View {
 
     @EnvironmentObject private var preferences: AppPreferences
 
+    /// カバーを選ばせるか。シークレットフォルダの本も選ばせない(カバーの指定は DB に残る。SecretFolderStore)。
+    private var canSelectCover: Bool {
+        allowsCoverSelection && !SecretFolderStore.isSecretAppWide(path: book.id)
+    }
+
     /// いまの書き出し先。「変更…」で選び直すとここが差し替わる。
     @State private var destination: Destination?
     /// 書き出しを始めたかどうか。何も尋ねない設定のときは`.task`で即座に始めるため、
@@ -157,9 +162,11 @@ struct OpenBookExportSheet: View {
                             // ―― シークレットウインドウ ―― では、ここから記録を作って
                             // しまわないよう操作させない(項目は消さずグレーアウトするのが
                             // このアプリの作法。AppState.isPrivateWindowのコメント参照)。
-                            .disabled(!allowsCoverSelection)
-                            .help(allowsCoverSelection
+                            .disabled(!canSelectCover)
+                            .help(canSelectCover
                                   ? "Change Cover Image"
+                                  : allowsCoverSelection
+                                  ? "The cover of a book in a secret folder can't be changed, because it would have to be saved."
                                   : "The cover can't be changed in a private window, because it would have to be saved.")
                     }
                 }

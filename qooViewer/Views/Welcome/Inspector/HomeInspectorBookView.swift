@@ -43,7 +43,12 @@ struct HomeInspectorBookView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var preferences: AppPreferences
+    @EnvironmentObject private var secretFolders: SecretFolderStore
     @Environment(\.locale) private var locale
+
+    /// 表紙を変えられるか。シークレットフォルダの本は変えさせない(表紙の指定はレイアウトの行と元画像の複製を作る。
+    /// SecretFolderStore)。
+    private var allowsCoverEditing: Bool { allowsEditing && !secretFolders.contains(path: bookID) }
 
     /// 表紙の指定の口。環境オブジェクトが要るので init では作れず、onAppear で組み立てる(メタデータの編集シートと同じ形)。
     @State private var coverController: CoverOverrideController?
@@ -122,7 +127,7 @@ struct HomeInspectorBookView: View {
                 } else {
                     FileBrowserCoverArea(
                         controller: coverController, entry: entry, bookID: bookID, width: coverWidth, locale: locale,
-                        isEditable: allowsEditing, savesToDisk: allowsEditing, maxHeight: Self.maxCoverHeight
+                        isEditable: allowsCoverEditing, savesToDisk: allowsEditing, maxHeight: Self.maxCoverHeight
                     )
                 }
             case .smart(let smartBook):
@@ -132,7 +137,7 @@ struct HomeInspectorBookView: View {
                     smartLibraryCrop: .init(shape: preferences.smartLibraryCoverShape,
                                             fit: preferences.smartLibraryCoverFit,
                                             defaultAnchor: preferences.smartLibraryCoverCropAnchor),
-                    isEditable: allowsEditing, savesToDisk: allowsEditing, knownKey: smartBook.thumbnailKey,
+                    isEditable: allowsCoverEditing, savesToDisk: allowsEditing, knownKey: smartBook.thumbnailKey,
                     maxHeight: Self.maxCoverHeight
                 )
             }
@@ -149,7 +154,7 @@ struct HomeInspectorBookView: View {
         CollectionCoverEditArea(
             controller: controller, item: item, library: library,
             width: min(coverWidth, Self.maxCoverHeight * library.coverAspectRatio.value),
-            coverStore: collectionStore.coverStore, locale: locale, isEditable: allowsEditing
+            coverStore: collectionStore.coverStore, locale: locale, isEditable: allowsCoverEditing
         )
     }
 

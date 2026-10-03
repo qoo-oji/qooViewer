@@ -56,6 +56,8 @@ import UniformTypeIdentifiers
 /// サムネイルを書かないのと揃える。絵そのものが痕跡になる)。読むのは許す(何も残らない)。メモリの絵はアプリで共有する
 /// (ディスクに残らない)ので、シークレットウインドウで作った絵を通常ウインドウがメモリから受け取ったときも書かない ――
 /// 次の起動で作り直すだけ。同じ仕事を通常ウインドウのセルも待っていれば書く(`Job.savesToDisk` は待つセルの OR)。
+/// シークレットフォルダ(`SecretFolderStore`。2026-10-03)の中の項目は、どの窓から頼まれても書かない(本を開かずに残る痕跡なので、
+/// 場所で決める)。
 @MainActor
 final class FileBrowserThumbnailProvider: ObservableObject {
     /// 絵の出どころが変わった合図(コレクションの表紙ができた・変わった、キャッシュを消した)。セルの `.task(id:)` に
@@ -339,7 +341,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             jobs[memoryKey] = job
             queue.append(job)
         }
-        if savesToDisk { job.savesToDisk = true }
+        // シークレットフォルダの中の項目の絵も書かない(どの窓のセルでも。SecretFolderStore)。ページ一覧のキャッシュも
+        // 同じ値で決まる(下の `cachesPageList: job.savesToDisk`)。
+        if savesToDisk, !SecretFolderStore.isSecretAppWide(itemURL) { job.savesToDisk = true }
         if let knownKey, job.knownKey == nil { job.knownKey = knownKey }
         if let currentFolder, job.currentFolder == nil { job.currentFolder = currentFolder }
         let waiterID = UUID()
