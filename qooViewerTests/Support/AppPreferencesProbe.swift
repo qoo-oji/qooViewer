@@ -67,6 +67,8 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.smartLibraryCoverShape = otherCase(p.smartLibraryCoverShape)
     p.smartLibraryCoverCropAnchor = otherCase(p.smartLibraryCoverCropAnchor)
     p.smartLibraryCoverFit = otherCase(p.smartLibraryCoverFit)
+    p.secretFolderBooksOpenPrivately.toggle()
+    p.secretFolderPrivatePlacement = otherCase(p.secretFolderPrivatePlacement)
     p.fileBrowserFeatureEnabled.toggle()
     p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()

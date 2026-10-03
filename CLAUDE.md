@@ -583,7 +583,12 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   page-list cache, file-browser thumbnails, collection adds via `CollectionStore.makePendingItems`, cover extraction/overrides,
   smart library catalog, metadata generator corpus) — a new such path must check it too. The list lives in `qooViewer.secretFolders`
   (not `qooViewer.pref.*`: a settings reset must not silently restart recording) and joins the saved-data JSON with "Settings",
-  import only adds. docs/06「シークレットフォルダ」, docs/plans/secret-folder-plan.md.
+  import only adds. With "Always Open in a Private Window" on, secret books opened from a normal window are routed to a private
+  one (tab / replace / new window): window-creating paths (`BookWindowOpener.open`, `QooViewerApp.openInNewWindow`) route
+  **before** creating a window (`BookWindowOpener.openSecretBookPrivatelyIfNeeded`), in-window opens post
+  `AppState.privateRedirect` for `ContentView` — new entry points that open books must go through these. Each book window's
+  WindowGroup value is kept equal to the shown book (`ContentView.windowValue`): `openWindow(id:value:)` fronts any window with
+  an equal value instead of creating one. docs/06「シークレットフォルダ」, docs/plans/secret-folder-plan.md.
 - **Anything drawn on a frosted-glass surface must handle the text outline.** The five surfaces
   (`PanelSurface`) let the user fill them with an arbitrary colour, so text and icons can end up the
   same colour as the panel and vanish. When you **add or change any UI on one of those surfaces**,

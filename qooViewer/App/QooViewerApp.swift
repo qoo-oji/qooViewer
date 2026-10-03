@@ -592,9 +592,10 @@ struct QooViewerApp: App {
     /// - Parameter isPrivateWindow: nilなら環境設定「シークレットモードで起動」に従う
     ///   ("main"だけがnilを渡す。ContentView.initのコメント参照)。
     private func contentWindow(
-        initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil
+        initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil,
+        windowValue: Binding<WindowContentRequest?>? = nil
     ) -> some View {
-        ContentView(initialRequest: initialRequest, isPrivateWindow: isPrivateWindow)
+        ContentView(initialRequest: initialRequest, isPrivateWindow: isPrivateWindow, windowValue: windowValue)
             // 表示言語は、Scene側の`.environment(\.locale, ...)`(メニューバーのcommands用)とは
             // 別に、ウインドウの中身にも直接付ける。Sceneに付けただけでは中身の`Text`には届かず、
             // 環境設定ウインドウ(SettingsView自身に付けている)だけが言語を切り替えられて、本の
@@ -1614,7 +1615,7 @@ struct QooViewerApp: App {
             // ONのとき、値を渡さないと"main"と同じくシークレットとして作られてしまうが、
             // このWindowGroupは**常に通常ウインドウ**でなければならない
             // (ContentView.initのコメント参照)。
-            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false, windowValue: requestBinding)
         }
         .windowResizability(.contentSize)
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
@@ -1647,7 +1648,7 @@ struct QooViewerApp: App {
         // 状態復元は"book"と同じ理由で無効化する。そもそも次回起動時にシークレットウインドウが
         // 復活してはならない。
         WindowGroup(id: "private", for: WindowContentRequest.self) { requestBinding in
-            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true, windowValue: requestBinding)
         }
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
         // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
@@ -1684,7 +1685,7 @@ struct QooViewerApp: App {
         // 現象である(すぐ上の"private" WindowGroupのコメント参照)。同じ性質の入口なので、
         // Sceneの指定も"private"に完全に揃えてある。
         WindowGroup(id: "normal", for: WindowContentRequest.self) { requestBinding in
-            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false, windowValue: requestBinding)
         }
         // 「新規ウインドウ/タブ」の行き先を、ウインドウを作る時点で渡す(BookWindowOpener.pendingWindowPlacement。以前は既定の
         // 大きさで一瞬出てから飛んでいた)。控えが無ければ WindowGroup の既定のまま。
@@ -2302,6 +2303,23 @@ struct QooViewerApp: App {
             : launchCoordinator.allOpenAppStates.first { $0.hostWindow === previousKeyWindow }
         let windowGroupID = BookWindowGroup.id(inheritingFrom: sourceAppState)
         let opensPrivately = (windowGroupID == "private")
+
+        // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、ノーマルの窓を作らずにシークレットウインドウへ
+        // 回す(BookWindowOpener.openSecretBookPrivatelyIfNeeded)。Finder から本を渡されての起動でも、透明にしてある主ウインドウ
+        // (hideLaunchWindowWhenShown)は、回した先の窓が出た後の後始末(runExternalOpen)で閉じるので、ノーマルの窓は一度も見えない。
+        // 新しいシークレットウインドウは、回さなければノーマルの窓が出ていた位置に出す(主ウインドウの代わりなら前回終了時の位置 ――
+        // 起動時に透明のまま閉じる主ウインドウが出るはずだった所。ずらすと意味も無くずれたように見える。2026-10-03、利用者の指摘)。
+        if BookWindowOpener.openSecretBookPrivatelyIfNeeded(
+            request, opensPrivately: opensPrivately,
+            source: sourceAppState,
+            launchCoordinator: launchCoordinator, openWindow: openWindow,
+            // タブで開くつもりだった要求も、新しい窓としてずらした位置へ(タブの位置 = 元の窓に重なり、開いたように見えない)。
+            newWindowFrame: actsAsPrimaryWindow
+                ? Self.currentSavedMainWindowFrame
+                : previousKeyWindow.map { BookWindowOpener.placedFrame(basedOn: $0, asTab: false) }
+        ) {
+            return
+        }
 
         // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
         // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに

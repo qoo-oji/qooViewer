@@ -1144,6 +1144,12 @@ final class AppState: ObservableObject {
         request: BookOpenRequest, reusesExistingWindow: Bool = true,
         initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
     ) {
+        // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、この窓では開かずにシークレットウインドウへ
+        // 回す(2026-10-03。この窓は今の中身のまま)。窓を開くのはビューの側なので、頼みだけ出す(privateRedirect)。
+        if BookWindowOpener.shouldOpenSecretBookPrivately(request, opensPrivately: isPrivateWindow) {
+            privateRedirect = PrivateRedirect(request: request, initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+            return
+        }
         // ユーザー要望: 同じ本を、同じ性質のウインドウ/タブで二重に開かない。既に開いて
         // いるものがあれば、そちらを前面に出すだけにする(ページ位置はそのまま。向こうで
         // 読み進めた位置を巻き戻さない)。
@@ -1181,8 +1187,8 @@ final class AppState: ObservableObject {
         // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
         // (2026-09-23 の 3 回目の監査の低: 以前はセキュリティスコープ・一覧の並び・着地指定を新しい本のものへ替えた後でやめるので、
         // 表示中の本のスコープが閉じ、「次の本」も今の本の一覧をたどれなくなった)。
-        let beforeOpen = (scopedURLs: securityScopedBookURLs, sequence: bookSequence, initialEdge: pendingInitialEdge,
-                          startsSlideshow: pendingStartsSlideshow)
+        let beforeOpen = StateBeforeOpen(scopedURLs: securityScopedBookURLs, sequence: bookSequence,
+                                         initialEdge: pendingInitialEdge, startsSlideshow: pendingStartsSlideshow)
         // 「次の本の最初のページへ」等の着地指定は、実際に読み込みを始めるここで毎回置き換える
         // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
@@ -1244,6 +1250,13 @@ final class AppState: ObservableObject {
                     // **フォルダのほうで**開いてあるので(上のnewlyAccessedURLs)、その中の
                     // ファイルへはそのまま到達できる。
                     let target = await ShelfFolderResolver.resolvedBookURLAsync(for: url, order: shelfOrder)
+                    // 棚を読み替えた先がシークレットフォルダの本なら、この窓では開かずにシークレットウインドウへ回す(上の早期 return は
+                    // 棚のフォルダのパスで見るので、棚の外にシークレットフォルダの本だけがある形はここで分かる)。下の「別のウインドウで
+                    // 開いていた」より先に見る(関数の頭と同じ順 ―― 回すかどうかが先で、同じ本の窓探しは回した先がする)。
+                    if MountTable.normalized(target.path) != MountTable.normalized(url.path), let self, !Task.isCancelled,
+                       self.redirectShelfBookIfNeeded(target, shelfRequest: request, beforeOpen: beforeOpen, token: token) {
+                        return
+                    }
                     // 棚を先頭の本に読み替えたら、その本が別のウインドウで開いていないかをもう一度見る(2026-09-22 の監査。
                     // 上の判定は読み替える前のパス ―― 棚のフォルダ ―― で見るので、同じ本が 2 つのウインドウで開き、
                     // 読書位置を取り合った)。開いていれば、そのウインドウを前へ出して読み込みをやめる。
@@ -1253,15 +1266,7 @@ final class AppState: ObservableObject {
                        existingAppState !== self, let existingWindow = existingAppState.hostWindow {
                         existingWindow.makeKeyAndOrderFront(nil)
                         NSApp.activate(ignoringOtherApps: true)
-                        // 表示中の本のぶんへ戻す(上の beforeOpen)。先に開き直してから、新しい本のぶんを閉じる(同じ URL でも
-                        // 途切れないように。securityScopedBookURLs のコメント)。
-                        let reopened = beforeOpen.scopedURLs.filter { $0.startAccessingSecurityScopedResource() }
-                        self.securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
-                        self.securityScopedBookURLs = reopened
-                        self.bookSequence = beforeOpen.sequence
-                        self.pendingInitialEdge = beforeOpen.initialEdge
-                        self.pendingStartsSlideshow = beforeOpen.startsSlideshow
-                        self.cancelOpen()
+                        self.restoreState(beforeOpen)
                         return
                     }
                     // 棚の先頭が画像の本ではない EPUB(小説など)なら、同じ棚の次の本へ進む(2026-09-22 の監査。本の数え方は
@@ -1269,6 +1274,11 @@ final class AppState: ObservableObject {
                     var candidate = target
                     var skipped = 0
                     while true {
+                        // EPUB を飛ばして進んだ先がシークレットフォルダの本なら、そこで回す(先頭の本は上で見た)。
+                        if skipped > 0, let self, !Task.isCancelled,
+                           self.redirectShelfBookIfNeeded(candidate, shelfRequest: request, beforeOpen: beforeOpen, token: token) {
+                            return
+                        }
                         do {
                             loaded = try await BookLoader.load(
                                 from: candidate,
@@ -1773,6 +1783,59 @@ final class AppState: ObservableObject {
 
     func postViewerNotice(_ message: String) {
         viewerNotice = ViewerNotice(message: message)
+    }
+
+    /// シークレットフォルダの本をシークレットウインドウで開いてほしい、という頼み(2026-10-03。`open(request:)` が出し、ContentView が
+    /// 受けて BookWindowOpener.openSecretBookPrivately を呼ぶ ―― 窓を開く OpenWindowAction は AppState に持たせない約束なので)。
+    @Published private(set) var privateRedirect: PrivateRedirect?
+
+    struct PrivateRedirect: Equatable {
+        let id = UUID()
+        let request: BookOpenRequest
+        /// 着地の指定とスライドショー(前の本の最後のページへ、など)。**今あるシークレットウインドウで入れ替えるときだけ**引き継ぐ ――
+        /// 新しい窓・タブは作られた窓が自分で要求を開くので、渡す口が無い(1 ページ目から、スライドショー無し)。
+        var initialEdge: InitialPageEdge?
+        var startsSlideshow = false
+        static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    }
+
+    /// 読み込みを始めた後でやめるときに、表示中の本のぶんへ戻すための控え(`open(request:)` の beforeOpen)。
+    fileprivate struct StateBeforeOpen {
+        let scopedURLs: [URL]
+        let sequence: BookSequence?
+        let initialEdge: InitialPageEdge?
+        let startsSlideshow: Bool
+    }
+
+    /// 表示中の本のぶんへ戻して、読み込みをやめる(棚を読み替えた先が、別のウインドウで開いていた・シークレットウインドウへ回すとき)。
+    /// 先に開き直してから、新しい本のぶんを閉じる(同じ URL でも途切れないように。securityScopedBookURLs のコメント)。
+    fileprivate func restoreState(_ beforeOpen: StateBeforeOpen) {
+        let reopened = beforeOpen.scopedURLs.filter { $0.startAccessingSecurityScopedResource() }
+        securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+        securityScopedBookURLs = reopened
+        bookSequence = beforeOpen.sequence
+        pendingInitialEdge = beforeOpen.initialEdge
+        pendingStartsSlideshow = beforeOpen.startsSlideshow
+        cancelOpen()
+    }
+
+    /// 棚を読み替えた先の本がシークレットフォルダの中なら、読み込みをやめてシークレットウインドウへ回す(「常にシークレットウインドウで
+    /// 開く」が ON のとき)。回したら true。
+    fileprivate func redirectShelfBookIfNeeded(
+        _ book: URL, shelfRequest: BookOpenRequest, beforeOpen: StateBeforeOpen, token: UUID
+    ) -> Bool {
+        guard openToken == token,
+              BookWindowOpener.shouldOpenSecretBookPrivately(BookOpenRequest(book), opensPrivately: isPrivateWindow)
+        else { return false }
+        let initialEdge = pendingInitialEdge, startsSlideshow = pendingStartsSlideshow
+        // 回した先の窓が本を読めるよう、棚のフォルダのアクセスを渡す(この窓はすぐ下で閉じる。コードレビューの指摘: 棚をパネルや
+        // ドロップで開いて許可の外にあると、本の URL だけでは読めない)。新しい窓・タブへの受け渡しと同じ 10 秒の橋渡し。
+        SecurityScopedHandoff.begin(shelfRequest.urls)
+        restoreState(beforeOpen)
+        privateRedirect = PrivateRedirect(
+            request: BookOpenRequest(book, recordsInHistory: shelfRequest.recordsInHistory, sequence: shelfRequest.sequence),
+            initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+        return true
     }
 
     /// 開いている本を「コレクションに登録」できるか(メニューバー・ビューアの右クリック)。ライブラリ機能が ON で、記録を残す

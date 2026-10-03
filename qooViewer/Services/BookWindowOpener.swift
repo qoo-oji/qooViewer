@@ -41,10 +41,20 @@ enum BookWindowOpener {
         from source: AppState?,
         launchCoordinator: LaunchCoordinator,
         openWindow: OpenWindowAction,
+        newWindowFrame: NSRect? = nil,
         onOpened: (() -> Void)? = nil
     ) {
         let windowGroupID = BookWindowGroup.id(for: destination, inheritingFrom: source)
         let opensPrivately = (windowGroupID == "private")
+
+        // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、ノーマルの窓は作らずにシークレットウインドウへ
+        // 回す(openSecretBookPrivatelyIfNeeded)。回した先はこの関数へシークレットの行き先で戻ってくるので、ここを二度は通らない。
+        // onOpened は回した先が開き終えたときに呼ぶ(開けなければ呼ばない ―― 呼ぶと、編集ウインドウが本も出ないまま閉じる。
+        // コードレビューの指摘)。
+        if openSecretBookPrivatelyIfNeeded(request, opensPrivately: opensPrivately, source: source,
+                                           launchCoordinator: launchCoordinator, openWindow: openWindow, onOpened: onOpened) {
+            return
+        }
 
         // すでにこの本を開いているウインドウ/タブがあれば、同じ本をもう1つ開く代わりに
         // それをアクティブにする。探す相手は「これから作ろうとしているウインドウと**同じ
@@ -71,8 +81,97 @@ enum BookWindowOpener {
 
         presentNewWindow(
             groupID: windowGroupID, value: .book(request), destination: destination,
-            source: source, openWindow: openWindow, onOpened: onOpened
+            source: source, openWindow: openWindow, frameOverride: newWindowFrame, onOpened: onOpened
         )
+    }
+
+    // MARK: - シークレットフォルダの本をシークレットウインドウで開く(2026-10-03)
+
+    /// その要求をシークレットウインドウへ回すか。ノーマルの行き先で、環境設定「シークレットフォルダの本は常にシークレットウインドウで
+    /// 開く」が ON で、要求の本(のどれか)がシークレットフォルダの中にあるとき。値で試せるよう、設定と判定は引数で受ける。
+    nonisolated static func shouldOpenPrivately(
+        _ request: BookOpenRequest, opensPrivately: Bool, isEnabled: Bool, isSecret: (URL) -> Bool
+    ) -> Bool {
+        isEnabled && !opensPrivately && request.urls.contains(where: isSecret)
+    }
+
+    /// アプリの設定と一覧で決める版(`shouldOpenPrivately` の値を入れたもの)。
+    static func shouldOpenSecretBookPrivately(_ request: BookOpenRequest, opensPrivately: Bool) -> Bool {
+        shouldOpenPrivately(request, opensPrivately: opensPrivately,
+                            isEnabled: AppPreferences.opensSecretFolderBooksPrivately,
+                            isSecret: SecretFolderStore.isSecretAppWide)
+    }
+
+    /// 回すなら回して true を返す。**新しい窓を作る所(ここと QooViewerApp.openInNewWindow)は、窓を作る前に**呼ぶ ―― ノーマルの窓が
+    /// 一瞬でも出ないように(利用者の要望: 「透明で起動して、透明なまま閉じる」ように、そもそも開いたように見えない)。今の窓で開く所
+    /// (AppState.open)は窓を作らないので、AppState.privateRedirect を経て ContentView がここの `openSecretBookPrivately` を呼ぶ。
+    @discardableResult
+    static func openSecretBookPrivatelyIfNeeded(
+        _ request: BookOpenRequest, opensPrivately: Bool, source: AppState?,
+        launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction, newWindowFrame: NSRect? = nil,
+        onOpened: (() -> Void)? = nil
+    ) -> Bool {
+        guard shouldOpenSecretBookPrivately(request, opensPrivately: opensPrivately) else { return false }
+        openSecretBookPrivately(request, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow,
+                                newWindowFrame: newWindowFrame, onOpened: onOpened)
+        return true
+    }
+
+    /// シークレットウインドウで開く。開き先は環境設定(`SecretFolderPrivatePlacement`): いちばん手前のシークレットウインドウのタブ、
+    /// その窓の本と入れ替え(どちらも、シークレットウインドウが無ければ新しいシークレットウインドウ)、毎回新しいシークレットウインドウ。同じ本を開いているシークレットウインドウがあれば
+    /// それを前に出すだけ(`open` の重複の判定)。
+    ///
+    /// - Parameter newWindowFrame: 新しいシークレットウインドウを作るときの位置と大きさ。**回さなければ作られていたノーマルの窓の
+    ///   位置**を渡す(QooViewerApp.openInNewWindow)。とくに、窓が 1 つも無い状態で Finder から開いたときは主ウインドウの記憶した
+    ///   位置 ―― 起動時に透明のまま閉じる主ウインドウが出るはずだった所 ―― で、ずらすと利用者からは意味も無くずれたように見える
+    ///   (2026-10-03、利用者の指摘)。nil なら元の窓を基準にずらす(`placedFrame`)。今の画面に載らない位置(外したディスプレイの
+    ///   上など)なら使わない(`visibleFrameOrNil`)。
+    /// - Parameter initialEdge, startsSlideshow: 着地の指定とスライドショー。今あるシークレットウインドウで入れ替えるときだけ効く
+    ///   (AppState.PrivateRedirect のコメント)。
+    static func openSecretBookPrivately(
+        _ request: BookOpenRequest, source: AppState?, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction,
+        newWindowFrame: NSRect? = nil, initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false,
+        onOpened: (() -> Void)? = nil
+    ) {
+        let placement = AppPreferences.currentSecretFolderPrivatePlacement
+        if placement != .newPrivateWindow, let host = frontmostPrivateAppState(launchCoordinator: launchCoordinator) {
+            switch placement {
+            case .replaceInPrivateWindow:
+                // その窓の本(またはホーム)と入れ替える。同じ本を別のシークレットウインドウで開いていれば、そちらを前に出す
+                // (AppState.open の重複の判定)。
+                host.hostWindow?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                host.open(request: request, initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+                onOpened?()
+            default:
+                open(request, to: .newTab, from: host, launchCoordinator: launchCoordinator, openWindow: openWindow,
+                     onOpened: onOpened)
+            }
+        } else {
+            // 大きさ・位置の基準は元の窓(シークレットかどうかは行き先が決める)。決まった位置があればそこ。
+            open(request, to: .newPrivateWindow, from: source, launchCoordinator: launchCoordinator, openWindow: openWindow,
+                 newWindowFrame: newWindowFrame.flatMap(visibleFrameOrNil), onOpened: onOpened)
+        }
+    }
+
+    /// 今つながっている画面のどれかに十分に載る位置ならそのまま、載らなければ nil(元の窓を基準にずらす側へ倒す)。
+    /// 記憶した主ウインドウの位置が、外したディスプレイの上だったときのため(`placedFrame` は画面の内側へ押し戻すが、決め打ちの
+    /// 位置にはそれが無い。コードレビューの指摘)。
+    static func visibleFrameOrNil(_ frame: NSRect) -> NSRect? {
+        let isVisible = NSScreen.screens.contains { screen in
+            let overlap = screen.visibleFrame.intersection(frame)
+            return overlap.width >= min(frame.width, 200) && overlap.height >= min(frame.height, 100)
+        }
+        return isVisible ? frame : nil
+    }
+
+    /// 画面のいちばん手前にある(最小化されていない)シークレットウインドウ。
+    private static func frontmostPrivateAppState(launchCoordinator: LaunchCoordinator) -> AppState? {
+        let candidates = launchCoordinator.allOpenAppStates.filter { $0.isPrivateWindow && $0.hostWindow != nil }
+        for window in NSApp.orderedWindows where !window.isMiniaturized {
+            if let match = candidates.first(where: { $0.hostWindow === window }) { return match }
+        }
+        return nil
     }
 
     /// フォルダを`destination`のファイルブラウザで開く(改善要望7 段階3)。
@@ -104,14 +203,18 @@ enum BookWindowOpener {
         destination: BookOpenDestination,
         source: AppState?,
         openWindow: OpenWindowAction,
+        frameOverride: NSRect? = nil,
         onOpened: (() -> Void)?
     ) {
         let sourceWindow = source?.hostWindow
         let opensPrivately = (windowGroupID == "private")
         // タブとして開けるのは、追加先のウインドウが実在する場合だけ。
         let asTab = destination.isTab && sourceWindow != nil
+        // 位置の指定はタブでないときだけ効く(タブは追加先の窓の大きさになる)。
+        let frameOverride = asTab ? nil : frameOverride
         expectNewWindow(
-            frame: sourceWindow.map { placedFrame(basedOn: $0, asTab: asTab) }, basedOn: sourceWindow, hidesUntilTabbed: asTab
+            frame: frameOverride ?? sourceWindow.map { placedFrame(basedOn: $0, asTab: asTab) },
+            basedOn: sourceWindow, hidesUntilTabbed: asTab
         )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: windowGroupID, value: value)
@@ -125,7 +228,11 @@ enum BookWindowOpener {
                 opensPrivately: opensPrivately,
                 asTab: asTab
             )
-            place(newWindow, basedOn: sourceWindow, asTab: asTab)
+            if let frameOverride {
+                if newWindow.frame != frameOverride { newWindow.setFrame(frameOverride, display: true) }
+            } else {
+                place(newWindow, basedOn: sourceWindow, asTab: asTab)
+            }
             // 透明を戻すのはタブへ入れる**前**(revealIfHiddenUntilTabbed のコメント)。
             revealIfHiddenUntilTabbed(newWindow)
             if asTab, let sourceWindow {

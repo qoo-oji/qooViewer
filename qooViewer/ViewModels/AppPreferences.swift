@@ -80,6 +80,8 @@ final class AppPreferences: ObservableObject {
         static let smartLibraryCoverShape = "qooViewer.pref.smartLibrary.coverShape"
         static let smartLibraryCoverCropAnchor = "qooViewer.pref.smartLibrary.coverCropAnchor"
         static let smartLibraryCoverFit = "qooViewer.pref.smartLibrary.coverFit"
+        static let secretFolderBooksOpenPrivately = "qooViewer.pref.secretFolder.opensInPrivateWindow"
+        static let secretFolderPrivatePlacement = "qooViewer.pref.secretFolder.privateWindowPlacement"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
@@ -914,6 +916,18 @@ final class AppPreferences: ObservableObject {
     @Published var smartLibraryCoverFit: CoverFit {
         didSet { defaults.set(smartLibraryCoverFit.rawValue, forKey: Keys.smartLibraryCoverFit) }
     }
+    /// シークレットフォルダの本は常にシークレットウインドウで開く(2026-10-03、利用者の要望。既定 OFF ―― OFF のときは、ノーマルの窓が
+    /// その本を表示している間だけシークレットの見た目になる。SecretFolderStore)。ON なら、ノーマルの窓から開こうとした本を
+    /// シークレットウインドウへ回し、ノーマルの窓は今の中身のまま(本を開くためだけに作られる窓は、そもそも作らない。
+    /// BookWindowOpener.openSecretBookPrivatelyIfNeeded)。窓を組み立てる所・本を開く所がインスタンスを持たないので、
+    /// 読むのは `opensSecretFolderBooksPrivately`(static)。
+    @Published var secretFolderBooksOpenPrivately: Bool {
+        didSet { defaults.set(secretFolderBooksOpenPrivately, forKey: Keys.secretFolderBooksOpenPrivately) }
+    }
+    /// 上が ON のとき、シークレットウインドウのどこで開くか(既定はいちばん手前のシークレットウインドウのタブ)。
+    @Published var secretFolderPrivatePlacement: SecretFolderPrivatePlacement {
+        didSet { defaults.set(secretFolderPrivatePlacement.rawValue, forKey: Keys.secretFolderPrivatePlacement) }
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1116,6 +1130,20 @@ final class AppPreferences: ObservableObject {
     /// LaunchCoordinator、AppDelegate)から読むための窓口。
     static var isPrivateModeDefault: Bool {
         UserDefaults.standard.bool(forKey: Keys.launchInPrivateMode)
+    }
+
+    /// 「シークレットフォルダの本は常にシークレットウインドウで開く」の、いまの値(`secretFolderBooksOpenPrivately`。本を開く所・
+    /// 新しい窓を作る所はインスタンスを持たないので、isPrivateModeDefault と同じく保存先から読む)。**テストの中では常に false**
+    /// (実物の設定に左右されない。判定そのものは `BookWindowOpener.shouldOpenPrivately` を値で試す)。
+    static var opensSecretFolderBooksPrivately: Bool {
+        !RuntimeEnvironment.isRunningTests && UserDefaults.standard.bool(forKey: Keys.secretFolderBooksOpenPrivately)
+    }
+
+    /// 上が ON のときの開き先(同じ理由で保存先から読む)。
+    static var currentSecretFolderPrivatePlacement: SecretFolderPrivatePlacement {
+        SecretFolderPrivatePlacement(
+            rawValue: UserDefaults.standard.string(forKey: Keys.secretFolderPrivatePlacement) ?? ""
+        ) ?? .tabInPrivateWindow
     }
 
     /// 「隠す」3つ(ツールバー / プログレスバー / サイドパネル)の、ウインドウを組み立てる
@@ -1402,6 +1430,10 @@ final class AppPreferences: ObservableObject {
         self.smartLibraryCoverCropAnchor =
             CoverCropAnchor.stored(defaults.string(forKey: Keys.smartLibraryCoverCropAnchor)) ?? .center
         self.smartLibraryCoverFit = CoverFit(rawValue: defaults.string(forKey: Keys.smartLibraryCoverFit) ?? "") ?? .crop
+        self.secretFolderBooksOpenPrivately = defaults.object(forKey: Keys.secretFolderBooksOpenPrivately) as? Bool ?? false
+        self.secretFolderPrivatePlacement = SecretFolderPrivatePlacement(
+            rawValue: defaults.string(forKey: Keys.secretFolderPrivatePlacement) ?? ""
+        ) ?? .tabInPrivateWindow
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
@@ -1649,8 +1681,10 @@ extension AppPreferences {
                 Keys.smartLibraryCoverCropAnchor,
                 Keys.smartLibraryCoverFit,
             ]
+        case .secretFolders:
+            return [Keys.secretFolderBooksOpenPrivately, Keys.secretFolderPrivatePlacement]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
-        case .keyboard, .mouse, .modeInput, .access, .secretFolders, .dataTransfer, .reset:
+        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             return []
         }
     }
@@ -1778,7 +1812,10 @@ extension AppPreferences {
             smartLibraryCoverShape = source.smartLibraryCoverShape
             smartLibraryCoverCropAnchor = source.smartLibraryCoverCropAnchor
             smartLibraryCoverFit = source.smartLibraryCoverFit
-        case .keyboard, .mouse, .modeInput, .access, .secretFolders, .dataTransfer, .reset:
+        case .secretFolders:
+            secretFolderBooksOpenPrivately = source.secretFolderBooksOpenPrivately
+            secretFolderPrivatePlacement = source.secretFolderPrivatePlacement
+        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }
     }

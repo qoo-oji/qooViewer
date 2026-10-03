@@ -48,6 +48,23 @@ struct SecretFolderSettingsView: View {
                 Text("Secret Folders")
             }
 
+            // 開き方(2026-10-03、利用者の要望)。既定 OFF ―― OFF なら、ノーマルの窓がその本を表示している間だけシークレットの見た目になる。
+            Section {
+                SettingsToggle(
+                    "Always Open in a Private Window",
+                    isOn: $preferences.secretFolderBooksOpenPrivately,
+                    help: "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book."
+                )
+                SettingsPicker(
+                    "Open In",
+                    selection: $preferences.secretFolderPrivatePlacement,
+                    help: "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens."
+                )
+                .disabled(!preferences.secretFolderBooksOpenPrivately)
+            } header: {
+                Text("Opening")
+            }
+
             Section {
                 LabeledContent("Appearance") {
                     HStack(spacing: 8) {
@@ -64,6 +81,12 @@ struct SecretFolderSettingsView: View {
                 .help("While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart.")
             } header: {
                 Text("While a Book in a Secret Folder Is Shown")
+            }
+
+            SettingsResetSection(
+                help: "Restores the opening settings on this page. Your secret folders are not affected."
+            ) {
+                preferences.resetToDefaults(.secretFolders)
             }
         }
         .onAppear { recount() }

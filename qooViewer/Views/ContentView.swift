@@ -36,6 +36,20 @@ struct ContentView: View {
     /// さらにWindowContentRequestで包んであるのは、フォルダを新しいタブ/ウインドウの
     /// ファイルブラウザで開くため(改善要望7 段階3。WindowContentRequestのコメント参照)。
     var initialRequest: WindowContentRequest?
+    /// このウインドウの WindowGroup の値(book / private / normal。"main" は nil)。**表示中の本に合わせて書き換える**
+    /// (`WindowValueSync`)。`openWindow(id:value:)` は同じ値のウインドウがあれば新しく作らずにそれを前へ出すので、値が作ったときの
+    /// 本のままだと、別の本へ移ったウインドウが「その本の窓」として前に出るだけで、本は開かない(2026-10-03、実機で判明:
+    /// シークレットフォルダの本を「入れ替え」で開いた後に、入れ替えられた本を新しいシークレットウインドウで開けなかった。
+    /// 次の本・前の本で移った窓でも同じことが起きていた)。
+    var windowValue: Binding<WindowContentRequest?>?
+    /// 本を開くために作った窓か(作ったときの値。`initialRequest` は windowValue を揃えるたびに変わるので、こちらで覚える)。
+    @State private var wasCreatedForBook: Bool
+
+    /// WindowGroup の値を揃えるための、いまの状態(WindowValueSync)。
+    private var windowValueState: WindowValueState {
+        if appState.currentBook != nil, let request = appState.lastOpenedBook?.request { return .shown(request) }
+        return appState.loadingProgress != nil ? .loading : .home
+    }
     /// このウインドウがシークレットウインドウかどうか(何を記録しないかの定義は
     /// `AppState.isPrivateWindow`のコメント参照)。
     ///
@@ -172,9 +186,12 @@ struct ContentView: View {
     ///   (残すとinitのたびに読み直されてAppStateと食い違う。`isPrivateWindow`のコメント参照)。
     ///   `@StateObject`のwrappedValueはウインドウにつき一度しか評価されないため、
     ///   `AppState.isPrivateWindow`はウインドウが閉じるまで変わらない。
-    init(initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil) {
+    init(initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil,
+         windowValue: Binding<WindowContentRequest?>? = nil) {
         self.initialRequest = initialRequest
+        self.windowValue = windowValue
         _awaitsInitialBook = State(initialValue: initialRequest?.bookRequest != nil)
+        _wasCreatedForBook = State(initialValue: initialRequest?.bookRequest != nil)
         // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
         self.isMainWindowGroup = (isPrivateWindow == nil)
         let resolvedIsPrivate = isPrivateWindow ?? AppPreferences.isPrivateModeDefault
@@ -1311,6 +1328,22 @@ struct ContentView: View {
         .onChange(of: appState.currentBook.map(ViewerHandoff.viewIdentity(of:)), initial: true) { _, _ in
             viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
         }
+        // シークレットフォルダの本をシークレットウインドウへ回す頼み(AppState.privateRedirect)。
+        .modifier(SecretFolderPrivateRedirect(
+            redirect: appState.privateRedirect,
+            perform: { [weak appState, launchCoordinator, openWindow, wasCreatedForBook] redirect in
+                BookWindowOpener.openSecretBookPrivately(
+                    redirect.request, source: appState, launchCoordinator: launchCoordinator, openWindow: openWindow,
+                    initialEdge: redirect.initialEdge, startsSlideshow: redirect.startsSlideshow)
+                // この本を開くためだけに作られた窓で、まだ一度も本を出していないなら閉じる。ノーマルの窓を作る所は作る前に回すので、
+                // ここへ来るのは棚を読み替えた先がシークレットフォルダの本だったときぐらい(AppState.open)。判定は AppState の
+                // いまの値で見る(読み込みをやめた知らせ・awaitsInitialBook の書き換えとの順序に頼らない。コードレビューの指摘)。
+                guard wasCreatedForBook, let appState, appState.currentBook == nil, appState.lastOpenedBook == nil,
+                      let window = appState.hostWindow else { return }
+                window.alphaValue = 0
+                window.close()
+            }))
+        .modifier(WindowValueSync(windowValue: windowValue, state: windowValueState))
         .modifier(SecretFolderNotice(
             isSecretBookShown: viewerHandoff.shown?.book.isInSecretFolder == true, isPrivateWindow: isPrivateWindow,
             post: { [appState, preferences] in
@@ -2277,6 +2310,46 @@ private struct SecretFolderNotice: ViewModifier {
         content.onChange(of: isSecretBookShown) { wasSecret, isSecret in
             guard isSecret, !wasSecret, !isPrivateWindow else { return }
             post()
+        }
+    }
+}
+
+/// シークレットフォルダの本をシークレットウインドウで開く頼みを受ける(AppState.privateRedirect。ContentView.bookOrHome の式を
+/// 短くするため切り出してある ―― SecretFolderNotice と同じ理由)。
+private struct SecretFolderPrivateRedirect: ViewModifier {
+    let redirect: AppState.PrivateRedirect?
+    let perform: (AppState.PrivateRedirect) -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: redirect) { _, redirect in
+            if let redirect { perform(redirect) }
+        }
+    }
+}
+
+/// ウインドウの WindowGroup の値を、表示中の本の要求に揃える(ContentView.windowValue のコメント)。本を閉じてホームに戻ったら・
+/// 最初の本の読み込みが本を出さずに終わったら(開けなかった・やめた)nil。揃えるのは変わったときだけ(最初の値は、そのウインドウを
+/// 作った要求そのもの)。読み込み中は触らない。
+enum WindowValueState: Equatable {
+    case loading
+    case shown(BookOpenRequest)
+    case home
+}
+
+private struct WindowValueSync: ViewModifier {
+    let windowValue: Binding<WindowContentRequest?>?
+    let state: WindowValueState
+
+    func body(content: Content) -> some View {
+        content.onChange(of: state) { _, state in
+            guard let windowValue else { return }
+            let value: WindowContentRequest?
+            switch state {
+            case .loading: return
+            case .shown(let request): value = .book(request)
+            case .home: value = nil
+            }
+            if windowValue.wrappedValue != value { windowValue.wrappedValue = value }
         }
     }
 }

@@ -3791,6 +3791,38 @@
         }
       }
     },
+    "Always Open in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always Open in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常にシークレットウインドウで開く"
+          }
+        }
+      }
+    },
+    "As a Tab in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As a Tab in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウのタブ"
+          }
+        }
+      }
+    },
     "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window." : {
       "localizations" : {
         "en" : {
@@ -3819,6 +3851,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダの本の保存データと履歴を削除…"
+          }
+        }
+      }
+    },
+    "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルのウインドウからシークレットフォルダの本を開くと、どこから開いても代わりにシークレットウインドウで開きます。ノーマルのウインドウは表示中のものをそのまま残します。オフのときは、ノーマルのウインドウがその本を表示している間だけシークレットウインドウの見た目になります。"
           }
         }
       }
@@ -3871,6 +3919,38 @@
         }
       }
     },
+    "In Place of the Book in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Place of the Book in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの本と入れ替え"
+          }
+        }
+      }
+    },
+    "In a New Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In a New Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいシークレットウインドウ"
+          }
+        }
+      }
+    },
     "No secret folders yet." : {
       "localizations" : {
         "en" : {
@@ -3899,6 +3979,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "環境設定を開く…"
+          }
+        }
+      }
+    },
+    "Open In" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open In"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開き先"
+          }
+        }
+      }
+    },
+    "Opening" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開き方"
           }
         }
       }
@@ -3947,6 +4059,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シークレットフォルダの設定…"
+          }
+        }
+      }
+    },
+    "Restores the opening settings on this page. Your secret folders are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores the opening settings on this page. Your secret folders are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面の開き方の設定を初期設定に戻します。シークレットフォルダの一覧は変わりません。"
           }
         }
       }
@@ -4109,6 +4237,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シークレットフォルダの本を表示している間、ウインドウはシークレットウインドウの外観になります。シークレットウインドウに固有の外観を適用していなければ(環境設定 ▸ 外観)、見分けられるのはタイトルのシークレットウインドウの目印だけです。"
+          }
+        }
+      }
+    },
+    "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開く場所です。「シークレットウインドウのタブ」と「シークレットウインドウの本と入れ替え」は、いちばん手前のシークレットウインドウを使います(入れ替えは、そのウインドウで表示中の本を閉じます)。シークレットウインドウが無ければ、新しいシークレットウインドウで開きます。"
           }
         }
       }

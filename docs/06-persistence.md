@@ -420,6 +420,28 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   (「保存データの削除」ウインドウと同じく取り消せない。確認のアラートでそう伝える)。
 - 移行: 以前の一覧(`MetadataRulesStore` の settings.json の `excludedFolders`)は起動時に 1 度だけ移し、最初に**見えている窓**へ
   知らせる。済んだ印は利用者が答えたときに付ける(Finder から開いた起動では最初の窓が隠れたまま閉じられるので)。
+- **「常にシークレットウインドウで開く」**(環境設定、既定 OFF。`AppPreferences.secretFolderBooksOpenPrivately` と開き先
+  `SecretFolderPrivatePlacement` ―― いちばん手前のシークレットウインドウのタブ / その窓の本と入れ替え / 毎回新しいシークレット
+  ウインドウ。前の 2 つはシークレットウインドウが無ければ新しく作る)。ON なら、ノーマルの窓からシークレットフォルダの本を開こうと
+  すると、その本をシークレットウインドウへ回し、ノーマルの窓は今の中身のまま。判定は `BookWindowOpener.shouldOpenPrivately`。
+  - **新しい窓を作る所は、作る前に回す**(`BookWindowOpener.open` と `QooViewerApp.openInNewWindow`)。ノーマルの窓は一瞬も出ない。
+    Finder から本を渡されての起動では、透明にしてある主ウインドウ(`hideLaunchWindowWhenShown`)は回した先の窓が出た後の後始末で
+    閉じる(CGWindowList で、透明のまま閉じることを実測)。新しいシークレットウインドウは**回さなければ出ていた位置**に出す
+    (主ウインドウの代わりなら前回終了時の位置。ずらすと意味も無くずれたように見える ―― 利用者の指摘。今の画面に載らない位置なら
+    使わない `visibleFrameOrNil`。タブで開くつもりだった要求は、元の窓に重ならないようずらした位置)。`onOpened` は回した先が開き
+    終えてから呼ぶ(編集ウインドウが本も出ないまま閉じないように)。
+  - 今の窓で開く所(`AppState.open`。次/前の本・サイドパネル・ホーム・ドロップ・履歴・Finder からの使い回し)は窓を作らないので、
+    `AppState.privateRedirect` を出し、`ContentView` が受けて `BookWindowOpener.openSecretBookPrivately` を呼ぶ(`OpenWindowAction`
+    は AppState に持たせない約束)。棚を読み替えた先がシークレットフォルダの本だったときもここで分かる(本を開くためだけに作られた
+    窓で、まだ一度も本を出していなければ閉じる。この形だけは窓が一瞬出る。棚の EPUB を飛ばして進んだ先も見る。棚のフォルダの
+    アクセスは `SecurityScopedHandoff` で回した先へ渡す)。着地の指定(前の本の最後のページへ等)とスライドショーは、今ある
+    シークレットウインドウで入れ替えるときだけ引き継ぐ(新しい窓・タブは自分で要求を開くので渡す口が無い)。
+  - 設定は static(`AppPreferences.opensSecretFolderBooksPrivately` / `currentSecretFolderPrivatePlacement`)で読む。窓を作る所が
+    インスタンスを持たないため。テストの中では常に OFF。
+- **WindowGroup の値は表示中の本に揃える**(`ContentView.windowValue` / `WindowValueSync`。同日、実機で判明): `openWindow(id:value:)` は
+  同じ値の窓があれば新しく作らずにそれを前へ出すだけなので、値が作ったときの本のままだと、別の本へ移った窓が「その本の窓」として前に
+  出て、本は開かなかった(「入れ替え」の後に入れ替えられた本を新しいシークレットウインドウで開けなかった。次の本へ移った窓でも同じ)。
+  本を閉じてホームに戻ったら・最初の本が出ずに読み込みが終わったら値は nil(読み込み中は触らない)。
 
 ## 削除とリセット
 

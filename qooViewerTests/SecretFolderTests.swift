@@ -85,6 +85,20 @@ struct SecretFolderTests {
         #expect(destination.secretFolders.folders == ["/架空/手元", "/架空/秘密"])
     }
 
+    @Test("「常にシークレットウインドウで開く」は、ON で、ノーマルの行き先で、シークレットフォルダの本のときだけ回す")
+    func privateRoutingDecision() {
+        let secret = BookOpenRequest(URL(fileURLWithPath: "/架空/秘密/本.zip"))
+        let normal = BookOpenRequest(URL(fileURLWithPath: "/架空/普通/本.zip"))
+        let isSecret: (URL) -> Bool = { SecretFolderStore.contains(path: $0.path, in: ["/架空/秘密"]) }
+        #expect(BookWindowOpener.shouldOpenPrivately(secret, opensPrivately: false, isEnabled: true, isSecret: isSecret))
+        // OFF・もともとシークレットの行き先・シークレットフォルダの外の本は回さない。
+        #expect(!BookWindowOpener.shouldOpenPrivately(secret, opensPrivately: false, isEnabled: false, isSecret: isSecret))
+        #expect(!BookWindowOpener.shouldOpenPrivately(secret, opensPrivately: true, isEnabled: true, isSecret: isSecret))
+        #expect(!BookWindowOpener.shouldOpenPrivately(normal, opensPrivately: false, isEnabled: true, isSecret: isSecret))
+        // テストの中では、実物の設定に関わらず回さない(AppPreferences.opensSecretFolderBooksPrivately)。
+        #expect(!AppPreferences.opensSecretFolderBooksPrivately)
+    }
+
     @Test("シークレットフォルダの本は保存データに何も残さない本で、ビューアは別の本として作り直す")
     func secretBooksLeaveNoRecord() {
         var book = MangaBook(id: "/架空/秘密/本.zip", title: "本", sourceURL: URL(fileURLWithPath: "/架空/秘密/本.zip"),
