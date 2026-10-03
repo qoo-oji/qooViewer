@@ -56,11 +56,19 @@ final class SecretFolderStore: ObservableObject {
     /// アプリの一覧の写しの、いまの値。
     nonisolated static var currentAppWideFolders: [String] { appWideFolders.withLock { $0 } }
 
+    /// 比べるための形。**`/private/var`・`/private/tmp` と `/var`・`/tmp` を同じものとして扱う**(2026-10-03、CI で判明):
+    /// `standardizedFileURL` は実在するときだけ `/private` を外す(実在依存)ので、フォルダを足した経路と本の bookID
+    /// (`sourceURL.path`、外さない)とで同じ場所が別の綴りになり、手元では通るテストが CI の一時フォルダで落ちた。
+    /// 正規化の揺れ(NFD/NFC)と末尾の `/` も揃える(`BookExistenceProbe.comparablePath` と同じ規則)。
+    nonisolated static func comparable(_ path: String) -> String {
+        BookExistenceProbe.comparablePath(MountTable.normalized(path))
+    }
+
     /// `path` がシークレットフォルダそのものか、その中(サブフォルダを含む)にあるか。
     nonisolated static func contains(path: String, in folders: [String]) -> Bool {
         guard !folders.isEmpty else { return false }
-        let normalized = MountTable.normalized(path)
-        return folders.contains { MountTable.path(normalized, isAtOrUnder: $0) }
+        let target = comparable(path)
+        return folders.contains { MountTable.path(target, isAtOrUnder: comparable($0)) }
     }
 
     /// アプリの一覧の写しで確かめる。
@@ -74,7 +82,8 @@ final class SecretFolderStore: ObservableObject {
 
     /// そのフォルダが一覧にそのまま載っているか(右クリックの「追加」と「外す」の切り替え)。
     func isListed(_ url: URL) -> Bool {
-        folders.contains(MountTable.normalized(url.standardizedFileURL.path))
+        let target = Self.comparable(url.path)
+        return folders.contains { Self.comparable($0) == target }
     }
 
     // MARK: - 変更
@@ -85,16 +94,17 @@ final class SecretFolderStore: ObservableObject {
 
     func add(paths: [String]) {
         var updated = folders
-        for path in paths.map(MountTable.normalized) where !updated.contains(path) {
+        for path in paths.map(MountTable.normalized)
+        where !updated.contains(where: { Self.comparable($0) == Self.comparable(path) }) {
             updated.append(path)
         }
         if updated != folders { setFolders(updated) }
     }
 
     func remove(_ path: String) {
-        let normalized = MountTable.normalized(path)
-        guard folders.contains(normalized) else { return }
-        setFolders(folders.filter { $0 != normalized })
+        let target = Self.comparable(path)
+        guard folders.contains(where: { Self.comparable($0) == target }) else { return }
+        setFolders(folders.filter { Self.comparable($0) != target })
     }
 
     /// アプリ自身・アプリの外で名前を変えた・移したフォルダの登録を付け替える(FavoriteLocationStore.relocate と同じ規則)。
@@ -115,9 +125,10 @@ final class SecretFolderStore: ObservableObject {
     func importBackup(paths: [String], replacingExisting: Bool) -> Int {
         var updated = replacingExisting ? [] : folders
         var added = 0
-        for path in paths.map(MountTable.normalized) where !path.isEmpty && !updated.contains(path) {
+        for path in paths.map(MountTable.normalized)
+        where !path.isEmpty && !updated.contains(where: { Self.comparable($0) == Self.comparable(path) }) {
             updated.append(path)
-            if !folders.contains(path) { added += 1 }
+            if !folders.contains(where: { Self.comparable($0) == Self.comparable(path) }) { added += 1 }
         }
         if updated != folders { setFolders(updated) }
         return added

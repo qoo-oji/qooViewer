@@ -29,6 +29,22 @@ struct SecretFolderTests {
         #expect(!store.contains(path: "/架空/秘密/本.zip"))
     }
 
+    @Test("/private/var と /var は同じ場所として比べる(standardizedFileURL は実在するときだけ /private を外す。CI で判明)")
+    func privatePrefixIsIgnored() {
+        let store = SecretFolderStore(defaults: nil)
+        store.add(paths: ["/private/var/架空の一時/秘密"])
+        #expect(store.contains(path: "/var/架空の一時/秘密/本.zip"))
+        #expect(store.isListed(URL(fileURLWithPath: "/var/架空の一時/秘密", isDirectory: true)))
+        // 綴りの違う同じ場所は 2 度入らず、どちらの綴りでも外せる。
+        store.add(paths: ["/var/架空の一時/秘密"])
+        #expect(store.folders.count == 1)
+        store.remove("/var/架空の一時/秘密")
+        #expect(store.folders.isEmpty)
+
+        store.add(paths: ["/var/架空の一時/別"])
+        #expect(store.contains(path: "/private/var/架空の一時/別/本.zip"))
+    }
+
     @Test("保存して読み直しても残り、名前を変えたフォルダに付いていく")
     func persistsAndFollowsRenames() {
         let suite = TestDefaultsPool.checkout()
