@@ -404,6 +404,74 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.deleteImmediately))
     }
 
+    @Test("ツリーの ⌘C / ⌘X / ⌘V は選ばれている行へ効く。根の行はカットしないが、コピーとペーストはできる(ボリュームはコピーもしない。2026-10-04)")
+    func treeEditCommandsActOnSelectedRow() throws {
+        let fixture = try Fixture("fb-tree-edit")
+        defer { fixture.close() }
+        let folder = fixture.entry(try fixture.temporary.directory("shelf/folder"))
+        let root = fixture.entry(try fixture.temporary.directory("shelf"))
+        let pasteboard = NSPasteboard.withUniqueName()
+        fixture.state.operations.pasteboard = pasteboard
+        pasteboard.clearContents()
+        let actions = fixture.actions
+        let row = FileBrowserTreeEditTarget(entry: folder, isRoot: false)
+        let rootRow = FileBrowserTreeEditTarget(entry: root, isRoot: true)
+
+        // 選ばれている行が無ければ何もできない(グループの見出し・「最近の項目」)。
+        for command in [FileBrowserEditCommand.copy, .cut, .paste] {
+            #expect(!actions.canPerformInTree(command, on: nil), "\(command)")
+        }
+        // ペーストボードが空ならペーストは淡色。
+        #expect(!actions.canPerformInTree(.paste, on: rootRow))
+        // 根はカットしないが、コピーはできる。ボリュームの行は右ペインと同じくコピーもしない。
+        #expect(!actions.canPerformInTree(.cut, on: rootRow))
+        #expect(actions.canPerformInTree(.copy, on: rootRow))
+        let volume = FileBrowserEntry(
+            url: URL(fileURLWithPath: "/", isDirectory: true), displayName: "volume", isDirectory: true, isPackage: false,
+            isSymbolicLink: false, isVolume: true, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        #expect(!actions.canPerformInTree(.copy, on: FileBrowserTreeEditTarget(entry: volume, isRoot: true)))
+        // ほかの操作は受けない(右ペインの選択へ効く口とは別)。
+        #expect(!actions.canPerformInTree(.moveToTrash, on: row))
+
+        #expect(actions.canPerformInTree(.copy, on: row))
+        actions.performInTree(.copy, on: row)
+        let copied = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
+        #expect(copied?.map(\.standardizedFileURL.path) == [folder.url.standardizedFileURL.path])
+        #expect(!fixture.state.isCut(folder))
+        // 根へもふつうのフォルダへも貼れる。
+        #expect(actions.canPerformInTree(.paste, on: rootRow))
+        #expect(actions.canPerformInTree(.paste, on: row))
+
+        #expect(actions.canPerformInTree(.cut, on: row))
+        actions.performInTree(.cut, on: row)
+        #expect(fixture.state.isCut(folder))
+
+        // 右クリックメニューも同じ条件(根の行はカットだけ淡色)。
+        #expect(FileBrowserMenuCommand.groups(for: .tree).joined().contains(.copy))
+        #expect(FileBrowserMenuCommand.groups(for: .tree).joined().contains(.cut))
+        func menuEnabled(_ command: FileBrowserMenuCommand, _ target: FileBrowserTreeEditTarget) -> Bool {
+            command.isEnabled(
+                in: FileBrowserMenuContext(
+                    kind: .tree, entries: [target.entry], folder: target.entry.url, isTreeRoot: target.isRoot
+                ),
+                actions: actions
+            )
+        }
+        for command in [FileBrowserMenuCommand.copy, .cut, .paste] {
+            #expect(menuEnabled(command, row), "\(command)")
+        }
+        #expect(menuEnabled(.copy, rootRow))
+        #expect(!menuEnabled(.cut, rootRow))
+        #expect(menuEnabled(.paste, rootRow))
+
+        // 読み取り専用モードではカット・ペーストは淡色、コピーは使える(右ペインと同じ)。
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(actions.canPerformInTree(.copy, on: row))
+        #expect(!actions.canPerformInTree(.cut, on: row))
+        #expect(!actions.canPerformInTree(.paste, on: rootRow))
+    }
+
     @Test("「開く」は開いて何かが起きるときだけ押せる: 1 件なら何でも、複数ならフォルダ・リンクを含まないときだけ(2026-09-19)")
     func openAvailabilityMatchesOpen() throws {
         let fixture = try Fixture("fb-menu-open")
@@ -793,7 +861,8 @@ struct FileBrowserIntegrationTests {
         let both = ["Copy": "Copy as Pathname", "Open With": "Always Open With", "Move to Trash": "Delete Immediately…"]
         #expect(alternates(.file) == both)
         #expect(alternates(.folder) == both)
-        #expect(alternates(.tree) == ["Open With": "Always Open With"])
+        // ツリーはゴミ箱を出さない(コピーは 2026-10-04 から)。
+        #expect(alternates(.tree) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
         #expect(alternates(.background).isEmpty)
 
         // 入れ替わる側もサブメニューを持ち、末尾は「その他…」。

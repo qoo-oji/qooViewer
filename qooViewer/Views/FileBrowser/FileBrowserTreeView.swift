@@ -73,6 +73,13 @@ import SwiftUI
 /// (**直下に画像があるフォルダだけ**)は右ペインの Return と同じ設定に従う(`FileBrowserActions.openTreeRow`): 本として開く側なら
 /// 調べて本なら開き、そうでなければ開閉。グループの見出しと「最近の項目」では何もしない。
 ///
+/// ■ コピー・カット・ペースト(2026-10-04、ユーザー要望)
+/// ツリーに焦点があるときの ⌘C / ⌘X / ⌘V(編集メニュー)は、**選ばれている行**へ効く(`FileBrowserTreeOutlineView`)。
+/// カットはふつうのフォルダの行だけ ―― 根(ボリューム・ホーム・よく使う項目)は移さない(ドラッグと同じ)。コピーは根でもよい
+/// (ボリュームの行は右ペインと同じく運ばない)。ペーストはその行のフォルダへ(根でもよい。右クリックの「ペースト」と同じ)。
+/// それまではツリーに受け手が無く、⌘V が鳴るだけだった。右クリックメニューにも同じ条件でコピー・カットを足した
+/// (`FileBrowserMenuContext.isTreeRoot`)。
+///
 /// ■ よく使う項目の並べ替え(2026-09-14、ユーザー要望)
 /// よく使う項目の行は**並べ替えのためだけに**掴める。運ぶのは項目の id だけ(`fileBrowserFavoriteLocationPasteboardType`。
 /// ファイルの URL は書かないので、フォルダの行・リスト・Finder へ落としても何も起きない)。落とせるのはよく使う項目の
@@ -107,7 +114,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> HomeWheelScrollView {
         let coordinator = context.coordinator
-        let outline = FileBrowserOutlineView()
+        let outline = FileBrowserTreeOutlineView()
         outline.style = .sourceList
         outline.backgroundColor = .clear
         outline.headerView = nil
@@ -129,6 +136,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         outline.editResponder = actions
         outline.onTabKey = { [weak coordinator] in coordinator?.state?.requestFocus(.content) }
         outline.onReturnKey = { [weak coordinator] in coordinator?.handleReturn() }
+        outline.canPerformEdit = { [weak coordinator] command in coordinator?.canPerformEdit(command) ?? false }
+        outline.onEdit = { [weak coordinator] command in coordinator?.performEdit(command) }
         let menu = NSMenu()
         menu.delegate = coordinator
         outline.menu = menu
@@ -170,6 +179,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             outline.editResponder = nil
             outline.onTabKey = nil
             outline.onReturnKey = nil
+            outline.canPerformEdit = nil
+            outline.onEdit = nil
             outline.menu?.delegate = nil
             outline.menu = nil
         }
@@ -264,7 +275,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        weak var outline: FileBrowserOutlineView?
+        weak var outline: FileBrowserTreeOutlineView?
         weak var scrollView: HomeWheelScrollView?
         var state: FileBrowserState?
         /// 作り直す前のツリーの開き具合と位置(ボリュームの一覧を読み終えたら戻す。型コメント)。
@@ -509,6 +520,24 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     outline.expandItem(node)
                 }
             }
+        }
+
+        // MARK: コピー・カット・ペースト
+
+        /// 選ばれている行(型コメント「コピー・カット・ペースト」)。グループの見出し・「最近の項目」は対象にしない。
+        private var editTarget: FileBrowserTreeEditTarget? {
+            guard let outline, outline.selectedRow >= 0, let node = outline.item(atRow: outline.selectedRow) as? Node,
+                  node.loadsChildren, let entry = node.entry
+            else { return nil }
+            return FileBrowserTreeEditTarget(entry: entry, isRoot: node.kind != .folder)
+        }
+
+        func canPerformEdit(_ command: FileBrowserEditCommand) -> Bool {
+            actions?.canPerformInTree(command, on: editTarget) ?? false
+        }
+
+        func performEdit(_ command: FileBrowserEditCommand) {
+            actions?.performInTree(command, on: editTarget)
         }
 
         // MARK: Tab でのペインの行き来
@@ -1213,7 +1242,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 return
             }
             menuBuilder.rebuild(
-                menu, for: FileBrowserMenuContext(kind: .tree, entries: [entry], folder: node.url),
+                menu, for: FileBrowserMenuContext(
+                    kind: .tree, entries: [entry], folder: node.url, isTreeRoot: node.kind != .folder
+                ),
                 actions: actions, locale: locale
             )
             if case .favorite(let id) = node.kind {

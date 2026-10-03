@@ -445,6 +445,36 @@ class FileBrowserOutlineView: NSOutlineView {
     }
 }
 
+/// ファイルブラウザの左のツリーの `NSOutlineView`。編集メニューのコピー・カット・ペースト(⌘C / ⌘X / ⌘V)を受ける
+/// (2026-10-04、ユーザー報告 ―― それまではツリーに焦点があると受け手が無く、⌘V が鳴るだけだった。右ペインへ焦点を移すと貼れた)。
+/// 相手は選ばれている行(`FileBrowserActions.canPerformInTree`)。
+///
+/// **`FileBrowserOutlineView` に直に足さない**: 受け継ぐスマートライブラリのリスト表示(`SmartLibraryOutlineView`)は自分で `copy:` を
+/// 受け、カット・ペーストは持たない。基底に足すと、そこで編集メニューの問い合わせが止まって外側の受け手へ流れなくなる。
+final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValidation {
+    /// 選ばれている行へ効かせてよいか / 効かせる(ツリーの Coordinator)。nil なら淡色。
+    var canPerformEdit: ((FileBrowserEditCommand) -> Bool)?
+    var onEdit: ((FileBrowserEditCommand) -> Void)?
+
+    @objc func copy(_ sender: Any?) { performEdit(.copy) }
+    @objc func cut(_ sender: Any?) { performEdit(.cut) }
+    @objc func paste(_ sender: Any?) { performEdit(.paste) }
+
+    private func performEdit(_ command: FileBrowserEditCommand) {
+        guard canPerformEdit?(command) == true else { return }
+        onEdit?(command)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)): canPerformEdit?(.copy) ?? false
+        case #selector(cut(_:)): canPerformEdit?(.cut) ?? false
+        case #selector(paste(_:)): canPerformEdit?(.paste) ?? false
+        default: true
+        }
+    }
+}
+
 /// Tab / ⇧Tab(修飾キーは ⇧ だけ)か。ファイルブラウザの左右のペインの間で焦点を移すキー(2026-09-30、ユーザー要望。
 /// docs/15「Tab でのペインの行き来」)。AppKit の一覧は Tab を「次のキービューへ」に使うが、SwiftUI に載せた
 /// `NSViewRepresentable` の間ではどこへも移らず、何も起きなかった。

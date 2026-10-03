@@ -591,6 +591,41 @@ extension FileBrowserActions: FileBrowserEditResponding {
     }
 }
 
+/// 左のツリーで選ばれている行(⌘C / ⌘X / ⌘V の相手。`FileBrowserTreeOutlineView`、2026-10-04)。
+struct FileBrowserTreeEditTarget {
+    /// 行のフォルダ。
+    let entry: FileBrowserEntry
+    /// ツリーの根(ボリューム・ホーム・よく使う項目)か。
+    let isRoot: Bool
+}
+
+/// ツリーのキー(⌘C / ⌘X / ⌘V)。対象は**ツリーで選ばれている行**で、右ペインの選択ではない。
+/// - コピー: 根の行(ボリューム・ホーム・よく使う項目)でもよい。判定は右ペインと同じ `canModify` なので、ボリュームの行だけは淡色。
+/// - カット: 根の行はしない(ユーザー決定 2026-10-04 ―― 根を移すとツリーの根そのものが動く。ドラッグで掴ませないのと同じ。
+///   FileBrowserTreeView の型コメント「ドラッグ&ドロップ」)。ほかは右ペインと同じ `canChange`。
+/// - ペースト: その行のフォルダへ(根でもよい。右クリックの「ペースト」と同じ行き先)。
+extension FileBrowserActions {
+    func canPerformInTree(_ command: FileBrowserEditCommand, on target: FileBrowserTreeEditTarget?) -> Bool {
+        guard state != nil, let target else { return false }
+        switch command {
+        case .copy: return canModify([target.entry])
+        case .cut: return !target.isRoot && canChange([target.entry])
+        case .paste: return canPaste(into: target.entry.url)
+        default: return false
+        }
+    }
+
+    func performInTree(_ command: FileBrowserEditCommand, on target: FileBrowserTreeEditTarget?) {
+        guard let target, canPerformInTree(command, on: target) else { return }
+        switch command {
+        case .copy: copy([target.entry])
+        case .cut: cut([target.entry])
+        case .paste: paste(into: target.entry.url)
+        default: break
+        }
+    }
+}
+
 /// 右クリックメニューの種類(要望の一覧どおり、フォルダ・ファイル・空きスペース・ツリーで並びが違う)。
 /// **項目の数は選択の状態で変えない**(できない項目は淡色 ―― 計画 段階4)。
 enum FileBrowserMenuKind {
@@ -613,6 +648,8 @@ struct FileBrowserMenuContext {
     let entries: [FileBrowserEntry]
     /// 「ペースト」「新規フォルダ」の行き先。一覧では表示中のフォルダ、ツリーではその行のフォルダ。
     let folder: URL?
+    /// ツリーの根(ボリューム・ホーム・よく使う項目)の行か。根は「カット」だけ淡色(ツリーのキーと同じ。`canPerformInTree`)。
+    var isTreeRoot = false
 }
 
 /// 右クリックメニューの項目(リスト・アイコン・ツリーで共有)。
@@ -716,9 +753,10 @@ enum FileBrowserMenuCommand {
              [.createCollection, .addToCollection],
              [.editMetadata, .exportBook]]
         case .tree:
+            // コピー・カットは 2026-10-04 から(ツリーのキー ⌘C / ⌘X と揃えた。根の行のカットは淡色 ―― isTreeRoot)。
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
              [.getInfo],
-             [.paste, .newFolder],
+             [.copy, .cut, .paste, .newFolder],
              [.showInFinder, .addToFavoriteLocations],
              [.addToSmartLibrary, .autoRename],
              [.secretFolder]]
@@ -840,6 +878,8 @@ enum FileBrowserMenuCommand {
             return actions.canExtract(entries)
         // 読み取り専用モードの間は、ファイルを変える項目を淡色にする(消さない ―― 項目の数を変えない。段階 8.5)。
         case .rename, .cut, .moveToTrash, .deleteImmediately:
+            // ツリーの根は移さない(`canPerformInTree` と同じ。根を移すとツリーの根そのものが動く)。
+            if self == .cut, context.isTreeRoot { return false }
             return actions.canChange(entries)
         case .copy:
             return actions.canModify(entries)
