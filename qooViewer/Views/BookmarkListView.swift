@@ -77,25 +77,6 @@ private final class ListAnchorBox {
     }
 }
 
-/// 「開く」(左ペインのダブルクリック・右クリック、右ペインのページのダブルクリック)が、本の場所の解決(最長 45 秒。
-/// StoredBookLocator)を待っている仕事(2026-10-04 のレビューの R7-3)。以前は待つ仕事を誰も持たず、待つ間に編集ウインドウを
-/// 閉じても数十秒後に手前の窓の本が黙って置き換わり、何度も押すと全部が順に開いた。次の「開く」・ウインドウを閉じたら取り消す
-/// (待っている仕事は、解決を待ち終えた後で `Task.isCancelled` を見て降りる)。参照型なのは、閉じる知らせの閉包からも同じ箱を見るため。
-@MainActor
-private final class PendingBookOpen {
-    private var task: Task<Void, Never>?
-
-    func start(_ body: @escaping @MainActor () async -> Void) {
-        task?.cancel()
-        task = Task { @MainActor in await body() }
-    }
-
-    func cancel() {
-        task?.cancel()
-        task = nil
-    }
-}
-
 /// 右ペインで「直前にサムネイルを読み込んだ行」のpageKeyを覚えておくための入れ物。
 /// 保持量の予算超過で一覧を作り直したとき、そこへスクロールを戻すのに使う
 /// (BookmarkDetailPane.cellImageBudgetのコメント参照)。@Stateの値として持つと、
@@ -253,8 +234,8 @@ struct BookmarkEditorView: View {
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
-    /// 場所の解決を待っている「開く」(PendingBookOpen。R7-3)。
-    @State private var pendingOpen = PendingBookOpen()
+    /// 場所の解決を待っている「開く」(PendingBookOpens。R7-3・RC-3)。
+    @State private var pendingOpen = PendingBookOpens()
     @State private var openErrorBookName: String?
 
     @Environment(\.openWindow) private var openWindow
@@ -402,7 +383,7 @@ struct BookmarkEditorView: View {
                 }
                 doubleClickMonitor = nil
                 // 閉じた編集ウインドウの「開く」は、もう頼まれていない(R7-3)。
-                pendingOpen.cancel()
+                pendingOpen.cancelAll()
                 windowCloseTokens.removeAll()
             }
         })
@@ -1114,9 +1095,10 @@ struct BookmarkEditorView: View {
         // 開く先の窓は待った後で決まるので、どの窓の意図も進めずに取り、決まった窓で照合する(待つ間にその窓で別の本を頼んで
         // いたら開かない ―― 後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R7-3)。
         let intent = AppState.beginOpenIntentForAnyWindow()
-        pendingOpen.start {
+        pendingOpen.startReplacing {
             let outcome = await StoredBookLocator.resolve(material)
-            // 待つ間に編集ウインドウを閉じた・別の「開く」を押した(PendingBookOpen)。鳴らさない ―― 利用者はもう別のことをしている。
+            // 待つ間に編集ウインドウを閉じた・置き換える「開く」をまた押した(PendingBookOpens)。鳴らさない ―― 利用者はもう別のことを
+            // している。
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
                 if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
@@ -1153,9 +1135,10 @@ struct BookmarkEditorView: View {
     private func openBook(bookID: String, to destination: BookOpenDestination) {
         // 解決は openBook(bookID:) と同じ(メインの外・期限つき・ゴミ箱の中は見つからない。監査 O-12・O-11)。
         let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
-        // 新しい窓・タブなので、どの窓の本とも競わない(開く意図は見ない)。待つ間に編集ウインドウを閉じた・別の「開く」を押したら
-        // やめる(PendingBookOpen。R7-3)。
-        pendingOpen.start {
+        // 新しい窓・タブなので、どの窓の本とも競わない(開く意図は見ない)。待つ間に編集ウインドウを閉じたらやめる(R7-3)。ほかの
+        // 「開く」では取り消さない ―― 続けて 2 冊を新しいタブで開くと、先の 1 冊が黙って開かれなかった(PendingBookOpens。
+        // 2026-10-04 のレビューの RC-3)。
+        pendingOpen.startInNewWindow {
             let outcome = await StoredBookLocator.resolve(material)
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
@@ -1424,8 +1407,8 @@ private struct BookmarkDetailPane: View {
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
-    /// 場所の解決を待っている「開く」(PendingBookOpen。R7-3)。
-    @State private var pendingOpen = PendingBookOpen()
+    /// 場所の解決を待っている「開く」(PendingBookOpens。R7-3・RC-3)。
+    @State private var pendingOpen = PendingBookOpens()
     /// 列ヘッダー行(columnHeaderRow)・各行(PageRowView)で共有する列幅
     /// (ユーザー要望: 列タイトル行・区切り線・可変幅。PageListColumnWidths参照)。
     @State private var columnWidths = PageListColumnWidths()
@@ -1690,7 +1673,7 @@ private struct BookmarkDetailPane: View {
                 doubleClickMonitor = nil
                 viewModel.releaseResources()
                 // 閉じた編集ウインドウの「開く」は、もう頼まれていない(R7-3)。
-                pendingOpen.cancel()
+                pendingOpen.cancelAll()
                 windowCloseTokens.removeAll()
             }
         })
@@ -2279,9 +2262,9 @@ private struct BookmarkDetailPane: View {
         let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
         // 開く先の窓は待った後で決まるので、どの窓の意図も進めずに取り、決まった窓で照合する(R7-3。左ペインの openBook(bookID:) と同じ)。
         let intent = AppState.beginOpenIntentForAnyWindow()
-        pendingOpen.start {
+        pendingOpen.startReplacing {
             let outcome = await StoredBookLocator.resolve(material)
-            // 待つ間に編集ウインドウを閉じた・別の「開く」を押した(PendingBookOpen。R7-3)。
+            // 待つ間に編集ウインドウを閉じた・置き換える「開く」をまた押した(PendingBookOpens。R7-3)。
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
                 if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
@@ -2342,7 +2325,7 @@ private struct BookmarkDetailPane: View {
     }
 
     /// 本が開くのを待って、そのページへ飛ぶ。飛ぶ先は `candidates` が決める(R7-4)。5 秒待って開かなければ(読み込みの失敗は
-    /// その窓が知らせる)やめる。編集ウインドウを閉じた・別の「開く」を押したらやめる(呼ぶ側の PendingBookOpen の取り消し)。
+    /// その窓が知らせる)やめる。編集ウインドウを閉じた・置き換える「開く」をまた押したらやめる(呼ぶ側の PendingBookOpens の取り消し)。
     private func waitAndJump(toPageIndex pageIndex: Int, candidates: JumpCandidates) async {
         for _ in 0..<200 {
             guard !Task.isCancelled else { return }

@@ -1287,7 +1287,8 @@ final class AppState: ObservableObject {
     ///   「越えた」ことにする(O-10・決定 3。`passedOverBook`)。
     ///
     /// - Parameter intent: 待ってから開く入口が、待ち始めたときに得た「開く意図」(`beginOpenIntent` ほか。2026-10-04 のレビューの
-    ///   R6-1)。もう要らなくなっていれば(その後この窓で別の本を頼んだ・中止した・閉じた)何もしない。nil はその場で頼まれた要求
+    ///   R6-1)。もう要らなくなっていれば(その後この窓で別の本を頼んだ・読み込みを中止した)何もしない ―― 本を閉じただけでは
+    ///   要らなくならない(`closeBook()` は意図を進めない。OpenIntent の決まり。レビューの RC-7)。nil はその場で頼まれた要求
     ///   (新しい意図として数える)。
     ///
     /// **今の本を置き換える読み込みが失敗したら、どの入口でも今の本を残して知らせる**(2026-10-04 の監査 O-1・SP-2、決定 2 の (a))。
@@ -1302,10 +1303,19 @@ final class AppState: ObservableObject {
         // 待ってから開く入口の結果が、もう要らなくなっていれば開かない(呼ぶ側も確かめるが、ここでも必ず見る ―― 確かめ忘れた入口が
         // 後から頼んだ本を置き換えないように。R6-1)。
         if let intent, !isStillWanted(intent) { return }
-        // この要求を「開く意図」として数える(後から終わった、先に頼まれていた入口の結果を捨てさせる)。窓を作った要求そのものは
-        // 数えない ―― 窓はその本のために作られたもので、作る前の頼みと競うものが無い(通り抜けでシークレットウインドウへ回した
-        // 本の入れ替え先を、作った直後の窓でも見失わないため。R7-5)。
-        if !isInitialRequest { noteOpenRequest(fulfilling: intent) }
+        // この要求を「開く意図」として数える(後から終わった、先に頼まれていた入口の結果を捨てさせる)。窓を作った要求そのものは、
+        // 窓を作ると頼んだ時点の番号だけを引き取る(`noteInitialRequest`。開いた回数は数えない)。
+        // 2026-10-04 のレビューの RC-2: 以前は窓を作った要求を何も数えず、新しい窓の番号が 0 のままだったので、窓を作る**前**に
+        // 取られた窓をまたぐ意図(編集ウインドウの「開く」が NAS の本の解決を待つ間に、本 B の新しい窓を作った)がその窓で照合に
+        // 通り、B が黙って置き換わった。番号を窓が出た時点で新しく振らないのは、窓を作ると頼んだ後・窓が出る前に取られた意図
+        // (Finder から続けて届いた回のまとめ直し)まで捨てさせないため。通り抜けの入れ替え先の控え(R7-5)は窓が開いた後に取るので
+        // (BookWindowOpener の onOpened は、この窓が開いている窓の一覧に載った後 ―― 載るのと最初の要求を開くのは ContentView の
+        // 同じ onAppear)、ここで番号が進んでも外れない。
+        if isInitialRequest {
+            noteInitialRequest(request)
+        } else {
+            noteOpenRequest(fulfilling: intent)
+        }
         // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、この窓では開かずにシークレットウインドウへ
         // 回す(2026-10-03。この窓は今の中身のまま)。窓を開くのはビューの側なので、頼みだけ出す(privateRedirect)。
         if BookWindowOpener.shouldOpenSecretBookPrivately(request, opensPrivately: isPrivateWindow) {
@@ -1972,13 +1982,17 @@ final class AppState: ObservableObject {
     /// ■ 決まり
     /// - 待ってから開く入口は、**待ち始めるときに** `beginOpenIntent()` で意図を進め、待った後に `isStillWanted(_:)` で照合し、
     ///   開くときはその意図を `open(request:intent:)` へ渡す。照合に落ちたら結果を捨てる。利用者が後から別の本を頼んだ
-    ///   (または中止した・閉じた)ので、**鳴らさず知らせもしない**(見つからない・期限切れの知らせも出さない)。
+    ///   (または中止した)ので、**鳴らさず知らせもしない**(見つからない・期限切れの知らせも出さない)。
     /// - その場で頼まれた `open(request:)`(意図を持たない)・`cancelOpen()`(利用者の中止)も意図を進める。読み込みの失敗・
     ///   棚の本を別の窓へ譲る(`abandonLoad`)・`closeBook()`(スライドショーの末尾・書き出しの後の動作でも呼ばれる)は進めない ――
     ///   利用者が何も頼んでいないのに捨てさせない。
-    /// - 開く先の窓が待った後でないと決まらない入口(焦点の無いメニュー・編集ウインドウ・Finder から開いた本)は、
+    /// - 開く先の窓が待った後でないと決まらない入口(ブックマーク・レイアウトの編集ウインドウ・Finder から開いた本)は、
     ///   `beginOpenIntentForAnyWindow()` で意図を取り、決まった窓の `isStillWanted(_:)` で照合する。番号はアプリ全体で 1 本の
-    ///   時計から振るので、窓をまたいでも「どちらが後に頼まれたか」が比べられる。
+    ///   時計から振るので、窓をまたいでも「どちらが後に頼まれたか」が比べられる。焦点の無いメニューの「最近使った項目」は、開く先の
+    ///   窓を押した時点で決めるので、その窓の `beginOpenIntent()`(置き換えるときだけ。`RecentFilesStore.resolveForOpening`)。
+    /// - 窓を作った要求は、窓を作ると頼んだ時点で時計から番号を取り(`noteWindowCreatingRequest`。窓を作る所が `openWindow` の
+    ///   直前に呼ぶ)、作られた窓が最初の要求を開くときにそれを引き取る(`noteInitialRequest`)。それより前に取られた窓をまたぐ
+    ///   意図は、その窓では通らない(レビューの RC-2)。
     /// - 自分では何も頼んでいない入口(サイドパネルのフォルダブラウザの通り抜けで画像を映す、起動時に前回の本を開き直す、
     ///   スライドショーの末尾・書き出しの後の動作で次の本へ進む ―― `openSibling(after:claimsOpenIntent: false)`)は
     ///   `openIntentWithoutClaiming()` で今の意図を控えるだけにする ―― 先に頼まれた本を捨てさせない。控えた後にこの窓で何か
@@ -1995,6 +2009,10 @@ final class AppState: ObservableObject {
     private var latestOpenIntentSerial: UInt64 = 0
     /// この窓で `open(request:)` を受けた回数(窓を作った要求は数えない)。`openIntentWithoutClaiming` の控えが見る。
     private var openRequestCount: UInt64 = 0
+    /// 窓を作ると頼んだ時点の意図の番号(上の決まりの「窓を作った要求」。2026-10-04 のレビューの RC-2)。キーは要求の値
+    /// (WindowGroup の値と同じ。同じ値の窓が既にあれば SwiftUI はそれを前へ出すだけなので、後から頼んだ方で上書きしてよい ――
+    /// そのとき残る行は、同じ値の次の窓が作られるときに上書きされる)。
+    private static var windowCreatingIntentSerials: [BookOpenRequest: UInt64] = [:]
 
     /// 待ってから開く入口が、待ち始めるときに呼ぶ(この窓で先に頼まれていた入口の結果を捨てさせる)。
     func beginOpenIntent() -> OpenIntent {
@@ -2007,6 +2025,26 @@ final class AppState: ObservableObject {
     static func beginOpenIntentForAnyWindow() -> OpenIntent {
         openIntentClock += 1
         return OpenIntent(serial: openIntentClock, openCount: nil)
+    }
+
+    /// 窓を作る所(`BookWindowOpener.presentNewWindow`・`QooViewerApp.openInNewWindow`)が、本の要求で `openWindow` を呼ぶ直前に
+    /// 呼ぶ(RC-2)。
+    static func noteWindowCreatingRequest(_ request: BookOpenRequest) {
+        openIntentClock += 1
+        windowCreatingIntentSerials[request] = openIntentClock
+    }
+
+    /// 窓を作った要求を開く(`open(request:isInitialRequest: true)`)。頼んだ時点の番号を引き取る。控えが無ければ(窓を作る所を
+    /// 通らずに作られた窓)今の時計で新しく振る ―― 少なくとも、窓が出る前に取られた意図は通さない側へ倒す。開いた回数は数えない。
+    private func noteInitialRequest(_ request: BookOpenRequest) {
+        let serial: UInt64
+        if let noted = Self.windowCreatingIntentSerials.removeValue(forKey: request) {
+            serial = noted
+        } else {
+            Self.openIntentClock += 1
+            serial = Self.openIntentClock
+        }
+        latestOpenIntentSerial = max(latestOpenIntentSerial, serial)
     }
 
     /// 自分では何も頼んでいない入口の控え(上の決まりの最後)。
@@ -2259,8 +2297,8 @@ final class AppState: ObservableObject {
     private var passThroughPrivatePendingSince: Date?
     private var passThroughPrivatePendingRequest: BookOpenRequest?
     /// 初回の窓が分かるのを待つ上限(BookWindowOpener.newlyOpenedWindow が探すのは 0.5 秒ほど)。過ぎたら見失ったものとして、
-    /// 次の通り抜けはまた新しく開く。
-    private static let passThroughPendingLimit: TimeInterval = 3
+    /// 次の通り抜けはまた新しく開く。控えた要求は、過ぎた時点で回し直す(`takeExpiredPassThroughPending`。レビューの RC-6)。
+    static let passThroughPendingLimit: TimeInterval = 3
 
     /// 回した先で開いた(`target` がその窓。`target.open` の**後**に呼ぶ)。
     func notePassThroughPrivateTarget(_ target: AppState, url: URL) {
@@ -2280,15 +2318,24 @@ final class AppState: ObservableObject {
     }
 
     /// 初回の窓を作り始めた後、窓が分かる前に次の通り抜けが来たら、その要求を控えて true(窓が分かったら開く。`takePassThroughPending`)。
-    func deferPassThroughWhileTargetIsPending(_ request: BookOpenRequest) -> Bool {
+    func deferPassThroughWhileTargetIsPending(_ request: BookOpenRequest, now: Date = Date()) -> Bool {
         guard let since = passThroughPrivatePendingSince else { return false }
-        guard Date().timeIntervalSince(since) < Self.passThroughPendingLimit else {
+        guard now.timeIntervalSince(since) < Self.passThroughPendingLimit else {
             passThroughPrivatePendingSince = nil
             passThroughPrivatePendingRequest = nil
             return false
         }
         passThroughPrivatePendingRequest = request
         return true
+    }
+
+    /// 初回の窓が分からないまま上限を過ぎていたら、控えていた要求を取り出す(呼ぶ側が回し直す)。2026-10-04 のレビューの RC-6:
+    /// 窓が見つからない(`BookWindowOpener.presentNewWindow` は見つけられないと onOpened を呼ばない)と、控えた要求は次の通り抜けまで
+    /// 残り、次が来なければ黙って捨てられた。窓が分かった後・まだ上限の内なら nil。
+    func takeExpiredPassThroughPending(now: Date = Date()) -> BookOpenRequest? {
+        guard let since = passThroughPrivatePendingSince,
+              now.timeIntervalSince(since) >= Self.passThroughPendingLimit else { return nil }
+        return takePassThroughPending()
     }
 
     /// 初回の窓が分かった(または見失った)。窓が分かる前に来た要求があれば返す(呼ぶ側がその窓で開く)。

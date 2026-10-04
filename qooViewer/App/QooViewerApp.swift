@@ -2472,6 +2472,8 @@ struct QooViewerApp: App {
             hidesUntilTabbed: asTabIntoSource
         )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        // 窓を作ると頼んだ時点の開く意図の番号を控える(BookWindowOpener.presentNewWindow と同じ。レビューの RC-2)。
+        AppState.noteWindowCreatingRequest(request)
         openWindow(id: windowGroupID, value: WindowContentRequest.book(request))
 
         Task { @MainActor in

@@ -271,6 +271,36 @@ struct SidePanelBrowserStateTests {
         #expect(fixture.state.currentDirectory == fixture.root)
     }
 
+    /// 2026-10-04 のレビューの RC-4。R7-6 の直しは本を閉じたときにしか印を下ろさず、通り抜けで頼んだフォルダの読み込みが失敗・
+    /// 中止して今の本が残る(本が切り替わらない)と、印がそのフォルダのまま残った。
+    @Test("見送りの印は、頼んだ本が出ないまま読み込みが終わったら下ろし、頼んだ本が出たなら残して 1 回だけ見送る")
+    func anOpenThatEndsWithoutTheBookClearsTheAnchorSkip() async throws {
+        let fixture = try Fixture("browser-skip-failed")
+        await fixture.settle()
+        // 今の本(画像ファイルを直接開いた本。images そのものとは別の本)。
+        let other = try await fixture.makeImageBook()
+
+        // images を通り抜けで開こうとして印を立てたが、読み込みに失敗して今の本(other)が残った。
+        fixture.state.navigate(into: fixture.images)
+        await fixture.settle()
+        fixture.state.skipNextAnchorOnce(for: fixture.images)
+        fixture.state.handleOpenEnded(currentBook: other)
+        // 後で同じ本を履歴などから開いたら、ふつうに本の親へ再アンカーする。
+        let images = try await FixtureBook.load(fixture.images)
+        fixture.state.handlePanelRevealed(currentBook: images)
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.root)
+
+        // 開けたときは、読み込みの終わりと本の切り替わりが同じ更新で届く。どちらが先でも、入ったフォルダに留まる。
+        fixture.state.navigate(into: fixture.images)
+        await fixture.settle()
+        fixture.state.skipNextAnchorOnce(for: fixture.images)
+        fixture.state.handleOpenEnded(currentBook: images)
+        fixture.state.handlePanelRevealed(currentBook: images)
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.images)
+    }
+
     /// 2026-10-04 の監査 SP-13・決定 12。
     @Test("今の本の行は、戻る/進むで本のフォルダへ戻っても今の本として分かる(「上へ」で出たフォルダの強調とは別)")
     func theCurrentBookRowSurvivesBackAndForward() async throws {

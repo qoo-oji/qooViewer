@@ -2425,3 +2425,42 @@ docs: 04(開く意図・EPUB を飛ばした先のスコープ・回した並び
 
 docs: 06(差し替えの確認で記録する指紋)、07(上へ/下への淡色・「+」の式)、08(データを残す冊数のスライダー)、09(「+」の式・メニューの
 押したときの分岐・ファイル操作の新しさ)、CLAUDE.md(メニューの押したときの分岐も出ている本の写しで)。
+
+### レビュー指摘の修正 段 C2(2026-10-04)
+
+段 C(9af5de4、開く意図 `AppState.OpenIntent`)の再レビューの分。仕組みの決まり(待ち始めに意図を進める・控えるだけの入口・窓をまたぐ
+意図・`open(request:intent:)` の照合)は変えず、取りこぼしを埋めた。
+
+- **RC-1**(直した): リンクの先がフォルダなら、`openResolved` はリンクを解き始めたときの意図を `openFolder(_:fromMenu:inheritedIntent:)`
+  へ引き継ぐ(新しく取らない)。テスト `FileBrowserIntegrationTests.aLinkToAFolderKeepsTheIntentTakenWhenResolvingStarted`(先が本でない
+  フォルダなら後から頼んだ本の意図が残る・先が画像フォルダなら開かない。直しを外すと落ちることを確かめた)。
+- **RC-2**(直した): 窓を作る所(`BookWindowOpener.presentNewWindow`・`QooViewerApp.openInNewWindow`)が `openWindow` の直前に
+  `AppState.noteWindowCreatingRequest(_:)` で時計から番号を取り(要求の値をキーに控える)、作られた窓が最初の要求を開くときに
+  `noteInitialRequest` で引き取る(開いた回数は数えない。控えが無ければ今の時計で振る)。窓が出た時点で新しく振る案(指摘の案)は、
+  頼んだ後・窓が出る前に取られた意図(Finder から約 320ms 後に届いた回のまとめ直し)まで捨てさせるので採らなかった。R7-5 の控えは
+  onOpened(窓が開いている窓の一覧に載った後 ―― 載るのと最初の要求を開くのは ContentView の同じ onAppear)で取るので引き取りの後になり、
+  外れない。起動時の主ウインドウ(要求を持たない)・Finder/Dock の経路(`performExternalOpen` は既存の窓で照合し、新しい窓は頼んだ時点の
+  番号を持つ)も壊れないことをコードでたどった。テスト `AppStateOpenTests.aWindowCreatingRequestTakesTheSerialOfWhenItWasAsked`
+  (引き取りを外すと落ちることを確かめた)。
+- **RC-3**(直した): 編集ウインドウの待つ仕事を `PendingBookOpens`(Views/PendingBookOpens.swift、View の外)にし、置き換える「開く」
+  (`startReplacing`。後が勝つ)と新しいタブ・ウインドウへの「開く」(`startInNewWindow`。1 件ずつ持ち、ほかの「開く」で取り消さない)を
+  分けた。取り消すのはウインドウを閉じたとき(`cancelAll`)だけ。テスト `PendingBookOpensTests`(3 件。新しいタブへの「開く」を 1 つの
+  箱に戻すと 2 件が落ちることを確かめた)。
+- **RC-4**(直した): `SidePanelBrowserState.handleOpenEnded(currentBook:)` を足し、読み込みが終わったとき(ContentView の
+  `loadingProgress == nil` の onChange)と、通り抜けの「開く」が読み込みを始めなかったとき(照合に落ちた・シークレットウインドウへ回した。
+  `moveAndShowImages`)に、表示中の本が見送りの相手でなければ印を下ろす。開けたときは本の切り替わりと同じ更新で届くが、表示中の本が
+  相手なので残る(呼ばれる順に依らない)。テスト `SidePanelBrowserStateTests.anOpenThatEndsWithoutTheBookClearsTheAnchorSkip`
+  (何もしない形にすると落ちることを確かめた)。
+- **RC-5**(直した): `performExportCompletionBehavior(_:chosenByUser:)`。「毎回確認」のシートから選んだ「次の本へ」だけ意図を進める。
+  View の配線なのでテストは足していない(意図の進め方そのものは `openSibling(after:claimsOpenIntent:)` の既存のテスト)。
+- **RC-6**(直した): 初回の窓を待つ間に控えた通り抜けは捨てない。控えたときに上限(3 秒)後の回し直しを予約し
+  (`BookWindowOpener.retryPassThroughPendingWhenExpired` → `AppState.takeExpiredPassThroughPending`)、窓が分かっていなければ同じ静かな
+  経路で回し直す(その間に「常にシークレットウインドウで開く」が切れていたら鳴らすだけ)。onOpened で開いた窓を見分けられなかったときも
+  控えを回し直す。テスト `AppStateOpenTests.aDeferredPassThroughCanBeTakenBackOnceThePendingWindowIsOverdue`(取り出しの規則だけ。
+  窓の生成と回し直しはテストの中で再現できない)。
+- **RC-7**(直した): `open(request:intent:)` の doc・OpenIntent の型コメントから「閉じた」を外し(`closeBook()` は意図を進めない)、
+  焦点の無いメニューの「最近使った項目」は押した時点の窓の `beginOpenIntent()` だと実装どおりに書いた(docs/04 も)。
+
+docs: 02(`PendingBookOpensTests`)、04(窓を作った要求の番号・新しいタブへの「開く」の待ち・リンクの先・シートの「次の本へ」・
+「最近使った項目」)、06(控えた通り抜けの回し直し・控えと番号の順)、09(見送りの印を下ろす時)、CLAUDE.md(窓を作った要求の番号と
+`PendingBookOpens`)。

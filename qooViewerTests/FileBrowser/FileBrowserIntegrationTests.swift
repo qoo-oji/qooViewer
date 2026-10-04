@@ -228,6 +228,45 @@ struct FileBrowserIntegrationTests {
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
     }
 
+    /// 2026-10-04 のレビューの RC-1。リンクの先がフォルダのとき、リンクを解き始めたときの開く意図を引き継がずに `openFolder` で新しく
+    /// 取っていたので、リンクを解く間に後から頼まれた本に勝った(確かめを待っているその本を捨てさせ、先が画像フォルダならその本を
+    /// 置き換えた)。本を読み込む前の照合で落ちる形で確かめる(本として開く側は読み込まない ―― 上のテストのコメント)。
+    @Test("リンクの先のフォルダを開く「開く」は、リンクを解く間に後から頼まれた本に勝たない")
+    func aLinkToAFolderKeepsTheIntentTakenWhenResolvingStarted() async throws {
+        let fixture = try Fixture("fb-link-intent")
+        defer { fixture.close() }
+        fixture.state.linkTargetProtectedPrefixes = []
+        fixture.state.linkTargetCategoryPrefixes = []
+        let root = try fixture.temporary.directory("root")
+        let shelf = fixture.temporary.file("shelf")
+        _ = try fixture.archive("shelf/book.cbz")
+        let pictures = try fixture.imageFolder("pictures")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("to-shelf"), withDestinationURL: shelf)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("to-pictures"), withDestinationURL: pictures)
+        fixture.state.navigate(to: root)
+        await fixture.state.settle()
+        await fixture.state.waitForLinkTargets()
+        let toShelf = try #require(fixture.state.entries.first { $0.url.lastPathComponent == "to-shelf" })
+        let toPictures = try #require(fixture.state.entries.first { $0.url.lastPathComponent == "to-pictures" })
+
+        // 既定の設定の右クリックの「開く」は、画像フォルダを本として開く側(調べる)。先が本でないフォルダなら中へ移るだけだが、
+        // リンクを解く間に頼まれた本(確かめを待っている)を捨てさせない。
+        let shelfTask = fixture.actions.openFromMenu([toShelf])
+        let later = fixture.appState.beginOpenIntent()
+        await shelfTask?.value
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
+        try #require(fixture.appState.isStillWanted(later), "リンクの先のフォルダが、後から頼まれた本を捨てさせた")
+
+        // 先が画像フォルダでも、後から頼まれた本があれば開かない。
+        fixture.state.navigate(to: root)
+        await fixture.state.settle()
+        let picturesTask = fixture.actions.openFromMenu([toPictures])
+        _ = fixture.appState.beginOpenIntent()
+        await picturesTask?.value
+        #expect(fixture.appState.openTask == nil)
+        #expect(fixture.appState.loadingProgress == nil && fixture.appState.currentBook == nil)
+    }
+
     @Test("フォルダはその中を、ファイルは入っているフォルダでその項目を選ぶ(Finder で開くと同じ)")
     func revealTargetMatchesFinderReveal() {
         let folder = URL(fileURLWithPath: "/tmp/qoo-reveal/shelf", isDirectory: true)

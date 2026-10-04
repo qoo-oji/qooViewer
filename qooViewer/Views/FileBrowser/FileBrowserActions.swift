@@ -103,7 +103,12 @@ final class FileBrowserActions {
     /// フォルダを開く。画像フォルダを本として開く側のときだけ、画像フォルダかどうかをここで1回だけ調べる
     /// (一覧の読み込みでは子フォルダの中を見ない。FileBrowserEntryの型コメント)。中へ移動する側なら調べずにすぐ移動する
     /// (既定のダブルクリックに待ちを足さない)。
-    private func openFolder(_ entry: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
+    /// - Parameter inheritedIntent: リンクの先として開くとき、リンクを解き始めたときに進めた開く意図(`openLink` → `openResolved`)。
+    ///   渡されたらそれを引き継ぎ、新しく進めない(2026-10-04 のレビューの RC-1 ―― 以前はここで新しい意図を取ったので、リンクを
+    ///   解く間に後から頼まれた本に勝ち、画像フォルダがその本を置き換える・確かめを待っているその本を捨てさせていた)。
+    private func openFolder(
+        _ entry: FileBrowserEntry, fromMenu: Bool, inheritedIntent: AppState.OpenIntent? = nil
+    ) -> Task<Void, Never>? {
         guard let state else { return nil }
         let action = preferences?.fileBrowserImageFolderOpenAction ?? .openFolder
         guard action.opensAsBook(fromMenu: fromMenu) else {
@@ -112,8 +117,9 @@ final class FileBrowserActions {
         }
         let startFolder = state.currentFolder
         // 調べる間にこの窓で別の本が頼まれたら、調べ終えたフォルダで置き換えない(2026-10-04 のレビューの R6-2)。「開く」の
-        // 操作なので、待ち始めるここで開く意図を進める(後から頼んだ方が勝つ。AppState.OpenIntent)。
-        let intent = appState?.beginOpenIntent()
+        // 操作なので、待ち始めるここで開く意図を進める(後から頼んだ方が勝つ。AppState.OpenIntent)。リンクの先なら、リンクを
+        // 解き始めたときの意図を引き継ぐ(RC-1)。
+        let intent = inheritedIntent ?? appState?.beginOpenIntent()
         return Task { [weak self] in
             let isBook = await Self.isImageFolder(entry.url)
             guard let self, let state = self.state else { return }
@@ -499,11 +505,12 @@ final class FileBrowserActions {
 
     /// 解けた先を、その項目を選んで開いたのと同じ場合分けで開く(フォルダは中へ ―― 画像フォルダの開き方の設定に従う、本と画像は
     /// qooViewer、アプリなどそれ以外は既定のアプリ = アプリは起動)。
-    /// - Parameter intent: リンクを解き始めたときの開く意図。本を開くときに照合する(フォルダの中へ移る・既定のアプリで開くのは
-    ///   この窓の本と競わないので見ない)。
+    /// - Parameter intent: リンクを解き始めたときの開く意図。本を開くとき(先が本・画像、先が画像フォルダで本として開く側)に照合する
+    ///   (フォルダの中へ移る・既定のアプリで開くのはこの窓の本と競わないので見ない)。先がフォルダなら `openFolder` へ引き継ぐ ――
+    ///   そこで新しく取ると、リンクを解く間に後から頼まれた本に勝ってしまう(2026-10-04 のレビューの RC-1)。
     private func openResolved(_ target: FileBrowserEntry, fromMenu: Bool, intent: AppState.OpenIntent?) -> Task<Void, Never>? {
         if target.isNavigableFolder {
-            return openFolder(target, fromMenu: fromMenu)
+            return openFolder(target, fromMenu: fromMenu, inheritedIntent: intent)
         }
         if target.opensAsBook {
             guard let appState, let intent, appState.isStillWanted(intent) else { return nil }

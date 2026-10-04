@@ -185,8 +185,11 @@ enum BookWindowOpener {
             return
         }
         // 初回のタブ・窓を作っている最中(まだどの窓か分からない)なら、作り終えてからそこで開く(2026-10-04 のレビューの R7-5。
-        // 以前はこの間の通り抜けごとにタブを足し、焦点も一瞬移った)。
-        if source.deferPassThroughWhileTargetIsPending(request) { return }
+        // 以前はこの間の通り抜けごとにタブを足し、焦点も一瞬移った)。窓が分からないまま上限を過ぎたら回し直す(RC-6)。
+        if source.deferPassThroughWhileTargetIsPending(request) {
+            retryPassThroughPendingWhenExpired(source: source, launchCoordinator: launchCoordinator, openWindow: openWindow)
+            return
+        }
         source.notePassThroughPrivateTargetPending(url: url)
         let sourceWindow = source.hostWindow
         openSecretBookPrivately(
@@ -201,11 +204,34 @@ enum BookWindowOpener {
                         opened.open(request: pending, reusesExistingWindow: false)
                         source.notePassThroughPrivateTarget(opened, url: pendingURL)
                     }
-                } else {
-                    _ = source?.takePassThroughPending()
+                } else if let source, let pending = source.takePassThroughPending() {
+                    // 開いた窓を見分けられなかった。作っている間に来た次の通り抜けは捨てずに、同じ静かな経路で回し直す
+                    // (前回回した本を出しているシークレットウインドウがあればそこで入れ替わる。2026-10-04 のレビューの RC-6 ――
+                    // 以前は黙って捨てていた)。
+                    openSecretBookPrivatelyQuietly(
+                        pending, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow)
                 }
                 sourceWindow?.makeKeyAndOrderFront(nil)
             })
+    }
+
+    /// 初回の窓が分かるのを待つ間に控えた通り抜けを、上限(`AppState.passThroughPendingLimit`)を過ぎても窓が分からなければ回し直す
+    /// (2026-10-04 のレビューの RC-6)。新しい窓が見つからないと `presentNewWindow` は onOpened を呼ばないので、以前は控えた要求が
+    /// 次の通り抜けまで残り、次が来なければ黙って捨てられた。回し直すときも「常にシークレットウインドウで開く」の決まりは守る ――
+    /// その間に設定が切れていたら、この窓で開く代わりに鳴らす(移動はもう済んでおり、後から勝手に本を出すと別の頼みに見える)。
+    private static func retryPassThroughPendingWhenExpired(
+        source: AppState, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction
+    ) {
+        Task { @MainActor [weak source] in
+            try? await Task.sleep(for: .seconds(AppState.passThroughPendingLimit + 0.1))
+            guard let source, source.hostWindow != nil,
+                  let pending = source.takeExpiredPassThroughPending() else { return }
+            guard shouldOpenSecretBookPrivately(pending, opensPrivately: source.isPrivateWindow) else {
+                NSSound.beep()
+                return
+            }
+            openSecretBookPrivatelyQuietly(pending, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow)
+        }
     }
 
     /// 今つながっている画面のどれかに十分に載る位置ならそのまま、載らなければ nil(元の窓を基準にずらす側へ倒す)。
@@ -271,6 +297,9 @@ enum BookWindowOpener {
             basedOn: sourceWindow, hidesUntilTabbed: asTab
         )
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        // 窓を作ると頼んだ時点の開く意図の番号を控える(作られた窓が最初の要求を開くときに引き取る。AppState.OpenIntent、
+        // 2026-10-04 のレビューの RC-2)。
+        if let request = value.bookRequest { AppState.noteWindowCreatingRequest(request) }
         openWindow(id: windowGroupID, value: value)
 
         Task { @MainActor in

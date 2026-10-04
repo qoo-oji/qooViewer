@@ -1395,6 +1395,9 @@ struct ContentView: View {
         // 本が開けたときは、その本がビューアに出た時点で下ろす(下の viewerHandoff.shown。それまでは地のまま)。
         .onChange(of: appState.loadingProgress == nil) { _, isIdle in
             if isIdle, appState.currentBook == nil { awaitsInitialBook = false }
+            // 通り抜けで頼んだ本が出ないまま読み込みが終わったら、サイドパネルの見送りの印を下ろす(2026-10-04 のレビューの RC-4。
+            // SidePanelBrowserState.handleOpenEnded)。
+            if isIdle { sidePanelBrowser.handleOpenEnded(currentBook: appState.currentBook) }
         }
         .onChange(of: viewerHandoff.shown != nil) { _, isShown in
             if isShown { awaitsInitialBook = false }

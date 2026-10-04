@@ -952,6 +952,11 @@ struct SidePanelView: View {
             else { return }
             folderState.skipNextAnchorOnce(for: directory)
             onBrowseToFolder(directory, intent)
+            // 読み込みを始めなかった(`open` の照合に落ちた・シークレットウインドウへ回した)なら、この窓の本は替わらないので、
+            // 見送りの印をここで下ろす(読み込みが始まったなら、終わったときに ContentView が下ろす。2026-10-04 のレビューの RC-4)。
+            if let owner, owner.loadingProgress == nil {
+                folderState.handleOpenEnded(currentBook: owner.currentBook)
+            }
         }
     }
 

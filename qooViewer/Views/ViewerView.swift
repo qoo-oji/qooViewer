@@ -1278,18 +1278,20 @@ struct ViewerView: View {
         appState.closeBook()
     }
 
-    private func performExportCompletionBehavior(_ behavior: BookExportCompletionBehavior) {
+    /// - Parameter chosenByUser: 「毎回確認」のシートで利用者が選んだ動作か。
+    private func performExportCompletionBehavior(_ behavior: BookExportCompletionBehavior, chosenByUser: Bool = false) {
         switch behavior {
         case .none, .ask:
             // .askがここへ来ることは無い(finishOpenBookExportがシートへ回す)が、シートで
             // 何も選ばずに閉じられた場合と同じく「何もしない」で受ける。
             break
-        // 書き出しが終わったときの動作で、利用者がその場で頼んだのではない(開く意図を控えるだけ。AppState.openSibling の
-        // claimsOpenIntent。2026-10-04 のレビューの R6-1)。
+        // 設定どおりに書き出しの後で動くときは、利用者がその場で頼んだのではない(開く意図を控えるだけ。AppState.openSibling の
+        // claimsOpenIntent。2026-10-04 のレビューの R6-1)。「毎回確認」のシートで選んだ「次の本へ」は利用者がその場で頼んだ
+        // ものなので意図を進める(レビューの RC-5 ―― 以前はシートからも控えるだけで、先に頼まれて待っている入口に負けた)。
         case .nextBookFirstPage:
-            appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true, claimsOpenIntent: false)
+            appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true, claimsOpenIntent: chosenByUser)
         case .nextBook:
-            appState.openSibling(after: viewModel.book.sourceURL, claimsOpenIntent: false)
+            appState.openSibling(after: viewModel.book.sourceURL, claimsOpenIntent: chosenByUser)
         case .returnToWelcome:
             returnToWelcome()
         case .closeTab:
@@ -1811,7 +1813,7 @@ struct ViewerView: View {
                     titleKey: "The book has been exported."
                 ) { choice in
                     isShowingExportCompletionPrompt = false
-                    performExportCompletionBehavior(choice)
+                    performExportCompletionBehavior(choice, chosenByUser: true)
                 }
             }
             .sheet(isPresented: $showFavoriteFolderPicker) {

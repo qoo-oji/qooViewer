@@ -240,6 +240,23 @@ final class SidePanelBrowserState: ObservableObject {
         skipsNextAnchorFor = book
     }
 
+    /// この窓の読み込みが終わった(開けた・開けなかった・中止した。ContentView の `loadingProgress` の onChange)、または通り抜けの
+    /// 「開く」が読み込みを始めずに終わった(照合に落ちた・シークレットウインドウへ回した。SidePanelView.moveAndShowImages)ときに呼ぶ。
+    /// 表示中の本が見送りの相手でなければ、見送りの印を下ろす(2026-10-04 のレビューの RC-4)。
+    ///
+    /// R7-6 の直し(`handlePanelRevealed(currentBook: nil)` で下ろす)は本が閉じたときにしか効かず、通り抜けで頼んだフォルダの読み込みが
+    /// 失敗・中止して今の本が残ると、本の切り替わりが起きないので印がそのフォルダのまま残り、後で同じ本を履歴などから開いたときに
+    /// 再アンカーが黙って見送られた。開けたときは本の切り替わり(`handlePanelRevealed`)と同じ更新で届くが、表示中の本がもう相手なので
+    /// 下ろさない(どちらが先に呼ばれても、見送りは `handlePanelRevealed` が 1 回だけ行う)。
+    func handleOpenEnded(currentBook: MangaBook?) {
+        guard let skipTarget = skipsNextAnchorFor else { return }
+        if let currentBook,
+           MountTable.normalized(skipTarget.path) == MountTable.normalized(currentBook.sourceURL.path) {
+            return
+        }
+        skipsNextAnchorFor = nil
+    }
+
     /// フォルダ行のシングルクリック。
     func navigate(into folder: URL) {
         backStack.append(currentDirectory)
