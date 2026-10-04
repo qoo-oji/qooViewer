@@ -1515,7 +1515,7 @@ private struct BookmarkDetailPane: View {
     /// viewModel.movePages(displayedPageKeys:fromOffsets:toOffset:)側でこのインデックス空間の
     /// 食い違いを吸収するようにしたため、除外ページがあっても並べ替えできる
     /// (上下ボタン(movePageUp/movePageDown)は選んだ行を読めるページの並びで1つ動かし、除外ページはドラッグと同じく
-    /// 直前の読めるページに付いて動く。除外行・一覧に出ていない行では押せない ―― canMoveSelectedPage。監査 BE-8)。
+    /// 直前の読めるページに付いて動く。除外行・一覧に出ていない行・絞り込み中・端の行では押せない ―― canMoveSelectedPage(by:)。監査 BE-8、レビュー R2-5)。
     private var displayedRows: [BookLayoutEditorViewModel.Row] {
         let base: [BookLayoutEditorViewModel.Row]
         if pageFilter == .hasBookmarks {
@@ -2059,7 +2059,7 @@ private struct BookmarkDetailPane: View {
             } label: {
                 Image(systemName: "chevron.up")
             }
-            .disabled(!canMoveSelectedPage)
+            .disabled(!canMoveSelectedPage(by: -1))
             .help("Move Selected Page Earlier")
 
             Button {
@@ -2067,7 +2067,7 @@ private struct BookmarkDetailPane: View {
             } label: {
                 Image(systemName: "chevron.down")
             }
-            .disabled(!canMoveSelectedPage)
+            .disabled(!canMoveSelectedPage(by: 1))
             .help("Move Selected Page Later")
 
             // ページの読み込みが終わるまでの表示。
@@ -2180,23 +2180,26 @@ private struct BookmarkDetailPane: View {
         }
     }
 
-    /// 上へ/下へを押せるか: 選んだ行が**いま一覧に出ていて、除外ページでない**とき(2026-10-04、監査 BE-8)。以前は選んでいるか
-    /// だけで決めていたので、絞り込みで隠れた行・除外行にも効き、見た目は変わらないまま並びと見開きの指定を書き換えた。
-    private var canMoveSelectedPage: Bool {
-        guard viewModel.isBookReady, let selectedPageKey,
-              let row = displayedRows.first(where: { $0.pageKey == selectedPageKey })
+    /// 上へ(`offset` が -1)/下へ(+1)を押せるか: **すべてのページを出していて**、選んだ行が**いま一覧に出ていて、除外ページでなく、
+    /// その向きの端でない**とき(2026-10-04、監査 BE-8 / レビュー R2-5)。以前は選んでいるかだけで決めていたので、絞り込みで
+    /// 隠れた行・除外行にも効き、見た目は変わらないまま並びと見開きの指定を書き換えた。BE-8 の直しの後も「ブックマークあり」で
+    /// 絞っている間は押せて、隣に見えていない行と入れ替えた(ドラッグの並べ替えと同じく、絞っている間は動かさない ――
+    /// pageListContent の moveDisabled)。端の行(先頭の上へ・末尾の下へ)は黙って何もしなかった。
+    private func canMoveSelectedPage(by offset: Int) -> Bool {
+        guard pageFilter == .all, viewModel.isBookReady, let selectedPageKey,
+              displayedRows.contains(where: { $0.pageKey == selectedPageKey })
         else { return false }
-        return row.effectiveReadingIndex != nil
+        return viewModel.canMovePage(withKey: selectedPageKey, by: offset)
     }
 
     private func movePageUp() {
-        guard canMoveSelectedPage, let selectedPageKey,
+        guard canMoveSelectedPage(by: -1), let selectedPageKey,
               let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
         viewModel.movePageUp(at: index)
     }
 
     private func movePageDown() {
-        guard canMoveSelectedPage, let selectedPageKey,
+        guard canMoveSelectedPage(by: 1), let selectedPageKey,
               let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
         viewModel.movePageDown(at: index)
     }

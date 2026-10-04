@@ -354,8 +354,9 @@ struct ViewerViewModelTests {
         let book = try await harness.makeBook(pageCount: 6)
         let viewer = await harness.open(book)
 
-        viewer.addBookmark()
-        viewer.addBookmark()
+        #expect(viewer.addBookmark())
+        // 足さなかったことを返す(呼ぶ側が鳴らし、「追加しました」を出さない。2026-10-04 のレビュー R5-1)。
+        #expect(!viewer.addBookmark())
         #expect(viewer.bookmarks.count == 1)
 
         viewer.jump(toPageIndex: 2)

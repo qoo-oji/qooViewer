@@ -533,12 +533,20 @@ final class BookLayoutEditorViewModel: ObservableObject {
         moveReadablePage(at: index, by: 1)
     }
 
+    /// 上へ(`offset` が -1)/下へ(+1)で、このページを動かせるか: 読めるページで、読めるページの並びの端でないとき(2026-10-04 の
+    /// レビュー R2-5。以前は端の行でも押せて、黙って何もしなかった)。`moveReadablePage` と同じ判定。
+    func canMovePage(withKey pageKey: String, by offset: Int) -> Bool {
+        let readable = rows.filter { $0.effectiveReadingIndex != nil }.map(\.pageKey)
+        guard let position = readable.firstIndex(of: pageKey) else { return false }
+        return readable.indices.contains(position + offset)
+    }
+
     private func moveReadablePage(at index: Int, by offset: Int) {
-        guard rows.indices.contains(index), rows[index].effectiveReadingIndex != nil else { return }
+        // 押せるか(淡色)と同じ判定で断る(除外ページ・端の行)。
+        guard rows.indices.contains(index), canMovePage(withKey: rows[index].pageKey, by: offset) else { return }
         let readable = rows.filter { $0.effectiveReadingIndex != nil }.map(\.pageKey)
         guard let position = readable.firstIndex(of: rows[index].pageKey) else { return }
         let target = position + offset
-        guard readable.indices.contains(target) else { return }
         // movePages が受け取るのは表示の並び(読めるページ → 除外ページ)。除外ページの位置は movePages が `rows` から求める。
         let displayed = readable + rows.filter { $0.effectiveReadingIndex == nil }.map(\.pageKey)
         // `move(fromOffsets:toOffset:)` の行き先は「取り除く前の並び」での位置(下へ動かすときは 1 つ先の後ろ)。

@@ -1190,9 +1190,12 @@ final class LayoutStore: ObservableObject {
 
     /// 差し替え検知の確認で「そのまま適用する」が選ばれた場合に呼ぶ。今回の指紋を記録し直し、
     /// 次回以降の比較の基準を更新する。
-    func acceptCurrentContent(book: MangaBook) {
+    ///
+    /// - Parameter fingerprint: 呼び出し側が既に取った指紋(ビューアは開いたときのもの ―― `ViewerViewModel.openedFingerprint`)。
+    ///   nil ならここで取る(元ファイルへの stat。メインで呼ぶならネットワークボリュームでは往復を待つ ―― 2026-10-04 のレビュー R1-2)。
+    func acceptCurrentContent(book: MangaBook, fingerprint given: ContentFingerprint.Snapshot? = nil) {
         guard let settings = bookLayoutSettings(forBookID: book.id) else { return }
-        let fingerprint = ContentFingerprint.current(for: book)
+        let fingerprint = given ?? ContentFingerprint.current(for: book)
         settings.recordedPageCount = fingerprint.pageCount
         settings.recordedSourceModificationDate = fingerprint.modificationDate
         settings.recordedSourceFileSize = fingerprint.fileSize

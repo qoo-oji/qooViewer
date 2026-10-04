@@ -325,7 +325,8 @@ struct QooViewerApp: App {
     /// ファイルメニューの「EPUB/PDF/CBZとして書き出す…」。ファイルブラウザで本を1冊選んでいればその本を書き出し
     /// (右クリックの「本の書き出し」と同じ)、それ以外は従来どおり書き出しのウインドウを開く(2026-09-15)。
     private func exportFromMenu(_ format: BookExportFormat, windowID: String) {
-        if let appState = focusedAppState, appState.currentBook == nil,
+        // 本が出ているかは画面に出ている本の写しで見る(レビュー R5-3。ファイルブラウザの選択の写しと同じ時点の値)。
+        if let appState = focusedAppState, !appState.menuShownBook.hasBook,
            appState.fileBrowserMenu.selection?.canExportBook == true,
            let actions = appState.fileBrowserActions {
             actions.exportBook(actions.state?.selectedEntries ?? [], format: format)
@@ -341,7 +342,8 @@ struct QooViewerApp: App {
     /// 複数選択・選んでいないときは nil(窓を開くだけ)。**DB に登録があるかはここでは見ない** ―― 一覧に無い本なら
     /// `MetadataWorkspace.reveal` が何もしない。
     private func metadataRevealTarget(_ appState: AppState?) -> String? {
-        guard let appState, appState.currentBook == nil else { return nil }
+        // 本を読んでいるかは画面に出ている本の写しで見る(レビュー R5-3。ホーム → 本の受け渡しの間はホームの選択が相手)。
+        guard let appState, !appState.menuShownBook.hasBook else { return nil }
         if appState.fileBrowserMenu.selection?.canEditMetadata == true,
            let entries = appState.fileBrowserActions?.state?.selectedEntries, entries.count == 1 {
             return entries[0].url.path
@@ -950,8 +952,11 @@ struct QooViewerApp: App {
                 Button("Show in Finder") { [weak focusedAppState] in
                     guard let appState = focusedAppState else { return }
                     let home = appState.homeMenu
-                    if appState.currentBook != nil {
-                        appState.revealCurrentBookInFinder()
+                    // 分岐も淡色と同じ写し(画面に出ている本 ―― menuShownBook)で決める(2026-10-04 のレビュー R5-3)。以前は
+                    // `currentBook` を見たので、ホームから本へ受け渡す間(最長 300ms、画面はホームのまま)はファイルブラウザの選択で
+                    // 押せた項目が、まだ出ていない新しい本を Finder で示した。
+                    if let shownURL = appState.menuShownBook.sourceURL {
+                        appState.revealCurrentBookInFinder(shownURL)
                     } else if appState.fileBrowserMenu.selection?.canShowInFinder == true,
                               let actions = appState.fileBrowserActions {
                         actions.showInFinder(actions.state?.selectedEntries ?? [])
@@ -973,8 +978,9 @@ struct QooViewerApp: App {
                 if preferences.fileBrowserFeatureEnabled {
                     Button("Show in File Browser") { [weak focusedAppState] in
                         guard let appState = focusedAppState else { return }
-                        if appState.currentBook != nil {
-                            appState.revealCurrentBookInFileBrowser(openWindow: openWindow)
+                        // 「Finder で表示」と同じく、画面に出ている本で分ける(レビュー R5-3)。
+                        if let shownURL = appState.menuShownBook.sourceURL {
+                            appState.revealCurrentBookInFileBrowser(openWindow: openWindow, shownURL: shownURL)
                         } else if let item = appState.homeMenu.singleItemTarget {
                             appState.welcomeLibrary?.request(.showItemInFileBrowser(item))
                         } else if let path = appState.homeMenu.singleSmartBookTarget {
@@ -1491,7 +1497,9 @@ struct QooViewerApp: App {
                 if preferences.libraryFeatureEnabled || preferences.fileBrowserFeatureEnabled
                     || preferences.smartLibraryFeatureEnabled {
                 Button("Search") { [weak focusedAppState] in
-                    guard let appState = focusedAppState, appState.currentBook == nil else { return }
+                    // 淡色と同じ写し(ホームが出ているか)で断る(レビュー R5-3。以前は `currentBook == nil` で、ホーム → 本の
+                    // 受け渡しの間は、ホームが出ていて押せるのに何もしなかった)。
+                    guard let appState = focusedAppState, appState.homeMenu.isShown else { return }
                     if appState.homeMenu.mode == .browser {
                         appState.fileBrowser?.requestSearchFocus()
                     } else {

@@ -1727,6 +1727,19 @@ struct ViewerView: View {
         .onChange(of: preferences.maxPinchZoomPercent) { _, _ in
             viewModel.clampPinchZoomToCurrentLimit()
         }
+        // 範囲を尋ねている対象のページが並びから消えたら、保留も捨てる(2026-10-04 のレビュー R2-3)。ダイアログは
+        // `isPresented` の get が false になって閉じるが、SwiftUI は set を呼ばないので保留が残り、ページが並びに戻ると
+        // (除外を解いた・別のウインドウで並びを戻した)尋ねたことも忘れた頃にダイアログが出直した。
+        .onChange(of: isPendingLayoutTargetGone) { _, isGone in
+            if isGone { pendingLayoutStateChange = nil }
+        }
+    }
+
+    /// 範囲を尋ねている保留(pendingLayoutStateChange)があり、その対象のページが今の並びに無いか(applyLayoutAlerts の
+    /// ダイアログが閉じる条件)。onChange へ渡すための型の決まった値(applyLifecycleHandlers の分割のコメント)。
+    private var isPendingLayoutTargetGone: Bool {
+        guard let pendingLayoutStateChange else { return false }
+        return viewModel.pageIndex(forPageKey: pendingLayoutStateChange.pageKey) == nil
     }
 
     /// bodyのモディファイア連鎖のうち、シート表示をまとめたグループ
@@ -4508,8 +4521,14 @@ struct ViewerView: View {
 
     /// クリック位置の無い経路の「今のページを追加」。toggleCurrentPageBookmark(ツールバー・メニュー・キー)の追加側と、
     /// サイドパネルのブックマークの「+」(appState.addBookmarkAction)が共通して使う(2026-10-04 の監査 V-16)。
+    ///
+    /// 足しうるページの決め方は `SpreadBookmarkTargetBehavior.pagesAddableFromCurrentPage` ―― サイドパネルの「+」の淡色も同じ式で
+    /// 決める(2026-10-04 のレビュー R5-1)。
     private func addCurrentPageBookmark() {
-        if partnerPageIndex != nil, preferences.spreadBookmarkTargetBehavior == .askEachTime {
+        let addable = preferences.spreadBookmarkTargetBehavior.pagesAddableFromCurrentPage(
+            start: viewModel.currentIndex, partner: partnerPageIndex
+        )
+        if addable.count > 1 {
             // 見開き表示中(実際に2ページ組でペア表示されているとき)で、環境設定
             // (「Adding Bookmarks in Spread View」)が「実行するたびに尋ねる」の場合は、
             // ここでは追加を実行せず、左右どちらを対象にするか尋ねる確認ダイアログ
@@ -4519,16 +4538,22 @@ struct ViewerView: View {
         } else {
             // 単一ページ表示中(partnerPageIndexがnil。EPUB仕様の空白ページ表示を含む)、または
             // 環境設定が既定側(読み方向に応じた既定側を常に対象にする)の場合は、従来通り
-            // currentIndex(見開きの起点ページ)を対象にする。
-            addBookmarkWithToast(atIndex: viewModel.currentIndex)
+            // currentIndex(見開きの起点ページ)を対象にする(addable はその 1 つだけ)。
+            addBookmarkWithToast(atIndex: addable[0])
         }
     }
 
     /// 指定したページにブックマークを追加し、追加できた場合はトーストで知らせる。
     /// toggleCurrentPageBookmark・見開き左右選択ダイアログ・コンテキストメニューの片側専用
     /// トグル(toggleBookmark(atIndex:))が共通して使う、実際の追加処理本体。
+    ///
+    /// 足せなかった(そのページに既にある・記録しない本)ときは鳴らすだけで、トーストは出さない(2026-10-04 のレビュー R5-1。以前は
+    /// 見開きの左右を尋ねるダイアログで既にある側を選ぶと、足していないのに既存の行を見つけて「追加しました」と出した)。
     private func addBookmarkWithToast(atIndex index: Int) {
-        viewModel.addBookmark(atIndex: index)
+        guard viewModel.addBookmark(atIndex: index) else {
+            NSSound.beep()
+            return
+        }
         // addBookmark(atIndex:)は同期的にmodelContext.save()・reloadBookmarks()まで行うため、
         // 呼び出し直後の時点でviewModel.bookmarksは既に新しいブックマークを含んでいる。
         if let added = viewModel.bookmarks.first(where: { $0.pageIndex == index }) {

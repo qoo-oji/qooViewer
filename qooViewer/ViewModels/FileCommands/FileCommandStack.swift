@@ -20,8 +20,9 @@ final class FileCommandStack: ObservableObject {
     @Published private(set) var undoRecency: Int?
     @Published private(set) var redoRecency: Int?
 
-    /// 操作ごとの新しさ。**積んだ・戻した・やり直したときにだけ取る** ―― 試し直せる失敗・中止で同じ側へ戻したときは前の値のまま
-    /// (操作が起きていないので、新しくなったことにしない)。下の操作が一番上に出てきても新しくならない。
+    /// 操作ごとの新しさ。**積んだ・戻した・やり直したときにだけ取る** ―― 試し直せる失敗・何も戻さずに止めた中止で同じ側へ戻したときは
+    /// 前の値のまま(操作が起きていないので、新しくなったことにしない)。途中まで戻して止めた取り消しは、戻した分の操作が起きたので取り直す
+    /// (レビュー R5-4)。下の操作が一番上に出てきても新しくならない。
     private var recencies: [ObjectIdentifier: Int] = [:]
 
     private func noteRecency(of command: any FileCommand) {
@@ -104,8 +105,12 @@ final class FileCommandStack: ObservableObject {
                 // ⌘Z で届かなくなる。
                 if canRetry { undoStack.append(command) }
                 return .failed(operationName: command.displayName, reason: reason, canRetry: canRetry)
-            case let .stopped(_, failures):
+            case let .stopped(succeeded, failures):
                 // 中止で止めた。コマンドは戻した分を外してあるので、残りを取り消せるよう履歴へ戻す(2026-09-15 の 3 回目の監査)。
+                // 1 件でも戻したなら、ファイルはいま動いた ―― 新しさを取り直す(2026-10-04 のレビュー R5-4)。取り直さないと、
+                // 止める前にした保存データの削除のほうが新しく見え、続きを戻すつもりの ⌘Z が削除を戻した(DataUndoMenuRoute)。
+                // 何も戻さずに止めたなら操作は起きていないので、前の値のまま。
+                if succeeded > 0 { noteRecency(of: command) }
                 undoStack.append(command)
                 return .cancelled(operationName: command.displayName, failures: failures)
             }

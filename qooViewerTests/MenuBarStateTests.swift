@@ -9,7 +9,7 @@ import Testing
 /// ここでは AppState の側で、写しが中身の変化に付いていくかを見る。メニューの見た目そのもの(作り直されるか)は実機。
 @MainActor
 struct MenuBarStateTests {
-    @Test("編集メニューの文言は見開きの相方のブックマークも数え、サイドパネルの「+」の判定は起点のページだけ(監査 V-3・SP-5)")
+    @Test("編集メニューの文言は見開きの相方のブックマークも数える(監査 V-3)")
     func spreadBookmarkFlagCountsThePartnerPage() {
         let state = AppState(usesPageListCache: false)
         let onPartner = Bookmark(bookID: "/book", pageIndex: 3, name: "partner")
@@ -18,16 +18,34 @@ struct MenuBarStateTests {
         state.updateCurrentPartnerPageIndex(3)
         // 以前は起点のページ(2)だけを見て「追加」と出し、押すと相方のブックマークを消した。
         #expect(state.isCurrentSpreadBookmarked)
-        #expect(!state.isCurrentPageBookmarked)
 
         // 相方が居なくなれば(単ページ・横長の自動単ページ化)、見開きの判定も外れる。
         state.updateCurrentPartnerPageIndex(nil)
         #expect(!state.isCurrentSpreadBookmarked)
 
-        // 起点のページにあれば両方。
+        // 起点のページにあれば、相方が居なくても。
         state.updateCurrentPageIndex(3)
         #expect(state.isCurrentSpreadBookmarked)
-        #expect(state.isCurrentPageBookmarked)
+    }
+
+    @Test("サイドパネルの「+」は、押したときに足しうるページのどれかが空いているときだけ押せる(2026-10-04 のレビュー R5-1)")
+    func sidePanelPlusFollowsWhatPressingItWouldAdd() {
+        let ask = SpreadBookmarkTargetBehavior.askEachTime
+        let fixed = SpreadBookmarkTargetBehavior.defaultSide
+        // 尋ねる設定で相方を表示中: 足しうるのは起点と相方の 2 つ(尋ねる)。
+        #expect(ask.pagesAddableFromCurrentPage(start: 2, partner: 3) == [2, 3])
+        // 起点にだけある → 相方へ足せるので押せる(以前は淡色で、相方へ足す手段が無かった)。
+        #expect(ask.canAddBookmark(start: 2, partner: 3, bookmarkedPages: [2]))
+        // 相方にだけある → 押せる(起点へ足せる)。相方を選んだら鳴らす(ViewerView.addBookmarkWithToast)。
+        #expect(ask.canAddBookmark(start: 2, partner: 3, bookmarkedPages: [3]))
+        // 両方にある → 淡色。
+        #expect(!ask.canAddBookmark(start: 2, partner: 3, bookmarkedPages: [2, 3]))
+        // 1 枚しか出ていない・既定側の設定では起点だけ(SP-5 のまま)。
+        #expect(ask.pagesAddableFromCurrentPage(start: 2, partner: nil) == [2])
+        #expect(!ask.canAddBookmark(start: 2, partner: nil, bookmarkedPages: [2]))
+        #expect(fixed.pagesAddableFromCurrentPage(start: 2, partner: 3) == [2])
+        #expect(!fixed.canAddBookmark(start: 2, partner: 3, bookmarkedPages: [2]))
+        #expect(fixed.canAddBookmark(start: 2, partner: 3, bookmarkedPages: [3]))
     }
 
     @Test("ブックマーク一覧が変わるたびに、メニューの作り直しの印が進む(同じ行の名前の変更も。監査 M-1)")

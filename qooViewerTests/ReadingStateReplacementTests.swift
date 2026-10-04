@@ -201,6 +201,41 @@ struct ReadingStateReplacementTests {
         #expect(layouts.checkContentReplacement(book: replaced) == .unaffected)
     }
 
+    @Test("差し替えの確認に答えたときは、開いたときに取った指紋を記録する(メインで stat し直さない。2026-10-04 のレビュー R1-2)")
+    func resolvingAReplacementRecordsTheFingerprintTakenOnOpen() async throws {
+        let harness = try ViewerHarness(label: "replacement-fingerprint")
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let layouts = harness.library.layouts
+        layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
+        // 「設定を破棄」でも行が残る本(表紙を選び直してある)。行が消えれば指紋は記録されない。
+        layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: book.pages[1].sortKey, displayName: "p02.png")
+        try FileManager.default.copyItem(
+            at: book.sourceURL.appendingPathComponent("p04.png"), to: book.sourceURL.appendingPathComponent("p05.png")
+        )
+        let replaced = try await harness.reloadBook()
+        let viewer = await harness.open(replaced)
+        #expect(viewer.pendingLayoutReplacementStatus != nil)
+        let opened = ContentFingerprint.current(for: replaced)
+        let openedDate = try #require(opened.modificationDate)
+
+        // 尋ねている間に元のフォルダの更新日時が動いた(答えるときに stat し直していれば、こちらが記録される)。
+        try FileManager.default.setAttributes(
+            [.modificationDate: openedDate.addingTimeInterval(120)], ofItemAtPath: replaced.sourceURL.path
+        )
+        // URL は読んだ属性を持っておく(実行ループを 1 周するまで)ので、捨ててから答える ―― アプリでは尋ねてから答えるまでに
+        // ループが回っている。
+        var sourceURL = replaced.sourceURL
+        sourceURL.removeAllCachedResourceValues()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(ContentFingerprint.current(for: replaced).modificationDate != openedDate, "前提: 更新日時が動いて見える")
+        viewer.resolveLayoutReplacement(applyExisting: false)
+
+        let row = try #require(layouts.bookLayoutSettings(forBookID: book.id))
+        #expect(row.recordedSourceModificationDate == openedDate)
+        #expect(row.recordedPageCount == opened.pageCount)
+    }
+
     @Test("差し替えを確かめている間は、レイアウトの知らせで DB のレイアウトを画面に当てず、確かめた後に当てる(2026-10-04 の監査 V-13)")
     func aPendingReplacementKeepsTheDatabaseLayoutOffTheScreen() async throws {
         let harness = try ViewerHarness(label: "replacement-pending")

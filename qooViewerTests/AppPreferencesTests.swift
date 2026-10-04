@@ -475,6 +475,33 @@ extension AppPreferencesTests {
         #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: .nan) == 50...2000)
     }
 
+    @Test("「データを残す冊数」の範囲は、画面に出ている間は保存値が下がっても縮まず、取り込みで上がれば広がる(2026-10-04 のレビュー R8b-1)")
+    func trackedBooksSliderRangeDoesNotShrinkWhileShown() {
+        var shown = AppPreferences.maxTrackedBooksCountSliderRange(current: 5003)
+        #expect(shown == 50...5050)
+
+        // 以前の筋道の再現: マウス(つまみの割合)を同じ位置に置いたまま、書かれた値から範囲を作り直すたびに値を読み直す
+        // (TickMarkSlider は値を範囲の割合で決め、刻み 50 に丸める)。以前は書くたびに上が縮み、2000 まで落ちた。
+        let fraction = (4500.0 - 50) / (5050 - 50)
+        var value = 5003.0
+        for _ in 0..<50 {
+            let raw = shown.lowerBound + fraction * (shown.upperBound - shown.lowerBound)
+            value = ((raw - shown.lowerBound) / 50).rounded() * 50 + shown.lowerBound
+            shown = AppPreferences.maxTrackedBooksCountSliderRange(current: value, keeping: shown)
+        }
+        #expect(value == 4500)
+        #expect(shown == 50...5050)
+
+        // 出ている間に取り込みで保存値が上がれば、そこまで広げる。
+        shown = AppPreferences.maxTrackedBooksCountSliderRange(current: 8001, keeping: shown)
+        #expect(shown == 50...8050)
+        // 画面を出し直したら(控えなし)今の保存値で決め直す。
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: 4500) == 50...4500)
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: 1000) == 50...2000)
+        // 数でない保存値でも、控えた範囲を保つ。
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: .nan, keeping: 50...3000) == 50...3000)
+    }
+
     @Test("正方形の表紙では、読み込み・取り込みのどちらでも「向きで切り替える」が「切り取って埋める」になる(ST-14)")
     func squareCoversNeverKeepByOrientation() {
         let suite = PreferencesSuite()

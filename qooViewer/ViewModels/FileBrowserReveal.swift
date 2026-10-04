@@ -86,8 +86,10 @@ extension AppState {
     }
 
     /// 開いている本(ファイルメニュー・ビューアの右クリック)。
-    func revealCurrentBookInFileBrowser(openWindow: OpenWindowAction) {
-        guard let url = currentBook?.sourceURL else { return }
+    /// - Parameter shownURL: 相手にする本の場所(メニューバーは画面に出ている本 ―― `menuShownBook.sourceURL`。レビュー R5-3)。
+    ///   nil なら `currentBook`。
+    func revealCurrentBookInFileBrowser(openWindow: OpenWindowAction, shownURL: URL? = nil) {
+        guard let url = shownURL ?? currentBook?.sourceURL else { return }
         revealInFileBrowser(url, openWindow: openWindow)
     }
 

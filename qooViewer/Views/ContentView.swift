@@ -1024,7 +1024,7 @@ struct ContentView: View {
             isRightToLeft: appState.isRightToLeft,
             scalingMode: appState.currentScalingMode,
             isPageShiftLocked: appState.isPageShiftLocked,
-            // isCurrentBookFavorited/isCurrentPageBookmarkedは、AppState自身の@Publishedでは
+            // isCurrentBookFavoritedは、AppState自身の@Publishedでは
             // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
             // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
             // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
@@ -1038,7 +1038,7 @@ struct ContentView: View {
             // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
             // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
             // メニューの再構築でmacOS 26のクラッシュを引き起こしうる。AppState側で保留付きの
-            // @Publishedとして持つ値をそのまま読む(AppState.isCurrentPageBookmarked参照)。
+            // @Publishedとして持つ値をそのまま読む(AppState.isCurrentSpreadBookmarked参照)。
             // 文言は見開きの相方も数える値(押したときの動きと同じ。監査 V-3)。
             isCurrentSpreadBookmarked: appState.isCurrentSpreadBookmarked,
             // 同じフォルダのファイル・ブックマーク一覧は中身を参照から読むので、変わった印を値で渡す(監査 M-1)。

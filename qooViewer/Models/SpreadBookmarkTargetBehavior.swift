@@ -25,4 +25,23 @@ enum SpreadBookmarkTargetBehavior: String, CaseIterable, Identifiable, Codable, 
         case .askEachTime: return "Ask Each Time"
         }
     }
+
+    /// クリック位置の無い「今のページを追加」が足しうるページ(`ViewerView.addCurrentPageBookmark` の分岐そのもの)。
+    /// 相方を表示中で「毎回尋ねる」なら起点と相方の 2 つ(どちらに足すかを尋ねる)、それ以外は起点のページだけ。
+    ///
+    /// - Parameters:
+    ///   - start: 見開きの起点のページ(`currentIndex`)。
+    ///   - partner: 実際に 2 ページ目として表示している相方(1 枚しか出ていなければ nil)。
+    func pagesAddableFromCurrentPage(start: Int, partner: Int?) -> [Int] {
+        guard let partner, self == .askEachTime else { return [start] }
+        return [start, partner]
+    }
+
+    /// サイドパネルのブックマークの「+」を押せるか: 足しうるページのうち、まだブックマークの無いものがあるとき
+    /// (2026-10-04 のレビュー R5-1)。以前の判定(SP-5)は起点のページだけを見ていたので、「+」が `addCurrentPageBookmark`
+    /// を通るようになった(V-16)後は、「毎回尋ねる」で相方を表示中に、起点にだけあると淡色で相方へ足せず、相方にだけあると押せて
+    /// ダイアログで相方を選ぶと何も足さなかった。押したときと同じ式(`pagesAddableFromCurrentPage`)で決める。
+    func canAddBookmark(start: Int, partner: Int?, bookmarkedPages: Set<Int>) -> Bool {
+        pagesAddableFromCurrentPage(start: start, partner: partner).contains { !bookmarkedPages.contains($0) }
+    }
 }

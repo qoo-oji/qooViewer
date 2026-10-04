@@ -422,6 +422,17 @@ struct ProgressBarView: View {
         .onChange(of: pixelSize) { _, newSize in
             scheduleThumbnailLoad(for: range, centeredOn: centerIndex, pixelSize: newSize)
         }
+        // 範囲は同じでも、そこに並ぶページや補正が変わったら読み直す(2026-10-04 のレビュー R2-4)。V-8 で古い絵は出さなく
+        // なった(shownThumbnail)が、読み直すきっかけが範囲・解像度・出たときだけだったので、カーソルを止めたまま別のウインドウで
+        // 除外・並べ替え・補正の切り替えをすると、セルが空白のまま残った。
+        .onChange(of: contentKey(for: range)) { _, _ in
+            scheduleThumbnailLoad(for: range, centeredOn: centerIndex, pixelSize: pixelSize)
+        }
+    }
+
+    /// 範囲の各ページの今の中身(ページの識別子と補正の有無)。読み直しのきっかけに使う(filmstrip の onChange)。
+    private func contentKey(for range: ClosedRange<Int>) -> [ThumbnailContent?] {
+        range.map { currentContent(at: $0) }
     }
 
     /// 環境設定「閲覧中の動作」の「カーソルを合わせたページをプレビュー」がOFFのときに表示する、

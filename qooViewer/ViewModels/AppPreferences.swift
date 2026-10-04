@@ -401,10 +401,19 @@ final class AppPreferences: ObservableObject {
     /// 「データを残す冊数」のスライダーの範囲。ふだんは 50…2000 で、保存値がそれより大きい(手で直したバックアップから取り込んだ)
     /// ときは上をその値まで広げる(2026-10-04 の監査 ST-13 ―― 以前は 2000 に固定で、つまみが端に貼り付いたまま実際は 5000 冊残り、
     /// 触っただけで 2000 に下がって読書位置が間引かれた)。目盛り(50)に揃えて切り上げる。
-    static func maxTrackedBooksCountSliderRange(current: Double) -> ClosedRange<Double> {
+    ///
+    /// - Parameter shown: 画面に出している間の範囲。渡すと**それより狭くしない**(2026-10-04 のレビューの R8b-1)。範囲を保存値から
+    ///   作り直すだけだと、つまみを下げて値が書かれるたびに上が縮み、同じマウス位置でも値がさらに下がる…を繰り返して 2000 まで
+    ///   落ち、戻せなかった(下がった値で古い本の保存データが間引かれる)。広げるのは、取り込みで保存値が上がったときだけ。
+    ///   画面を出し直したとき(`shown` が nil)に初めて保存値まで縮む。
+    static func maxTrackedBooksCountSliderRange(
+        current: Double, keeping shown: ClosedRange<Double>? = nil
+    ) -> ClosedRange<Double> {
         let usual: ClosedRange<Double> = 50...2000
-        guard current.isFinite, current > usual.upperBound else { return usual }
-        return usual.lowerBound...((current / 50).rounded(.up) * 50)
+        var upper = usual.upperBound
+        if current.isFinite, current > upper { upper = (current / 50).rounded(.up) * 50 }
+        if let shown, shown.upperBound.isFinite, shown.upperBound > upper { upper = shown.upperBound }
+        return usual.lowerBound...upper
     }
     /// 表示メニューの「ツールバーを隠す」。以前はAppState(ウインドウごとに新規作成される)だけが
     /// 持つ一時的な状態だったため、アプリを終了して再度起動するとOFFに戻ってしまっていた。

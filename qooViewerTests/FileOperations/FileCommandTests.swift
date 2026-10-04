@@ -132,6 +132,28 @@ struct FileCommandStackTests {
         #expect(stack.undoRecency == firstRecency)
     }
 
+    @Test("途中まで戻して止めた取り消しは新しくなり、何も戻さずに止めたものは前の値のまま(2026-10-04 のレビュー R5-4)")
+    func stoppedUndoRefreshesRecencyOnlyWhenSomethingMoved() async throws {
+        let stack = FileCommandStack()
+        let command = ScriptedCommand("move")
+        try await stack.run(command)
+        let ranRecency = try #require(stack.undoRecency)
+        // その後にした保存データの削除(削除の積み場所が取る新しさ)。
+        let laterDeletion = UndoRecency.next()
+
+        // 何も戻さずに止めた: 操作は起きていないので、削除のほうが新しいまま。
+        command.undoResult = .stopped(succeeded: 0, failures: [])
+        _ = await stack.undo()
+        #expect(stack.undoRecency == ranRecency)
+
+        // 3 件戻して止めた: いまファイルが動いたので、削除より新しい(続きの ⌘Z はこの操作の残りを戻す)。
+        command.undoResult = .stopped(succeeded: 3, failures: [])
+        _ = await stack.undo()
+        let stoppedRecency = try #require(stack.undoRecency)
+        #expect(stoppedRecency > laterDeletion)
+        #expect(stack.undoTitle == "move")
+    }
+
     @Test("試し直せる「取り消せなかった」は履歴に残し、もう一度取り消せる")
     func retryableImpossibleUndoStays() async throws {
         let stack = FileCommandStack()

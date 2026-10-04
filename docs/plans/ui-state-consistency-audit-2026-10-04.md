@@ -2382,3 +2382,46 @@ docs: 15(macOS が要るフォルダの「置き換える」と自動リネー�
 左ペインの右クリック(取り消しだけ持つ)、メタデータの編集ウインドウの「開く」(新しいノーマルウインドウ)。
 docs: 04(開く意図・EPUB を飛ばした先のスコープ・回した並び)、06(履歴の行を取り除く時・通り抜けの回し先・直前の本へ戻る)、CLAUDE.md(待ってから
 開く入口の決まりを開く意図に)。
+
+### レビュー指摘の修正 段 D(2026-10-04)
+
+ビューア・ブックマーク・設定・メニューの分。
+
+- **R5-1**(直した): サイドパネルの「+」の淡色と押したときの動きを 1 つの式にした(`SpreadBookmarkTargetBehavior.pagesAddableFromCurrentPage` /
+  `canAddBookmark`。相方を表示中で「毎回尋ねる」なら起点と相方のどちらかが空いていれば押せる、それ以外は起点だけ)。`ViewerView.addCurrentPageBookmark`
+  も同じ式で尋ねるかを決める。`ViewerViewModel.addBookmark(atIndex:)` は足したかを返し、足せなかったら `addBookmarkWithToast` は鳴らすだけ
+  (尋ねるダイアログで既にある側を選ぶと「追加しました」と出ていた)。テスト `MenuBarStateTests.sidePanelPlusFollowsWhatPressingItWouldAdd`(式が
+  新しいので直す前の形では書けない ―― 以前の判定は起点のページだけで、「起点にだけある → 押せる」の行が以前と逆)、
+  `ViewerViewModelTests.addingABookmarkTwiceOnTheSamePageDoesNothing` に戻り値を足した。docs/07・09 も直した。
+- **R5-2**(直した): `AppState.isCurrentPageBookmarked` を外した(読み手が無い。サイドパネルは保留の無い自分の一覧から決める)。テストとコメント
+  (AppState・ContentView)も直した。
+- **R8b-1**(直した): 「データを残す冊数」を `BooksToKeepDataForSlider` にし、(1) `commitsOnRelease`(ドラッグの途中は保存値を書かない)、
+  (2) 範囲は出たときの保存値で決めて `@State` に控え、出ている間は広げるだけ(`maxTrackedBooksCountSliderRange(current:keeping:)`。取り込みで
+  上がったときに広げ、出し直したときに縮める)。`TickMarkSlider.updateNSView` は毎回 `maxValue` を入れ直し、`TickMarkSliderView` の値は
+  ドラッグ中も `onChange` から binding へ書かれる(`commitsOnRelease` が無ければ保存値)ことをコードで確かめた ―― 縮み続ける筋道はコードの上では
+  成り立つ(実機の再現はしていない)。どちらの直しでも筋道は切れるが、両方入れた。テスト
+  `AppPreferencesTests.trackedBooksSliderRangeDoesNotShrinkWhileShown`(同じマウスの位置で値を読み直す繰り返しを再現。`keeping` を無視させると
+  落ちることを確かめた)。
+- **R2-3**(直した): 範囲を尋ねている対象のページが並びから消えたら保留を捨てる(`isPendingLayoutTargetGone` の onChange。
+  `applyPageChangeHandlers` に入れ、連鎖は 5 個)。SwiftUI が get が false になったときに set を呼ぶかは確かめていない(呼ぶなら今までも
+  捨てていて、足した onChange は何もしない)。View の状態なのでテストは足していない。
+- **R2-4**(直した): フィルムストリップは、範囲の各ページの中身(ページの識別子と補正)の列が変わっても読み直す(`contentKey(for:)` の
+  onChange)。View の状態なのでテストは足していない。
+- **R2-5**(直した): 上へ/下へは「すべてのページ」のときだけ押せ、読めるページの並びの端では押せない。端の判定は動かす側と同じ
+  `BookLayoutEditorViewModel.canMovePage(withKey:by:)`(`moveReadablePage` もこれで断る)。テスト
+  `BookLayoutEditorTests.movableMatchesWhatMovingDoes`(判定が新しいので直す前の形では書けない。押しても並びを変えない部分は直す前から通る)。
+  絞り込みの条件は View なのでテストしていない。
+- **R1-2**(直した): ビューアは開いたときの指紋を `openedFingerprint` に控え、差し替えの確認に答えたとき(そのまま使う・破棄の両方)は
+  `LayoutStore.acceptCurrentContent(book:fingerprint:)` へそれを渡す(メインで stat し直さない)。記録するのも見せて尋ねた中身の指紋になる。
+  テスト `ReadingStateReplacementTests.resolvingAReplacementRecordsTheFingerprintTakenOnOpen`(尋ねている間にフォルダの更新日時を動かす。
+  `URL` が読んだ属性を実行ループ 1 周ぶん持つので、捨ててから答える。直しを外すと落ちることを確かめた)。
+- **R5-3**(直した): メニューバーの「Finder で表示」「ファイルブラウザで表示」は `menuShownBook.sourceURL`(`MenuShownBook` に足した)の本を
+  示し、「検索」は `homeMenu.isShown` で断り、書き出し(`exportFromMenu`)・「メタデータの編集…」(`metadataRevealTarget`)の分岐は
+  `menuShownBook.hasBook` で決める。`revealCurrentBookInFinder` / `revealCurrentBookInFileBrowser` は相手の URL を受け取れる(省くと従来どおり
+  `currentBook`。ビューアの右クリックはそのまま)。メニューの配線なのでテストは足していない。「次の本・前の本へ」(`currentBook` から隣を探す)は
+  指摘の範囲外なので触っていない。
+- **R5-4**(直した): 取り消しを途中で止めた(`.stopped`)とき、1 件でも戻していれば新しさを取り直す(何も戻さずに止めたなら前の値)。テスト
+  `FileCommandStackTests.stoppedUndoRefreshesRecencyOnlyWhenSomethingMoved`(直しを外すと落ちることを確かめた)。docs/09 も直した。
+
+docs: 06(差し替えの確認で記録する指紋)、07(上へ/下への淡色・「+」の式)、08(データを残す冊数のスライダー)、09(「+」の式・メニューの
+押したときの分岐・ファイル操作の新しさ)、CLAUDE.md(メニューの押したときの分岐も出ている本の写しで)。

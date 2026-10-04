@@ -576,35 +576,33 @@ final class AppState: ObservableObject {
     /// ViewerViewから、現在のページ番号を反映するために呼ばれる(updateCurrentBookmarksと同じ仕組み)。
     ///
     /// この値だけは**保留しない**。メニューの内容には直接使わず(メニューが使うのは下の
-    /// isCurrentPageBookmarked)、サイドパネルの現在ページのハイライト・自動スクロールが
+    /// isCurrentSpreadBookmarked)、サイドパネルの現在ページのハイライト・自動スクロールが
     /// これを見ているため、保留するとメニューを開いている間サイドパネルが追従しなくなる。
     func updateCurrentPageIndex(_ index: Int) {
         currentPageIndex = index
         refreshIsCurrentPageBookmarked()
     }
 
-    /// 保留を通さない、常に最新のブックマーク一覧。isCurrentPageBookmarkedの再計算にだけ使う
+    /// 保留を通さない、常に最新のブックマーク一覧。isCurrentSpreadBookmarkedの再計算にだけ使う
     /// (メニューが読むcurrentBookmarksは保留されるため、そちらを基準にすると保留中の再計算が
     /// 古い一覧を見てしまう)。
     private var liveCurrentBookmarks: [Bookmark] = []
 
-    /// 現在のページがブックマーク済みかどうか。メニューバーの「このページをブックマークに
-    /// 追加/から削除」の文言と、ツールバー・コンテキストメニューの同ボタンに使う。
-    ///
-    /// 以前はContentView.bodyがcurrentBookmarksとcurrentPageIndexから都度計算していたが、
-    /// currentPageIndexを保留しない(上のコメント参照)以上、そのままではスライドショーの
-    /// ページ送りでメニューを開いている最中に文言が変わりうる。項目数こそ変わらないものの、
-    /// メニューの再構築(NSMenu setItemArray:)が走ること自体がmacOS 26でのクラッシュの条件の
-    /// ため、メニューが読む値はここで保留付きの@Publishedとして持つ
-    /// (詳細はMenuBarMenuGateの型コメント参照)。
-    @Published private(set) var isCurrentPageBookmarked = false
     /// 表示中の見開き(起点のページと相方のページ)のどちらかにブックマークがあるか。編集メニューの「このページをブックマークに
     /// 追加/から削除」の文言はこちら ―― 押したときの動き(`ViewerView.toggleCurrentPageBookmark`)とツールバー・右クリックは
     /// 相方も数える(利用者の要望)。以前はメニューの写しだけ起点のページしか見ず、相方だけにブックマークがあると「追加」と
     /// 出したまま相方のブックマークを消した(2026-10-04 の監査 V-3)。
     ///
-    /// `isCurrentPageBookmarked`(起点のページだけ)は残す: サイドパネルの「+」の淡色は、足す相手(`addBookmark()` = 起点のページ)に
-    /// 既にあるかで決まる(SP-5)。2 つを 1 つにまとめると、どちらかが押した結果と食い違う。
+    /// 以前はContentView.bodyがcurrentBookmarksとcurrentPageIndexから都度計算していたが、
+    /// currentPageIndexを保留しない(updateCurrentPageIndexのコメント参照)以上、そのままではスライドショーの
+    /// ページ送りでメニューを開いている最中に文言が変わりうる。項目数こそ変わらないものの、
+    /// メニューの再構築(NSMenu setItemArray:)が走ること自体がmacOS 26でのクラッシュの条件の
+    /// ため、メニューが読む値はここで保留付きの@Publishedとして持つ
+    /// (詳細はMenuBarMenuGateの型コメント参照)。
+    ///
+    /// 起点のページだけを見る `isCurrentPageBookmarked` もここにあったが、読み手が無かった(サイドパネルの「+」は自分の一覧から
+    /// 決める ―― 保留を通さない値で見るため)ので外した(2026-10-04 のレビュー R5-2)。「+」の淡色は
+    /// `SpreadBookmarkTargetBehavior.canAddBookmark`(押したときと同じ式。R5-1)。
     @Published private(set) var isCurrentSpreadBookmarked = false
 
     /// **ビューアに出ている本**(`ViewerHandoff.shown`)のうち、メニューバーが読む値。ContentView が詰め、メニューバーのメニューが
@@ -647,12 +645,10 @@ final class AppState: ObservableObject {
     }
 
     private func refreshIsCurrentPageBookmarked() {
-        let flag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex }
         let partner = currentPartnerPageIndex
-        let spreadFlag = flag || (partner.map { index in liveCurrentBookmarks.contains { $0.pageIndex == index } } ?? false)
+        let spreadFlag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex || $0.pageIndex == partner }
         MenuBarMenuGate.shared.run(menuGateKey("isCurrentPageBookmarked")) { [weak self] in
             guard let self else { return }
-            if self.isCurrentPageBookmarked != flag { self.isCurrentPageBookmarked = flag }
             if self.isCurrentSpreadBookmarked != spreadFlag { self.isCurrentSpreadBookmarked = spreadFlag }
         }
     }
@@ -2405,8 +2401,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    func revealCurrentBookInFinder() {
-        guard let url = currentBook?.sourceURL else { return }
+    /// - Parameter shownURL: 相手にする本の場所。メニューバーは画面に出ている本(`menuShownBook.sourceURL`)を渡す(レビュー R5-3)。
+    ///   nil なら `currentBook`。
+    func revealCurrentBookInFinder(_ shownURL: URL? = nil) {
+        guard let url = shownURL ?? currentBook?.sourceURL else { return }
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
             NSWorkspace.shared.open(url)
@@ -2539,6 +2537,9 @@ struct MenuShownBook: Equatable {
     var leavesNoRecord = false
     /// お気に入りの判定に使う(本の id)。
     var bookID: String?
+    /// 本の場所。メニューバーの「Finder で表示」「ファイルブラウザで表示」の相手(2026-10-04 のレビュー R5-3 ―― 淡色をこの写しで
+    /// 決めるのに、押したときは `currentBook` を見ていたので、受け渡しの間は画面に出ていない新しい本を示した)。
+    var sourceURL: URL?
 
     init() {}
 
@@ -2547,6 +2548,7 @@ struct MenuShownBook: Equatable {
         isTransient = book?.isTransient == true
         leavesNoRecord = book?.leavesNoRecord == true
         bookID = book?.id
+        sourceURL = book?.sourceURL
     }
 }
 

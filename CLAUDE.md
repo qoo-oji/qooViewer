@@ -473,7 +473,7 @@ off the `ViewerViewModel` class reference) because `FocusedValue` change detecti
 **Everything a menu-bar item reads goes into that value copy (`MenuCheckmarkState`), built from the post-`MenuBarMenuGate`
 values** — a list read off `focusedAppState` needs at least a revision in the copy (and on its submenu's `.id`), or the
 menu never rebuilds (2026-10-04, audit M-1); **a memo/copy key holds every input the predicate reads** (X-2); book-derived
-values come from the shown book (`AppState.menuShownBook` ← `ViewerHandoff.shown`, M-6); disabled submenus are drawn with
+values come from the shown book (`AppState.menuShownBook` ← `ViewerHandoff.shown`, M-6), and the action branches on the same copy, not `currentBook` (R5-3); disabled submenus are drawn with
 `MenuBarSubmenu` (`Menu` + `.disabled` leaves the parent looking clickable, X-1); a stale enabled item that the entrance
 refuses beeps (FBA-5). docs/09「メニューバーの写しの決まり」.
 **Closures in the viewer's toolbar buttons, context menu items, Toggle bindings and confirmation dialogs

@@ -315,4 +315,30 @@ struct BookLayoutEditorTests {
         #expect(editor.rows.map(\.pageKey) == [keys[2], keys[0], keys[1], keys[3]])
         #expect(layouts.pageOverride(forBookID: book.id, pageKey: keys[0])?.state == nil)
     }
+
+    @Test("上へ/下へを押せるかは、動かす側と同じ判定: 除外ページと、読めるページの並びの端では押せない(2026-10-04 のレビュー R2-5)")
+    func movableMatchesWhatMovingDoes() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let keys = book.pages.map(\.sortKey)
+        let layouts = harness.library.layouts
+        // 末尾のページを除外: 読めるページは 0・1・2。
+        layouts.setPageLayoutState(for: book, pageKey: keys[3], state: .excluded)
+        let editor = makeEditor(harness, book)
+
+        #expect(!editor.canMovePage(withKey: keys[0], by: -1), "先頭の上へ")
+        #expect(editor.canMovePage(withKey: keys[0], by: 1))
+        #expect(editor.canMovePage(withKey: keys[2], by: -1))
+        // 読めるページの末尾(その後ろは除外ページだけ)の下へ。真の並びでは端でないが、動かす先が無い。
+        #expect(!editor.canMovePage(withKey: keys[2], by: 1), "読めるページの末尾の下へ")
+        #expect(!editor.canMovePage(withKey: keys[3], by: -1), "除外ページ")
+        #expect(!editor.canMovePage(withKey: "no-such-page", by: 1))
+
+        // 押せないと言った操作は、押しても並びを変えない。
+        editor.movePageDown(at: 2)
+        editor.movePageUp(at: 0)
+        #expect(editor.rows.map(\.pageKey) == keys)
+        #expect(layouts.bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == nil)
+    }
 }

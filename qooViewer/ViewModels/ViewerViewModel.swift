@@ -144,6 +144,11 @@ final class ViewerViewModel: ObservableObject {
     /// 解決されるまでの間、DB由来のレイアウトヒント(pageLayoutStates/bookLayoutSettings)は
     /// 意図的に空のまま扱う(誤った組み合わせで表示してしまうことを避ける安全策)。
     @Published private(set) var pendingLayoutReplacementStatus: LayoutContentReplacementStatus?
+    /// 開いたときに取った元ファイルの指紋(init の `currentFingerprint`)。差し替えの確認に答えたとき(`resolveLayoutReplacement`)は
+    /// これを記録し直す(2026-10-04 のレビュー R1-2)―― 以前は答えたときにメインでもう一度 stat していた(ネットワークボリュームでは
+    /// 往復。決定 18)。記録するのも「見せて尋ねた中身」の指紋のほうが正しい: 尋ねている間にファイルが変わったら、次に開いたときに
+    /// また尋ねる。
+    private let openedFingerprint: ContentFingerprint.Snapshot
 
     private let modelContext: ModelContext
     /// この本のbookID(book.idと同じ値)。`book`は@Published(MainActor隔離)のため
@@ -408,6 +413,7 @@ final class ViewerViewModel: ObservableObject {
         // それぞれが往復で、どちらも最初の見開きを読み始める前にメインで待っていた)。数えるのは除外前の本(incomingBook)で、
         // 以前の 2 か所とも同じ本を渡していた。
         let currentFingerprint = ContentFingerprint.current(for: incomingBook)
+        self.openedFingerprint = currentFingerprint
         let replacementStatus: LayoutContentReplacementStatus = skipsPersistence
             ? .unaffected
             : layoutStore.checkContentReplacement(book: incomingBook, currentFingerprint: currentFingerprint)
@@ -2223,7 +2229,8 @@ final class ViewerViewModel: ObservableObject {
     /// を受けて、対象ページを明示的に指定できるaddBookmark(atIndex:)を新設した。こちらは
     /// その薄いラッパーとして残している(呼び出し元を洗い出したところ、見開きの相方ページを
     /// 意図的に対象にする経路は無く、すべてcurrentIndexを渡していたことを確認済み)。
-    func addBookmark() {
+    @discardableResult
+    func addBookmark() -> Bool {
         addBookmark(atIndex: currentIndex)
     }
 
@@ -2232,13 +2239,18 @@ final class ViewerViewModel: ObservableObject {
     /// (currentIndex)ではなく相方ページ(currentIndex + 1)を対象にしたい場合があるため、
     /// インデックスを明示的に指定できるようにしている(ViewerView.toggleCurrentPageBookmark/
     /// contextMenuContent参照)。
-    func addBookmark(atIndex index: Int) {
+    ///
+    /// - Returns: 足したか。足さなかった(シークレット・同じページに既にある)ときは false ―― 呼ぶ側が鳴らす(2026-10-04 のレビュー
+    ///   R5-1。以前は戻り値が無く、見開きの左右を尋ねるダイアログで既にある側を選ぶと、何も足さないのに既存の行を見つけて
+    ///   「追加しました」と出した)。
+    @discardableResult
+    func addBookmark(atIndex index: Int) -> Bool {
         // シークレットウインドウでは追加しない(UI側でも無効化してあるが、キー割り当て等の
         // 経路が増えても漏れないようここでも止める)。
-        guard !skipsPersistence else { return }
+        guard !skipsPersistence else { return false }
         // 同じページに対するブックマークが既にある場合は、重複して追加しない(要望)。
         // bookmarksはreloadBookmarks()で都度読み直しているため、ここでの判定は常に最新の状態を見る。
-        guard !bookmarks.contains(where: { $0.pageIndex == index }) else { return }
+        guard !bookmarks.contains(where: { $0.pageIndex == index }) else { return false }
         // ブックマークの名前(SwiftDataに永続化される実データ)は、後から表示言語を切り替えても
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
@@ -2265,6 +2277,7 @@ final class ViewerViewModel: ObservableObject {
         try? modelContext.save()
         reloadBookmarks()
         postBookmarksDidChange()
+        return true
     }
 
     // 以前はここに削除(removeBookmark)・リネーム(renameBookmark)もあったが、「ブックマークの
@@ -3248,11 +3261,12 @@ final class ViewerViewModel: ObservableObject {
     /// 追加する予定(現時点では「破棄する」のみ)。
     func resolveLayoutReplacement(applyExisting: Bool) {
         guard pendingLayoutReplacementStatus != nil else { return }
+        // 指紋は開いたときに取ったもの(openedFingerprint。ここで stat し直さない ―― R1-2)。
         if applyExisting {
-            layoutStore.acceptCurrentContent(book: book)
+            layoutStore.acceptCurrentContent(book: book, fingerprint: openedFingerprint)
         } else {
             layoutStore.discardPageLayout(forBookID: book.id)
-            layoutStore.acceptCurrentContent(book: book)
+            layoutStore.acceptCurrentContent(book: book, fingerprint: openedFingerprint)
         }
         pendingLayoutReplacementStatus = nil
         // 差し替えの疑いがある間は見送っていたEPUB/PDFのレイアウト情報の取り込みを、

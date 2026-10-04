@@ -146,18 +146,7 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                SettingsSlider(
-                    "Books to Keep Data For",
-                    value: $preferences.maxTrackedBooksCount,
-                    // 保存値が 2000 を超えていれば上をそこまで広げる(監査 ST-13。つまみを端に貼り付けたまま触ると下がった)。
-                    in: AppPreferences.maxTrackedBooksCountSliderRange(current: preferences.maxTrackedBooksCount),
-                    step: 50,
-                    // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
-                    // ラベルに入れると長すぎるので、ホバーの吹き出しへ。
-                    help: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first."
-                ) { value in
-                    "\(Int(value))"
-                }
+                BooksToKeepDataForSlider(value: $preferences.maxTrackedBooksCount)
             } header: {
                 Text("Saved Data")
             }
@@ -191,6 +180,41 @@ struct GeneralSettingsView: View {
             ) {
                 preferences.resetToDefaults(.general)
             }
+        }
+    }
+}
+
+/// 「データを残す冊数」のスライダー(2026-10-04 のレビューの R8b-1)。
+///
+/// 範囲の上は保存値が 2000 を超えていればそこまで広げる(監査 ST-13)が、**範囲は画面に出ている間は縮めない**。以前は範囲を
+/// 毎回の保存値から作り直し、ドラッグの途中の値がその場で保存されていたので、保存値が 2000 を超えた状態で左へ少し動かすと、値が
+/// 書かれる → 上が縮む(`TickMarkSlider.updateNSView` が `maxValue` を入れ直す)→ 同じマウスの位置がより小さい値になる … を
+/// 繰り返し、2000 まで落ちて戻せなかった(下がった値で、次に本を開いたときに古い本の保存データが間引かれる)。
+/// - ドラッグの途中は保存値を動かさない(`commitsOnRelease`。離したときに 1 回だけ書く ―― 「保持する履歴の件数」と同じ。途中で
+///   別のウインドウが本を開いても、通り過ぎた小さな値で間引かない)。
+/// - 範囲は出たときの保存値で決めて控え、出ている間は広げるだけ(取り込みで保存値が上がったとき)。下げた値に合わせて縮めるのは、
+///   画面を出し直したとき(`AppPreferences.maxTrackedBooksCountSliderRange(current:keeping:)`)。
+private struct BooksToKeepDataForSlider: View {
+    @Binding var value: Double
+    /// 画面に出ている間の範囲(nil = まだ出ていない)。
+    @State private var shownRange: ClosedRange<Double>?
+
+    var body: some View {
+        SettingsSlider(
+            "Books to Keep Data For",
+            value: $value,
+            in: AppPreferences.maxTrackedBooksCountSliderRange(current: value, keeping: shownRange),
+            step: 50,
+            // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
+            // ラベルに入れると長すぎるので、ホバーの吹き出しへ。
+            help: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first.",
+            commitsOnRelease: true
+        ) { value in
+            "\(Int(value))"
+        }
+        .onAppear { shownRange = AppPreferences.maxTrackedBooksCountSliderRange(current: value) }
+        .onChange(of: value) { _, newValue in
+            shownRange = AppPreferences.maxTrackedBooksCountSliderRange(current: newValue, keeping: shownRange)
         }
     }
 }

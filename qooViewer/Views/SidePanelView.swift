@@ -1686,20 +1686,24 @@ private struct SidePanelBookmarksSectionView: View {
     var onRename: (Bookmark) -> Void
     var onDelete: (Bookmark) -> Void
 
-    /// 今のページ(見開きの起点)にブックマークがあるか(`ViewerViewModel.addBookmark()` の重複の判定と同じ。SP-5)。
-    private var isCurrentPageBookmarked: Bool {
-        bookmarks.contains { $0.pageIndex == currentPageIndex }
+    /// 「+」で足せるページが残っているか。押したときの動き(`ViewerView.addCurrentPageBookmark`)と同じ式
+    /// (`SpreadBookmarkTargetBehavior.canAddBookmark`)―― 「毎回尋ねる」で相方を表示中なら両ページとも登録済みのときだけ淡色、
+    /// それ以外は起点のページにあれば淡色(2026-10-04 のレビュー R5-1。以前は常に起点のページだけを見た)。
+    private var canAddBookmark: Bool {
+        preferences.spreadBookmarkTargetBehavior.canAddBookmark(
+            start: currentPageIndex, partner: partnerPageIndex, bookmarkedPages: Set(bookmarks.map(\.pageIndex))
+        )
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                // 今のページ(見開きの起点)に既にあるときも淡色(2026-10-04 の監査 SP-5。以前は押せて、`addBookmark()` の重複の
-                // guard で黙って戻った)。足す相手は起点のページだけなので、相方は数えない ―― 編集メニューの文言(相方も数える。
-                // AppState.isCurrentSpreadBookmarked)とは別の判定。
+                // 足す相手に既にあるときも淡色(2026-10-04 の監査 SP-5。以前は押せて、`addBookmark()` の重複の guard で黙って戻った)。
+                // 足す相手は「見開きでブックマークを追加するとき」で決まる(canAddBookmark。レビュー R5-1)―― 編集メニューの文言
+                // (起点か相方のどちらかにあれば「削除」。AppState.isCurrentSpreadBookmarked)とは別の判定。
                 SidePanelNavButton(
                     systemName: "plus",
-                    isDisabled: !hasBook || !allowsEditing || isCurrentPageBookmarked,
+                    isDisabled: !hasBook || !allowsEditing || !canAddBookmark,
                     help: "Add This Page to Bookmarks"
                 ) {
                     onAdd()
