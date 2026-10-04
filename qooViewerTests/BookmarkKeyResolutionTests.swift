@@ -8,7 +8,9 @@ import Testing
 ///
 /// - `resolveKeys`: 本を開いた時点で、鍵を持たない古い行に鍵を埋め、番号を今の並びへ振り直す。
 ///   **この計算は 1 か所にしか無い**(型コメントの警告)ので、規則はここで固定しておく。
-/// - `updatePageIndices`: ページを並べ替えたとき、ブックマークがスロットではなくファイルへ追従する。
+/// - `renumberBookmarks`: 本を開いていない経路(編集ウインドウ)で並びを変えたとき、ブックマークがスロットではなくファイル
+///   (鍵)へ追従する(2026-10-04、監査 BE-1。それまでは番号の対応表で書き換える `updatePageIndices` だった)。
+/// - `addBookmark`: 同じページかを鍵で見る(監査 BE-1)。
 /// - `renameBookmarks`: 一括リネーム。
 @MainActor
 struct BookmarkKeyResolutionTests {
@@ -131,7 +133,7 @@ struct BookmarkKeyResolutionTests {
         #expect(result.didChange)
     }
 
-    // MARK: - updatePageIndices
+    // MARK: - renumberBookmarks(2026-10-04、監査 BE-1)
 
     private func seedBookmarks(_ library: InMemoryLibrary, bookID: String, indices: [Int]) {
         for index in indices {
@@ -141,51 +143,85 @@ struct BookmarkKeyResolutionTests {
         }
     }
 
-    @Test("並べ替えの対応表どおりに番号を書き換える(対応の無い行には触れない)")
-    func onlyTheMappedIndicesMove() throws {
-        let library = try InMemoryLibrary(label: "bookmark-move")
+    private static func keys(_ indices: [Int]) -> [String] {
+        indices.map { String(format: "%03d.jpg", $0) }
+    }
+
+    @Test("今の並びでの位置へ番号を振り直し、並びに無い鍵(除外したページ)の行は動かさない")
+    func renumberingFollowsTheKeys() throws {
+        let library = try InMemoryLibrary(label: "bookmark-renumber")
         defer { library.close() }
         let bookID = "/books/a.cbz"
         seedBookmarks(library, bookID: bookID, indices: [0, 3, 7])
 
-        library.bookmarks.updatePageIndices(forBookID: bookID, oldIndexToNewIndex: [3: 5, 7: 2])
-        #expect(library.bookmarkRows(forBookID: bookID).map(\.pageIndex) == [0, 2, 5])
+        // 3 を除外し、7 を先頭へ動かした並び。
+        let changed = library.bookmarks.renumberBookmarks(
+            forBookID: bookID, currentOrderedKeys: Self.keys([7, 0, 1, 2, 4, 5, 6]), legacyOrderedKeys: { [] })
+        #expect(changed)
+        let rows = library.bookmarkRows(forBookID: bookID)
+        #expect(rows.first { $0.pageKey == "007.jpg" }?.pageIndex == 0)
+        #expect(rows.first { $0.pageKey == "000.jpg" }?.pageIndex == 1)
+        // 除外したページの行は番号を据え置く(表示する側が鍵で外す ―― ViewerViewModel.reloadBookmarks)。
+        #expect(rows.first { $0.pageKey == "003.jpg" }?.pageIndex == 3)
+
+        // 並びが同じなら書き換えない。
+        #expect(!library.bookmarks.renumberBookmarks(
+            forBookID: bookID, currentOrderedKeys: Self.keys([7, 0, 1, 2, 4, 5, 6]), legacyOrderedKeys: { [] }))
     }
 
-    @Test("対応表が空なら何もしない")
-    func anEmptyMappingIsANoOp() throws {
-        let library = try InMemoryLibrary(label: "bookmark-empty-map")
+    @Test("鍵の無い古い行だけ従来順から鍵を埋める(従来順は要るときだけ作る)")
+    func renumberingFillsLegacyKeysOnlyWhenNeeded() throws {
+        let library = try InMemoryLibrary(label: "bookmark-renumber-legacy")
         defer { library.close() }
         let bookID = "/books/a.cbz"
-        seedBookmarks(library, bookID: bookID, indices: [0, 3])
-        library.bookmarks.updatePageIndices(forBookID: bookID, oldIndexToNewIndex: [:])
-        #expect(library.bookmarkRows(forBookID: bookID).map(\.pageIndex) == [0, 3])
+        seedBookmarks(library, bookID: bookID, indices: [1])
+        var askedForLegacy = 0
+        library.bookmarks.renumberBookmarks(forBookID: bookID, currentOrderedKeys: Self.keys([1, 0])) {
+            askedForLegacy += 1
+            return []
+        }
+        #expect(askedForLegacy == 0)
+
+        // 1.36 以前の、番号だけの行(従来順で 3 番目)。
+        library.bookmarks.addBookmark(bookID: bookID, pageIndex: 2, name: "古い")
+        library.bookmarks.renumberBookmarks(forBookID: bookID, currentOrderedKeys: Self.keys([2, 1, 0])) {
+            askedForLegacy += 1
+            return Self.keys([0, 1, 2])
+        }
+        #expect(askedForLegacy == 1)
+        let legacy = try #require(library.bookmarkRows(forBookID: bookID).first { $0.name == "古い" })
+        #expect(legacy.pageKey == "002.jpg")
+        #expect(legacy.pageIndex == 0)
     }
 
-    @Test("他の本のブックマークは動かさない")
-    func anotherBooksBookmarksAreNotTouched() throws {
-        let library = try InMemoryLibrary(label: "bookmark-other-book")
+    @Test("他の本のブックマークは動かさず、updatedAt も触らない(「更新順」の並びを乱さない)")
+    func renumberingTouchesOnlyThatBookAndNotUpdatedAt() throws {
+        let library = try InMemoryLibrary(label: "bookmark-renumber-other")
         defer { library.close() }
         seedBookmarks(library, bookID: "/books/a.cbz", indices: [3])
         seedBookmarks(library, bookID: "/books/b.cbz", indices: [3])
-
-        library.bookmarks.updatePageIndices(forBookID: "/books/a.cbz", oldIndexToNewIndex: [3: 9])
-        #expect(library.bookmarkRows(forBookID: "/books/a.cbz").map(\.pageIndex) == [9])
-        #expect(library.bookmarkRows(forBookID: "/books/b.cbz").map(\.pageIndex) == [3])
-    }
-
-    @Test("位置の補正では updatedAt を触らない(「更新順」の並びを乱さない)")
-    func aMechanicalReindexDoesNotBumpUpdatedAt() throws {
-        let library = try InMemoryLibrary(label: "bookmark-updatedat")
-        defer { library.close() }
-        let bookID = "/books/a.cbz"
-        seedBookmarks(library, bookID: bookID, indices: [3])
-        let target = try #require(library.bookmarks.bookmarks(forBookID: bookID).first)
+        let target = try #require(library.bookmarks.bookmarks(forBookID: "/books/a.cbz").first)
         let before = target.updatedAt
 
-        library.bookmarks.updatePageIndices(forBookID: bookID, oldIndexToNewIndex: [3: 8])
-        #expect(target.pageIndex == 8)
+        library.bookmarks.renumberBookmarks(
+            forBookID: "/books/a.cbz", currentOrderedKeys: Self.keys([3]), legacyOrderedKeys: { [] })
+        #expect(library.bookmarkRows(forBookID: "/books/a.cbz").map(\.pageIndex) == [0])
+        #expect(library.bookmarkRows(forBookID: "/books/b.cbz").map(\.pageIndex) == [3])
         #expect(target.updatedAt == before)
+    }
+
+    @Test("同じページかは鍵で見る ―― 別のページの古い番号と重なっても足せ、同じ鍵には 2 件目を作らない")
+    func addingABookmarkComparesKeys() throws {
+        let library = try InMemoryLibrary(label: "bookmark-add-by-key")
+        defer { library.close() }
+        let bookID = "/books/a.cbz"
+        // 除外したページ(鍵 004)のブックマークが、古い番号 4 のまま残っている。
+        library.bookmarks.addBookmark(bookID: bookID, pageIndex: 4, pageKey: "004.jpg", name: "隠れた")
+        // 詰まった並びで番号 4 になった別のページ(鍵 005)には足せる(以前は番号の重複で黙って何もしなかった)。
+        #expect(library.bookmarks.addBookmark(bookID: bookID, pageIndex: 4, pageKey: "005.jpg", name: "新しい"))
+        // 同じ鍵には、番号が違っても 2 件目を作らない。
+        #expect(!library.bookmarks.addBookmark(bookID: bookID, pageIndex: 9, pageKey: "005.jpg", name: "重複"))
+        #expect(library.bookmarkRows(forBookID: bookID).count == 2)
     }
 
     // MARK: - renameBookmarks

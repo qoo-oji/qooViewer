@@ -135,4 +135,53 @@ struct WelcomeLibraryStateTests {
         state.selectedLibraryID = current
         #expect(state.isEditing)
     }
+
+    // MARK: - 表示中の並びと操作の相手(2026-10-04、状態と画面の監査 H-1)
+
+    @Test("並びが変わると選択を並びに絞り、操作の相手は表示中 ∩ 選択(表示順)")
+    func showingANewOrderPrunesTheSelection() {
+        let (state, suite) = makeState("welcome-prune-collections")
+        defer { withExtendedLifetime(suite) {} }
+        let (a, b, c) = (UUID(), UUID(), UUID())
+        state.showCollections([a, b, c])
+        state.selectedCollectionIDs = [a, c]
+        #expect(state.targetCollectionIDs == [a, c])
+
+        // c が見えなくなった(検索から外れた・別のウインドウが別のライブラリへ移した)。ゴミ箱とメニューの相手から外れる。
+        state.showCollections([b, a])
+        #expect(state.selectedCollectionIDs == [a])
+        #expect(state.targetCollectionIDs == [a])
+
+        // 戻ってきても、外した選択は戻らない(見えていない間に消す相手にならない)。
+        state.showCollections([a, b, c])
+        #expect(state.targetCollectionIDs == [a])
+    }
+
+    @Test("コレクションの中の本も同じ決まりで絞る")
+    func showingANewItemOrderPrunesTheItemSelection() {
+        let (state, suite) = makeState("welcome-prune-items")
+        defer { withExtendedLifetime(suite) {} }
+        let (a, b) = (UUID(), UUID())
+        state.showItems([a, b])
+        state.selectedItemIDs = [a, b]
+        state.showItems([b])
+        #expect(state.selectedItemIDs == [b])
+        #expect(state.targetItemIDs == [b])
+    }
+
+    @Test("一覧へ戻ったとき、出てきた棚が一覧に出ないなら選択に残さない(以前は見えないまま選ばれていた)")
+    func leavingACollectionThatIsNoLongerShownSelectsNothing() {
+        let (state, suite) = makeState("welcome-leave-hidden")
+        defer { withExtendedLifetime(suite) {} }
+        let (opened, other) = (UUID(), UUID())
+        state.showCollections([opened, other])
+        state.openCollection(opened, keepingSearch: true)
+        state.leaveCollection()
+        #expect(state.selectedCollectionIDs == [opened])
+
+        // 中で外した本が検索に当たっていて、戻った一覧にはもう出ない。一覧が出た時点で外れる。
+        state.showCollections([other])
+        #expect(state.selectedCollectionIDs.isEmpty)
+        #expect(state.targetCollectionIDs.isEmpty)
+    }
 }

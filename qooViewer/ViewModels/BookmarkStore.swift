@@ -534,6 +534,30 @@ final class BookmarkStore: ObservableObject {
         return (resolved, didChange)
     }
 
+    /// 本を開いていない経路(「ブックマーク・レイアウトの編集」ウインドウ)から、この本のブックマークの番号を今の並びへ振り直して
+    /// 保存し、変わったら知らせる(2026-10-04、状態と画面の監査 BE-1・V-4)。計算は `resolveKeys(persists: true)` そのもの
+    /// (ビューアが本を開いたとき・レイアウトを読み直したときと同じ)。
+    ///
+    /// - Parameter legacyOrderedKeys: 鍵を持たない行(1.36 以前)があるときだけ呼ぶ、従来順の鍵(作るのに並べ直しが要るので遅らせる)。
+    /// - Returns: 行を書き換えたか。
+    @discardableResult
+    func renumberBookmarks(
+        forBookID bookID: String, currentOrderedKeys: [String], legacyOrderedKeys: () -> [String]
+    ) -> Bool {
+        let targets = bookmarksByBookID()[bookID] ?? []
+        guard !targets.isEmpty else { return false }
+        let legacy = targets.contains { $0.pageKey == nil } ? legacyOrderedKeys() : []
+        let (_, didChange) = Self.resolveKeys(
+            for: targets, legacyOrderedKeys: legacy, currentOrderedKeys: currentOrderedKeys, persists: true
+        )
+        guard didChange else { return false }
+        try? modelContext.save()
+        // 件数も updatedAt も変えない機械的な位置補正(「更新順」の並びを乱さない)。並びの基準になる番号が変わったので組み直す。
+        rebuildGroups()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        return true
+    }
+
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
     /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
     /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks
@@ -601,7 +625,14 @@ final class BookmarkStore: ObservableObject {
         bookID: String, pageIndex: Int, pageKey: String? = nil, name: String,
         fileNodeIdentifier: FileNodeIdentifier? = nil
     ) -> Bool {
-        guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return false }
+        // 同じページかは**鍵で**見る(2026-10-04、監査 BE-1)。番号は並びの変化で古くなりうる(除外したページのブックマークは番号を
+        // 据え置く ―― resolveKeys)ので、番号だけで比べると、別のページの古い番号と重なって黙って足せなかった。鍵を持たない古い行
+        // (と、鍵を渡されなかったとき)だけは番号で比べる。
+        let isSamePage: (Bookmark) -> Bool = { existing in
+            if let pageKey, let existingKey = existing.pageKey { return existingKey == pageKey }
+            return existing.pageIndex == pageIndex
+        }
+        guard !(bookmarksByBookID()[bookID] ?? []).contains(where: isSamePage) else { return false }
         let bookmark = Bookmark(
             bookID: bookID, pageIndex: pageIndex, pageKey: pageKey, name: name,
             fileNodeIdentifier: fileNodeIdentifier
@@ -709,39 +740,6 @@ final class BookmarkStore: ObservableObject {
         rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
         return changedCount
-    }
-
-    /// ページの並べ替え(4.3節: BookLayoutEditorViewModel.movePages/movePageUp/movePageDown)で、
-    /// 既存のブックマークが元のページ番号(スロット)ではなく、元々ブックマークしていたページ
-    /// (ファイル)に追従するように、影響を受けたブックマークのpageIndexを一括で書き換える
-    /// (ユーザー報告: 「ブックマークがあるページの順番を入れ替えると、ブックマークが追従しない
-    /// (画像は入れ替わったのに元のページ順に居座る)。ブックマークはあくまでファイルに紐づく
-    /// ものなので、順番が入れ替わった際はファイルに追従してほしい」)。
-    ///
-    /// oldIndexToNewIndexは「並べ替え前のpageIndex → 並べ替え後のpageIndex」の対応
-    /// (BookLayoutEditorViewModel.migrateBookmarkIndices参照。movePages/movePageUp/
-    /// movePageDownはページの除外/表示状態の集合自体を変えない純粋な並べ替えのため、この対応は
-    /// 1対1の置換になる)。対応が無いpageIndexのブックマーク(この本のうち動かなかったページに
-    /// 付いているもの)には触れない。リネーム(名前・updatedAt)とは異なる機械的な位置補正のため、
-    /// updatedAtは更新しない(「更新順」の並び替えに影響させないため)。
-    func updatePageIndices(forBookID bookID: String, oldIndexToNewIndex: [Int: Int]) {
-        guard !oldIndexToNewIndex.isEmpty else { return }
-        let matched = bookmarksByBookID()[bookID] ?? []
-        guard !matched.isEmpty else { return }
-        var didChange = false
-        for bookmark in matched {
-            if let newIndex = oldIndexToNewIndex[bookmark.pageIndex], newIndex != bookmark.pageIndex {
-                bookmark.pageIndex = newIndex
-                didChange = true
-            }
-        }
-        guard didChange else { return }
-        try? modelContext.save()
-        // 件数もupdatedAtも変えない機械的な位置補正のためgroupsの内容は変わらないが、
-        // 他の書き込みメソッドと足並みを揃えて組み直しておく(キャッシュだけを見る処理のため
-        // フェッチは発生しない)。
-        rebuildGroups()
-        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
     /// ブックマークを削除する。rename(_:to:)と同じく、本が今開いているかどうかに関わらず

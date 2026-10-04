@@ -1172,7 +1172,16 @@ final class MetadataWorkspace {
             guard stateFilter.contains(book) else { return false }
             return query.isEmpty || book.matches(query)
         }
-        selectionChanged()
+        // 選択を見えている行へ絞る(Finder と同じ。2026-10-04、監査 MD-4)。以前は選択を残したまま `selectedBooks` だけを見えている
+        // 行にしていたので、帯は隠れた本も数えて「10 冊選択」と出し、ツールバーのロック・再生成は見えている 3 冊にだけ効き、
+        // 絞り込みを外すと残りの 7 冊が選ばれたまま未ロックで出てきた。`reveal` が「隠れた本を選ばない」ために絞り込みを外すのと
+        // 同じ考え方(docs/14「選択の決まり」)。選択の didSet が `selectionChanged` を呼ぶ。
+        let visibleIDs = Set(visiblePositions.lazy.map { self.books[$0].id })
+        if selection.isSubset(of: visibleIDs) {
+            selectionChanged()
+        } else {
+            selection.formIntersection(visibleIDs)
+        }
     }
 
     private func selectionChanged() {

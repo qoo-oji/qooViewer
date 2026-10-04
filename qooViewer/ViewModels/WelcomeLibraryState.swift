@@ -321,6 +321,9 @@ final class WelcomeLibraryState: ObservableObject {
     /// ライブラリ・モードを移ったとき・コレクションの中へ入った/出たときに残っていると、
     /// **見えていないものをゴミ箱が消す**ことになる。捨てる契機はそれぞれのdidSetに集約してある
     /// (どの画面も自前では消さない)。本を開いて戻ってきたとき(同じ画面)は残す(スマートライブラリと同じ)。
+    /// **画面が移らずに見えなくなったもの**(検索から外れた・別のウインドウで消えた・移った)は、並びが変わるたびに
+    /// `showCollections` / `showItems` が外す。操作の相手は `targetCollectionIDs` / `targetItemIDs`(表示中 ∩ 選択)で作る
+    /// (2026-10-04、監査 H-1)。
     ///
     /// idで持つ理由はCollectionGridView.renamingCollectionIDと同じ ―― `@Model`のクラスを
     /// そのまま集合に入れない(BookLibrary.swift末尾のコメント参照)。実体が別のウインドウから
@@ -337,6 +340,59 @@ final class WelcomeLibraryState: ObservableObject {
     var selectedItemIDs: Set<UUID> {
         get { itemSelection.ids }
         set { itemSelection.set(newValue, cursor: itemSelection.cursor) }
+    }
+
+    // MARK: - 表示中の並びと、操作の相手(2026-10-04、状態と画面の監査 H-1)
+
+    /// 一覧にいま並んでいるコレクション(表示順)。一覧(CollectionGridView)が並びの変わるたびに知らせる(`showCollections`)。
+    /// **publish しない**(画面の評価のたびに届くので。選択が変われば選択のほうが publish する)。
+    private(set) var shownCollectionIDs: [UUID] = []
+    /// コレクションの中にいま並んでいる本(表示順)。CollectionDetailView が知らせる(`showItems`)。
+    private(set) var shownItemIDs: [UUID] = []
+
+    /// 一覧の並びが変わった(検索・並べ替え・改名・別のウインドウでの削除や移動・ライブラリの読み替え)。**選択を並びに絞る**。
+    ///
+    /// 以前は選択を捨てる契機が画面を移る didSet(モード・ライブラリ・開いているコレクション・検索)だけで、画面が移らずに見えなくなった
+    /// もの ―― 中の本を外して検索に当たらなくなった棚、別のウインドウが別のライブラリへ移した棚 ―― が選択に残り、ゴミ箱とホーム ▸
+    /// 「コレクションを削除…」「別のライブラリへ移動」が、見えていない棚まで消した・移した(監査 H-1)。スマートライブラリが並びの変わる
+    /// たびに `prune(to:)` しているのと同じ決まりにした(docs/14「選択の決まり」)。
+    func showCollections(_ order: [UUID]) {
+        let previousTargets = targetCollectionIDs
+        shownCollectionIDs = order
+        var pruned = collectionSelection
+        pruned.prune(to: order)
+        // @Published は同じ値の代入でも publish するので、変わったときだけ書く(clearSelection と同じ)。
+        if pruned != collectionSelection {
+            collectionSelection = pruned
+        } else if targetCollectionIDs != previousTargets {
+            // 選択は同じでも相手の並び(表示順)が変わった ―― メニューバーの値を作り直させる(`shownCollectionIDs` は publish しない)。
+            objectWillChange.send()
+        }
+    }
+
+    /// コレクションの中の並びが変わった。選択を並びに絞る(`showCollections` と同じ)。
+    func showItems(_ order: [UUID]) {
+        let previousTargets = targetItemIDs
+        shownItemIDs = order
+        var pruned = itemSelection
+        pruned.prune(to: order)
+        if pruned != itemSelection {
+            itemSelection = pruned
+        } else if targetItemIDs != previousTargets {
+            objectWillChange.send()
+        }
+    }
+
+    /// 一覧で操作の相手にするコレクション = **表示中 ∩ 選択**(表示順)。ゴミ箱・ホームメニュー・インスペクタはこれを読む
+    /// (右クリックの `contextTargets`・Return・⌘C は前から表示中の並びから引いていた)。並びが変わるたびに選択は絞られるが、
+    /// 絞る前の一瞬(ストアの変化から画面の onChange まで)にも隠れたものを相手にしないよう、読む側でも交わりを取る。
+    var targetCollectionIDs: [UUID] {
+        collectionSelection.isEmpty ? [] : shownCollectionIDs.filter(collectionSelection.contains)
+    }
+
+    /// コレクションの中で操作の相手にする本 = 表示中 ∩ 選択(表示順)。
+    var targetItemIDs: [UUID] {
+        itemSelection.isEmpty ? [] : shownItemIDs.filter(itemSelection.contains)
     }
 
     @Published var collectionSort: FavoritesSortOption {
@@ -447,7 +503,8 @@ final class WelcomeLibraryState: ObservableObject {
     /// 何も残らない。
     ///
     /// モデルの参照ではなくidで持つのは、パネルを開いている間に別のウインドウがその
-    /// コレクションを消しうるため(消えていれば解決に失敗して、パネルは何もしない)。
+    /// コレクションを消しうるため(消えていればパネルは何も足さずに「コレクションがありません」と知らせる ―― 以前は
+    /// nil を「まだ作っていない」と区別せず、同じ名前の新しいコレクションを作っていた。2026-10-04、監査 H-9)。
     struct AddBooksTarget: Identifiable {
         let id = UUID()
         var collectionID: UUID?
@@ -557,6 +614,9 @@ final class WelcomeLibraryState: ObservableObject {
 
     /// コレクションの中から一覧へ戻る(見出しの ‹・⌘↑・Esc)。出てきたコレクションを選んだ状態にする
     /// (スマートライブラリで束から出たときと同じ。矢印キーでそのまま隣へ進める)。
+    ///
+    /// 出てきた棚が一覧に出ない(中で外した本が検索に当たっていた・消えた・別のライブラリへ移った)ときは、一覧が出た時点の
+    /// `showCollections` が選択から外す(監査 H-1 ―― 以前は無条件に選び、見えない棚が選択に残った)。
     func leaveCollection() {
         guard let opened = openedCollectionID else { return }
         openedCollectionID = nil

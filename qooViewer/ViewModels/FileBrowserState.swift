@@ -366,8 +366,8 @@ final class FileBrowserState: ObservableObject {
     /// 一覧の記号リンク・エイリアスの先(鍵は `linkKey`: 項目の id と更新日時)。一覧を読んだ後に FileIO で解く(`resolveLinkTargets`。
     /// 触ってよい先だけ ―― `FileBrowserLinkResolver.backgroundTargetInfo`)。開く・新規タブ・コレクション・メタデータ・書き出し・展開・
     /// 「このアプリケーションで開く」・ドロップ先の判定が `effective(_:)` で**先の項目として**見る(Finder と同じ扱い。
-    /// docs/15「記号リンクとエイリアスの先」)。解けていない(断られた・まだ)リンクは自分自身として扱われ、開くときだけ
-    /// `FileBrowserActions.openLink` が場所を選ばずに解き直す。
+    /// docs/15「記号リンクとエイリアスの先」)。解けていない(断られた・まだ)リンクは自分自身として扱われる。開くときは控えを使わず、
+    /// `FileBrowserActions.openLink` がいつも場所を選ばずに解き直す(控えは読み直しのたびにも解き直す。2026-10-04、監査 FBU-2)。
     private var linkTargets: [String: FileBrowserLinkResolver.Target] = [:]
     private var linkTargetsTask: Task<Void, Never>?
     private static let linkTargetsLimit = 2000
@@ -377,6 +377,12 @@ final class FileBrowserState: ObservableObject {
     var linkTargetCategoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     /// リンクの先を解くときのマウント表(**テストのための口**: 作業フォルダをネットワーク越しに見立てる)。
     var linkTargetMountTable: () -> MountTable = MountTable.current
+
+    /// 開くときに解き直した先を控えに入れる(`FileBrowserActions.openLink`。淡色の判定を今の先に合わせる。監査 FBU-2)。
+    func noteLinkTarget(_ target: FileBrowserLinkResolver.Target?, for entry: FileBrowserEntry) {
+        guard entry.isLink, allEntries.contains(where: { $0.id == entry.id }) else { return }
+        linkTargets[Self.linkKey(for: entry)] = target
+    }
 
     /// 記号リンク・エイリアスの解けている先(在るもの)。それ以外・まだ解けていないものは nil。
     func target(of entry: FileBrowserEntry) -> FileBrowserEntry? {
@@ -391,24 +397,30 @@ final class FileBrowserState: ObservableObject {
 
     private static func linkKey(for entry: FileBrowserEntry) -> String { entry.identityKey }
 
-    /// 一覧のリンクの先を解く(`apply` で一覧が変わったとき)。解けている鍵は残し、消えた項目の分は捨てる。
+    /// 一覧のリンクの先を解く(`apply` で読み直したとき)。消えた項目の分は捨て、残っているリンクは**解けている鍵も解き直す**
+    /// (解き終わるまでは前の控えを使う)。
     ///
     /// **ネットワーク越しのボリュームにあるリンクは解かない**(2026-09-29 の監査)。先の場所は `backgroundTargetInfo` が段ごとに
     /// 確かめるが、リンク自身の readlink とエイリアスファイルの読み取りはその前に起きるので、共有上のフォルダではリンクの数だけ
     /// 往復していた(絵・アイコンが「見ているフォルダがネットワーク越しなら読まない」としているのと同じ規則に揃える)。解けていない
     /// リンクは自分自身として扱われ、開くときだけ `FileBrowserActions.openLink` が解く。
+    ///
+    /// **鍵はリンク自身のパスと更新日時**なので、先が動いても消えても鍵は変わらない。以前は一覧が変わったときに知らない鍵だけを
+    /// 解いていたので、同じフォルダに居続ける間は、Finder で先を動かして戻っても(アクティブ化の読み直しは一覧が同じなら `apply` で
+    /// 早く抜ける)古い先の控えが残り、ダブルクリックで消えた先へ移ろうとして無関係な祖先のフォルダが出た・古い先へ落とそうとした
+    /// (2026-10-04、監査 FBU-2)。いまは読み直しのたびに(一覧が同じでも)解き直す。開くときは控えを使わずに解く
+    /// (`FileBrowserActions.openLink`)。
     private func resolveLinkTargets() {
         linkTargetsTask?.cancel()
         linkTargetsTask = nil
         let links = Array(allEntries.lazy.filter(\.isLink).prefix(Self.linkTargetsLimit))
         let keys = Set(links.map(Self.linkKey(for:)))
         linkTargets = linkTargets.filter { keys.contains($0.key) }
-        let known = linkTargets
         let mountTable = linkTargetMountTable()
         // FileIO の閉包へ渡すので配列にする(lazy の列は閉包を抱える。レビュー 2026-09-29)。
         let pending: [(key: String, url: URL)] = links.compactMap {
             let key = Self.linkKey(for: $0)
-            guard known[key] == nil, !mountTable.isRemote($0.url) else { return nil }
+            guard !mountTable.isRemote($0.url) else { return nil }
             return (key, $0.url)
         }
         guard !pending.isEmpty else { return }
@@ -426,7 +438,8 @@ final class FileBrowserState: ObservableObject {
             }
             guard let self, !Task.isCancelled else { return }
             for item in resolved {
-                if let target = item.target { self.linkTargets[item.key] = target }
+                // 解き直して解けなかった(断った・読めない)なら、前の控えも捨てる(古い先を使い続けない)。
+                self.linkTargets[item.key] = item.target
             }
             self.linkTargetsTask = nil
         }
@@ -987,6 +1000,9 @@ final class FileBrowserState: ObservableObject {
         // `applyFilter` の比較で一覧の作り直し(reloadData と見えているセルの絵の頼み直し)を呼ばない。
         if sorted != allEntries {
             allEntries = sorted
+            resolveLinkTargets()
+        } else if allEntries.contains(where: \.isLink) {
+            // 一覧は同じでも、リンクの先は動いたかもしれない(resolveLinkTargets のコメント。監査 FBU-2)。
             resolveLinkTargets()
         }
         settleRenameRequest()

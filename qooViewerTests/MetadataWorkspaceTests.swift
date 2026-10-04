@@ -993,3 +993,25 @@ struct BookMetadataSeveralValuesTests {
         #expect(old.confirmation.fields[.title] == ["題名"])
     }
 }
+
+extension MetadataWorkspaceTests {
+    @Test("絞り込みで隠れた本は選択から外れ、帯の数とツールバーの相手が揃う(2026-10-04、状態と画面の監査 MD-4)")
+    func filteringPrunesTheSelection() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        workspace.setLocked([first], true)
+        await workspace.settle()
+        workspace.selection = [first, second]
+        #expect(workspace.selectedBooks.count == 2)
+
+        // 「ロック済み」だけを出すと second が隠れる。以前は選択に残り、帯は「2 冊選択」のまま、ロックは見えている 1 冊にだけ効いた。
+        workspace.stateFilter = .locked
+        #expect(workspace.selection == [first])
+        #expect(workspace.selectedBooks.map(\.id) == [first])
+
+        // 絞り込みを外しても、隠れていた本は選ばれていない(見えないまま選ばれていた本が出てこない)。
+        workspace.stateFilter = .all
+        #expect(workspace.selection == [first])
+    }
+}

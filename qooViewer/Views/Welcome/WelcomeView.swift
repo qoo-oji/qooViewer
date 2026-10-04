@@ -149,13 +149,26 @@ struct WelcomeView: View {
         // 名前を訊くシート。棚をまとめてドロップすると複数たまるので、1枚を開いたまま中身だけ
         // 差し替えて順に処理し、行列が空になった時点で閉じる(CollectionNameSheet.
         // dismissesOnFinishのコメント参照)。
+        //
+        // 出すのは**作る先のライブラリを解決できる間だけ**(監査 H-3)。以前は待ち行列の有無だけで出していたので、振り分けを待つ間に
+        // ライブラリ機能を OFF にすると、作る先の無い中身の空のシートが(ファイルブラウザへ押し込まれた後も)残った。解決できなく
+        // なったら待ち行列も捨てる。
         .sheet(
             isPresented: Binding(
-                get: { !state.pendingCreations.isEmpty },
+                get: { pendingCreationLibrary != nil },
                 set: { if !$0 { state.pendingCreations = [] } }
             )
         ) {
             creationSheet
+        }
+        .onChange(of: !state.pendingCreations.isEmpty && pendingCreationLibrary == nil, initial: true) { _, isStale in
+            if isStale { state.pendingCreations = [] }
+        }
+        // 見ているはずのライブラリが消えて先頭へ読み替えたら、状態の id もそちらへ書き換える(監査 H-1 (b)。§1-1 の方針 (4))。
+        // 以前は表示だけを読み替え、`selectedLibraryID` の didSet が走らないので、消えたライブラリで選んだ棚・編集モード・
+        // 検索文字列が残り、メニューの「名前を変更…」「本を追加…」が有効なまま空振りした。
+        .onChange(of: hasStaleSelectedLibrary, initial: true) { _, isStale in
+            if isStale, let library { state.selectedLibraryID = library.id }
         }
         // ファイル/フォルダのドロップの受け口はウインドウ全体に1つだけ
         // (ContentView.applyFileDropTarget)。ウェルカム画面が出ている間だけ、その手前に
@@ -233,11 +246,22 @@ struct WelcomeView: View {
         }
     }
 
+    /// 保存されていた「見ているライブラリ」の実体が無い(別のウインドウ・このウインドウで消した)。ライブラリ機能が ON の間だけ見る。
+    private var hasStaleSelectedLibrary: Bool {
+        guard state.isLibraryFeatureEnabled, let id = state.selectedLibraryID else { return false }
+        return collectionStore.library(withID: id) == nil && !collectionStore.libraries.isEmpty
+    }
+
+    /// 名前を訊くシートの先頭の作成が作る先のライブラリ: ファイルブラウザのサブメニューで選んだライブラリ
+    /// (PendingCollectionCreation.libraryID)、無ければ選んでいるライブラリ。ライブラリ機能が OFF なら無い(`library` が nil)。
+    private var pendingCreationLibrary: BookLibrary? {
+        guard let creation = state.pendingCreations.first, state.isLibraryFeatureEnabled else { return nil }
+        return creation.libraryID.flatMap { collectionStore.library(withID: $0) } ?? library
+    }
+
     @ViewBuilder
     private var creationSheet: some View {
-        // 作る先: ファイルブラウザのサブメニューで選んだライブラリ(PendingCollectionCreation.libraryID)、無ければ選んでいるライブラリ。
-        if let creation = state.pendingCreations.first,
-           let library = creation.libraryID.flatMap({ collectionStore.library(withID: $0) }) ?? library {
+        if let creation = state.pendingCreations.first, let library = pendingCreationLibrary {
             CollectionNameSheet(
                 kind: .newCollection,
                 initialName: creation.defaultName,
@@ -382,13 +406,24 @@ enum WelcomeDropHandling {
         let openedCollectionID = state.openedCollectionID
         Task {
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
-            if let openedCollectionID,
-               collectionStore.collection(withID: openedCollectionID) != nil {
+            defer { onFinished?() }
+            if let openedCollectionID {
+                // 落とした時点で中にいたコレクションが待つ間に消えたら、新しいコレクションを作らずに知らせる(監査 H-9。以前は
+                // 一覧へのドロップと同じく名前を訊くシートへ回っていた)。
+                guard collectionStore.collection(withID: openedCollectionID) != nil else {
+                    notify(collectionGoneMessage(locale: locale))
+                    return
+                }
                 await add(
                     classified, toCollection: openedCollectionID,
                     collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify
                 )
             } else {
+                // 振り分け(フォルダの列挙)を待つ間に、ライブラリ機能が OFF になった・編集モードを出た(本を開いた・画面を移った ――
+                // endEditing が待ち行列を空にした)なら、名前を訊く作成は積まない(監査 H-3。以前は待った後に確かめず、OFF の間に
+                // 積んで作る先の無いシートを出していた)。開いている棚へ足す上の枝は、利用者が始めた操作を終わらせるだけなので続ける
+                // (docs/14「止めないもの」と同じ考え方)。
+                guard state.isLibraryFeatureEnabled, state.isEditing else { return }
                 let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
                 if queueCreations(from: classified, into: state) {
                     if skipped > 0 { notify(skippedMessage(skipped, locale: locale)) }
@@ -396,7 +431,6 @@ enum WelcomeDropHandling {
                     notify(noBooksMessage(locale: locale))
                 }
             }
-            onFinished?()
         }
         return true
     }
@@ -438,7 +472,11 @@ enum WelcomeDropHandling {
         let pending = await CollectionStore.makePendingItems(for: books)
         // シークレットフォルダの本は入れない(makePendingItems が外す)。
         let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
-        guard let collection = collectionStore.collection(withID: collectionID) else { return }
+        guard let collection = collectionStore.collection(withID: collectionID) else {
+            // 待つ間に消えた。黙って捨てずに知らせる(監査 H-9)。
+            notify(collectionGoneMessage(locale: locale))
+            return
+        }
         guard !pending.isEmpty else {
             if skippedSecret > 0 { notify(CollectionStore.secretBooksNotAddedMessage(count: skippedSecret, locale: locale)) }
             return
@@ -459,6 +497,11 @@ enum WelcomeDropHandling {
             localized: "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books.",
             language: locale
         )
+    }
+
+    /// 足す先のコレクションがもう無い(別のウインドウで消された。監査 H-9)。
+    static func collectionGoneMessage(locale: Locale) -> String {
+        String(localized: "Nothing was added because the collection no longer exists.", language: locale)
     }
 
     /// 本でないので登録しなかった数。

@@ -225,6 +225,11 @@ struct AddBooksPanel: View {
             let added: [CollectionItem]
             if let collection {
                 added = collectionStore.add(pending, to: collection)
+            } else if target.collectionID != nil {
+                // 入れ先のコレクションが(別のウインドウで)消えた。**新しく作らない**(監査 H-9。以前は nil を「まだ作っていない」と
+                // 区別せず、同じ名前で作り直していた ―― 後で ⌘Z で戻すと「C 2」が並んだ)。足さずに知らせる。
+                notice = WelcomeDropHandling.collectionGoneMessage(locale: locale)
+                return
             } else if let library = collectionStore.library(withID: target.libraryID),
                       let created = collectionStore.createCollection(
                           name: target.name, in: library, items: pending

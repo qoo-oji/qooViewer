@@ -138,13 +138,18 @@ struct WelcomeTopBar: View {
         .frame(height: Self.height)
         // 後ろのウインドウでは帯ごと薄くする(InactiveWindowDimming)。チップの並べ替えの落とし先が出ている間は濃いまま。
         .dimsInInactiveWindow(unless: dropTargetLibraryID != nil)
+        // 名前を変えるシートは、相手のライブラリを引ける間だけ出す(監査 H-3。以前はシートの種類の有無だけで出し、開いている間に
+        // 別のウインドウがそのライブラリを消すと中身の空のシートが残った)。引けなくなったら種類も捨てる。
         .sheet(
             isPresented: Binding(
-                get: { librarySheet != nil },
+                get: { isLibrarySheetResolvable },
                 set: { if !$0 { librarySheet = nil } }
             )
         ) {
             librarySheetContent
+        }
+        .onChange(of: librarySheet != nil && !isLibrarySheetResolvable) { _, isStale in
+            if isStale { librarySheet = nil }
         }
         .alert(
             "Delete Library?",
@@ -286,6 +291,15 @@ struct WelcomeTopBar: View {
         }
         .panelControlWell()
         .accessibilityLabel(Text("Open Book…"))
+    }
+
+    /// 出しているシートの相手を引けるか(作成は相手が無いので常に引ける)。
+    private var isLibrarySheetResolvable: Bool {
+        switch librarySheet {
+        case .create: true
+        case .rename(let id): collectionStore.library(withID: id) != nil
+        case nil: false
+        }
     }
 
     @ViewBuilder

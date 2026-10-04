@@ -128,12 +128,17 @@ final class SmartLibraryViewState: ObservableObject {
     }
     /// リスト表示でその場に開いている束(`SmartGridItem.groupID`)。保存しないが、状態はウインドウが持つので、本を開いて
     /// 戻ってきたときも開いたまま(2026-09-24。リストの表は戻るたびに作り直される)。表が書き換えるだけで、画面は描き直さない。
-    var expandedListGroupIDs: Set<String> = []
+    /// 閉じた束の中の本は見えなくなるので、選択から外す(`pruneSelection`。2026-10-04、監査 SL-2)。
+    var expandedListGroupIDs: Set<String> = [] {
+        didSet { if expandedListGroupIDs != oldValue { pruneSelection() } }
+    }
     /// 表紙のグリッドかリストか(2026-09-22、利用者の指示)。保存する。選択・絞り込み・束はどちらでも同じものを使う。
+    /// グリッドへ移ると束の中の本の行は見えなくなるので、その選択は束の選択へ置き換える(`pruneSelection`。監査 SL-2)。
     @Published var viewMode: SmartLibraryViewMode {
         didSet {
             guard viewMode != oldValue else { return }
             defaults.set(viewMode.rawValue, forKey: Keys.viewMode)
+            pruneSelection()
         }
     }
     /// 環境設定「スマートライブラリ」→「先頭の著者だけを使う」(2026-09-23、利用者の要望。
@@ -310,16 +315,60 @@ final class SmartLibraryViewState: ObservableObject {
     /// 並びの識別子(選択の計算に渡す順)。
     var gridItemIDs: [String] { gridItems.map(\.id) }
 
+    /// いま画面に出ていて選べるものの識別子: 並び(`gridItemIDs`)と、**リスト表示で開いている束の中の本の行**。
+    ///
+    /// 以前は表示形式に関わらず束の中の本をすべて残していたので、リストで束の中の本を選んでからアイコン表示へ移ると、グリッドには
+    /// 何も選ばれていないのに、インスペクタとメニューバーの「Finder で表示」「メタデータの編集…」がその本に効き、Return は黙って
+    /// 何もしなかった(2026-10-04、監査 SL-2)。
+    var selectableItemIDs: [String] {
+        var ids = gridItemIDs
+        guard viewMode == .list, !expandedListGroupIDs.isEmpty else { return ids }
+        for item in gridItems {
+            guard case .group(_, _, let books) = item, expandedListGroupIDs.contains(item.id) else { continue }
+            ids.append(contentsOf: books.map { SmartGridItem.book($0).id })
+        }
+        return ids
+    }
+
+    /// 選択を、いま選べるもの(`selectableItemIDs`)へ絞る。見えなくなった束の中の本の選択は、**その束の選択に置き換える**
+    /// (グリッドへ移ったときに、選んでいた本の入った束が選ばれて見える ―― 選択がただ消えるより、どこにいたかが分かる)。
+    /// 並びの変化・表示形式の切り替え・リストの束の開閉で呼ぶ(docs/14「選択の決まり」)。
+    func pruneSelection() {
+        let selectable = selectableItemIDs
+        let present = Set(selectable)
+        let prefix = SmartGridItem.bookIDPrefix
+        let hiddenPaths = Set(selection.ids.lazy.filter { !present.contains($0) && $0.hasPrefix(prefix) }
+            .map { String($0.dropFirst(prefix.count)) })
+        var replacements: [String] = []
+        if !hiddenPaths.isEmpty {
+            for item in gridItems {
+                guard case .group(_, _, let books) = item, books.contains(where: { hiddenPaths.contains($0.id) }) else { continue }
+                replacements.append(item.id)
+            }
+        }
+        var pruned = selection
+        pruned.prune(to: selectable)
+        if !replacements.isEmpty {
+            pruned.set(pruned.ids.union(replacements), cursor: pruned.cursor ?? replacements.first)
+        }
+        if pruned != selection { selection = pruned }
+    }
+
     /// 選んでいる本のパス(束は含めない。リストで開いた束の中の本は含める)。メニューバーの項目の相手
     /// (WelcomeLibraryState.smartSelectedBookPaths。2026-09-23)。
     ///
     /// **多くても 2 つ**(2026-09-23 の 3 回目の監査の低)。メニューバーが見るのは「1 冊だけか」(`HomeMenuState.singleSmartBookTarget`)
     /// だけで、画面を描き直すたびに `onChange` がこれを読むので、以前は「すべて選択」の数千冊を描き直しのたびに並べ替え、その全部を
     /// メニューの値として比べていた。2 冊以上のときは「複数」を表す 2 つだけを返す(小さい順で固定 ―― 値が揺れないように)。
+    ///
+    /// **束を含む選択は空**(2026-10-04、監査 SL-11)。以前は束を数えなかったので、本と束をまとめて選ぶとインスペクタは「2 項目」
+    /// なのに、メニューバーは選択の中の本 1 冊を相手にした。メニューが相手にするのは「選択がちょうど本 1 冊」のときだけ
+    /// (右クリックも選択の数で 1 つかを決める ―― SmartLibraryPane.contextMenu)。
     var selectedBookPaths: [String] {
         let prefix = SmartGridItem.bookIDPrefix
         var found: [String] = []
-        for id in selection.ids where id.hasPrefix(prefix) {
+        for id in selection.ids {
+            guard id.hasPrefix(prefix) else { return [] }
             let path = String(id.dropFirst(prefix.count))
             found.append(path)
             found.sort()
@@ -351,7 +400,8 @@ final class SmartLibraryViewState: ObservableObject {
         selection.selectAll(order: gridItemIDs)
     }
 
-    /// リスト表示が選んだもの(束の中の本の行も入る ―― その識別子は並び `gridItems` には無いので、並びが変わると外れる)。
+    /// リスト表示が選んだもの(束の中の本の行も入る ―― その識別子は並び `gridItems` には無いので、束を閉じる・グリッドへ移ると
+    /// その束の選択に置き換わる。`pruneSelection`)。
     func setSelection(_ ids: Set<String>, cursor: String?) {
         guard ids != selection.ids || cursor != selection.cursor else { return }
         selection.set(ids, cursor: cursor)
@@ -509,11 +559,8 @@ final class SmartLibraryViewState: ObservableObject {
             scrollResetSerial += 1
         }
         let order = gridItemIDs
-        // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。リスト表示では束の中の本の行も選べるので、
-        // その識別子も残す。
-        var known = order
-        for case .group(_, _, let books) in gridItems { known.append(contentsOf: books.map { SmartGridItem.book($0).id }) }
-        self.selection.prune(to: known)
+        // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。
+        pruneSelection()
         if let pending = pendingSelectionID {
             pendingSelectionID = nil
             if order.contains(pending) {

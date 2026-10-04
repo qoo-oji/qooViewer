@@ -63,7 +63,13 @@ final class ViewerViewModel: ObservableObject {
             scheduleHighResolutionSourceLoad()
         }
     }
+    /// 今の並びにあるページのブックマーク(ページ番号順)。印・ページ一覧・メニューの一覧・トグル・重複判定・次/前のブックマークが読む。
+    /// **除外したページ(鍵が今の並びに無い)のブックマークは入れない**(2026-10-04、監査 V-4。`reloadBookmarks`)。
     @Published private(set) var bookmarks: [Bookmark] = []
+    /// この本にブックマークが 1 件でもあるか(表示から外した除外ページのものも数える)。目次・アウトライン・ComicInfo からの
+    /// 自動取り込みは「1 件も無い本だけ」なので、`bookmarks.isEmpty` ではなくこちらで見る(除外したページにだけブックマークが
+    /// ある本で、開くたびに取り込み直さないように)。
+    private(set) var hasAnyBookmark = false
     /// 本単位で記憶された、古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFF。
     /// BookLayoutSettings.contrastCorrectionEnabledをそのまま反映する(既定false)。実際の適用は
     /// PageLoader/ContrastCorrectorが行う。toggleContrastCorrection()/reloadLayoutData参照。
@@ -835,7 +841,7 @@ final class ViewerViewModel: ObservableObject {
         }
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {
-            if bookmarks.isEmpty {
+            if !hasAnyBookmark {
                 startupTasks.append(Task { [weak self] in
                     await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
                 })
@@ -844,7 +850,7 @@ final class ViewerViewModel: ObservableObject {
                 await self?.importSourceMetadataIfNeeded(isEpub: true)
             })
         } else if isPDFFile(sourceFileName) {
-            if bookmarks.isEmpty {
+            if !hasAnyBookmark {
                 startupTasks.append(Task { [weak self] in
                     await self?.autoImportPDFOutlineAsBookmarksIfNeeded()
                 })
@@ -1680,6 +1686,19 @@ final class ViewerViewModel: ObservableObject {
 
     /// ページ一覧(グリッド)用。セルの大きさに合わせた解像度でサムネイルを返す
     /// (ぼやけ対策。PageLoader.gridThumbnail参照)。maxPixelSizeは呼び出し側で計算・量子化する。
+    /// その番号のページの鍵(PageRef.sortKey)。範囲外なら nil。
+    func pageKey(at index: Int) -> String? {
+        book.pages.indices.contains(index) ? book.pages[index].sortKey : nil
+    }
+
+    /// その鍵のページの、今の並びでの番号。並びに無い(除外された・消えた)なら nil。
+    ///
+    /// パネル・確認を待つ間に別のウインドウでページの並びが変わると、待つ前に取った番号は別のページを指す。待つ前に鍵を控え、
+    /// 待った後にこれで番号へ引き直す(2026-10-04、状態と画面の監査 V-12。docs/07「ブックマーク」の「ページは鍵で突き合わせる」)。
+    func pageIndex(forPageKey key: String) -> Int? {
+        book.pages.firstIndex { $0.sortKey == key }
+    }
+
     func loadGridThumbnail(at index: Int, maxPixelSize: CGFloat) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         return await pageLoader.gridThumbnail(at: index, maxPixelSize: maxPixelSize)
@@ -1826,7 +1845,19 @@ final class ViewerViewModel: ObservableObject {
             }
         }
         // シークレットウインドウでファイルから読んだ分(ephemeralBookmarks。DBには無い)も合成する。
-        bookmarks = (displayed + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
+        //
+        // **今の並びに鍵の無いブックマーク(除外したページのもの)は出さない**(2026-10-04、監査 V-4)。resolveKeys はそれらの番号を
+        // 据え置くので、以前は詰まった並びの同じ番号 ―― 隣の別のページ ―― に印・ページ一覧の「削除」・メニューの一覧が出て、
+        // そこでの「追加」は番号の重複で黙って何もせず、トグルは隠れたページのブックマークを消し、一覧から飛ぶと別のページへ着いた。
+        // 行は残る(除外を解けば戻る。「ブックマーク・レイアウトの編集」ウインドウでは除外ページの行に出る)。鍵の無い古い行は
+        // 判定できないので今までどおり出す。
+        let presentKeys = Set(currentOrderedKeys)
+        let combined = displayed + ephemeralBookmarks
+        hasAnyBookmark = !combined.isEmpty
+        bookmarks = combined.filter { bookmark in
+            guard let key = bookmark.pageKey else { return true }
+            return presentKeys.contains(key)
+        }.sorted { $0.pageIndex < $1.pageIndex }
     }
 
     /// EPUBの目次(nav.xhtml)から、ブックマークを自動的に取り込む(設計コンセプト7.5節「逆方向」)。
@@ -1839,7 +1870,7 @@ final class ViewerViewModel: ObservableObject {
     /// 無駄になるが、実際にファイルへ書き込む(ブックマークを追加する)のは最初の1回だけで、
     /// 2回目以降はbookmarks.isEmptyがfalseになるため、そもそもこのメソッド自体が呼ばれない)。
     private func autoImportEpubTableOfContentsAsBookmarksIfNeeded() async {
-        guard bookmarks.isEmpty else { return }
+        guard !hasAnyBookmark else { return }
         // 前に開いたとき目次が空だった(同じ本体のまま)なら、読み直さない(sourceProbe のコメント)。
         if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         let sourceURL = book.sourceURL
@@ -1949,7 +1980,7 @@ final class ViewerViewModel: ObservableObject {
     /// (EPUBの目次取り込みがbookmarks.isEmptyで早期に抜けるのと同じ考え方)。
     private func importComicInfoIfNeeded() async {
         let needsMetadata = needsSourceMetadataImport
-        let needsBookmarks = bookmarks.isEmpty
+        let needsBookmarks = !hasAnyBookmark
         // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
         // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。
         let needsReadingDirection = layoutStore.bookLayoutSettings(forBookID: book.id)?.didImportSourceLayout != true
@@ -2068,7 +2099,7 @@ final class ViewerViewModel: ObservableObject {
     /// 使うCGPDFDocumentしか開いておらず、アウトラインの読み取りにはPDFKitを使うため
     /// (PDFStructureResolver.resolveOutline参照)、どのみち専用の読み込みが必要になる)。
     private func autoImportPDFOutlineAsBookmarksIfNeeded() async {
-        guard bookmarks.isEmpty else { return }
+        guard !hasAnyBookmark else { return }
         let sourceURL = book.sourceURL
         if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         // nil = PDF を開けなかった(「アウトラインが無い」とは覚えない。2026-09-26。resolveOutlineIfReadable)。
@@ -2086,7 +2117,7 @@ final class ViewerViewModel: ObservableObject {
     /// ユーザーが手動でブックマークを追加した可能性もゼロではないため、書き込み直前に
     /// もう一度bookmarks.isEmptyを確認する。
     private func importAutoTOCEntries(_ entries: [(title: String, pageIndex: Int)]) {
-        guard !entries.isEmpty, bookmarks.isEmpty else { return }
+        guard !entries.isEmpty, !hasAnyBookmark else { return }
 
         let bookID = book.id
         if skipsPersistence {

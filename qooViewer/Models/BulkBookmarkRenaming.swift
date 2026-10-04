@@ -12,11 +12,16 @@ nonisolated enum BulkBookmarkRenaming {
         let id: UUID
         let pageIndex: Int
         let currentName: String
+        /// 先頭ページ(表紙)のブックマークか。既定は `pageIndex == 0`。呼び出し側がページの鍵で判定できるときはそれを渡す
+        /// (除外したページのブックマークは番号を据え置くので、番号 0 だけでは除外した元の先頭ページと取り違える。
+        /// 2026-10-04、監査 BE-1)。
+        let isOnFirstPage: Bool
 
-        init(id: UUID, pageIndex: Int, currentName: String) {
+        init(id: UUID, pageIndex: Int, currentName: String, isOnFirstPage: Bool? = nil) {
             self.id = id
             self.pageIndex = pageIndex
             self.currentName = currentName
+            self.isOnFirstPage = isOnFirstPage ?? (pageIndex == 0)
         }
     }
 
@@ -55,14 +60,14 @@ nonisolated enum BulkBookmarkRenaming {
 
     /// 名前を決める。順序は **表紙 → 最後の固定名 → 残りに連番**。
     ///
-    /// 表紙に選ばれるのは「ページ番号 0 のブックマーク」で、それが最後のブックマークでもある
+    /// 表紙に選ばれるのは「先頭ページのブックマーク」(`Target.isOnFirstPage`)で、それが最後のブックマークでもある
     /// (= 1 件しかない)場合は表紙が優先される。戻り値は**ページ順**に並べ直したもの ――
     /// プレビュー欄の並びがそのまま結果になる。
     static func renames(for targets: [Target], options: Options) -> [Rename] {
         var assignedIDs: Set<UUID> = []
         var result: [Rename] = []
 
-        if options.assignsFixedCover, let cover = targets.first(where: { $0.pageIndex == 0 }) {
+        if options.assignsFixedCover, let cover = targets.first(where: \.isOnFirstPage) {
             result.append(
                 Rename(id: cover.id, currentName: cover.currentName, newName: options.coverName)
             )

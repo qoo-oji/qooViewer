@@ -473,6 +473,16 @@ names for these rebuilt items — read `NSApp.mainMenu` in-process instead.
 when it reappears and drops temporary state (loaded file, results, selection, undo stack) when it closes, through
 `.auxiliaryWindowPresence` → `setPresented(_:)` (2026-10-04; stale reopened windows let the user delete a book's data on an old
 "missing" verdict) — a new auxiliary window must do the same (docs/03「補助ウインドウは開き直したら読み直す」).
+**Selections follow what is shown** (2026-10-04): every list prunes its selection whenever its order of ids changes
+(`GridSelection.prune(to:)` — the shelf via `WelcomeLibraryState.showCollections`/`showItems`, the smart library via `pruneSelection`,
+the Edit Metadata window on each filter), and delete/move/menu/inspector targets are built as **shown ∩ selected**
+(`targetCollectionIDs`, `contextTargets`), re-intersected after a confirmation; a sheet is presented only while its target resolves,
+and a fallback shown in place of a vanished target is written back to the state (before this, the trash and the Home menu deleted or
+moved collections the window no longer showed). **Pages are matched by key** (`PageRef.sortKey` ↔ `Bookmark.pageKey`), never by
+index: after anything that reorders/excludes pages, renumber with `BookmarkStore.resolveKeys(persists: true)` (`renumberBookmarks`
+when no viewer has the book), re-resolve an index from the key after a panel or confirmation, and key page-image caches by page id +
+correction — a bookmark on an excluded page keeps its old index and otherwise shows on its neighbour (docs/14「選択の決まり」,
+docs/07「ページの鍵」).
 
 **Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in
 `AppearanceSettings` (ViewModels/AppearanceSettings.swift), not `AppPreferences` — `preferences.appearance` (normal

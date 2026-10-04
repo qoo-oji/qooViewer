@@ -20,13 +20,24 @@ struct WelcomeLibraryPane: View {
     /// 編集操作を許すか(シークレットウインドウでは常にfalse。AppState.isPrivateWindow参照)。
     let allowsEditing: Bool
 
+    /// 中を開いているコレクション。**このライブラリにあるものだけ**(別のウインドウが別のライブラリへ移した棚は、ここでは
+    /// 「無い」。以前は引けるので中を出し続け、チップは元のライブラリのまま、表紙の比・位置も元のライブラリのもので描いていた。
+    /// 2026-10-04、監査 H-15)。
     private var openedCollection: BookCollection? {
-        state.openedCollectionID.flatMap { collectionStore.collection(withID: $0) }
+        guard let collection = state.openedCollectionID.flatMap({ collectionStore.collection(withID: $0) }),
+              collection.library?.id == library.id
+        else { return nil }
+        return collection
+    }
+
+    /// 開いているはずのコレクションを引けない(消えた・別のライブラリへ移った)。
+    private var hasStaleOpenedCollection: Bool {
+        state.openedCollectionID != nil && openedCollection == nil
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // 開いていたコレクションが別のウインドウから消された場合は、黙って一覧へ戻す。
+            // 開いていたコレクションが別のウインドウから消された(移された)場合は、黙って一覧へ戻す。
             if let collection = openedCollection {
                 CollectionDetailView(
                     state: state, collection: collection, library: library,
@@ -39,6 +50,12 @@ struct WelcomeLibraryPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 一覧へ戻したら、状態の id も捨てる(監査 H-2・H-15。§1-1 の方針 (4)「表示を差し替えたら元の状態も書き換える」)。
+        // 以前は id が残り、インスペクタが一覧の選択を「選択されていません」と出し、メニューの相手も食い違い、削除が別のウインドウで
+        // 取り消されると触っていないこのウインドウが勝手に中へ戻っていた。チップを押したときに消えた棚が選択に入ることもなくなる。
+        .onChange(of: hasStaleOpenedCollection, initial: true) { _, isStale in
+            if isStale { state.openedCollectionID = nil }
+        }
         // 「本を追加」パネル。WelcomeView側には既に名前入力のシートが付いているため、
         // **別のビューに**付ける(SwiftUIでは同じビューに複数の`.sheet`を付けると
         // 後から付けたほうだけが効く)。

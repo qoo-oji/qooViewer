@@ -1449,8 +1449,11 @@ struct SmartLibraryContent: View {
     /// リスト表示の右クリック(`listMenu`)も同じ項目・同じ動き。
     @ViewBuilder
     private func contextMenu(for item: SmartGridItem) -> some View {
-        let targets = Self.books(in: state.contextTargets(for: item))
-        let isSingle = targets.count == 1
+        let items = state.contextTargets(for: item)
+        let targets = Self.books(in: items)
+        // 「1 つだけ」は束も数えて決める(2026-10-04、監査 SL-11。以前は本だけを数え、本と束をまとめて選ぶと、インスペクタは
+        // 「2 項目」なのに「開く」「メタデータの編集…」が 1 冊に効いた)。
+        let isSingle = items.count == 1 && targets.count == 1
         if let book = targets.first {
             BookOpenContextMenuItems(
                 onOpen: { open(book) },
@@ -1541,7 +1544,8 @@ struct SmartLibraryContent: View {
         }
         let books = Self.books(in: targets)
         guard let book = books.first else { return [] }
-        let isSingle = books.count == 1
+        // 束も数える(contextMenu(for:) と同じ。監査 SL-11)。
+        let isSingle = targets.count == 1 && books.count == 1
         var items: [Item] = [
             Item(title: title("Open"), isEnabled: isSingle, action: { open(book) }),
             .separator,

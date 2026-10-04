@@ -1654,3 +1654,59 @@ TW-21・MD-5・MD-8・MD-12・SL-3・SL-9・X-1(1-4 に近い)・BE-14。
 - **TW-11**(直した): `SheetKind.confirmation(Set<UUID>)` で開いた時点の集合を値で渡し、シートは `AutoRenameService.ConfirmationPreview`
   (対象・計画・一覧)を持つ。`confirm(_:)` は今の `makePlan(including:)` が見せたときと同じときだけ見せた対象を確認し、違えば一覧を作り直して
   見せ直す(帯で知らせる)。テスト `AutoRenameServiceTests.confirmingAPreviewOnlyCoversWhatWasShown`。
+
+### 段 2(2026-10-04)
+
+決まりを 2 つ足し、CLAUDE.md・docs/14「選択の決まり」・docs/07「ページの鍵」に書いた: (1) 一覧の並び(id の列)が変わったら選択を
+`prune(to:)` で絞り、削除・移動・メニュー・インスペクタの相手は「表示中 ∩ 選択」で作る(確認の後にも交わりを取り直す。相手を解決
+できないシートは出さない。表示を読み替えたら状態も書き換える)。(2) ページは鍵で突き合わせ、並びを変えたら `resolveKeys(persists: true)` で
+番号を振り直す(本を開いていない経路は新しい `BookmarkStore.renumberBookmarks`)。
+
+- **H-1**(直した): `WelcomeLibraryState.showCollections` / `showItems`(一覧/中の画面が並びの変わるたびと出たときに呼ぶ)で選択を絞り、
+  `targetCollectionIDs` / `targetItemIDs`(表示中 ∩ 選択)をゴミ箱・ホームメニュー(ContentView の `homeMenuState`、
+  `HomeMenuCommands.moveCollections` は実行時にもう一度)・インスペクタの相手にした。ゴミ箱の確定・メニューからの削除/外す依頼も
+  いま出ているものに絞る。(b) は WelcomeView が消えたライブラリの `selectedLibraryID` を読み替えた先へ書き換える(didSet で編集モード・
+  選択・検索も捨てる)。テスト `WelcomeLibraryStateTests` の 3 件(`showingANewOrderPrunesTheSelection` ほか)。
+- **H-2**(直した): `WelcomeLibraryPane` が引けなくなった `openedCollectionID` を nil へ戻す(`onChange(initial:)`)。インスペクタも
+  開いているコレクションを引けるかで中/一覧を決める。View の状態なのでテストは H-1 のぶんだけ(実機)。
+- **H-3**(直した): 一覧のコレクション・ライブラリの改名シートと作成のシートの `isPresented` を「相手を引けるか」から作り、引けなく
+  なったら id・待ち行列を捨てる。(3) は `WelcomeDropHandling.handle` が待った後に、作成へ回る枝だけ `isLibraryFeatureEnabled`・`isEditing` を
+  確かめ直す(開いている棚へ足す枝は始めた操作を終わらせる ―― 検証役の補足どおり)。テスト `creationsAreNotQueuedAfterTheFeatureOrEditModeWentAway`。
+  シートの出し入れは実機。
+- **H-9**(直した): `AddBooksPanel` は `collectionID` があって引けないとき作り直さずに知らせる。編集モードのドロップも、中にいた棚が
+  待つ間に消えたら作成へ回さず知らせる(`WelcomeDropHandling.collectionGoneMessage`、新しい文言)。足す途中で消えたときも知らせる。
+  テスト `droppingIntoAVanishedCollectionCreatesNothing`。
+- **H-15**(直した): `WelcomeLibraryPane.openedCollection` を「このライブラリにある棚」に限り、移った棚は H-2 と同じく一覧へ戻す
+  (チップを移った先へ替える案は採らなかった ―― 消えたときと同じ 1 つの規則にした)。実機。
+- **SL-2**(直した): `SmartLibraryViewState.pruneSelection` ―― 選べるのは並びとリストで開いている束の中の本だけ。見えなくなった本の
+  選択はその束の選択に置き換える(外すだけより、どこにいたかが分かる)。並びの変化・`viewMode`・`expandedListGroupIDs` の変化で呼ぶ。
+  既存テスト `gridSelectionFollowsTheGrid` の期待(束へ隠れた本の選択を残す)をこの決まりに合わせて改め、`innerBookSelectionFollowsTheViewMode` を足した。
+- **SL-11**(直した): `selectedBookPaths` は束を含む選択なら空(メニューバーの「1 冊だけ」にならない)。右クリック(グリッド・リスト)の
+  「1 つだけ」も束を数える。テスト `aBookAndAGroupAreNotASingleBook`。
+- **MD-4**(直した): `MetadataWorkspace.applyFilters` が選択を見えている行へ絞る(Finder と同じ)。帯の数も `selectedBooks`。テスト
+  `filteringPrunesTheSelection`。
+- **BE-3**(直した): 左ペインのダブルクリックはハイライトされている行(`effectiveSelectedBookID`)を開く。フォールバックでハイライトが
+  替わったら `selectedBookID` も書き換える(未選択 = 今の本に付いていく、はそのまま)。View だけなのでテストは足せない(実機)。
+- **BE-8**(直した): 上へ/下へは読めるページの並びで 1 つ動かし(`movePages` 経由。除外ページは直前の読めるページに付いて動く)、
+  除外行・一覧に出ていない行では淡色、一覧から消えた行の選択は外す。見開きの隣り合いは読めるページだけで比べる(ドラッグも同じ)。
+  テスト `movingUsesTheReadableOrder`。既存テスト `unexcludingAPageMovesItBackToItsFilenamePosition` は除外ページを上下ボタンで
+  動かしていたので、並びを保存データとして用意する形に改めた。
+- **BE-1・BE-4**(一緒に直した): 右ペインの行とブックマークを鍵で結ぶ(`BookLayoutEditorViewModel.bookmarksByRowKey`。鍵の無い古い行だけ
+  番号)。「ブックマークあり」の絞り込みも同じ。並びを変える操作(並べ替え・除外/解除・初期化・本体の読み込み)の後に
+  `renumberBookmarks`(本体を読めてから。番号の対応表で書き換える `migrateBookmarkIndices` / `BookmarkStore.updatePageIndices` は外した)。
+  `BookmarkStore.addBookmark` の重複判定は鍵。`layoutDataDidChange` で保存されているページ順が行の順と違えば行を組み直す。
+  一括リネームの「先頭ページ」は鍵で見る(`BulkBookmarkRenaming.Target.isOnFirstPage`)。テスト `bookmarksAreMatchedByKeyAndRenumbered`・
+  `rowsFollowAPageOrderChangedElsewhere`、`BookmarkKeyResolutionTests` の `updatePageIndices` の 4 件を `renumberBookmarks` と鍵の重複判定の 4 件に置き換えた。
+- **V-4**(直した): `ViewerViewModel.reloadBookmarks` が今の並びに鍵の無いブックマーク(除外したページのもの)を `bookmarks` から外す
+  (行は残り、除外を解けば戻る)。目次などの自動取り込みの「1 件も無いか」は外したものも数える `hasAnyBookmark` で見る。
+  テスト `bookmarksOfExcludedPagesAreNotShownOnTheirNeighbors`。
+- **V-8**(直した): フィルムストリップの控えに中身(`PageRef.id`+補正の有無)を持たせ、今と違う絵は出さずに読み直す。View の `@State`
+  なのでテストは足せない(実機)。
+- **V-9**(直した): ページ一覧のセルの `.task(id:)` に中身(ページの id+補正)を入れ、中身が変わったら古い絵とプレビューを捨てる。実機。
+- **V-12**(直した): `PendingLayoutStateChange` は鍵で持ち、確認の後に `ViewerViewModel.pageIndex(forPageKey:)` で番号へ引き直す
+  (並びから消えたらダイアログを閉じ、押したときは鳴らして書かない)。画像の書き出しもパネルの後で鍵から引き直し、消えていれば
+  「書き出す画像を読み込めませんでした。」を出す。パネル・ダイアログを挟むのでテストは足せない(実機)。
+- **FBU-2**(直した): `FileBrowserState.resolveLinkTargets` を、読み直しのたびに(一覧が同じでも)解けている鍵も解き直す形にし、解けなければ
+  前の控えも捨てる。`FileBrowserActions.openLink` は控えを使わずにいつも解き直し、結果を控えにも入れる。ドロップは同期の判定なので
+  控えのまま(読み直しで新しくなる)。docs/15 の「先が無ければ鳴らす」は今の動き(リンク自身を LaunchServices へ)に直した。
+  テスト `linkTargetsAreResolvedAgainOnReload`。

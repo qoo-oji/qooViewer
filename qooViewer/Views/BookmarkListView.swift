@@ -349,7 +349,10 @@ struct BookmarkEditorView: View {
             guard let tableView else { return event }
             let pointInTable = tableView.convert(event.locationInWindow, from: nil)
             guard tableView.row(at: pointInTable) >= 0 else { return event }
-            if let bookID = selectedBookID {
+            // 開くのは**ハイライトされている行の本**(一覧と同じ effectiveSelectedBookID)。以前は素の `selectedBookID` を開いていて、
+            // 絞り込みで隠れた本 A の代わりに本 B がハイライトされているとき、B の行(既に選ばれているので List の setter が呼ばれない)
+            // をダブルクリックすると、画面に見えていない A が開いた(2026-10-04、監査 BE-3。実機で確認)。
+            if let bookID = effectiveSelectedBookID(in: filteredSortedRows) {
                 openBook(bookID: bookID)
             }
             return event
@@ -775,6 +778,12 @@ struct BookmarkEditorView: View {
                     applyInitialFocus(newValue)
                 }
                 .onChange(of: selectedID) { _, newValue in
+                    // フォールバック(絞り込み・削除で選んでいた本が一覧から消えた)でハイライトを差し替えたら、選択そのものも
+                    // そちらへ書き換える(2026-10-04、監査 BE-3。§1-1 の方針 (4))。以前は表示だけを差し替えたので、絞り込みを戻すと
+                    // 選択が見えていなかった本へ飛び戻り、右ペインもそちらへ替わった。未選択(nil = 今の本に付いていく)はそのまま。
+                    if selectedBookID != nil, let newValue, selectedBookID != newValue {
+                        selectedBookID = newValue
+                    }
                     // selectedBookIDがapplyInitialFocusなどで書き換わり、結果としてこの一覧の
                     // 選択行(ハイライト)が変わったときに、その行までスクロールする
                     // (withoutAnimationと同じ理由で、行が動く様子を見せる必要は無いため
@@ -1426,16 +1435,17 @@ private struct BookmarkDetailPane: View {
     /// 参照)。除外ページが1件でもある場合は、以前はここも一緒に無効化していたが、
     /// viewModel.movePages(displayedPageKeys:fromOffsets:toOffset:)側でこのインデックス空間の
     /// 食い違いを吸収するようにしたため、除外ページがあっても並べ替えできる
-    /// (上下ボタン(movePageUp/movePageDown)はviewModel.rows自体をpageKeyで直接操作するため、
-    /// もともとこの表示専用の並べ替えの影響を受けない)。
+    /// (上下ボタン(movePageUp/movePageDown)は選んだ行を読めるページの並びで1つ動かし、除外ページはドラッグと同じく
+    /// 直前の読めるページに付いて動く。除外行・一覧に出ていない行では押せない ―― canMoveSelectedPage。監査 BE-8)。
     private var displayedRows: [BookLayoutEditorViewModel.Row] {
         let base: [BookLayoutEditorViewModel.Row]
         if pageFilter == .hasBookmarks {
-            let bookmarkedIndices = Set(bookmarkStore.bookmarks(forBookID: bookID).map(\.pageIndex))
-            base = viewModel.rows.filter { row in
-                guard let index = row.effectiveReadingIndex else { return false }
-                return bookmarkedIndices.contains(index)
-            }
+            // ブックマークのある行は鍵で見る(pageList の bookmarksByRowKey と同じ突き合わせ。監査 BE-1)。除外ページの行も、
+            // そのページのブックマークがあれば出す(番号で見ていた頃は、除外ページのブックマークが隣の別の行に出ていた)。
+            let bookmarked = BookLayoutEditorViewModel.bookmarksByRowKey(
+                bookmarkStore.bookmarks(forBookID: bookID), rows: viewModel.rows
+            )
+            base = viewModel.rows.filter { bookmarked[$0.pageKey] != nil }
         } else {
             base = viewModel.rows
         }
@@ -1463,6 +1473,11 @@ private struct BookmarkDetailPane: View {
         }
         .task(id: bookID) {
             await viewModel.load()
+        }
+        // 一覧に出ている行が変わったら(絞り込み・他所での除外など)、出ていない行の選択を外す(2026-10-04、監査 BE-8。
+        // docs/14「選択の決まり」)。上へ/下へは選んだ行が出ているときだけ押せる(canMoveSelectedPage)。
+        .onChange(of: displayedRows.map(\.pageKey)) { _, keys in
+            if let selectedPageKey, !keys.contains(selectedPageKey) { self.selectedPageKey = nil }
         }
         .onAppear {
             installDoubleClickMonitor()
@@ -1677,9 +1692,11 @@ private struct BookmarkDetailPane: View {
         // uniquingKeysWithで先勝ちにしているのは、同じpageIndexに複数のブックマークがある
         // (通常は重複防止されるが、JSONインポート等で生じうる)場合に、従来の
         // 「ソート済み配列の.first」と同じものを選ぶため。
-        let bookmarksByPageIndex = Dictionary(
-            bookmarkStore.bookmarks(forBookID: bookID).map { ($0.pageIndex, $0) },
-            uniquingKeysWith: { first, _ in first }
+        //
+        // 2026-10-04 から**ページの鍵で**引く(監査 BE-1。BookLayoutEditorViewModel.bookmarksByRowKey のコメント)。番号で引いていた
+        // 頃は、除外・並べ替え・初期化で番号が詰まるとブックマークが別のページの行に出た。
+        let bookmarksByRowKey = BookLayoutEditorViewModel.bookmarksByRowKey(
+            bookmarkStore.bookmarks(forBookID: bookID), rows: viewModel.rows
         )
         // 左ペインと同じ理由(セル内のSwiftUIジェスチャーがマウスダウンを掴み、NSTableViewが
         // 行選択を開始できなくなる。PageRowView.selectableContentのコメント参照)で、選択は
@@ -1702,7 +1719,7 @@ private struct BookmarkDetailPane: View {
                     row: row,
                     viewModel: viewModel,
                     bookID: bookID,
-                    bookmark: row.effectiveReadingIndex.flatMap { bookmarksByPageIndex[$0] },
+                    bookmark: bookmarksByRowKey[row.pageKey],
                     columnWidths: columnWidths,
                     columnDividerCorrections: columnDividerCorrections,
                     isMoveEnabled: pageFilter == .all,
@@ -1961,7 +1978,7 @@ private struct BookmarkDetailPane: View {
             } label: {
                 Image(systemName: "chevron.up")
             }
-            .disabled(selectedPageKey == nil || !viewModel.isBookReady)
+            .disabled(!canMoveSelectedPage)
             .help("Move Selected Page Earlier")
 
             Button {
@@ -1969,7 +1986,7 @@ private struct BookmarkDetailPane: View {
             } label: {
                 Image(systemName: "chevron.down")
             }
-            .disabled(selectedPageKey == nil || !viewModel.isBookReady)
+            .disabled(!canMoveSelectedPage)
             .help("Move Selected Page Later")
 
             // ページの読み込みが終わるまでの表示。
@@ -2082,13 +2099,24 @@ private struct BookmarkDetailPane: View {
         }
     }
 
+    /// 上へ/下へを押せるか: 選んだ行が**いま一覧に出ていて、除外ページでない**とき(2026-10-04、監査 BE-8)。以前は選んでいるか
+    /// だけで決めていたので、絞り込みで隠れた行・除外行にも効き、見た目は変わらないまま並びと見開きの指定を書き換えた。
+    private var canMoveSelectedPage: Bool {
+        guard viewModel.isBookReady, let selectedPageKey,
+              let row = displayedRows.first(where: { $0.pageKey == selectedPageKey })
+        else { return false }
+        return row.effectiveReadingIndex != nil
+    }
+
     private func movePageUp() {
-        guard let selectedPageKey, let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
+        guard canMoveSelectedPage, let selectedPageKey,
+              let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
         viewModel.movePageUp(at: index)
     }
 
     private func movePageDown() {
-        guard let selectedPageKey, let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
+        guard canMoveSelectedPage, let selectedPageKey,
+              let index = viewModel.rows.firstIndex(where: { $0.pageKey == selectedPageKey }) else { return }
         viewModel.movePageDown(at: index)
     }
 

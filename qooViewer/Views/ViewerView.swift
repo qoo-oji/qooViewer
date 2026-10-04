@@ -224,11 +224,21 @@ struct ViewerView: View {
     /// 挟まない(3.3節)ため、この仕組みは使わず直接viewModel.clearPageLayoutを呼ぶ。
     @State private var pendingLayoutStateChange: PendingLayoutStateChange?
 
-    /// pendingLayoutStateChangeの中身。ページ番号と、これから設定しようとしている状態の組。
+    /// pendingLayoutStateChangeの中身。対象ページと、これから設定しようとしている状態の組。
+    ///
+    /// ページは**鍵で**持つ(2026-10-04、監査 V-12)。範囲を尋ねている間に別のウインドウでページの並びが変わると、番号は別のページを
+    /// 指す ―― 以前は番号で持ち、確認の後で別のページへレイアウトを書いた。確認の後に鍵から番号を引き直し、並びに無くなっていれば
+    /// 書かない(ダイアログも閉じる)。
     private struct PendingLayoutStateChange: Identifiable {
         let id = UUID()
-        let pageIndex: Int
+        let pageKey: String
         let state: PageLayoutState
+
+        init?(pageIndex: Int, state: PageLayoutState, in viewModel: ViewerViewModel) {
+            guard let pageKey = viewModel.pageKey(at: pageIndex) else { return nil }
+            self.pageKey = pageKey
+            self.state = state
+        }
     }
 
     /// 「現在の表示を基準に自動でレイアウトする」(3.1節)は、本全体を上書きする操作のため、
@@ -462,7 +472,7 @@ struct ViewerView: View {
         // AppState.swiftのperformLayoutStateChange/performLayoutClear/performAutoLayoutのコメント参照。
         appState.performLayoutStateChange = { target, state in
             let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
-            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: state)
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: state, in: viewModel)
         }
         appState.performLayoutClear = { target in
             let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
@@ -1030,9 +1040,15 @@ struct ViewerView: View {
                         defaultFileName: ImageExporter.defaultFileName(for: page, fileExtension: ext),
                         contentType: ImageExporter.contentType(forExtension: ext)
                     ) else { return }
+                    // パネルを待つ間に別のウインドウでページの並びが変わっていれば、番号は別のページを指す。控えた鍵から番号を
+                    // 引き直し、並びから消えていれば書き出さない(2026-10-04、監査 V-12。以前は別のページを元の名前で保存した)。
+                    guard let currentIndex = viewModel.pageIndex(forPageKey: page.sortKey) else {
+                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
+                        return
+                    }
                     // PDFの本でも書き出せるよう、生データではなく
                     // ViewerViewModel.exportableImage(at:)を使う(そちらのコメント参照)。
-                    guard let exportable = try await viewModel.exportableImage(at: index) else {
+                    guard let exportable = try await viewModel.exportableImage(at: currentIndex) else {
                         imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
                         return
                     }
@@ -1052,6 +1068,8 @@ struct ViewerView: View {
             let leadingPage = viewModel.book.pages[leadingIndex]
             let trailingPage = viewModel.book.pages[trailingIndex]
             let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
+            let leftKey = viewModel.book.pages[leftIndex].sortKey
+            let rightKey = viewModel.book.pages[rightIndex].sortKey
             guard !isExportingImage else { return }
             isExportingImage = true
             Task {
@@ -1060,7 +1078,10 @@ struct ViewerView: View {
                     defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
                     contentType: ImageExporter.contentType(forExtension: ext)
                 ) else { return }
-                guard let leftImage = await viewModel.fullResolutionImage(at: leftIndex),
+                // パネルの後で鍵から番号を引き直す(1 ページの書き出しと同じ。監査 V-12)。
+                guard let leftIndex = viewModel.pageIndex(forPageKey: leftKey),
+                      let rightIndex = viewModel.pageIndex(forPageKey: rightKey),
+                      let leftImage = await viewModel.fullResolutionImage(at: leftIndex),
                       let rightImage = await viewModel.fullResolutionImage(at: rightIndex)
                 else {
                     imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
@@ -1731,7 +1752,9 @@ struct ViewerView: View {
         // 2026-09-27 の監査で、このグループがまだ直接捕まえていたのを直した)。@State の値は body を作るたびに読んだ値を渡し、
         // ビューモデルは weak で読み、書き換えと操作は relay 経由。
         let relay = actionRelay
-        let hasPendingLayoutStateChange = pendingLayoutStateChange != nil
+        // 対象ページが今の並びにあるときだけ出す(並びから消えたら閉じる。PendingLayoutStateChange のコメント)。
+        let pendingLayoutPageIndex = pendingLayoutStateChange.flatMap { viewModel.pageIndex(forPageKey: $0.pageKey) }
+        let hasPendingLayoutStateChange = pendingLayoutPageIndex != nil
         let hasImageExportError = imageExportErrorMessage != nil
         // 環境設定「本を開く」の「開始ページ」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
@@ -1768,13 +1791,18 @@ struct ViewerView: View {
             ),
             titleVisibility: .visible
         ) {
-            if let pending = pendingLayoutStateChange {
-                ForEach(availableScopes(forPageIndex: pending.pageIndex)) { scope in
+            if let pending = pendingLayoutStateChange, let pageIndex = pendingLayoutPageIndex {
+                ForEach(availableScopes(forPageIndex: pageIndex)) { scope in
                     Button(scope.titleKey) {
                         relay.send { view in
                             view.pendingLayoutStateChange = nil
+                            // 押した時点の並びで鍵から番号を引き直す(V-12)。並びから消えていれば書かずに鳴らす。
+                            guard let index = view.viewModel.pageIndex(forPageKey: pending.pageKey) else {
+                                NSSound.beep()
+                                return
+                            }
                             Task {
-                                await view.viewModel.setPageLayout(atIndex: pending.pageIndex, to: pending.state, scope: scope)
+                                await view.viewModel.setPageLayout(atIndex: index, to: pending.state, scope: scope)
                                 view.syncMenuCheckmarkState()
                             }
                         }
@@ -2594,22 +2622,22 @@ struct ViewerView: View {
         let relay = actionRelay
         Button("Set as Single Page") {
             relay.send { view in
-                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .single)
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .single, in: view.viewModel)
             }
         }
         Button("Set as Spread Right Page") {
             relay.send { view in
-                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadRight)
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadRight, in: view.viewModel)
             }
         }
         Button("Set as Spread Left Page") {
             relay.send { view in
-                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadLeft)
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadLeft, in: view.viewModel)
             }
         }
         Button("Set as Excluded (Hidden)") {
             relay.send { view in
-                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .excluded)
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .excluded, in: view.viewModel)
             }
         }
         if viewModel.hasPageLayoutOverride(atIndex: pageIndex) {

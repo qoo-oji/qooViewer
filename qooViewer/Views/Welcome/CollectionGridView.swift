@@ -100,8 +100,9 @@ struct CollectionGridView: View {
                     canSelectAll: !collections.isEmpty,
                     onToggleSelectAll: { toggleSelectAll() },
                     deleteHelp: "Delete Selected Collections",
-                    canDelete: !state.selectedCollectionIDs.isEmpty,
-                    onDelete: { deletingCollectionIDs = Array(state.selectedCollectionIDs) },
+                    // 相手は表示中 ∩ 選択(監査 H-1。以前は生の選択で、見えていない棚まで消した)。
+                    canDelete: !selectedShownCollectionIDs.isEmpty,
+                    onDelete: { deletingCollectionIDs = selectedShownCollectionIDs },
                     isEditing: $state.isEditing,
                     sort: $state.collectionSort,
                     // コレクションそのものには書誌のタイトルが無いので「タイトル」は出さない
@@ -139,13 +140,20 @@ struct CollectionGridView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // 並びが変わったら選択を並びに絞る(WelcomeLibraryState.showCollections。監査 H-1)。出たとき(本を開いて戻った・
+        // 中から一覧へ戻った)も、離れていた間の変化を拾うために一度通す(initial)。
+        .onChange(of: collections.map(\.id), initial: true) { _, order in
+            state.showCollections(order)
+        }
+        // 名前を変えるシートは、相手を解決できる間だけ出す(監査 H-3。以前は id の有無だけで出し、別のウインドウが消した・
+        // 選択に残った消えた棚だと、中身の無いシートが出た)。解決できなくなったら id も捨てる。
         .sheet(
             isPresented: Binding(
-                get: { renamingCollectionID != nil },
+                get: { renamingCollection != nil },
                 set: { if !$0 { renamingCollectionID = nil } }
             )
         ) {
-            if let collection = renamingCollectionID.flatMap({ collectionStore.collection(withID: $0) }) {
+            if let collection = renamingCollection {
                 CollectionNameSheet(
                     kind: .renameCollection,
                     initialName: collection.name,
@@ -172,6 +180,9 @@ struct CollectionGridView: View {
                 Text("The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo.")
             }
         }
+        .onChange(of: renamingCollectionID != nil && renamingCollection == nil) { _, isStale in
+            if isStale { renamingCollectionID = nil }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
         }
@@ -189,7 +200,9 @@ struct CollectionGridView: View {
             case .renameCollection(let id) where allowsEditing:
                 renamingCollectionID = id
             case .deleteCollections(let ids) where allowsEditing:
-                deletingCollectionIDs = ids
+                // メニューの値を作った後で並びが変わっていることがあるので、いま出ているものに絞る(監査 H-1)。
+                let shown = Set(collections.map(\.id))
+                deletingCollectionIDs = ids.filter(shown.contains)
             case .focusSearch:
                 isSearchFocused = true
             default:
@@ -204,6 +217,20 @@ struct CollectionGridView: View {
         deletingCollectionIDs.count == 1
             ? Text("Delete Collection?")
             : Text("Delete \(deletingCollectionIDs.count) collections?")
+    }
+
+    /// ゴミ箱の相手 = いま出ているもののうち選んでいるもの(表示順。WelcomeLibraryState.targetCollectionIDs と同じ交わり)。
+    private var selectedShownCollectionIDs: [UUID] {
+        let selected = state.selectedCollectionIDs
+        return selected.isEmpty ? [] : collections.map(\.id).filter(selected.contains)
+    }
+
+    /// 名前を変えるシートの相手。この一覧のライブラリにある棚だけ(別のウインドウが消した・移したら nil ―― シートを閉じる)。
+    private var renamingCollection: BookCollection? {
+        guard let collection = renamingCollectionID.flatMap({ collectionStore.collection(withID: $0) }),
+              collection.library?.id == library.id
+        else { return nil }
+        return collection
     }
 
     /// いま出ているコレクションが残らず選ばれているか。空のときは false(押せる先が無い)。
@@ -223,8 +250,10 @@ struct CollectionGridView: View {
     }
 
     private func confirmDeletion() {
-        // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
-        let targets = deletingCollectionIDs.compactMap { collectionStore.collection(withID: $0) }
+        // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。**いま一覧に出ているものだけ**
+        // (確認の間に別のウインドウが別のライブラリへ移した棚を、見えないまま消さない。監査 H-1)。
+        let shown = Set(collections.map(\.id))
+        let targets = deletingCollectionIDs.filter(shown.contains).compactMap { collectionStore.collection(withID: $0) }
         deletingCollectionIDs = []
         guard !targets.isEmpty else { return }
         DataUndoStack.deleteCollections(targets, in: collectionStore, recordingOn: dataUndo)

@@ -611,6 +611,32 @@ struct FileBrowserStateTests {
         #expect(state.target(of: link)?.url.path == fixture.aFolder.path)
     }
 
+    @Test("一覧が同じでも、読み直しでリンクの先を解き直す(先が動いた・消えたのに古い先を使い続けない。2026-10-04、監査 FBU-2)")
+    func linkTargetsAreResolvedAgainOnReload() async throws {
+        let fixture = try Fixture("fb-links-refresh")
+        let state = fixture.state
+        state.linkTargetProtectedPrefixes = []
+        state.linkTargetCategoryPrefixes = []
+        // a-folder/inner に、外(root/b-folder)を指す記号リンク。先を動かしても inner の一覧は変わらない。
+        try FileManager.default.createSymbolicLink(
+            at: fixture.inner.appendingPathComponent("to-b"), withDestinationURL: fixture.bFolder
+        )
+        state.navigate(to: fixture.inner)
+        await state.settle()
+        await state.waitForLinkTargets()
+        let link = try #require(state.entries.first { $0.url.lastPathComponent == "to-b" })
+        #expect(state.target(of: link)?.url.path == fixture.bFolder.path)
+
+        // Finder で先を動かして戻ってきた(アクティブ化の読み直し)。以前は一覧が同じなので解き直さず、古い先へ移ろうとした。
+        try FileManager.default.moveItem(at: fixture.bFolder, to: fixture.root.appendingPathComponent("b-moved"))
+        state.reload()
+        await state.settle()
+        await state.waitForLinkTargets()
+        #expect(state.entries.map(\.url.lastPathComponent) == ["to-b"])
+        #expect(state.target(of: link) == nil)
+        #expect(state.effective(link) == link)
+    }
+
     @Test("シークレットウインドウでは「最近の項目」を出さない")
     func privateWindowNeverShowsRecents() async throws {
         let fixture = try Fixture("fb-recents-private")

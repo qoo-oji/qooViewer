@@ -368,6 +368,38 @@ struct ViewerViewModelTests {
             == [book.pages[0].sortKey, book.pages[2].sortKey])
     }
 
+    @Test("除外したページのブックマークは隣のページに付いて見えない。そのページでの追加・次のブックマークも別のページを見ない(2026-10-04、監査 V-4)")
+    func bookmarksOfExcludedPagesAreNotShownOnTheirNeighbors() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let keys = book.pages.map(\.sortKey)
+        let viewer = await harness.open(book)
+        viewer.jump(toPageIndex: 4)
+        await viewer.settle()
+        viewer.addBookmark()
+        #expect(viewer.bookmarks.map(\.pageKey) == [keys[4]])
+
+        // 5 ページ目を除外する(別のウインドウ・編集ウインドウからでも同じ知らせで届く)。
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: keys[4], state: .excluded)
+        await viewer.settle()
+        // 以前は番号 4 のまま残り、詰まった並びの番号 4(6 ページ目)に印・一覧・トグルが出た。
+        #expect(viewer.bookmarks.isEmpty)
+        #expect(harness.bookmarks(for: book).count == 1)
+
+        // 6 ページ目(今の番号 4)には足せる(以前は番号の重複で黙って何もしなかった)。
+        viewer.jump(toPageIndex: 4)
+        await viewer.settle()
+        viewer.addBookmark()
+        #expect(viewer.bookmarks.map(\.pageKey) == [keys[5]])
+        #expect(harness.bookmarks(for: book).count == 2)
+
+        // 除外を解けば元のブックマークも戻る(行は消していない)。
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: keys[4], state: nil)
+        await viewer.settle()
+        #expect(Set(viewer.bookmarks.compactMap(\.pageKey)) == [keys[4], keys[5]])
+    }
+
     // MARK: - 表示モードの書き戻し先
 
     @Test("見開き/単ページの切り替えは、強制指定がある本ならそちらへ書き戻す")

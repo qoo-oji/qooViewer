@@ -253,6 +253,9 @@ struct ThumbnailGridView: View {
                             } label: {
                                 ThumbnailCell(
                                     viewModel: viewModel, index: index,
+                                    // 番号の指すページと補正が変わったら読み直す(ThumbnailCell.contentID。監査 V-9)。
+                                    contentID: viewModel.book.pages.indices.contains(index)
+                                        ? "\(viewModel.book.pages[index].id)|\(viewModel.isContrastCorrectionEnabled)" : "",
                                     // 見開きで2ページとも表示しているときは、2枚とも枠で
                                     // 囲む(ViewerViewModel.partnerPageIndex参照)。
                                     isCurrent: index == viewModel.currentIndex
@@ -557,6 +560,10 @@ struct ThumbnailGridBackdropView: View {
 private struct ThumbnailCell: View {
     let viewModel: ViewerViewModel
     let index: Int
+    /// このセルの絵の中身を決めるもの(ページの識別子と補正の有無)。セルは番号で並ぶ(`ForEach(0..<pageCount)`)ので、除外・並べ替え・
+    /// 補正の切り替えで番号の指すページや絵が変わったときは、これが変わる ―― 読み直しの `.task(id:)` に入れる(2026-10-04、監査 V-9。
+    /// 以前は番号と解像度だけで、キャプションは新しいのに絵は古いページのまま残った)。
+    let contentID: String
     let isCurrent: Bool
     /// サムネイル枠の大きさ(pt)。高さがAppPreferences.thumbnailGridCellSize、幅はその
     /// cellAspectRatio倍(以前は120×120の正方形固定)。
@@ -574,6 +581,8 @@ private struct ThumbnailCell: View {
     /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
     @EnvironmentObject private var appearance: AppearanceSettings
     @State private var image: CGImage?
+    /// `image` と `previewImage` がどの中身の絵か(`contentID`)。中身が変わったら、別のページの絵は出さずに読み直す。
+    @State private var loadedContentID: String?
 
     /// カーソルが小さいサムネイルの上にあるかどうか。拡大プレビュー用のpopoverの表示制御に使う
     /// (BookmarkListView.PageRowView.thumbnailPreviewContentと同じ考え方・同じ操作性を、
@@ -676,7 +685,16 @@ private struct ThumbnailCell: View {
         }
         // セルの大きさ(pixelSize)が変わったら、その解像度で読み直す(スライダーで拡大したときに
         // ぼやけないように)。idにpixelSizeを含めることで、サイズ変更時に.taskが再実行される。
-        .task(id: "\(index)-\(Int(pixelSize))") {
+        .task(id: "\(index)-\(contentID)-\(Int(pixelSize))") {
+            // 中身が変わった(別のページ・補正違い)なら、古い絵とプレビューを捨てる。解像度だけの違いなら出したまま読み直す。
+            if loadedContentID != contentID {
+                if loadedContentID != nil {
+                    image = nil
+                    previewImage = nil
+                    previewPixelSize = 0
+                }
+                loadedContentID = contentID
+            }
             image = await viewModel.loadGridThumbnail(at: index, maxPixelSize: pixelSize)
             if let image, image.height > 0 {
                 onAspectMeasured(CGFloat(image.width) / CGFloat(image.height))

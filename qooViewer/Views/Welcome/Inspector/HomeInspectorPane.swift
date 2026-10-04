@@ -71,12 +71,14 @@ struct HomeInspectorPane: View {
         case .smart:
             return HomeInspectorSubject.smart(selection: smartLibrary.selection.ids, items: smartLibrary.gridItems)
         case .shelf:
-            if home.openedCollectionID != nil {
-                let ids = home.selectedItemIDs
+            // 相手は**表示中 ∩ 選択**(ゴミ箱・メニューと同じ。2026-10-04、監査 H-1)。中にいるかどうかも、開いているコレクションを
+            // 引けるかで見る(消えた棚の id が残っている間に一覧の選択を「選択されていません」と出さない。監査 H-2)。
+            if let opened = home.openedCollectionID, collectionStore.collection(withID: opened) != nil {
+                let ids = home.targetItemIDs
                 guard let first = ids.first else { return .none }
                 return ids.count == 1 ? .collectionItem(first) : .multiple(ids.count)
             }
-            let ids = home.selectedCollectionIDs
+            let ids = home.targetCollectionIDs
             guard let first = ids.first else { return .none }
             return ids.count == 1 ? .collection(first) : .multiple(ids.count)
         case .classic:

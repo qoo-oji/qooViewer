@@ -271,7 +271,10 @@ struct HomeMenuItems: View {
         to libraryID: UUID, appState: AppState?, home: HomeMenuState, collectionStore: CollectionStore
     ) {
         guard let welcome = appState?.welcomeLibrary, let target = collectionStore.library(withID: libraryID) else { return }
-        let collections = home.collectionTargets.compactMap { collectionStore.collection(withID: $0) }
+        // メニューの値(home)を作った後で並びが変わっていることがあるので、いまの相手(開いているコレクション、または
+        // 表示中 ∩ 選択)と重なるものだけを動かす(2026-10-04、監査 H-1 ―― 見えていない棚を動かさない)。
+        let live = Set(welcome.openedCollectionID.map { [$0] } ?? welcome.targetCollectionIDs)
+        let collections = home.collectionTargets.filter(live.contains).compactMap { collectionStore.collection(withID: $0) }
         guard collectionStore.move(collections, to: target) else { return }
         // 開いていたコレクションを移したら一覧へ戻る(いま見ているライブラリにはもう無い)。
         if let opened = welcome.openedCollectionID, home.collectionTargets.contains(opened) {

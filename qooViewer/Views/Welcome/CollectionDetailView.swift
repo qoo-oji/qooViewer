@@ -217,6 +217,10 @@ struct CollectionDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
         }
+        // 並びが変わったら選択を並びに絞る(WelcomeLibraryState.showItems。監査 H-1)。本を開いて戻ったときも一度通す(initial)。
+        .onChange(of: items.map(\.id), initial: true) { _, order in
+            state.showItems(order)
+        }
         // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント参照)。
         // ウェルカム画面のonAppearは一覧から中へ入るときには走らないため、ここでも呼ぶ ――
         // 開いた棚がその場で埋まるのが、この機能のいちばん見えるところなので。
@@ -300,8 +304,9 @@ struct CollectionDetailView: View {
                 canSelectAll: !items.isEmpty,
                 onToggleSelectAll: { toggleSelectAll() },
                 deleteHelp: "Remove Selected Books",
-                canDelete: !state.selectedItemIDs.isEmpty,
-                onDelete: { removeItems(Array(state.selectedItemIDs)) },
+                // 相手は表示中 ∩ 選択(監査 H-1。以前は生の選択で、検索で隠れた本まで外した)。
+                canDelete: items.contains { state.selectedItemIDs.contains($0.id) },
+                onDelete: { removeItems(items.map(\.id).filter(state.selectedItemIDs.contains)) },
                 isEditing: $state.isEditing,
                 sort: $state.itemSort,
                 // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
@@ -427,8 +432,10 @@ struct CollectionDetailView: View {
 
     /// 本をコレクションから外す(確認なし。⌘Z で取り消せる ―― DataUndoStack)。
     private func removeItems(_ ids: [UUID]) {
-        // メニューからの要求は別のウインドウの操作の後に届くことがあるので、idから引き直す。
-        let targets = ids.compactMap { collectionStore.item(withID: $0) }
+        // メニューからの要求は別のウインドウの操作の後に届くことがあるので、idから引き直す。**いま並んでいる本だけ**
+        // (メニューの値を作った後で検索・別のウインドウの操作で隠れた本を外さない。監査 H-1)。
+        let shown = Set(items.map(\.id))
+        let targets = ids.filter(shown.contains).compactMap { collectionStore.item(withID: $0) }
         guard !targets.isEmpty else { return }
         DataUndoStack.removeItems(targets, in: collectionStore, recordingOn: dataUndo)
         state.clearSelection()

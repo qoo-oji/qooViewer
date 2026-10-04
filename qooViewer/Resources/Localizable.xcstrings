@@ -20504,6 +20504,22 @@
         }
       }
     },
+    "Nothing was added because the collection no longer exists." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing was added because the collection no longer exists."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションがもう無いため、何も登録しませんでした。"
+          }
+        }
+      }
+    },
     "Nothing was added. Archives, PDF and EPUB files, and folders of images can be used as books." : {
       "localizations" : {
         "en" : {

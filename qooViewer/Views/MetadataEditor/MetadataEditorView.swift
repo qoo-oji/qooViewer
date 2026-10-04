@@ -363,9 +363,10 @@ struct MetadataEditorContent: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ListWindowStatusBar {
                 Text(verbatim: "%1$lld / %2$lld books".ui(workspace.visibleCount, workspace.books.count))
-                if workspace.selection.count > 0 {
+                // 数えるのは操作が効く本(見えている行のうち選んでいるもの。監査 MD-4)。
+                if !workspace.selectedBooks.isEmpty {
                     ListWindowStatusSeparator()
-                    Text(verbatim: "%lld selected".ui(workspace.selection.count))
+                    Text(verbatim: "%lld selected".ui(workspace.selectedBooks.count))
                 }
             }
         }

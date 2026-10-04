@@ -381,7 +381,7 @@ struct SmartLibraryTests {
         #expect(all.move(.right, extending: false, order: order, columns: 3) == "i1")
     }
 
-    @Test("並びから消えた枠を選択から外す(束の中の本は残す)。束から出るとその束を選ぶ。右クリックの相手は選択に入っているときだけ全部")
+    @Test("並びから消えた枠を選択から外す(束へ隠れた本はその束の選択に置き換える)。束から出るとその束を選ぶ。右クリックの相手は選択に入っているときだけ全部")
     func gridSelectionFollowsTheGrid() {
         let suite = TestDefaultsPool.checkout()
         defer { suite.release() }
@@ -401,16 +401,68 @@ struct SmartLibraryTests {
 
         state.grouping = .series
         state.recompute(now: now)
-        #expect(state.selectedItems.map(\.id) == ["book|/b/b.zip"])
-        // 束の中の本は、束に入っても選ばれたまま(リスト表示では束の中の行も選べるので、束へ隠れただけでは外さない)。
+        // 束へ隠れた本の選択は、その束の選択に置き換わる(2026-10-04、監査 SL-2。以前は見えない本の選択のまま残り、
+        // インスペクタとメニューバーがその本に効いた)。
+        #expect(Set(state.selectedItems.map(\.id)) == ["series|月の庭", "book|/b/b.zip"])
+        #expect(state.selectedBookPaths.isEmpty)
+        // 束の中へ入ると、並びに無い束と b は外れる。
         state.openedGroup = "月の庭"
         state.recompute(now: now)
-        #expect(state.selectedItems.map(\.id) == ["book|/b/a.zip"])
+        #expect(state.selectedItems.isEmpty)
         state.clearSelection()
         state.openedGroup = nil
         state.recompute(now: now)
         #expect(state.selectedItems.map(\.id) == ["series|月の庭"])
         #expect(state.revealRequest?.id == "series|月の庭")
+    }
+
+    @Test("リストで開いた束の中の本は選べたまま。グリッドへ移る・束を閉じると、その束の選択に置き換わる(2026-10-04、監査 SL-2)")
+    func innerBookSelectionFollowsTheViewMode() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.viewMode = .list
+        state.grouping = .series
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "1"),
+            book("/b/b.zip", title: "星の庭"),
+            book("/b/c.zip", series: "月の庭", volume: "2"),
+        ], shelves: [])
+        state.expandedListGroupIDs = ["series|月の庭"]
+        state.setSelection(["book|/b/a.zip"], cursor: "book|/b/a.zip")
+        #expect(state.selection.ids == ["book|/b/a.zip"])
+        #expect(state.selectedBookPaths == ["/b/a.zip"])
+
+        // アイコン表示へ。グリッドには束しか無いので、束が選ばれて見える(Return・右クリック・メニューが同じ相手を見る)。
+        state.viewMode = .grid
+        #expect(state.selection.ids == ["series|月の庭"])
+        #expect(state.selectedItems.map(\.id) == ["series|月の庭"])
+        #expect(state.selectedBookPaths.isEmpty)
+
+        // リストで束を閉じたときも同じ。
+        state.viewMode = .list
+        state.setSelection(["book|/b/c.zip"], cursor: "book|/b/c.zip")
+        state.expandedListGroupIDs = []
+        #expect(state.selection.ids == ["series|月の庭"])
+    }
+
+    @Test("本と束をまとめて選ぶと、メニューバーの「1 冊だけ」にはならない(2026-10-04、監査 SL-11)")
+    func aBookAndAGroupAreNotASingleBook() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.grouping = .series
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "1"),
+            book("/b/b.zip", title: "星の庭"),
+        ], shelves: [])
+        state.click("book|/b/b.zip", .plain)
+        #expect(state.selectedBookPaths == ["/b/b.zip"])
+        state.click("series|月の庭", .toggle)
+        #expect(state.selectedBookPaths.isEmpty)
+        #expect(HomeMenuState(isShown: true, mode: .smart, smartBookPaths: state.selectedBookPaths).singleSmartBookTarget == nil)
     }
 
     @Test("type-select: 1 文字は今の選択の次から一巡、2 文字以上は先頭から。束は名前で当たる")

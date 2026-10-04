@@ -353,8 +353,18 @@ struct BulkRenameBookmarksSheet: View {
     /// 命名規則へ渡す形。ページ順であることが前提(sortedBookmarks を渡すこと)。
     private func renameTargets(_ bookmarks: [Bookmark]) -> [BulkBookmarkRenaming.Target] {
         bookmarks.map {
-            BulkBookmarkRenaming.Target(id: $0.id, pageIndex: $0.pageIndex, currentName: $0.name)
+            BulkBookmarkRenaming.Target(
+                id: $0.id, pageIndex: $0.pageIndex, currentName: $0.name, isOnFirstPage: isOnCoverPage($0)
+            )
         }
+    }
+
+    /// 実質的な先頭ページ(表紙)のブックマークか。**鍵で**見る(鍵が分からないときと、鍵の無い古い行だけ番号 0 で)。
+    /// 除外したページのブックマークは番号を据え置くので、番号 0 だけで見ると、除外した元の先頭ページのブックマークを
+    /// 表紙と取り違えた(2026-10-04、監査 BE-1)。
+    private func isOnCoverPage(_ bookmark: Bookmark) -> Bool {
+        if let coverPageKey, let key = bookmark.pageKey { return key == coverPageKey }
+        return bookmark.pageIndex == 0
     }
 
     /// 画面で選んだ設定を、表示言語で解決済みの文字列にして渡す。
@@ -392,7 +402,7 @@ struct BulkRenameBookmarksSheet: View {
         // 関わらず動作させる必要があるため、BookmarkStore.addBookmark(bookID:pageIndex:name:)を
         // 直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか使えないため)。
         // 名前の決定そのものは、この後の共通の規則(BulkBookmarkRenaming)に任せる。
-        if assignFixedCover, !sorted.contains(where: { $0.pageIndex == 0 }) {
+        if assignFixedCover, !sorted.contains(where: isOnCoverPage) {
             // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
             // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。
             var fileNodeIdentifier: FileNodeIdentifier?

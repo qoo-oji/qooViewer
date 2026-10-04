@@ -445,21 +445,22 @@ final class FileBrowserActions {
 
     /// 記号リンク・エイリアスを開く: 先の項目を開いたのと同じことをする(Finder と同じ。2026-09-29 ―― それまで記号リンクは
     /// `resolvingSymlinksInPath` で解いていたがエイリアスは解かず、先がアプリだとバンドルの中へ移動し、先が画像フォルダでも開き方の設定を
-    /// 見なかった)。先はまず一覧の控え(`FileBrowserState.target(of:)`)、無ければ場所を選ばずに FileIO で解く
-    /// (`FileBrowserLinkResolver.openingTargetInfo`)。先が無い・stat できない(サンドボックスの外の実体)ときはリンク自身を
-    /// LaunchServices に渡す ―― LaunchServices はサンドボックスの外でも解けることがあり、先が本当に無ければ Finder と同じ
-    /// 「元の項目が見つかりません」のダイアログを出す(レビュー 2026-09-29。それまでは鳴らすだけだった)。
+    /// 見なかった)。先は場所を選ばずに FileIO で解く(`FileBrowserLinkResolver.openingTargetInfo`)。先が無い・stat できない
+    /// (サンドボックスの外の実体)ときはリンク自身を LaunchServices に渡す ―― LaunchServices はサンドボックスの外でも解けることがあり、
+    /// 先が本当に無ければ Finder と同じ「元の項目が見つかりません」のダイアログを出す(レビュー 2026-09-29。それまでは鳴らすだけだった)。
     ///
-    /// 返す Task は解いて開くまで(テストの待ち合わせ用。控えから開けたときは `openResolved` の Task か nil)。
+    /// **開くときは一覧の控え(`FileBrowserState.target(of:)`)を使わずに、いつも解き直す**(2026-10-04、監査 FBU-2)。控えの鍵は
+    /// リンク自身のパスと更新日時で、先が動いても消えても変わらないので、控えを先に使っていた頃は、Finder で先を動かした後に古い先へ
+    /// 移ろうとして無関係な祖先のフォルダが出た。解いた先は控えにも入れる(淡色の判定を今の先に合わせる)。
+    ///
+    /// 返す Task は解いて開くまで(テストの待ち合わせ用)。
     @discardableResult
     private func openLink(_ entry: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
-        if let target = state?.target(of: entry) {
-            return openResolved(target, fromMenu: fromMenu)
-        }
         let link = entry.url
         return Task { [weak self] in
             let target = await FileIO.perform { FileBrowserLinkResolver.openingTargetInfo(of: link) }
             guard let self else { return }
+            self.state?.noteLinkTarget(target, for: entry)
             guard let target, target.exists else {
                 NSWorkspace.shared.open(link)
                 return

@@ -209,17 +209,91 @@ struct BookLayoutEditorTests {
         defer { harness.close() }
         let book = try await harness.makeBook(pageCount: 4)
         let keys = book.pages.map(\.sortKey)
+        // 2ページ目を除外したまま、並びの末尾に置かれている(2026-10-04 から上へ/下へは除外ページを動かさないので
+        // ―― 監査 BE-8 ―― 並びは保存データとして用意する)。
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: keys[1], state: .excluded)
+        harness.library.layouts.setPageOrderOverride(for: book, [keys[0], keys[2], keys[3], keys[1]])
         let editor = makeEditor(harness, book)
-
-        // 2ページ目を除外してから、並べ替えで末尾へ動かす。
-        await editor.setPageLayout(pageKey: keys[1], to: .excluded, scope: .thisPageOnly)
-        editor.movePageDown(at: 1)
-        editor.movePageDown(at: 2)
         #expect(editor.rows.map(\.pageKey) == [keys[0], keys[2], keys[3], keys[1]])
 
         await editor.setPageLayout(pageKey: keys[1], to: .single, scope: .thisPageOnly)
 
         // 除外前にたまたま置かれていた位置ではなく、ファイル名順で来るはずの位置へ。
         #expect(editor.rows.map(\.pageKey) == keys)
+    }
+
+    // MARK: - 2026-10-04 の監査(状態と画面の食い違い)
+
+    @Test("ブックマークは鍵で行に結ぶ。除外で番号が詰まると番号を振り直し、除外したページのものはその行に出る(監査 BE-1)")
+    func bookmarksAreMatchedByKeyAndRenumbered() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let keys = book.pages.map(\.sortKey)
+        let bookmarks = harness.library.bookmarks
+        bookmarks.addBookmark(bookID: book.id, pageIndex: 5, pageKey: keys[5], name: "six")
+        bookmarks.addBookmark(bookID: book.id, pageIndex: 2, pageKey: keys[2], name: "three")
+        let editor = makeEditor(harness, book)
+
+        // どのビューアでも開いていない本で、3 ページ目を除外する。
+        await editor.setPageLayout(pageKey: keys[2], to: .excluded, scope: .thisPageOnly)
+
+        // 6 ページ目のブックマークは番号が 4 へ詰まる(以前は 5 のまま残り、7 枚目 ―― 存在しない ―― や別の行に出た)。
+        let rows = harness.bookmarks(for: book)
+        #expect(rows.first { $0.name == "six" }?.pageIndex == 4)
+        // 行との突き合わせは鍵。除外したページのブックマークはその(除外)行に出て、詰まった番号 2 の行(4 ページ目)には出ない。
+        let byRow = BookLayoutEditorViewModel.bookmarksByRowKey(bookmarks.bookmarks(forBookID: book.id), rows: editor.rows)
+        #expect(byRow[keys[5]]?.name == "six")
+        #expect(byRow[keys[2]]?.name == "three")
+        #expect(byRow[keys[3]] == nil)
+        // 4 ページ目(今の番号 2)の ＋ は足せる(以前は除外ページの古い番号 2 と重なり、黙って何もしなかった)。
+        #expect(bookmarks.addBookmark(bookID: book.id, pageIndex: 2, pageKey: keys[3], name: "four"))
+    }
+
+    @Test("他所でページ順が変わると行を組み直し、古い並びを書き戻さない(監査 BE-4)")
+    func rowsFollowAPageOrderChangedElsewhere() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let keys = book.pages.map(\.sortKey)
+        let layouts = harness.library.layouts
+        layouts.setPageOrderOverride(for: book, [keys[3], keys[2], keys[1], keys[0]])
+        let editor = makeEditor(harness, book)
+        #expect(editor.rows.map(\.pageKey) == [keys[3], keys[2], keys[1], keys[0]])
+
+        // 「一括操作… ▸ レイアウトをすべて削除」(ほかに保存データの読み込みの上書きなど)。知らせは `.main` の上で届く。
+        layouts.discardPageLayout(forBookID: book.id)
+        await Task.yield()
+        #expect(editor.rows.map(\.pageKey) == keys)
+
+        // ここで下へ 1 つ動かしても、消したはずの逆順は復活しない。
+        editor.movePageDown(at: 0)
+        #expect(layouts.bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == [keys[1], keys[0], keys[2], keys[3]])
+    }
+
+    @Test("上へ/下へは読めるページの並びで動かし、除外ページは動かさない。見開きの隣り合いは読めるページで比べる(監査 BE-8)")
+    func movingUsesTheReadableOrder() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let keys = book.pages.map(\.sortKey)
+        let layouts = harness.library.layouts
+        layouts.setReadingDirectionOverride(for: book, .leftToRight)
+        // A(見開き左)・X(除外)・B・C。A は読めるページの次の B と組む。
+        layouts.setPageLayoutState(for: book, pageKey: keys[0], state: .spreadLeft)
+        layouts.setPageLayoutState(for: book, pageKey: keys[1], state: .excluded)
+        let editor = makeEditor(harness, book)
+
+        // 除外ページ X を上へ: 何もしない(以前は真の並びで A と入れ替え、読む順は同じなのに A の見開き左を外した)。
+        editor.movePageUp(at: 1)
+        #expect(editor.rows.map(\.pageKey) == keys)
+        #expect(layouts.pageOverride(forBookID: book.id, pageKey: keys[0])?.state == .spreadLeft)
+        #expect(editor.reorderWarningMessage == nil)
+
+        // B を上へ: 読めるページの並びで A の前へ。X は A に付いたまま。A の読む次は B → C に変わったので見開き左は外れる
+        // (以前は除外ページを含む並びで比べ、A の次は X のままに見えて外さなかった)。
+        editor.movePageUp(at: 2)
+        #expect(editor.rows.map(\.pageKey) == [keys[2], keys[0], keys[1], keys[3]])
+        #expect(layouts.pageOverride(forBookID: book.id, pageKey: keys[0])?.state == nil)
     }
 }

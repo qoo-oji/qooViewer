@@ -530,9 +530,11 @@ struct ContentView: View {
             libraryID: WelcomeDropHandling.resolvedLibrary(state: welcomeLibrary, collectionStore: collectionStore)?.id,
             openedCollectionID: opened?.id,
             isEditing: welcomeLibrary.isEditing,
-            // 選択は並びを固定して渡す(Setを配列にしただけだと、同じ選択でも並びが揺れて値が変わったことになる)。
-            selectedCollectionIDs: isShelf && opened == nil ? welcomeLibrary.selectedCollectionIDs.sorted { $0.uuidString < $1.uuidString } : [],
-            selectedItemIDs: isShelf && opened != nil ? welcomeLibrary.selectedItemIDs.sorted { $0.uuidString < $1.uuidString } : [],
+            // 選択は**表示中 ∩ 選択**を表示順で渡す(2026-10-04、監査 H-1。以前は生の選択を渡し、検索で隠れた棚・別のウインドウが
+            // 別のライブラリへ移した棚まで「コレクションを削除…」「別のライブラリへ移動」の相手になった)。並びは表示順で固定
+            // (Setを配列にしただけだと、同じ選択でも並びが揺れて値が変わったことになる)。
+            selectedCollectionIDs: isShelf && opened == nil ? welcomeLibrary.targetCollectionIDs : [],
+            selectedItemIDs: isShelf && opened != nil ? welcomeLibrary.targetItemIDs : [],
             smartBookPaths: isShown && welcomeLibrary.mode == .smart ? welcomeLibrary.smartSelectedBookPaths : [],
             shelfSort: opened != nil ? welcomeLibrary.itemSort : welcomeLibrary.collectionSort,
             browserViewMode: fileBrowser.viewMode,

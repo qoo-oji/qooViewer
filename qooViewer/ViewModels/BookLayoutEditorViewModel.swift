@@ -29,7 +29,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         /// 本の直下にある画像ではnil。
         let folderPath: String?
         /// 除外ページを取り除いた「読書順」でのインデックス(ViewerViewModel.currentIndexと
-        /// 同じ空間)。Bookmark.pageIndexとの突き合わせに使う。除外ページはnil。
+        /// 同じ空間)。ジャンプ先・＋で作るブックマークの番号に使う。除外ページはnil。
+        /// ブックマークとの突き合わせは番号ではなく鍵(pageKey)で行う(bookmarksByRowKey。監査 BE-1)。
         let effectiveReadingIndex: Int?
         var id: String { pageKey }
 
@@ -63,8 +64,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
     let bookID: String
     private let layoutStore: LayoutStore
     private let preferences: AppPreferences
-    /// ページ並べ替え時、既存のブックマークをページ番号(スロット)ではなくファイルに追従させる
-    /// ために使う(applyNewOrder/migrateBookmarkIndices参照。ユーザー報告)。
+    /// ページの並びを変えたとき、既存のブックマークの番号を鍵から振り直す(ページ番号(スロット)ではなくファイルに
+    /// 追従させる。renumberBookmarks参照。ユーザー報告・監査 BE-1)。
     private let bookmarkStore: BookmarkStore
 
     @Published private(set) var loadState: LoadState = .loading
@@ -287,6 +288,9 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // (BookLoader.loadのコメント参照)。
         if descriptors != cachedDescriptors {
             rebuildRows(from: descriptors)
+        } else {
+            // 行はキャッシュから組んだまま。本体が揃ったので、ブックマークの番号をこの並びへ振り直す(renumberBookmarks)。
+            renumberBookmarks()
         }
         loadState = .loaded
     }
@@ -330,7 +334,19 @@ final class BookLayoutEditorViewModel: ObservableObject {
         book?.pageOrderSource ?? ((isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName)
     }
 
+    /// 最後に行を組んだページの材料(自然順)。他所でページ順が変わったときに組み直すため(`refreshEffectiveIndices`)。
+    private var pageDescriptors: [PageDescriptor] = []
+
+    /// 保存されているページ順で並べたときの鍵の並び(除外ページを含む。`rebuildRows` と同じ式)。
+    private func storedOrderKeys(for pages: [PageDescriptor]) -> [String] {
+        EffectivePageOrder.orderedPages(
+            for: pages, pageOrderSource: pageOrderSource,
+            pageOrderOverride: layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride, excludedKeys: []
+        ).map(\.sortKey)
+    }
+
     private func rebuildRows(from pages: [PageDescriptor]) {
+        pageDescriptors = pages
         let overrideOrder = layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride
         // ビューアと同じ実効順で並べる(EffectivePageOrderが唯一の適用点)。以前はpageOrderOverrideの
         // 並べ替えだけをここに別実装で持っていて、当時あった環境設定「並び順をFinderに揃える」を
@@ -362,6 +378,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         let overridesByKey = currentOverridesByKey()
         pageLayoutStates = overridesByKey
         rows = recomputeEffectiveIndices(for: baseRows, overridesByKey: overridesByKey)
+        renumberBookmarks()
     }
 
     /// この本のPageLayoutOverrideを、pageKeyをキーにした辞書として一括取得する。
@@ -486,20 +503,33 @@ final class BookLayoutEditorViewModel: ObservableObject {
         applyNewOrder(reordered, focusPageKey: focusPageKey)
     }
 
+    /// 上へ/下へ(選んだ行を 1 つ動かす)。**読めるページの並びで 1 つ**動かす(除外ページは、ドラッグと同じく直前の読めるページに
+    /// 付いたまま動く ―― `movePages`)。
+    ///
+    /// 以前は真の並び(`rows`。除外ページを含む)で隣と入れ替えていたので、隣が除外ページだと表示は何も変わらないのに並びと
+    /// 見開きの指定だけが書き換わり、除外ページを選んで押すと、読めるページの隣り合いは変わっていないのに見開き左右が外れた
+    /// (2026-10-04、監査 BE-8)。除外ページ(読書順の番号を持たない行)は動かさない(画面の上へ/下へも淡色 ―― BookmarkListView)。
     func movePageUp(at index: Int) {
-        guard index > 0, rows.indices.contains(index) else { return }
-        let focusPageKey = rows[index].pageKey
-        var reordered = rows
-        reordered.swapAt(index, index - 1)
-        applyNewOrder(reordered, focusPageKey: focusPageKey)
+        moveReadablePage(at: index, by: -1)
     }
 
     func movePageDown(at index: Int) {
-        guard rows.indices.contains(index), index + 1 < rows.count else { return }
-        let focusPageKey = rows[index].pageKey
-        var reordered = rows
-        reordered.swapAt(index, index + 1)
-        applyNewOrder(reordered, focusPageKey: focusPageKey)
+        moveReadablePage(at: index, by: 1)
+    }
+
+    private func moveReadablePage(at index: Int, by offset: Int) {
+        guard rows.indices.contains(index), rows[index].effectiveReadingIndex != nil else { return }
+        let readable = rows.filter { $0.effectiveReadingIndex != nil }.map(\.pageKey)
+        guard let position = readable.firstIndex(of: rows[index].pageKey) else { return }
+        let target = position + offset
+        guard readable.indices.contains(target) else { return }
+        // movePages が受け取るのは表示の並び(読めるページ → 除外ページ)。除外ページの位置は movePages が `rows` から求める。
+        let displayed = readable + rows.filter { $0.effectiveReadingIndex == nil }.map(\.pageKey)
+        // `move(fromOffsets:toOffset:)` の行き先は「取り除く前の並び」での位置(下へ動かすときは 1 つ先の後ろ)。
+        movePages(
+            displayedPageKeys: displayed, fromOffsets: IndexSet(integer: position),
+            toOffset: offset > 0 ? target + 1 : target
+        )
     }
 
     /// 「表示順を初期化する」(4.3節)。自然順ソートへ戻す。
@@ -509,7 +539,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
         rebuildRows(from: book)
     }
 
+    /// 見開きの隣り合い(次・前のページ)。**読めるページだけ**で見る(除外ページは読む流れに無いので、除外ページを挟んで
+    /// 隣り合う 2 ページは見開きの相手どうし。2026-10-04、監査 BE-8 ―― 以前は除外ページを含めて比べ、除外ページを動かしただけで
+    /// 見開き左右を外していた)。
     private func neighborMaps(for rows: [Row]) -> (next: [String: String], previous: [String: String]) {
+        let rows = rows.filter { $0.effectiveReadingIndex != nil }
         var next: [String: String] = [:]
         var previous: [String: String] = [:]
         for index in rows.indices {
@@ -540,11 +574,6 @@ final class BookLayoutEditorViewModel: ObservableObject {
         let overridesByKey = currentOverridesByKey()
         let reordered = recomputeEffectiveIndices(for: newRows, overridesByKey: overridesByKey)
         let newNeighbors = neighborMaps(for: reordered)
-
-        // ブックマークをページ番号(スロット)ではなくファイルに追従させる(ユーザー報告参照。
-        // migrateBookmarkIndicesのコメント)。並べ替え前後のrowsを渡す(除外/表示状態の集合
-        // 自体はこの関数では変わらないため、1対1の対応が組める)。
-        migrateBookmarkIndices(from: rows, to: reordered)
 
         // 経緯(ユーザー報告): JSONインポートで見つかったのと同じ「1件ごとにSQLiteへコミット」の
         // 問題が、ここ(ページ並べ替え確定時に隣接関係が変わった見開き左/右の設定を削除する処理)
@@ -577,39 +606,17 @@ final class BookLayoutEditorViewModel: ObservableObject {
         layoutStore.setPageOrderOverride(for: book, rows.map(\.pageKey))
         // 上で見開きの設定を削除した可能性があるため、公開用スナップショットを取り直す。
         pageLayoutStates = currentOverridesByKey()
+        // ブックマークをページ番号(スロット)ではなくファイルに追従させる(ユーザー報告: 「ブックマークがあるページの順番を
+        // 入れ替えると、ブックマークが追従しない(画像は入れ替わったのに元のページ順に居座る)」)。鍵から番号を振り直す
+        // (renumberBookmarks。以前は並べ替え前後の番号の対応表で書き換えていたが、除外ページのブックマークの古い番号まで
+        // 動かしえた ―― 2026-10-04、監査 BE-1)。
+        renumberBookmarks()
         if let focusPageKey {
             postLayoutFocusChange(pageKey: focusPageKey)
         }
         if didClearAny {
             reorderWarningMessage = String(localized: "Pages were reordered. Some layout settings need to be redone.", language: preferences.effectiveLocale)
         }
-    }
-
-    /// 並べ替え前後のrowsから「並べ替え前のpageIndex(effectiveReadingIndex) → 並べ替え後の
-    /// pageIndex」の対応を組み立て、この本のブックマークをbookmarkStore.updatePageIndicesで
-    /// 一括更新する(ユーザー報告: 「ブックマークがあるページの順番を入れ替えると、ブックマークが
-    /// 追従しない(画像は入れ替わったのに元のページ順に居座る)。ブックマークはあくまでファイルに
-    /// 紐づくものなので、順番が入れ替わった際はファイルに追従してほしい」)。
-    ///
-    /// movePages/movePageUp/movePageDownはページの除外/表示状態の集合自体を変えない(rowsの
-    /// 並び順だけを変える)純粋な並べ替えのため、oldRows・newRowsに現れる
-    /// effectiveReadingIndexの値の集合は完全に一致し、pageKeyを介した1対1の対応を組める。
-    private func migrateBookmarkIndices(from oldRows: [Row], to newRows: [Row]) {
-        var oldIndexByKey: [String: Int] = [:]
-        for row in oldRows {
-            if let index = row.effectiveReadingIndex {
-                oldIndexByKey[row.pageKey] = index
-            }
-        }
-        var oldIndexToNewIndex: [Int: Int] = [:]
-        for row in newRows {
-            guard let newIndex = row.effectiveReadingIndex, let oldIndex = oldIndexByKey[row.pageKey] else { continue }
-            if newIndex != oldIndex {
-                oldIndexToNewIndex[oldIndex] = newIndex
-            }
-        }
-        guard !oldIndexToNewIndex.isEmpty else { return }
-        bookmarkStore.updatePageIndices(forBookID: bookID, oldIndexToNewIndex: oldIndexToNewIndex)
     }
 
     // MARK: - レイアウト変更(3.2節・3.3節。ビューアと同じ仕組みをこの編集ウインドウ用に再構成)
@@ -872,10 +879,72 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// レイアウト変更の書き込みがすべて完了した後に1回だけ呼ぶ。pageLayoutStates
     /// (Picker表示用の公開スナップショット)とrows[].effectiveReadingIndexの両方を、
     /// この時点のSwiftDataの状態から同時に更新する。
+    ///
+    /// **保存されているページ順が行の順と違えば、行を組み直す**(2026-10-04、監査 BE-4)。以前は除外の番号だけを振り直していたので、
+    /// 他所(「レイアウトをすべて削除」・保存データの読み込みの上書き・ビューアが古い本で並びを固定する)でページ順が変わっても行の順が
+    /// 古いまま残り、その状態で上へ/下へを押すと、消したはずの並びが新しいページ順として保存された。
+    /// 最後にブックマークの番号を今の並びへ振り直す(`renumberBookmarks`。監査 BE-1)。
     private func refreshEffectiveIndices() {
+        if !pageDescriptors.isEmpty, storedOrderKeys(for: pageDescriptors) != rows.map(\.pageKey) {
+            rebuildRows(from: pageDescriptors)
+            return
+        }
         let overridesByKey = currentOverridesByKey()
         pageLayoutStates = overridesByKey
         rows = recomputeEffectiveIndices(for: rows, overridesByKey: overridesByKey)
+        renumberBookmarks()
+    }
+
+    // MARK: - ブックマークの番号(2026-10-04、監査 BE-1・V-4)
+
+    /// この本のブックマークの番号(`Bookmark.pageIndex`)を、今の読書順(除外ページを除いた行の順)へ振り直す。
+    ///
+    /// ブックマークの真の識別子は鍵(`Bookmark.pageKey`)で、番号は「今の並びでの位置」の写し。番号を振り直すのは以前は
+    /// ビューアが本を開いたとき・レイアウトを読み直したとき(`ViewerViewModel.reloadBookmarks`)だけで、どのビューアでも開いていない本を
+    /// この画面で除外・並べ替え・初期化すると番号が古いまま残り、一括リネームの連番・「先頭ページを表紙に」の判定・ビューアの「次の
+    /// ブックマーク」が別のページを見た。計算はビューアと同じ `BookmarkStore.resolveKeys`(鍵の無い古い行は従来順で鍵を埋める)。
+    ///
+    /// **本体を読み込めてから**(`book` がある間)だけ行う。キャッシュから組んだ行は本体と食い違いうるので、鍵の無い行へ古い並びの鍵を
+    /// 焼き込まない(鍵を焼き込んだら元へ戻せない ―― EffectivePageOrder.legacyOrderedPageKeys のコメント)。
+    private func renumberBookmarks() {
+        guard let book else { return }
+        let currentOrderedKeys = rows.filter { $0.effectiveReadingIndex != nil }.map(\.pageKey)
+        let bookmarkStore = bookmarkStore
+        let layoutStore = layoutStore
+        let bookID = bookID
+        bookmarkStore.renumberBookmarks(forBookID: bookID, currentOrderedKeys: currentOrderedKeys) {
+            let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+            let excludedKeys = Set(layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey))
+            return EffectivePageOrder.legacyOrderedPageKeys(
+                for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+            )
+        }
+    }
+
+    /// 右ペインの行とブックマークの突き合わせ(行の鍵 → ブックマーク)。**鍵で結ぶ**(`Bookmark.pageKey` ↔ `Row.pageKey`)。
+    ///
+    /// 以前は行の読書順の番号(`effectiveReadingIndex`)と `Bookmark.pageIndex` で結んでいたので、除外・並べ替え・初期化で番号が
+    /// 詰まると、ブックマークが別のページの行に出て、本当のページの行の ＋ は同じページに 2 件目を作り、出ている行の ＋ は番号の
+    /// 重複で黙って何もしなかった(2026-10-04、監査 BE-1)。鍵を持たない古い行(1.36 以前。本体を読み込めば `renumberBookmarks` が
+    /// 鍵を埋める)だけは番号で読める行に結ぶ。同じページに複数あれば、渡した並び(画面の並べ方)の先のもの。
+    static func bookmarksByRowKey(_ bookmarks: [Bookmark], rows: [Row]) -> [String: Bookmark] {
+        var result: [String: Bookmark] = [:]
+        let rowKeys = Set(rows.map(\.pageKey))
+        for bookmark in bookmarks {
+            guard let key = bookmark.pageKey, rowKeys.contains(key), result[key] == nil else { continue }
+            result[key] = bookmark
+        }
+        let keyless = bookmarks.filter { $0.pageKey == nil }
+        guard !keyless.isEmpty else { return result }
+        var rowKeyByReadingIndex: [Int: String] = [:]
+        for row in rows {
+            if let index = row.effectiveReadingIndex { rowKeyByReadingIndex[index] = row.pageKey }
+        }
+        for bookmark in keyless {
+            guard let key = rowKeyByReadingIndex[bookmark.pageIndex], result[key] == nil else { continue }
+            result[key] = bookmark
+        }
+        return result
     }
 
     // MARK: - 本全体の設定(4.2節上部の読み方向ドロップダウン)

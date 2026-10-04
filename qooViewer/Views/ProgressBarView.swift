@@ -73,6 +73,29 @@ struct ProgressBarView: View {
         let image: CGImage?
         /// この画像をデコードしたときの最大ピクセルサイズ。
         let pixelSize: CGFloat
+        /// どのページの、どの補正の絵か(`ThumbnailContent`)。控えの鍵はページ番号なので、除外・並べ替え・補正の切り替えで
+        /// 番号の指すページや絵が変わったら、これが今と違う ―― その絵は出さずに読み直す(2026-10-04、監査 V-8)。
+        let content: ThumbnailContent
+    }
+
+    /// サムネイルの中身を決めるもの: ページの識別子(PageRef.id)と、補正(白黒補正)をかけたか。
+    private struct ThumbnailContent: Equatable {
+        let pageID: String
+        let isContrastCorrected: Bool
+    }
+
+    /// その番号のページの、いまの中身(範囲外なら nil)。
+    private func currentContent(at index: Int) -> ThumbnailContent? {
+        guard viewModel.book.pages.indices.contains(index) else { return nil }
+        return ThumbnailContent(
+            pageID: viewModel.book.pages[index].id, isContrastCorrected: viewModel.isContrastCorrectionEnabled
+        )
+    }
+
+    /// 出してよい控えの絵: 今のそのページ・今の補正のものだけ(解像度違いは読み直しの間も出す ―― LoadedThumbnail のコメント)。
+    private func shownThumbnail(at index: Int) -> CGImage? {
+        guard let loaded = thumbnails[index], loaded.content == currentContent(at: index) else { return nil }
+        return loaded.image
     }
     /// ページ数が多い本ではバーの1pxごとに対応ページが変わるため、カーソルの位置が短時間
     /// 落ち着いてから初めてサムネイル読み込みを開始する(マウスを素早く動かしただけで
@@ -507,7 +530,7 @@ struct ProgressBarView: View {
                 // 画像に余白(padding)を付けていないのも、そのぶんの帯を残さないため
                 // (ページ一覧のセルと同じ作り。ThumbnailGridViewのbody参照)。
                 RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.75))
-                if let cgImage = thumbnails[index]?.image {
+                if let cgImage = shownThumbnail(at: index) {
                     Image(decorative: cgImage, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -631,10 +654,11 @@ struct ProgressBarView: View {
         // メモリを無駄に膨らませないよう、表示範囲から離れたキャッシュ済みサムネイルは間引く
         thumbnails = thumbnails.filter { range.contains($0.key) }
 
-        // まだ無いページと、**別の解像度で読んであるページ**が読み直しの対象
-        // (LoadedThumbnail参照)。読み直しのあいだも古い画像は消さずに出したままにする。
+        // まだ無いページと、**別の解像度で読んであるページ**、**別のページ・別の補正の絵**(除外・並べ替え・補正の切り替えの後。
+        // 監査 V-8)が読み直しの対象(LoadedThumbnail参照)。解像度違いだけなら、読み直しのあいだも古い画像を出したままにする。
+        let contents = Dictionary(uniqueKeysWithValues: range.compactMap { index in currentContent(at: index).map { (index, $0) } })
         let missing = range
-            .filter { thumbnails[$0]?.pixelSize != pixelSize }
+            .filter { thumbnails[$0]?.pixelSize != pixelSize || thumbnails[$0]?.content != contents[$0] }
             .sorted { abs($0 - centerIndex) < abs($1 - centerIndex) }
         guard !missing.isEmpty else { return }
 
@@ -655,7 +679,9 @@ struct ProgressBarView: View {
                 for _ in 0..<Self.maxConcurrentThumbnailLoads { addNext() }
                 for await result in group {
                     guard !Task.isCancelled else { return }
-                    thumbnails[result.index] = LoadedThumbnail(image: result.image, pixelSize: pixelSize)
+                    // 頼んだ時点の中身で記録する(読む間に並びが変わっていれば、次に範囲を見たとき読み直される)。
+                    guard let content = contents[result.index] else { addNext(); continue }
+                    thumbnails[result.index] = LoadedThumbnail(image: result.image, pixelSize: pixelSize, content: content)
                     // 読めた画像の実寸から、セル枠の縦横比を決めるサンプルを溜める
                     // (recordAspectSample参照)。デコードのついでなので追加のコストは無い。
                     if let image = result.image, image.height > 0 {

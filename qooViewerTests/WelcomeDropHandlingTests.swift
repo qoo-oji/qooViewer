@@ -17,7 +17,7 @@ import Testing
 /// `onFinished`(テストのための口)で行い、時間では待たない。
 @MainActor
 struct WelcomeDropHandlingTests {
-    private struct Harness {
+    struct Harness {
         let library: InMemoryLibrary
         let suite: PreferencesSuite
         let state: WelcomeLibraryState
@@ -53,7 +53,7 @@ struct WelcomeDropHandlingTests {
         }
     }
 
-    private func makeArchive(_ url: URL, number: UInt8) throws {
+    func makeArchive(_ url: URL, number: UInt8) throws {
         var builder = ZipFixtureBuilder()
         builder.add("001.png", PageImageFactory.png(number: number))
         try builder.write(to: url)
@@ -205,6 +205,73 @@ struct WelcomeDropHandlingTests {
         // 棚の中の本が足され、既に入っている本は二重にならない。作成待ちには積まない。
         #expect(Set(collection.items.map(\.bookID)) == [seed.path, shelfBook.path])
         #expect(harness.state.pendingCreations.isEmpty)
+    }
+}
+
+extension WelcomeDropHandlingTests {
+    /// 落としてから、振り分けを待つ前に `meanwhile` を走らせ、振り分けが終わるまで待つ(待つ間に起きた変化の確かめ用)。
+    private func drop(
+        _ urls: [URL], into harness: Harness, meanwhile: () -> Void,
+        notify: @escaping @MainActor (String) -> Void = { _ in }
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let accepted = WelcomeDropHandling.handle(
+                urls, allowsEditing: true, state: harness.state,
+                collectionStore: harness.library.collections, coverExtractor: harness.extractor,
+                preferences: harness.preferences, notify: notify,
+                onFinished: { continuation.resume(returning: true) }
+            )
+            // 振り分けの Task はメインアクターの上で、ここから戻った後に走る ―― その前に変える。
+            meanwhile()
+            if !accepted { continuation.resume(returning: false) }
+        }
+    }
+
+    @Test("振り分けを待つ間にライブラリ機能が OFF になった・編集モードを出たら、作成の待ち行列に積まない(2026-10-04、監査 H-3)")
+    func creationsAreNotQueuedAfterTheFeatureOrEditModeWentAway() async throws {
+        let harness = try Harness("welcome-drop-feature-off")
+        defer { harness.close() }
+        let temporary = try TemporaryDirectory("welcome-drop-feature-off")
+        let book = temporary.file("01.cbz")
+        try makeArchive(book, number: 1)
+
+        harness.state.isEditing = true
+        #expect(await drop([book], into: harness) { harness.state.isLibraryFeatureEnabled = false })
+        #expect(harness.state.pendingCreations.isEmpty)
+
+        harness.state.isLibraryFeatureEnabled = true
+        harness.state.isEditing = true
+        #expect(await drop([book], into: harness) { harness.state.isEditing = false })
+        #expect(harness.state.pendingCreations.isEmpty)
+    }
+
+    @Test("中にいたコレクションが待つ間に消えたら、新しいコレクションを作らずに知らせる(2026-10-04、監査 H-9)")
+    func droppingIntoAVanishedCollectionCreatesNothing() async throws {
+        let harness = try Harness("welcome-drop-vanished")
+        defer { harness.close() }
+        let temporary = try TemporaryDirectory("welcome-drop-vanished")
+        let seed = temporary.file("seed.cbz")
+        try makeArchive(seed, number: 1)
+        let book = temporary.file("02.cbz")
+        try makeArchive(book, number: 2)
+        let shelfLibrary = try #require(harness.library.collections.libraries.first)
+        let pending = try #require(CollectionStore.makePendingItem(for: seed))
+        let collection = try #require(
+            harness.library.collections.createCollection(name: "Shelf", in: shelfLibrary, items: [pending])
+        )
+        harness.state.openedCollectionID = collection.id
+        harness.state.isEditing = true
+        let locale = harness.preferences.effectiveLocale
+        let received = MessageBox()
+
+        #expect(await drop([book], into: harness, meanwhile: {
+            harness.library.collections.delete([collection])
+        }, notify: { received.messages.append($0) }))
+
+        // 以前は一覧へのドロップと同じく、名前を訊く作成待ちへ回っていた。
+        #expect(harness.state.pendingCreations.isEmpty)
+        #expect(harness.library.collections.collections(in: shelfLibrary, sort: .nameAscending, matching: nil).isEmpty)
+        #expect(received.messages == [WelcomeDropHandling.collectionGoneMessage(locale: locale)])
     }
 }
 
