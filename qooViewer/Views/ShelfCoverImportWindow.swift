@@ -274,6 +274,7 @@ private struct ShelfCoverImportContentView: View {
 private struct ShelfCoverImportBookCell: View {
     let row: ShelfCoverImportViewModel.Row
     @ObservedObject var viewModel: ShelfCoverImportViewModel
+    @Environment(\.locale) private var locale
 
     var body: some View {
         if case .rejected = row.verdict {
@@ -300,7 +301,9 @@ private struct ShelfCoverImportBookCell: View {
                     }
                 }
             } label: {
-                Text(row.selectedBookID ?? String(localized: "Don't Import"))
+                // 表示言語で引く(同じメニューの中の `Button("Don't Import")` は表示言語。2026-10-04 の監査 M-7 まで `language:` が無く、
+                // 起動時の言語のまま残った)。
+                Text(row.selectedBookID ?? String(localized: "Don't Import", language: locale))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(row.selectedBookID == nil ? Color.secondary : Color.primary)

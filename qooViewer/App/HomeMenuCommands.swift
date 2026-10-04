@@ -50,6 +50,43 @@ enum HomeMenuKeyRouting {
     }
 }
 
+// MARK: - 淡色のサブメニュー
+
+/// メニューバーのサブメニュー。**淡色のときは押せない `Button` で描く**(2026-10-04 の監査 X-1)。
+///
+/// メニューバーの `Menu` に `.disabled` を付けても、中の項目が淡色になるだけで親の項目は押せる見た目のまま残る(2026-10-03・10-04 の実機。
+/// `.contextMenu` の中と同じ ―― FileBrowserDisabledSubmenu)。淡色のときに中身を作らない項目(「コレクションに登録」「このアプリケーションで
+/// 開く」)では、押せる見た目の親を開くと空のサブメニューが出た。中の項目に `.disabled` を足しても親の見た目は変わらないので、親ごと
+/// 描き分ける。押せない `Button` には矢印が出ないが、項目の数は変わらない(MenuBarMenuGate)。
+///
+/// 中身は作るときに組む(`Menu` の `content` と同じく閉包を持ち歩かない)。閉包を持つと、中の項目の `[weak appState]` が外側の
+/// 閉包の暗黙の強い捕まえと食い違う(Swift 6.4 の #ImplicitStrongCapture)うえ、閉じたウインドウを次の作り直しまで抱える。
+struct MenuBarSubmenu<Content: View>: View {
+    private let label: Text
+    private let disabledLabel: FileBrowserDisabledSubmenu
+    let isEnabled: Bool
+    private let content: Content
+
+    init(_ titleKey: LocalizedStringKey, isEnabled: Bool, @ViewBuilder content: () -> Content) {
+        label = Text(titleKey)
+        disabledLabel = FileBrowserDisabledSubmenu(titleKey)
+        self.isEnabled = isEnabled
+        self.content = content()
+    }
+
+    var body: some View {
+        if isEnabled {
+            Menu {
+                content
+            } label: {
+                label
+            }
+        } else {
+            disabledLabel
+        }
+    }
+}
+
 // MARK: - 「ホーム」メニュー
 
 /// **Toggle の `set` は渡される値を使わない**(2026-09-15 の実機): 押された値ではなく、押された項目が指す状態を
@@ -68,7 +105,8 @@ struct HomeMenuItems: View {
     let directory: HomeMenuDirectory
     let appState: AppState?
     let collectionStore: CollectionStore
-    /// 既定のライブラリの名前を組み立てる表示言語(BookLibrary.displayName)。
+    /// 既定のライブラリの名前・コレクションのサブメニューの文言を組み立てる言語。**メニューバーの言語**(`AppLanguage.menuBarLocale`
+    /// = 起動時の言語)を渡す ―― 表示言語を渡すと、実行中に切り替えたときにこれらだけ新しい言語になって混ざる(監査 M-7)。
     let locale: Locale
     /// 「自動リネームの設定…」(2026-09-15)。ウインドウを開く口は App が持つ(値の OpenWindowAction)。
     let openAutoRenameSettings: @MainActor () -> Void
@@ -115,7 +153,7 @@ struct HomeMenuItems: View {
 
     @ViewBuilder
     private var libraryItems: some View {
-        Menu("Libraries") {
+        MenuBarSubmenu("Libraries", isEnabled: home.isShown) {
             // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
             // Swift 6.4(Xcode 27)は「中で弱く捕まえているのに、外側が暗黙に強く捕まえている」形を
             // 警告する(#ImplicitStrongCapture)。捕まえ方は今までと同じ(暗黙の強参照を明示にしただけ)で、
@@ -129,7 +167,6 @@ struct HomeMenuItems: View {
                 ))
             }
         }
-        .disabled(!home.isShown)
 
         Divider()
 
@@ -170,7 +207,7 @@ struct HomeMenuItems: View {
             Self.request(.deleteCollections(home.collectionTargets), appState)
         }
         .disabled(!home.canDeleteCollections)
-        Menu("Move to Library") {
+        MenuBarSubmenu("Move to Library", isEnabled: home.canDeleteCollections && directory.libraries.count >= 2) {
             ForEach(directory.libraries.filter { $0.id != home.libraryID }) { [appState] library in
                 let canMove = home.canMoveCollections(to: library.id, in: directory)
                 let name = library.displayName(language: locale)
@@ -183,7 +220,6 @@ struct HomeMenuItems: View {
                 .disabled(!canMove)
             }
         }
-        .disabled(!home.canDeleteCollections || directory.libraries.count < 2)
         Button("Remove from Collection") { [weak appState, home] in
             Self.request(.removeItems(home.itemTargets), appState)
         }
@@ -212,7 +248,7 @@ struct HomeMenuItems: View {
     private var fileBrowserSelectionItems: some View {
         // ライブラリが複数あるときは、作る先のライブラリを選ぶサブメニュー(右クリックと同じ。2026-09-21)。
         if directory.libraries.count > 1 {
-            Menu("Create Collection") {
+            MenuBarSubmenu("Create Collection", isEnabled: selection?.canUseAsBooks == true) {
                 ForEach(directory.libraries) { [appState] library in
                     Button { [weak appState] in
                         guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
@@ -222,7 +258,6 @@ struct HomeMenuItems: View {
                     }
                 }
             }
-            .disabled(selection?.canUseAsBooks != true)
         } else {
             Button("Create Collection") { [weak appState] in
                 guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
@@ -230,7 +265,8 @@ struct HomeMenuItems: View {
             }
             .disabled(selection?.canUseAsBooks != true)
         }
-        Menu("Add to Collection") {
+        // 淡色のときは中身を作らないので、`Menu` のままだと押せる見た目の親から空のサブメニューが出た(監査 X-1)。
+        MenuBarSubmenu("Add to Collection", isEnabled: selection?.canUseAsBooks == true) {
             if let actions = appState?.fileBrowserActions, let selection, selection.canUseAsBooks {
                 FileBrowserMenuNodeItems(nodes: FileBrowserMenuCommand.addToCollection.dynamicChildren(
                     in: FileBrowserMenuContext(
@@ -242,7 +278,6 @@ struct HomeMenuItems: View {
                 .id(HomeMenuSubmenuIdentity(selectionRevision: selection.selectionRevision, directory: directory))
             }
         }
-        .disabled(selection?.canUseAsBooks != true)
     }
 
     private static func request(_ kind: WelcomeLibraryState.HomeMenuRequest.Kind, _ appState: AppState?) {
@@ -306,6 +341,7 @@ private struct HomeMenuSubmenuIdentity: Hashable {
 struct FileBrowserFileMenuItems: View {
     let selection: FileBrowserMenuSelection?
     let appState: AppState?
+    /// 題を組み立てる言語。**メニューバーの言語**(`AppLanguage.menuBarLocale`)を渡す(HomeMenuItems.locale と同じ。監査 M-7)。
     let locale: Locale
 
     private var isShown: Bool { selection != nil }
@@ -328,7 +364,8 @@ struct FileBrowserFileMenuItems: View {
         .homeMenuShortcut(.downArrow, modifiers: .command, isActive: isShown)
         .disabled(selection?.canOpen != true)
 
-        Menu("Open With") {
+        // 淡色のときは中身を作らない(監査 X-1。「コレクションに登録」と同じ)。
+        MenuBarSubmenu("Open With", isEnabled: selection?.canOpenWith == true) {
             if let actions = appState?.fileBrowserActions, let selection, selection.canOpenWith {
                 let entries = actions.state?.selectedEntries ?? []
                 FileBrowserMenuNodeItems(nodes: OpenWithApplications.shared.menuNodes(
@@ -339,7 +376,6 @@ struct FileBrowserFileMenuItems: View {
                 .id(selection.selectionRevision)
             }
         }
-        .disabled(selection?.canOpenWith != true)
 
         Divider()
 
@@ -352,43 +388,45 @@ struct FileBrowserFileMenuItems: View {
         .disabled(selection?.canShowInFinder != true)
 
         Button(renameTitle) { [weak appState] in
-            Self.perform(appState) { actions, entries in actions.beginRename(entries) }
+            Self.perform(appState, refusingUnless: { $0.canChange($1) }) { actions, entries in actions.beginRename(entries) }
         }
         .disabled(selection?.canRename != true)
 
-        Menu("Compress") {
+        MenuBarSubmenu("Compress", isEnabled: selection?.canCompress == true) {
             Button("Compress Here") { [weak appState] in
-                Self.perform(appState) { actions, entries in actions.compress(entries, choosingDestination: false) }
+                Self.perform(appState, refusingUnless: { $0.canCompress($1) }) { actions, entries in
+                    actions.compress(entries, choosingDestination: false)
+                }
             }
             Button("Compress To…") { [weak appState] in
-                Self.perform(appState) { actions, entries in actions.compress(entries, choosingDestination: true) }
+                Self.perform(appState, refusingUnless: { $0.canCompress($1) }) { actions, entries in
+                    actions.compress(entries, choosingDestination: true)
+                }
             }
         }
-        .disabled(selection?.canCompress != true)
 
-        Menu("Extract") {
+        MenuBarSubmenu("Extract", isEnabled: selection?.canExtract == true) {
             Button("Extract Here") { [weak appState] in
-                Self.perform(appState) { actions, entries in
+                Self.perform(appState, refusingUnless: { $0.canExtract($1) }) { actions, entries in
                     actions.extract(entries, placement: .contents, choosingDestination: false)
                 }
             }
             Button(extractToFolderTitle) { [weak appState] in
-                Self.perform(appState) { actions, entries in
+                Self.perform(appState, refusingUnless: { $0.canExtract($1) }) { actions, entries in
                     actions.extract(entries, placement: .ownFolder, choosingDestination: false)
                 }
             }
             Button("Extract To…") { [weak appState] in
-                Self.perform(appState) { actions, entries in
+                Self.perform(appState, refusingUnless: { $0.canExtract($1) }) { actions, entries in
                     actions.extract(entries, placement: .contents, choosingDestination: true)
                 }
             }
         }
-        .disabled(selection?.canExtract != true)
 
         // Finder の「エイリアスを作成」⌃⌘A・「クイックルック」⌘Y(2026-10-01、利用者の要望「Finder に合わせて」)。淡色の条件は右クリックと同じ。
         // クイックルックは Finder と同じく、出ていれば閉じる(FileBrowserActions.toggleQuickLook)。
         Button("Make Alias") { [weak appState] in
-            Self.perform(appState) { actions, entries in actions.makeAliases(entries) }
+            Self.perform(appState, refusingUnless: { $0.canMakeAlias($1) }) { actions, entries in actions.makeAliases(entries) }
         }
         .homeMenuShortcut("a", modifiers: [.command, .control], isActive: isShown)
         .disabled(selection?.canMakeAlias != true)
@@ -414,7 +452,7 @@ struct FileBrowserFileMenuItems: View {
             guard HomeMenuKeyRouting.shouldPerformOnSelection(
                 forwardingTextAction: #selector(NSResponder.deleteToBeginningOfLine(_:))
             ) else { return }
-            Self.perform(appState) { actions, entries in actions.moveToTrash(entries) }
+            Self.perform(appState, refusingUnless: { $0.canChange($1) }) { actions, entries in actions.moveToTrash(entries) }
         }
         .homeMenuShortcut(.delete, modifiers: .command, isActive: isShown)
         .disabled(selection?.canMoveToTrash != true)
@@ -426,7 +464,9 @@ struct FileBrowserFileMenuItems: View {
             Button("Delete Immediately…") { [weak appState] in
                 // テキストの欄を編集中の ⌥⌘⌫ には欄の標準の意味が無いので、何も返さずに捨てる。
                 guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil) else { return }
-                Self.perform(appState) { actions, entries in actions.deleteImmediately(entries) }
+                Self.perform(appState, refusingUnless: { $0.canChange($1) }) { actions, entries in
+                    actions.deleteImmediately(entries)
+                }
             }
             .homeMenuShortcut(.delete, modifiers: [.command, .option], isActive: isShown)
             .disabled(selection?.canDeleteImmediately != true)
@@ -448,10 +488,21 @@ struct FileBrowserFileMenuItems: View {
         return String(localized: "Extract Each to Its Own Folder", language: locale)
     }
 
-    private static func perform(_ appState: AppState?, _ body: (FileBrowserActions, [FileBrowserEntry]) -> Void) {
+    /// - Parameter allowed: 入口(`FileBrowserActions` の各操作の冒頭の guard)と**同じ判定**。断られるなら鳴らして何もしない
+    ///   (2026-10-04 の監査 FBA-5。メニューの淡色は覚え書き ―― ContentView の `fileBrowserMenuSelection` ―― から作るので、ほかの
+    ///   ウインドウで本を開いた・リンクの先が変わった等で古いことがある。以前は入口の guard で黙って抜け、押しても何も起きないように
+    ///   見えた。ツリーの ⌘⌫ と同じく鳴らす)。
+    private static func perform(
+        _ appState: AppState?, refusingUnless allowed: ((FileBrowserActions, [FileBrowserEntry]) -> Bool)? = nil,
+        _ body: (FileBrowserActions, [FileBrowserEntry]) -> Void
+    ) {
         guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries,
               !entries.isEmpty
         else { return }
+        if let allowed, !allowed(actions, entries) {
+            NSSound.beep()
+            return
+        }
         body(actions, entries)
     }
 }
@@ -505,7 +556,8 @@ struct HomeViewMenuItems: View {
             Divider()
         }
 
-        Menu("Sort By") {
+        // スマートライブラリの並べ替えは画面の中のメニューだけ(ここの項目は本棚とファイルブラウザのもの)。
+        MenuBarSubmenu("Sort By", isEnabled: home.isShown && home.mode != .smart) {
             if isBrowser {
                 ForEach(FolderBrowserSortKey.allCases) { [appState] key in
                     Toggle(key.titleKey, isOn: Binding(
@@ -544,8 +596,6 @@ struct HomeViewMenuItems: View {
                 }
             }
         }
-        // スマートライブラリの並べ替えは画面の中のメニューだけ(ここの項目は本棚とファイルブラウザのもの)。
-        .disabled(!home.isShown || home.mode == .smart)
 
         Divider()
 
@@ -597,7 +647,7 @@ struct HomeViewMenuItems: View {
     }
 
     private var columnsMenu: some View {
-        Menu("Columns") {
+        MenuBarSubmenu("Columns", isEnabled: isBrowser && home.browserViewMode == .list) {
             ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { [appState] column in
                 Toggle(String(localized: column.title), isOn: Binding(
                     get: { [home] in !home.hiddenListColumns.contains(column.rawValue) },
@@ -612,7 +662,6 @@ struct HomeViewMenuItems: View {
                 ))
             }
         }
-        .disabled(!(isBrowser && home.browserViewMode == .list))
     }
 
     /// ファイルブラウザの見せ方に当たるスマートライブラリの見せ方(アイコン = グリッド)。

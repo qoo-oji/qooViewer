@@ -98,6 +98,10 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
   `FocusedValue` の変化検知が値の比較で行われるため(クラスを渡すと中身が変わっても
   メニューが更新されない)。ファイルブラウザの「取り消す/やり直す」の題と「新規フォルダ」の可否も
   ここに入れ、実行は `AppState.fileBrowser`(weak)を通す(→ [15](15-file-browser.md))。
+  **メニューが読む値はすべてここへ入れる**(2026-10-04 の監査 §1-4、段 5 で決まりにした)。中身を `focusedAppState` の参照から
+  読む一覧(同じフォルダのファイル・ブックマーク一覧)も、変わった印(`siblingBooksRevision` など)をここへ入れて作り直しの契機にする。
+  値は `MenuBarMenuGate` で保留した**後**の値から作る(メニューを開いている間に中身が変わらないように)。本についての値は
+  `ViewerHandoff.shown`(ビューアに出ている本)から作る(→ [09](09-ui-and-windows.md)「メニューバーの写しの決まり」)。
 
 ## 本ごとのもの: ViewerView / ViewerViewModel / PageLoader
 

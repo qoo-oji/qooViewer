@@ -116,6 +116,13 @@ final class AppState: ObservableObject {
         self.hideToolbar = hiddenChrome.toolbar
         self.hideProgressBar = hiddenChrome.progressBar
         self.hideSidePanel = hiddenChrome.sidePanel
+        // 削除の取り消しに「ファイルブラウザが出ている画面で積んだか」を付ける(DataUndoStack.recordsOnFileBrowserScreen。監査 M-2)。
+        // 編集メニューが振り分けに使う値(メニューの写しの homeMenu)と同じものを見る ―― 別の式で見ると、積んだ画面と取り出す画面の
+        // 判定が食い違う。
+        dataUndo.recordsOnFileBrowserScreen = { [weak self] in
+            guard let home = self?.homeMenu else { return false }
+            return home.isShown && home.mode == .browser
+        }
     }
 
     @Published var currentBook: MangaBook?
@@ -277,6 +284,13 @@ final class AppState: ObservableObject {
     /// 現在開いている本と同じフォルダにある、他の本のURL一覧(現在の本自身は除く)。
     /// 「Fileメニュー」→「同じフォルダのファイルを開く」の一覧に使う。
     @Published private(set) var siblingBooks: [URL] = []
+    /// `siblingBooks` が変わるたびに進む番号(メニューバーの作り直しの契機。`MenuCheckmarkState.siblingBooksRevision`)。
+    ///
+    /// **メニューは参照(`focusedAppState`)から読む一覧の変化では作り直されない**(MenuCheckmarkState の型コメントの実機の記録)。
+    /// 以前は一覧がこの値型に無く、許可を付けた後や並び順の設定を変えた後に走査が作り直しの**後**で終わると、「このフォルダへの
+    /// アクセスを許可…」や前のフォルダの本が残った(2026-10-04 の監査 M-1)。一覧そのものを値に入れると、本体の評価のたびに
+    /// 数千件の URL を比べることになるので、保留の後(`setSiblingBooks` の閉包の中)で進めた番号だけを入れる。
+    @Published private(set) var siblingBooksRevision = 0
 
     /// 本を開いた一覧の並び(ライブラリのコレクション・スマートライブラリから開いたとき。`BookSequence`)。
     /// あれば「次の本へ」「前の本へ」はこの並びをたどり、無ければ同じフォルダの本をたどる。本を開くたびに要求の値で
@@ -324,6 +338,9 @@ final class AppState: ObservableObject {
     /// 一覧表示するために、ViewerViewが自分自身のViewerViewModelの内容をここへ反映する
     /// (performViewerActionと同じ、本を表示している間だけ登録する仕組み)。
     @Published private(set) var currentBookmarks: [Bookmark] = []
+    /// `currentBookmarks` が変わるたびに進む番号(メニューバーの「ブックマーク一覧」の作り直しの契機。`siblingBooksRevision` と同じ理由。
+    /// 2026-10-04 の監査 M-1)。
+    @Published private(set) var currentBookmarksRevision = 0
     /// 現在表示中のページ番号(0始まり)。currentBookmarksと突き合わせることで「現在のページが
     /// ブックマーク済みかどうか」を判定できる(ContentView.bodyでMenuCheckmarkStateを組み立てる
     /// ときに使う。currentBookmarksと同じ、ViewerViewが表示されている間だけ最新値を書き込む仕組み)。
@@ -450,7 +467,10 @@ final class AppState: ObservableObject {
     @Published private(set) var currentPartnerPageIndex: Int?
 
     func updateCurrentPartnerPageIndex(_ index: Int?) {
+        guard currentPartnerPageIndex != index else { return }
         currentPartnerPageIndex = index
+        // 相方が替わると「この見開きにブックマークがあるか」も変わる(isCurrentSpreadBookmarked。監査 V-3)。
+        refreshIsCurrentPageBookmarked()
     }
 
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
@@ -539,7 +559,10 @@ final class AppState: ObservableObject {
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
         liveCurrentBookmarks = bookmarks
         MenuBarMenuGate.shared.run(menuGateKey("currentBookmarks")) { [weak self] in
-            self?.currentBookmarks = bookmarks
+            // 同じ行の名前の変更は配列の比較では見分けられない(モデルは参照で比べる)ので、比べずに毎回進める。
+            guard let self else { return }
+            self.currentBookmarks = bookmarks
+            self.currentBookmarksRevision &+= 1
         }
         refreshIsCurrentPageBookmarked()
     }
@@ -569,6 +592,31 @@ final class AppState: ObservableObject {
     /// ため、メニューが読む値はここで保留付きの@Publishedとして持つ
     /// (詳細はMenuBarMenuGateの型コメント参照)。
     @Published private(set) var isCurrentPageBookmarked = false
+    /// 表示中の見開き(起点のページと相方のページ)のどちらかにブックマークがあるか。編集メニューの「このページをブックマークに
+    /// 追加/から削除」の文言はこちら ―― 押したときの動き(`ViewerView.toggleCurrentPageBookmark`)とツールバー・右クリックは
+    /// 相方も数える(利用者の要望)。以前はメニューの写しだけ起点のページしか見ず、相方だけにブックマークがあると「追加」と
+    /// 出したまま相方のブックマークを消した(2026-10-04 の監査 V-3)。
+    ///
+    /// `isCurrentPageBookmarked`(起点のページだけ)は残す: サイドパネルの「+」の淡色は、足す相手(`addBookmark()` = 起点のページ)に
+    /// 既にあるかで決まる(SP-5)。2 つを 1 つにまとめると、どちらかが押した結果と食い違う。
+    @Published private(set) var isCurrentSpreadBookmarked = false
+
+    /// **ビューアに出ている本**(`ViewerHandoff.shown`)のうち、メニューバーが読む値。ContentView が詰め、メニューバーのメニューが
+    /// 開いている間は反映を保留する(fileBrowserMenu と同じ)。
+    ///
+    /// `currentBook` ではなく出ている本で作る(2026-10-04 の監査 M-6)。本を替えるときは新しい本の最初の見開きが揃うまで(最長
+    /// 300ms)前の中身を出しておく(ViewerHandoff)が、ビューアの登録(`performViewerAction` など)も前の本のまま残る。以前は
+    /// メニューの淡色だけが `currentBook`(新しい本)から作られ、シークレットフォルダの本 → ノーマルの本の間に押せた「ブックマークに
+    /// 追加」を前の本のビューアが黙って断る・ホーム → 本の間に表示メニューがビューアの項目に替わって ⌘1〜⌘4 が何もしない、が起きた。
+    /// ウインドウの題は `currentBook` に従う(secret-folder-plan.md の決定。外観とは 300ms ずれてよいとした)ので、ここには入れない。
+    @Published private(set) var menuShownBook = MenuShownBook()
+
+    func setMenuShownBook(_ book: MenuShownBook) {
+        MenuBarMenuGate.shared.run(menuGateKey("menuShownBook")) { [weak self] in
+            guard let self, self.menuShownBook != book else { return }
+            self.menuShownBook = book
+        }
+    }
 
     /// ファイルブラウザがメニューバーへ出す値(取り消しの題・新規フォルダ・「移動」メニュー)。ContentView が詰め、
     /// **メニューバーのメニューが開いている間は反映を保留する**(ContentView.fileBrowserMenuSnapshot のコメント)。
@@ -594,9 +642,12 @@ final class AppState: ObservableObject {
 
     private func refreshIsCurrentPageBookmarked() {
         let flag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex }
+        let partner = currentPartnerPageIndex
+        let spreadFlag = flag || (partner.map { index in liveCurrentBookmarks.contains { $0.pageIndex == index } } ?? false)
         MenuBarMenuGate.shared.run(menuGateKey("isCurrentPageBookmarked")) { [weak self] in
-            guard let self, self.isCurrentPageBookmarked != flag else { return }
-            self.isCurrentPageBookmarked = flag
+            guard let self else { return }
+            if self.isCurrentPageBookmarked != flag { self.isCurrentPageBookmarked = flag }
+            if self.isCurrentSpreadBookmarked != spreadFlag { self.isCurrentSpreadBookmarked = spreadFlag }
         }
     }
 
@@ -805,6 +856,7 @@ final class AppState: ObservableObject {
         MenuBarMenuGate.shared.run(menuGateKey("siblingBooks")) { [weak self] in
             guard let self, self.siblingBooks != newValue else { return }
             self.siblingBooks = newValue
+            self.siblingBooksRevision &+= 1
         }
     }
 
@@ -1977,6 +2029,9 @@ extension FocusedValues {
 /// まとめて値型として公開する。書き込み(実際にトグルする操作)は、これまでどおり
 /// qooViewerAppState(AppState)側のクロージャ/プロパティ経由で行う。
 struct MenuCheckmarkState: Equatable {
+    /// フォーカス中のウインドウのビューアに本が出ているか(`AppState.menuShownBook`。監査 M-6 ―― 以前メニューは `focusedAppState?.currentBook`
+    /// を参照で読み、受け渡し中は新しい本、画面と操作の相手は前の本、とずれた)。メニューの「本を開いているか」はこれで見る。
+    var hasBook = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
     /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
     /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の
@@ -2017,8 +2072,13 @@ struct MenuCheckmarkState: Equatable {
     /// appState.currentBookから都度計算して詰める(favoritesStoreの変更自体はAppStateの
     /// @Publishedプロパティではないため、ContentView側で計算する必要がある)。
     var isCurrentBookFavorited = false
-    /// 同じく、現在のページがブックマーク済みかどうか(ブックマーク追加/削除トグルボタン用)。
-    var isCurrentPageBookmarked = false
+    /// 同じく、表示中の見開き(起点と相方のページ)にブックマークがあるか(編集メニューの「このページをブックマークに追加/から削除」の
+    /// 文言。押したときの動きと同じく相方も数える ―― AppState.isCurrentSpreadBookmarked、監査 V-3)。
+    var isCurrentSpreadBookmarked = false
+    /// 「同じフォルダのファイルを開く」「ブックマーク一覧」の中身が変わった印(AppState.siblingBooksRevision / currentBookmarksRevision。
+    /// 監査 M-1)。メニューは中身をフォーカス中の AppState から読むが、それだけでは作り直されないので、この値の変化を契機にする。
+    var siblingBooksRevision = 0
+    var currentBookmarksRevision = 0
     /// 見開き表示中に、実際に2ページとも表示されているかどうか。Layoutメニューの項目構成
     /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
     var hasPartnerPageDisplayed = false
@@ -2031,6 +2091,9 @@ struct MenuCheckmarkState: Equatable {
     /// 画面に出ていない・積まれていないなら nil(編集メニューの項目を淡色にする)。
     var fileBrowserUndoTitle: String?
     var fileBrowserRedoTitle: String?
+    /// その操作の新しさ(FileBrowserMenuSnapshot.undoRecency)。
+    var fileBrowserUndoRecency: Int?
+    var fileBrowserRedoRecency: Int?
     /// ファイルメニューの「新規フォルダ」(⇧⌘N)を使えるか(ファイルブラウザがフォルダを表示中)。
     var canCreateFolderInFileBrowser = false
     /// ファイルブラウザが出ているなら、その戻る/進む/上へ の可否。**nil でない間、「移動」メニューの中身が
@@ -2043,10 +2106,31 @@ struct MenuCheckmarkState: Equatable {
     var homeMenu = HomeMenuState()
 }
 
+/// ビューアに出ている本のうち、メニューバーが読む値(AppState.menuShownBook)。
+struct MenuShownBook: Equatable {
+    var hasBook = false
+    var isTransient = false
+    var leavesNoRecord = false
+    /// お気に入りの判定に使う(本の id)。
+    var bookID: String?
+
+    init() {}
+
+    init(_ book: MangaBook?) {
+        hasBook = book != nil
+        isTransient = book?.isTransient == true
+        leavesNoRecord = book?.leavesNoRecord == true
+        bookID = book?.id
+    }
+}
+
 /// ファイルブラウザがメニューバーへ出す値のひとまとまり(AppState.fileBrowserMenu)。
 struct FileBrowserMenuSnapshot: Equatable {
     var undoTitle: String?
     var redoTitle: String?
+    /// 取り消し・やり直しの一番上の操作の新しさ(`UndoRecency`。編集メニューが削除の取り消しと並べるときに比べる。監査 M-2)。
+    var undoRecency: Int?
+    var redoRecency: Int?
     var canCreateFolder = false
     var navigation: FileBrowserMenuNavigation?
     var selection: FileBrowserMenuSelection?

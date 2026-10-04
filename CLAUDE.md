@@ -462,6 +462,12 @@ AppState.swift). The active `ViewerView` registers closures on `AppState` (`perf
 disposable UUID token (`activeViewerToken`) to resolve ordering races when switching books in the same
 window. Menu checkmark/enabled state is pushed into `AppState` as plain `Equatable` value fields (not read
 off the `ViewerViewModel` class reference) because `FocusedValue` change detection needs a value type.
+**Everything a menu-bar item reads goes into that value copy (`MenuCheckmarkState`), built from the post-`MenuBarMenuGate`
+values** — a list read off `focusedAppState` needs at least a revision in the copy (and on its submenu's `.id`), or the
+menu never rebuilds (2026-10-04, audit M-1); **a memo/copy key holds every input the predicate reads** (X-2); book-derived
+values come from the shown book (`AppState.menuShownBook` ← `ViewerHandoff.shown`, M-6); disabled submenus are drawn with
+`MenuBarSubmenu` (`Menu` + `.disabled` leaves the parent looking clickable, X-1); a stale enabled item that the entrance
+refuses beeps (FBA-5). docs/09「メニューバーの写しの決まり」.
 **Closures in the viewer's toolbar buttons, context menu items, Toggle bindings and confirmation dialogs
 must go through `ViewerActionRelay` (`relay.send { $0.perform(.x) }`), never capture `ViewerView`
 directly.** SwiftUI hands those closures to AppKit objects that outlive the window, so a direct capture
@@ -542,7 +548,8 @@ scene-level `.environment` does not reach the window content). Strings built in 
 `String(localized:language:)` (Models/AppLanguage.swift) with `preferences.effectiveLocale`,
 `@Environment(\.locale)`, or `AppLanguage.currentLocale` (for nonisolated services / pre-preferences code)
 — Foundation's `String(localized:locale:)` only affects formatting and always picks the OS-language
-translation. Window titles must be passed as such Strings, never as `Text(key)` / `Window("key", id:)`.
+translation. **Exception: menu-bar strings built in code use `AppLanguage.menuBarLocale`** (the launch language, like every
+`LocalizedStringKey` item there) — the display language there mixed languages after a runtime switch (2026-10-04, audit M-7). Window titles must be passed as such Strings, never as `Text(key)` / `Window("key", id:)`.
 The menu bar and system dialogs cannot be switched at runtime; the setting is also written to the app's
 `AppleLanguages` so they follow from the next launch (`AppLanguage.applyAppleLanguagesOverride`).
 

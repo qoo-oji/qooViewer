@@ -400,6 +400,45 @@ struct ViewerViewModelTests {
         #expect(Set(viewer.bookmarks.compactMap(\.pageKey)) == [keys[4], keys[5]])
     }
 
+    @Test("ブックマークへ飛ぶのはこの本のブックマークだけ。並びが変わっても同じページへ(2026-10-04 の監査 M-1)")
+    func jumpingToABookmarkChecksTheBook() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let viewer = await harness.open(book)
+        // 単ページで見る(見開きの起点への寄せで、着地のページが 1 つずれないように)。
+        if viewer.displayMode == .spread { viewer.toggleDisplayMode() }
+        await viewer.settle()
+
+        // メニューの一覧が前の本のまま残った(別の本のブックマーク)。以前は同じ番号のページへ黙って飛んだ。
+        let foreign = Bookmark(bookID: "/somewhere/else", pageIndex: 4, name: "foreign")
+        #expect(!viewer.jump(to: foreign))
+        await viewer.settle()
+        #expect(viewer.currentIndex == 0)
+
+        let own = Bookmark(bookID: book.id, pageIndex: 4, pageKey: book.pages[3].sortKey, name: "own")
+        #expect(viewer.jump(to: own))
+        await viewer.settle()
+        // 番号ではなく鍵で引く。
+        #expect(viewer.book.pages[viewer.currentIndex].sortKey == book.pages[3].sortKey)
+    }
+
+    @Test("ほかの窓でレイアウトが変わると、メニューの写しを作り直す印が進む(2026-10-04 の監査 V-7)")
+    func layoutChangesElsewhereAdvanceTheRevision() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let viewer = await harness.open(book)
+        let start = viewer.layoutDataRevision
+        #expect(!viewer.hasPageLayoutOverride(atIndex: viewer.currentIndex))
+
+        // 編集ウインドウ・自動レイアウトと同じ知らせ(.layoutDataDidChange)で届く。並び・見開きの枚数が変わらない変更。
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
+        await viewer.settle()
+        #expect(viewer.layoutDataRevision != start)
+        #expect(viewer.hasPageLayoutOverride(atIndex: viewer.currentIndex))
+    }
+
     // MARK: - 表示モードの書き戻し先
 
     @Test("見開き/単ページの切り替えは、強制指定がある本ならそちらへ書き戻す")

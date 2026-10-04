@@ -109,6 +109,29 @@ struct FileCommandStackTests {
         #expect(!stack.canUndo && !stack.canRedo)
     }
 
+    @Test("一番上の操作の新しさは、積んだ・戻した・やり直したときに進み、試し直しでは変わらない(2026-10-04 の監査 M-2)")
+    func recencyFollowsWhatHappenedLast() async throws {
+        let stack = FileCommandStack()
+        let first = ScriptedCommand("first")
+        let second = ScriptedCommand("second")
+        try await stack.run(first)
+        let firstRecency = try #require(stack.undoRecency)
+        try await stack.run(second)
+        let secondRecency = try #require(stack.undoRecency)
+        #expect(secondRecency > firstRecency)
+
+        _ = await stack.undo()
+        // 下から出てきた操作は新しくならない(削除の取り消しと比べたときに、後でした削除が先に戻る)。
+        #expect(stack.undoRecency == firstRecency)
+        let undoneRecency = try #require(stack.redoRecency)
+        #expect(undoneRecency > secondRecency)
+
+        // 試し直せる失敗で同じ側へ戻したときは、前の値のまま。
+        first.undoResult = .impossible(reason: "denied", canRetry: true)
+        _ = await stack.undo()
+        #expect(stack.undoRecency == firstRecency)
+    }
+
     @Test("試し直せる「取り消せなかった」は履歴に残し、もう一度取り消せる")
     func retryableImpossibleUndoStays() async throws {
         let stack = FileCommandStack()

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import CoreGraphics
 
@@ -6,6 +7,11 @@ import CoreGraphics
 struct ActualSizePageView: View {
     let image: CGImage
     var backgroundColor: Color = .black
+    /// 表示言語の変化(`AppPreferences.$displayLanguage`)と、変わったときに窓の題を付け直す閉包(2026-10-04 の監査 M-7)。
+    /// 窓は SwiftUI のシーンでなく `NSWindow` を直に作っている(ViewerView.showActualSizeWindow)ので、題は開いたときの言語のまま
+    /// 残っていた。閉包は窓を弱く持つこと(この中身は窓が持つ)。
+    var displayLanguageChanges: AnyPublisher<AppLanguage, Never>?
+    var onDisplayLanguageChange: ((AppLanguage) -> Void)?
 
     var body: some View {
         // ■ 画像がウインドウより小さいときは中央に置く(2026-09-18、macOS 27 で実測)
@@ -22,5 +28,8 @@ struct ActualSizePageView: View {
             }
         }
         .background(backgroundColor)
+        .onReceive(displayLanguageChanges ?? Empty().eraseToAnyPublisher()) { language in
+            onDisplayLanguageChange?(language)
+        }
     }
 }

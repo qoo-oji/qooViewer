@@ -1249,11 +1249,24 @@ struct FileBrowserMenuNodeItems: View {
 /// `.disabled` を `Menu` / `Group` / `Section` に付ける・`\.isEnabled` を入れる・`menuStyle` を変える・`primaryAction` 付き、のどれも親項目は
 /// 押せる見た目のままで、中の項目だけが淡色になった)。押せない `Button` は矢印が出ないが、項目の数は変わらない。
 /// ファイルブラウザのアイコン表示は 2026-09-15 に AppKit のメニューへ移ったので、使うのはコレクションの中の右クリック。
+///
+/// **メニューバーの `Menu` も同じ**(2026-10-03 と 2026-10-04 の実機: 親は押せる見た目のまま、中の項目は淡色)。メニューバーでは
+/// `MenuBarSubmenu` がこれで描き分ける(監査 X-1。淡色のときに中身を空にしていた「コレクションに登録」「このアプリケーションで開く」は、
+/// 押せる見た目の親を開くと空のサブメニューが出た)。
 struct FileBrowserDisabledSubmenu: View {
-    let title: String
+    private let label: Text
+
+    init(title: String) {
+        label = Text(verbatim: title)
+    }
+
+    /// 題が LocalizedStringKey のとき(メニューバー。`Text` の引き方は `Menu("…")` と同じ)。
+    init(_ titleKey: LocalizedStringKey) {
+        label = Text(titleKey)
+    }
 
     var body: some View {
-        Button {} label: { Text(verbatim: title) }
+        Button {} label: { label }
             .disabled(true)
     }
 }

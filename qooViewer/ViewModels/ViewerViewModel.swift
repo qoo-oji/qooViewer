@@ -207,6 +207,14 @@ final class ViewerViewModel: ObservableObject {
     /// この本のPageLayoutOverride(ページ単位の設定)を、pageKey(PageRef.sortKey)をキーにした
     /// 辞書として保持する。差し替えの疑いがあり未解決の間は空のまま。
     private var pageLayoutStates: [String: PageLayoutState] = [:]
+    /// レイアウトの保存データを読み直すたびに進む番号(`reloadLayoutData`)。ViewerView がこれを見てメニューバーの写し
+    /// (「1 ページずらし」の淡色・「レイアウト情報を削除」の有無)とサイドパネルの強調を作り直す。
+    ///
+    /// 以前は写しを作るのがページ・枚数・表示モードなどの変化と自分の窓のレイアウト操作だけで、自動レイアウト(開いた後に
+    /// 非同期で書く)や「ブックマーク・レイアウトの編集」ウインドウでの変更では、見開きの枚数とページが同じなら変更前の値のまま
+    /// 残った ―― ツールバーのずらしボタンは淡色なのにメニューは押せ、押すと `shiftByOnePage` の guard で何も起きなかった
+    /// (2026-10-04 の監査 V-7)。`pageLayoutStates` は publish しないので、変わったことをこの番号で知らせる。
+    @Published private(set) var layoutDataRevision = 0
     /// 一度でも画像を読み込んで横長判定(isWideImage)を行ったページの結果を、pageKeyをキーに
     /// 覚えておくキャッシュ。
     ///
@@ -2228,8 +2236,15 @@ final class ViewerViewModel: ObservableObject {
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id])
     }
 
-    func jump(to bookmark: Bookmark) {
-        jump(toPageIndex: bookmark.pageIndex)
+    /// ブックマークへ飛ぶ(メニューバーの「ブックマーク一覧」)。**この本のブックマークでなければ何もせず false**(呼ぶ側が鳴らす)
+    /// (2026-10-04 の監査 M-1)。メニューの一覧はフォーカス中のウインドウから読むので、本を替えた直後に古い一覧が残ると、以前は
+    /// 前の本のブックマークのページ番号で今の本の同じ番号のページへ黙って飛んだ。番号より鍵で引く(並びが変わっていても同じページへ)。
+    @discardableResult
+    func jump(to bookmark: Bookmark) -> Bool {
+        guard bookmark.bookID == book.id else { return false }
+        let index = bookmark.pageKey.flatMap { pageIndex(forPageKey: $0) } ?? bookmark.pageIndex
+        jump(toPageIndex: index)
+        return true
     }
 
     func jumpToNextBookmark() {
@@ -3251,6 +3266,7 @@ final class ViewerViewModel: ObservableObject {
             overridesByKey[override.pageKey] = override.state
         }
         pageLayoutStates = overridesByKey
+        layoutDataRevision &+= 1
 
         let rebuiltPages = Self.applyLayoutData(
             to: rawPages, pageOrderSource: book.pageOrderSource,

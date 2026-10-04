@@ -19,29 +19,58 @@ final class DataUndoStack {
     /// 積む深さ。超えたら古いものから捨てる(`FileCommandStack.depth` と同じ)。
     static let depth = 50
 
-    /// 編集メニューに出す名前(「コレクションの削除」など。メニューは「%@を取り消す」で包む)。
-    private(set) var undoTitle: String?
-    private(set) var redoTitle: String?
+    /// 一番上の操作(編集メニューが読む)。
+    struct Top: Equatable {
+        /// 編集メニューに出す名前(「コレクションの削除」など。メニューは「%@を取り消す」で包む)。
+        let title: String
+        /// ファイルブラウザが出ている画面で積んだか(`recordsOnFileBrowserScreen`)。
+        let isFromFileBrowserScreen: Bool
+        /// 積んだ・戻した・やり直した時の新しさ(`UndoRecency`)。
+        let recency: Int
+    }
 
-    @ObservationIgnored private var undoSteps: [any DataUndoStep] = []
-    @ObservationIgnored private var redoSteps: [any DataUndoStep] = []
+    private(set) var undoTop: Top?
+    private(set) var redoTop: Top?
+
+    /// 編集メニューに出す名前(「コレクションの削除」など。メニューは「%@を取り消す」で包む)。
+    var undoTitle: String? { undoTop?.title }
+    var redoTitle: String? { redoTop?.title }
+
+    /// 積むときに「ファイルブラウザが出ている画面で積んだか」を答える(本のウインドウの積み場所だけ。AppState が入れる)。
+    ///
+    /// **編集メニューの振り分けに使う**(2026-10-04 の監査 M-2、§3 の決定 13「表示中の画面が積んだかどうかで振り分ける」)。
+    /// ファイルブラウザが出ている間の ⌘Z はファイル操作の取り消しへ流す(docs/09「見えている所の操作を戻す」)が、その画面にも
+    /// 削除の入口がある ―― 帯のライブラリの「削除…」・履歴の吹き出しの削除・メニューの「メニューを消去」/「ライブラリを削除…」。
+    /// 以前はファイルブラウザが出ている間は削除の積み場所を一切見ず、確認文の「取り消すで取り消せます」が守られなかった
+    /// (本棚・ビューアへ移ったときに初めて「取り消す」に現れ、前触れなく戻った)。いまは、その画面で積んだものだけを出す。
+    @ObservationIgnored var recordsOnFileBrowserScreen: @MainActor () -> Bool = { false }
+
+    private struct Entry {
+        let step: any DataUndoStep
+        let isFromFileBrowserScreen: Bool
+        let recency: Int
+    }
+
+    @ObservationIgnored private var undoSteps: [Entry] = []
+    @ObservationIgnored private var redoSteps: [Entry] = []
 
     /// 削除を済ませた後に積む。新しい操作をしたらやり直し先は捨てる。
     func push(_ step: any DataUndoStep) {
-        for dropped in redoSteps { dropped.discard() }
+        for dropped in redoSteps { dropped.step.discard() }
         redoSteps.removeAll()
-        undoSteps.append(step)
-        if undoSteps.count > Self.depth { undoSteps.removeFirst().discard() }
+        undoSteps.append(Entry(step: step, isFromFileBrowserScreen: recordsOnFileBrowserScreen(), recency: UndoRecency.next()))
+        if undoSteps.count > Self.depth { undoSteps.removeFirst().step.discard() }
         publish()
     }
 
     /// ⌘Z。戻せなかった(相手が別の操作で消えていた等)ときは、その操作を捨てる。
     func undo() {
-        guard let step = undoSteps.popLast() else { return }
-        if step.undo() {
-            redoSteps.append(step)
+        guard let entry = undoSteps.popLast() else { return }
+        if entry.step.undo() {
+            // 戻したことが「いちばん新しい操作」(⇧⌘Z でファイル操作のやり直しと比べるとき)。積んだ画面はそのまま。
+            redoSteps.append(Entry(step: entry.step, isFromFileBrowserScreen: entry.isFromFileBrowserScreen, recency: UndoRecency.next()))
         } else {
-            step.discard()
+            entry.step.discard()
             NSSound.beep()
         }
         publish()
@@ -49,11 +78,11 @@ final class DataUndoStack {
 
     /// ⇧⌘Z。
     func redo() {
-        guard let step = redoSteps.popLast() else { return }
-        if step.redo() {
-            undoSteps.append(step)
+        guard let entry = redoSteps.popLast() else { return }
+        if entry.step.redo() {
+            undoSteps.append(Entry(step: entry.step, isFromFileBrowserScreen: entry.isFromFileBrowserScreen, recency: UndoRecency.next()))
         } else {
-            step.discard()
+            entry.step.discard()
             NSSound.beep()
         }
         publish()
@@ -66,22 +95,63 @@ final class DataUndoStack {
         let dropped = undoSteps + redoSteps
         undoSteps.removeAll()
         redoSteps.removeAll()
-        for step in dropped { step.discard() }
+        for entry in dropped { entry.step.discard() }
         publish()
     }
 
     private func publish() {
-        let undo = undoSteps.last?.title
-        let redo = redoSteps.last?.title
-        if undo != undoTitle { undoTitle = undo }
-        if redo != redoTitle { redoTitle = redo }
+        let undo = undoSteps.last.map { Top(title: $0.step.title, isFromFileBrowserScreen: $0.isFromFileBrowserScreen, recency: $0.recency) }
+        let redo = redoSteps.last.map { Top(title: $0.step.title, isFromFileBrowserScreen: $0.isFromFileBrowserScreen, recency: $0.recency) }
+        if undo != undoTop { undoTop = undo }
+        if redo != redoTop { redoTop = redo }
+    }
+}
+
+/// 取り消せる操作の新しさの通し番号(アプリ全体で 1 つ)。編集メニューが、ファイル操作の取り消し(`FileCommandStack`)と削除の取り消し
+/// (`DataUndoStack`)の一番上のどちらが新しいかを比べるのに使う(2026-10-04 の監査 M-2)。積んだ・戻した・やり直したときに取る。
+@MainActor
+enum UndoRecency {
+    private static var counter = 0
+
+    static func next() -> Int {
+        counter &+= 1
+        return counter
+    }
+}
+
+/// ホームのウインドウの編集メニューの「取り消す」「やり直す」を、削除の積み場所とファイル操作のどちらへ流すか
+/// (2026-10-04 の監査 M-2、§3 の決定 13)。
+///
+/// - ファイルブラウザが出ていない: 削除の積み場所(ファイル操作は出ていない画面のものなので出さない。今までどおり)。
+/// - ファイルブラウザが出ている: **その画面で積んだ削除**(帯・吹き出し・メニュー)とファイル操作のうち、新しいほう。ほかの画面
+///   (本棚・ビューア)で積んだ削除は、その画面へ戻るまで出さない(見えていない所の操作を戻さない ―― docs/09)。
+enum DataUndoMenuRoute: Equatable {
+    case data
+    case fileBrowser
+
+    /// - Parameters:
+    ///   - data: 削除の積み場所の一番上(取り消しなら `undoTop`、やり直しなら `redoTop`)。
+    ///   - fileBrowserRecency: ファイル操作の一番上の新しさ(取り消せる・やり直せるものが無ければ nil)。
+    static func choose(data: DataUndoStack.Top?, fileBrowserShown: Bool, fileBrowserRecency: Int?) -> DataUndoMenuRoute? {
+        guard fileBrowserShown else {
+            if data != nil { return .data }
+            return fileBrowserRecency != nil ? .fileBrowser : nil
+        }
+        let ownData = data.flatMap { $0.isFromFileBrowserScreen ? $0 : nil }
+        switch (ownData, fileBrowserRecency) {
+        case (nil, nil): return nil
+        case (.some, nil): return .data
+        case (nil, .some): return .fileBrowser
+        case let (.some(top), .some(recency)): return top.recency > recency ? .data : .fileBrowser
+        }
     }
 }
 
 /// 取り消せる削除 1 回分。消す前に控えた値を持ち、書き戻す・もう一度消すことができる。
 @MainActor
 protocol DataUndoStep: AnyObject {
-    /// 編集メニューに出す名前(表示言語で引いたもの)。
+    /// 編集メニューに出す名前。**メニューバーの言語**(`AppLanguage.menuBarLocale` = 起動時の言語)で引く ―― メニューの「%@を取り消す」の
+    /// 枠は起動時の言語なので、表示言語で引くと実行中に切り替えたときに枠と中身の言語が混ざる(2026-10-04 の監査 M-7)。
     var title: String { get }
     /// 書き戻す。戻せなかったら false(その操作は捨てられる)。
     func undo() -> Bool

@@ -659,6 +659,37 @@ struct FileBrowserStateTests {
         #expect(state.effective(link) == link)
     }
 
+    @Test("リンクの先の控えが変わったときだけ番号が進む(メニューバーの覚え書きの鍵。2026-10-04 の監査 X-2)")
+    func linkTargetsRevisionAdvancesOnlyOnChange() async throws {
+        let fixture = try Fixture("fb-links-revision")
+        let state = fixture.state
+        state.linkTargetProtectedPrefixes = []
+        state.linkTargetCategoryPrefixes = []
+        try FileManager.default.createSymbolicLink(
+            at: fixture.inner.appendingPathComponent("to-b"), withDestinationURL: fixture.bFolder
+        )
+        let start = state.linkTargetsRevision
+        state.navigate(to: fixture.inner)
+        await state.settle()
+        await state.waitForLinkTargets()
+        // 先が解けた(以前は控えが publish されず、解ける前に作ったメニューの覚え書きが残った)。
+        let resolved = state.linkTargetsRevision
+        #expect(resolved != start)
+
+        // 同じ答えの解き直しでは進めない(読み直しのたびに publish しない)。
+        state.reload()
+        await state.settle()
+        await state.waitForLinkTargets()
+        #expect(state.linkTargetsRevision == resolved)
+
+        // 先が消えたら進む。
+        try FileManager.default.moveItem(at: fixture.bFolder, to: fixture.root.appendingPathComponent("b-moved"))
+        state.reload()
+        await state.settle()
+        await state.waitForLinkTargets()
+        #expect(state.linkTargetsRevision != resolved)
+    }
+
     @Test("シークレットウインドウでは「最近の項目」を出さない")
     func privateWindowNeverShowsRecents() async throws {
         let fixture = try Fixture("fb-recents-private")

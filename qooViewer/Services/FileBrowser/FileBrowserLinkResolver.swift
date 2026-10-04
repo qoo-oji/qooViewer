@@ -24,7 +24,8 @@ import Foundation
 /// メインでは呼ばない)。
 nonisolated enum FileBrowserLinkResolver {
     /// 先と、その項目として扱うのに要る属性(先の stat 1 回)。
-    struct Target: Sendable {
+    /// `Equatable` は控えが変わったかを見るため(FileBrowserState.linkTargetsRevision)。
+    struct Target: Sendable, Equatable {
         let url: URL
         /// 先が在るか(無ければ種類も絵も無い。開く側は「見つからない」として鳴らす)。
         let exists: Bool

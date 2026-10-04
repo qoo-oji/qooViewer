@@ -17,7 +17,7 @@ final class BookmarkDeletionUndo: DataUndoStep {
     init(store: BookmarkStore, snapshots: [Bookmark.Snapshot]) {
         self.store = store
         self.snapshots = snapshots
-        title = String(localized: "Bookmark Deletion", language: AppLanguage.currentLocale)
+        title = String(localized: "Bookmark Deletion", language: AppLanguage.menuBarLocale)
         relocationSubscription = NotificationCenter.default.publisher(for: .booksDidRelocate)
             .sink { [weak self] notification in
                 guard let notice = BookRelocationNotice(notification) else { return }
@@ -59,7 +59,7 @@ final class HistoryRemovalUndo: DataUndoStep {
     init(store: RecentFilesStore, record: RecentFilesStore.RemovalRecord) {
         self.store = store
         self.record = record
-        title = String(localized: "History Deletion", language: AppLanguage.currentLocale)
+        title = String(localized: "History Deletion", language: AppLanguage.menuBarLocale)
     }
 
     func undo() -> Bool {
@@ -91,7 +91,7 @@ final class CollectionDeletionUndo: DataUndoStep {
         self.record = record
         title = String(
             localized: record.library == nil ? "Collection Deletion" : "Library Deletion",
-            language: AppLanguage.currentLocale
+            language: AppLanguage.menuBarLocale
         )
     }
 
@@ -124,7 +124,7 @@ final class CollectionItemRemovalUndo: DataUndoStep {
     init(store: CollectionStore, record: CollectionStore.ItemRemovalRecord) {
         self.store = store
         self.record = record
-        title = String(localized: "Removal from Collection", language: AppLanguage.currentLocale)
+        title = String(localized: "Removal from Collection", language: AppLanguage.menuBarLocale)
     }
 
     func undo() -> Bool {

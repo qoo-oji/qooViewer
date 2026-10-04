@@ -15,6 +15,23 @@ final class FileCommandStack: ObservableObject {
     @Published private(set) var canRedo = false
     @Published private(set) var undoTitle: String?
     @Published private(set) var redoTitle: String?
+    /// 一番上の操作の新しさ(`UndoRecency`)。編集メニューが削除の取り消し(`DataUndoStack`)と比べて新しいほうを出す
+    /// (2026-10-04 の監査 M-2。`DataUndoMenuRoute`)。
+    @Published private(set) var undoRecency: Int?
+    @Published private(set) var redoRecency: Int?
+
+    /// 操作ごとの新しさ。**積んだ・戻した・やり直したときにだけ取る** ―― 試し直せる失敗・中止で同じ側へ戻したときは前の値のまま
+    /// (操作が起きていないので、新しくなったことにしない)。下の操作が一番上に出てきても新しくならない。
+    private var recencies: [ObjectIdentifier: Int] = [:]
+
+    private func noteRecency(of command: any FileCommand) {
+        // 積み場所から外れた操作の分は捨てる(深さ 50 の 2 本ぶんしか持たない)。publish では捨てない ―― 取り消しの途中は一番上を
+        // 一度取り出してから(試し直せる失敗・中止なら)同じ側へ戻すので、その間に捨てると戻した操作の新しさが無くなる。
+        let id = ObjectIdentifier(command)
+        let live = Set((undoStack + redoStack).map { ObjectIdentifier($0) })
+        recencies = recencies.filter { live.contains($0.key) }
+        recencies[id] = UndoRecency.next()
+    }
 
     private var undoStack: [any FileCommand] = [] {
         didSet { publish() }
@@ -50,6 +67,7 @@ final class FileCommandStack: ObservableObject {
             // すぐに削除・取り消せない移動の後の ⇧⌘Z が、変わった後のファイルに古い操作をもう一度走らせた)。
             redoStack.removeAll()
             if command.isUndoable {
+                noteRecency(of: command)
                 undoStack.append(command)
                 if undoStack.count > Self.depth { undoStack.removeFirst() }
             }
@@ -70,6 +88,7 @@ final class FileCommandStack: ObservableObject {
         do {
             switch try await command.undo(in: context) {
             case .complete:
+                noteRecency(of: command)
                 redoStack.append(command)
                 return .complete(operationName: command.displayName)
             case let .partial(succeeded, failures):
@@ -104,6 +123,7 @@ final class FileCommandStack: ObservableObject {
             // **効果があったときだけ取り消しの履歴へ**(2026-09-15 の 3 回目の監査。以前は中止で 0 件でも積み、⌘Z が「取り消すものが
             // ありません」になった)。何も起きずに中止したなら、もう一度やり直せるようやり直しの履歴へ戻す。
             if result.hasEffect {
+                noteRecency(of: command)
                 undoStack.append(command)
             } else if case .partial(_, _, true) = result {
                 redoStack.append(command)
@@ -154,5 +174,8 @@ final class FileCommandStack: ObservableObject {
         canRedo = !redoStack.isEmpty
         undoTitle = undoStack.last?.displayName
         redoTitle = redoStack.last?.displayName
+        // 新しさが分からない操作は(起きないはずだが)いちばん古い扱い。nil にすると「取り消すものが無い」と読まれる。
+        undoRecency = undoStack.last.map { recencies[ObjectIdentifier($0)] ?? 0 }
+        redoRecency = redoStack.last.map { recencies[ObjectIdentifier($0)] ?? 0 }
     }
 }

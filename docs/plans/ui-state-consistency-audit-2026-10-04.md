@@ -1809,3 +1809,49 @@ CLAUDE.md と docs/06「移動・リネームへの追従」に「bookID を握�
 
 docs: 06(付け替えの知らせ・FolderAccessStore)、07(編集ウインドウの付け替え・向き・読書中、メタデータの編集の作り直しと灰色)、08(題と著者の種、
 カバー名の控え、起動時のよく使う項目)、09(取り消しの控えの付け替え)、14(インスペクタの打ちかけ)、15(許可の変化で読み直す)、02(テスト表)、CLAUDE.md。
+
+### 段 5(2026-10-04)
+
+決まりを 1 つ足し、CLAUDE.md・docs/09「メニューバーの写しの決まり」・docs/03 に書いた: **メニューが読む値は値型の写し(`MenuCheckmarkState`)に
+入れ、`MenuBarMenuGate` で保留した後の値から作る。写し・覚え書きの鍵には表示に効く入力をすべて入れる。** 本についての値はビューアに出ている本から、
+淡色のサブメニューは `MenuBarSubmenu`、古い有効表示のまま押されたら鳴らす、メニューバーの文言は起動時の言語、も同じ節に並べた。
+
+- **M-1**(直した): `AppState.siblingBooksRevision` / `currentBookmarksRevision`(保留の閉包の中で進める)を写しへ入れ、2 つのサブメニューの中身に
+  `.id` で渡す(中身は入力が変わらなければ使い回されるため)。独立の安全策として `ViewerViewModel.jump(to:)` が本を確かめ(別の本なら false、
+  呼ぶ側が鳴らす)、番号より鍵で引く。テスト `MenuBarStateTests.bookmarkListRevisionAdvancesOnEveryUpdate`・`ViewerViewModelTests.jumpingToABookmarkChecksTheBook`。
+  許可の付与の経路はパネルが要るので実機でも測っていない(§4 と同じ)。
+- **X-2(= FBA-9・FBU-10)**(直した): 覚え書きの鍵にライブラリ機能・シークレットフォルダの一覧・`FileBrowserState.linkTargetsRevision`(控えの中身が
+  変わったときだけ進む `@Published`。`FileBrowserLinkResolver.Target` を `Equatable` に)・`isCurrentFolderWritable`(段 3 で判定に足したが鍵に無かった)を
+  足した。マウント表は入れていない(着脱は一覧の番号を進める)。テスト `FileBrowserStateTests.linkTargetsRevisionAdvancesOnlyOnChange`。
+- **V-7**(直した): `ViewerViewModel.layoutDataRevision`(`reloadLayoutData` のたびに進む)を ViewerView が `onChange` で見て、メニューの写しと
+  サイドパネルの強調(`currentVisiblePageSortKeys`・相方)を作り直す。テスト `ViewerViewModelTests.layoutChangesElsewhereAdvanceTheRevision`。
+- **V-3・SP-5**(直した): `AppState.isCurrentSpreadBookmarked`(相方も数える。相方の変化でも計算し直す)を編集メニューの文言に使い、
+  `isCurrentPageBookmarked`(起点だけ)は残す。サイドパネルの「+」は起点のページに既にあれば淡色(パネル自身の一覧と番号で判定)。
+  テスト `MenuBarStateTests.spreadBookmarkFlagCountsThePartnerPage`(淡色の見た目は実機)。
+- **M-6(= X-9・V-15)**(直した): `AppState.menuShownBook`(`ViewerHandoff.shown` から作り、保留する)を写しの `hasBook`・その場限り・記録を残さない・
+  お気に入りの元にし、メニューバーの「本を開いているか」はすべてこれで見る。`HomeMenuState.isShown` とファイルブラウザが出ているか
+  (`ContentView.isHomeOnScreen`)も出ている本で見る。ウインドウの題は決定どおり `currentBook` のまま。テスト `menuShownBookFollowsTheShownBook`
+  (配線は実機)。
+- **FBA-5**(直した): `FileBrowserFileMenuItems.perform(refusingUnless:)` が入口と同じ `canChange` / `canCompress` / `canExtract` / `canMakeAlias` で確かめ、
+  断られるなら鳴らす(名前の変更・圧縮・展開・エイリアス・ゴミ箱・すぐに削除)。docs/15 と ContentView のコメントを実装に合わせた。メニューの
+  操作なのでテストは足していない(判定そのものは既存のテストが押さえている)。
+- **X-1**(直した): `MenuBarSubmenu`(有効なら `Menu`、淡色なら `FileBrowserDisabledSubmenu`。中身は作るときに組む)で、§2 に挙がった
+  空になる 2 つ(ホーム ▸ コレクションに登録・ファイル ▸ このアプリケーションで開く)と、ファイル ▸ コレクションに登録・圧縮・展開・画像を書き出す、
+  ホーム ▸ ライブラリ・コレクションを作成・別のライブラリへ移動、表示 ▸ 表示モード切替・並べ替え・表示する列、編集 ▸ ブックマーク一覧・
+  左のページ・右のページを描き分けた。見た目だけなのでテストは足せない(実機)。
+- **M-2・M-3**(直した、決定 13(a)): `DataUndoStack` が積むときに「ファイルブラウザが出ている画面で積んだか」(`recordsOnFileBrowserScreen`。AppState が
+  メニューの写しの `homeMenu` で答える)と新しさ(`UndoRecency`)を控え、`FileCommandStack` も一番上の新しさ(`undoRecency` / `redoRecency`)を出す。
+  編集メニューは `DataUndoMenuRoute.choose` で、ファイルブラウザの間は「その画面で積んだ削除」とファイル操作の新しいほうを出す(本棚・ビューアで
+  積んだ削除はその画面へ戻るまで出さない)。「メニューを消去」は道具のウインドウ → 焦点のある本のウインドウ → 手前のノーマルの本のウインドウの
+  順に積む(シークレットウインドウへは積まない。窓が無ければ積まずに消す)。テスト `DataUndoTests.theEditMenuRoutesByTheScreenThatRecorded`・
+  `MenuBarStateTests.dataUndoStepsRememberTheFileBrowserScreen`・`FileCommandStackTests.recencyFollowsWhatHappenedLast`。
+- **M-7(= X-11・TW-20)**(直した): `AppLanguage.menuBarLocale`(起動時の `Bundle.main` のローカライズ。`QooViewerApp.init` で固定)を足し、
+  メニューバーで `language:` を付けていた所(ファイル ▸ コレクションに登録の淡色の題とライブラリ名、ファイルブラウザの「名前を変更」「N 項目の名前を変更…」
+  「〈名前〉に展開」、ホームメニューのライブラリ名・コレクションのサブメニュー、このアプリケーションで開く、削除の取り消しの題 `DataUndoStep.title`)を
+  これへ寄せた。ウインドウの中の 3 件は表示言語に従わせた(表紙の読み込みの "Don't Import"、実寸ウインドウの題 ―― `$displayLanguage` で付け直す、
+  メタデータの編集の鍵の列の見出しのツールチップ ―― 見出しと一緒に付け直す)。**直していない**: ファイル操作の取り消しの題(`FileCommand.displayName`)と
+  メタデータの編集ウインドウの取り消しの題は、ウインドウの中の失敗の知らせと共有なので表示言語のまま(切り替えた後に積んだ操作だけ「%@を取り消す」の
+  中身が新しい言語になる)。表示だけなのでテストは足せない(実機)。
+
+docs: 09(メニューバーの写しの決まり・取り消しの振り分け・「メニューを消去」・覚え書きの鍵)、15(断ったら鳴らす・鍵・取り消し)、03(メニュー用の値)、
+02(ローカライズのメニューバーの言語・テスト表)、CLAUDE.md。

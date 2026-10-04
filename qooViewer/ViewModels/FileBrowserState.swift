@@ -395,7 +395,16 @@ final class FileBrowserState: ObservableObject {
     /// 「このアプリケーションで開く」・ドロップ先の判定が `effective(_:)` で**先の項目として**見る(Finder と同じ扱い。
     /// docs/15「記号リンクとエイリアスの先」)。解けていない(断られた・まだ)リンクは自分自身として扱われる。開くときは控えを使わず、
     /// `FileBrowserActions.openLink` がいつも場所を選ばずに解き直す(控えは読み直しのたびにも解き直す。2026-10-04、監査 FBU-2)。
-    private var linkTargets: [String: FileBrowserLinkResolver.Target] = [:]
+    private var linkTargets: [String: FileBrowserLinkResolver.Target] = [:] {
+        didSet {
+            // 中身が変わったときだけ進める(読み直しのたびに解き直すので、同じ答えで publish しない)。
+            if linkTargets != oldValue { linkTargetsRevision &+= 1 }
+        }
+    }
+    /// `linkTargets` の中身が変わるたびに進む番号。メニューバーの「選んだ項目で押せるか」の覚え書きの鍵に入れる(ContentView の
+    /// `fileBrowserMenuSelection`)。控えは publish しないので、以前はフォルダへ入った直後(先を解く前)に作った覚え書きが残り、
+    /// Finder エイリアスを選ぶとメニューバーの「展開」が淡色のままだった(2026-10-04 の監査 X-2、実測)。
+    @Published private(set) var linkTargetsRevision = 0
     private var linkTargetsTask: Task<Void, Never>?
     private static let linkTargetsLimit = 2000
     /// 先を読んでよいかの規則(`DirectoryProbe`)。**テストは空を渡す**(テストホストの一時フォルダはコンテナ = `~/Library/Containers` の中で、
@@ -464,10 +473,13 @@ final class FileBrowserState: ObservableObject {
                 }
             }
             guard let self, !Task.isCancelled else { return }
+            // まとめて書き換える(項目ごとに書くと、変わるたびに番号が進んで publish が続く)。
+            var targets = self.linkTargets
             for item in resolved {
                 // 解き直して解けなかった(断った・読めない)なら、前の控えも捨てる(古い先を使い続けない)。
-                self.linkTargets[item.key] = item.target
+                targets[item.key] = item.target
             }
+            self.linkTargets = targets
             self.linkTargetsTask = nil
         }
     }

@@ -260,7 +260,8 @@ struct QooViewerApp: App {
     /// 本を表示しているとき(と本棚)の「移動」メニューの中身。ファイルブラウザの間は FileBrowserGoMenuItems に入れ替わる。
     @ViewBuilder
     private var viewerMoveMenuItems: some View {
-        let hasBook = focusedAppState?.currentBook != nil
+        // ビューアに出ている本で見る(MenuCheckmarkState.hasBook。監査 M-6)。
+        let hasBook = menuCheckmarkState?.hasBook == true
         // 「右から左へ」がONのときは左方向が「次」、右方向が「前」になる
         // (マンガの標準的な読み方向)。OFFのときはその逆(左が前、右が次)。
         // menuCheckmarkStateを読むのはチェックマークの不具合と同じ理由
@@ -353,13 +354,32 @@ struct QooViewerApp: App {
     }
 
     /// 編集メニューの「取り消す」が相手にする、保存データの削除の積み場所(DataUndoStack)。メタデータの編集ウインドウが前に
-    /// あるときは使わない(呼ぶ側が先に見る)。
+    /// あるときは使わない(呼ぶ側が先に見る)。道具のウインドウ(`DataUndoRouter`)が前にあればその窓のもの、無ければ手前の本のウインドウの
+    /// もの。**ファイルブラウザが出ているときも本のウインドウのものを返す** ―― ファイル操作とどちらを出すかは `DataUndoMenuRoute` が
+    /// 決める(2026-10-04 の監査 M-2、§3 の決定 13。以前はここで nil を返し、その画面の帯・吹き出し・メニューでした削除が「取り消す」に
+    /// 出なかった)。
     private var dataUndoTarget: DataUndoStack? {
         guard MetadataEditorUndoRouter.shared.workspace == nil else { return nil }
         if let stack = DataUndoRouter.shared.stack { return stack }
-        let home = menuCheckmarkState?.homeMenu
-        if home?.isShown == true, home?.mode == .browser { return nil }
         return focusedAppState?.dataUndo
+    }
+
+    /// 本のウインドウの積み場所(道具のウインドウのものでない)を相手にしているときに、ファイルブラウザが出ているか。道具のウインドウが
+    /// 前にあるときはファイル操作を出さない(今までどおり)。
+    private var isDataUndoTargetOnFileBrowser: Bool {
+        guard DataUndoRouter.shared.stack == nil else { return false }
+        let home = menuCheckmarkState?.homeMenu
+        return home?.isShown == true && home?.mode == .browser
+    }
+
+    /// 「メニューを消去」を積む先(2026-10-04 の監査 M-3)。編集メニューが取り出すのと同じ順(`dataUndoTarget`)で選び、本のウインドウに
+    /// 焦点が無い(環境設定・メタデータの編集ウインドウが手前)ときは、手前のノーマルの本のウインドウへ積む ―― 以前は積まずに消し、
+    /// 「⌘Z で取り消せる」が守られなかった。シークレットウインドウへは積まない(履歴を見せない窓に「履歴の削除を取り消す」を出さない)。
+    /// どこにも窓が無ければ積まずに消す(macOS の「メニューを消去」と同じく確認もしない)。
+    private var clearMenuUndoTarget: DataUndoStack? {
+        if let stack = DataUndoRouter.shared.stack { return stack }
+        if let focusedAppState { return focusedAppState.isPrivateWindow ? nil : focusedAppState.dataUndo }
+        return launchCoordinator.frontmostContentAppState(matchingPrivacy: false)?.dataUndo
     }
 
     /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
@@ -580,6 +600,8 @@ struct QooViewerApp: App {
         let stores = AppStores()
         _stores = StateObject(wrappedValue: stores)
         _menuBarRefresher = StateObject(wrappedValue: MenuBarMenuRefresher(observing: stores))
+        // メニューバーの言語を起動時の値で決めておく(AppLanguage.menuBarLocale のコメント。監査 M-7)。
+        _ = AppLanguage.menuBarLocale
     }
 
     /// 本を表示するウインドウ("main"/"book"/"normal"/"private" の4つのWindowGroup)の中身。
@@ -865,34 +887,41 @@ struct QooViewerApp: App {
                     FileBrowserFileMenuItems(
                         selection: menuCheckmarkState?.fileBrowserSelection,
                         appState: focusedAppState,
-                        locale: preferences.effectiveLocale
+                        // メニューバーの文言は起動時の言語で揃える(AppLanguage.menuBarLocale。監査 M-7)。
+                        locale: AppLanguage.menuBarLocale
                     )
                 }
 
                 Divider()
 
                 // グループ3: 現在の本と関連するファイルを開く(同じフォルダ内)
+                // 中身はフォーカス中の AppState から読むので、変わった印(siblingBooksRevision)を `.id` に渡して組み直させる
+                // (2026-10-04 の監査 M-1。参照の値の変化ではメニューは作り直されず、サブメニューの中身は入力が変わらなければ使い回される ――
+                // docs/09「メニューバーのホーム画面の項目」の件数の実測)。
                 Menu("Open File in Same Folder") {
-                    if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
-                        ForEach(focusedAppState.siblingBooks, id: \.self) { url in
-                            // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
-                            // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
-                            // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
-                            // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
-                            Button(
-                                FormatBadgeView.plainTextTitle(
-                                    baseName: BookFileName.displayName(forBookID: url.path), bookID: url.path
-                                )
-                            ) {
-                                focusedAppState.open(url: url)
+                    Group {
+                        if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
+                            ForEach(focusedAppState.siblingBooks, id: \.self) { url in
+                                // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
+                                // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
+                                // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
+                                // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
+                                Button(
+                                    FormatBadgeView.plainTextTitle(
+                                        baseName: BookFileName.displayName(forBookID: url.path), bookID: url.path
+                                    )
+                                ) {
+                                    focusedAppState.open(url: url)
+                                }
                             }
+                        } else {
+                            Button("Grant Access to This Folder…") {
+                                focusedAppState?.grantAccessToCurrentFolder()
+                            }
+                            .disabled(menuCheckmarkState?.hasBook != true)
                         }
-                    } else {
-                        Button("Grant Access to This Folder…") {
-                            focusedAppState?.grantAccessToCurrentFolder()
-                        }
-                        .disabled(focusedAppState?.currentBook == nil)
                     }
+                    .id(menuCheckmarkState?.siblingBooksRevision ?? 0)
                 }
 
                 // ユーザー要望: 画像を直接開いた本(その場限りの本。読書位置もお気に入りも
@@ -934,7 +963,7 @@ struct QooViewerApp: App {
                     }
                 }
                 .disabled(
-                    focusedAppState?.currentBook == nil
+                    menuCheckmarkState?.hasBook != true
                         && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
                         && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true
                 )
@@ -952,7 +981,7 @@ struct QooViewerApp: App {
                             appState.welcomeLibrary?.request(.showSmartBookInFileBrowser(path))
                         }
                     }
-                    .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                    .disabled(menuCheckmarkState?.hasBook != true && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
                 }
                 // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本を相手にする(ビューアの右クリックと同じ)。
                 // ライブラリ機能が OFF の間は出さない。シークレットウインドウ・その場限りの本・本を開いていないときは淡色
@@ -962,18 +991,21 @@ struct QooViewerApp: App {
                     // メニューが組み直されないことがある(2026-10-03、ノーマルの本からシークレットフォルダの本へ移ったときに実機で)。
                     // 淡色は押せない Button で描く: メニューバーの `Menu` にも `.disabled` は効かず、親項目は押せる見た目のまま
                     // だった(同日、実機の AX で確認。`.contextMenu` の中と同じ ―― FileBrowserDisabledSubmenu)。
-                    if focusedAppState?.canAddCurrentBookToCollection == true,
-                       menuCheckmarkState.map({ !$0.isPrivateWindow && !$0.currentBookLeavesNoRecord }) == true {
-                        Menu("Add to Collection") {
-                            FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
-                                for: CollectionMenuLibrary.libraries(from: stores.homeMenuDirectory.directory, locale: currentLocale),
-                                locale: currentLocale
-                            ) { [weak focusedAppState, collectionAddingContext] collectionID in
-                                focusedAppState?.addCurrentBook(toCollection: collectionID, using: collectionAddingContext)
-                            })
-                        }
-                    } else {
-                        FileBrowserDisabledSubmenu(title: String(localized: "Add to Collection", language: currentLocale))
+                    // ライブラリの既定の名前などはメニューバーの言語(起動時の言語)で組む。淡色の題も同じ ―― 以前は表示言語で引いて
+                    // いたので、実行中に表示言語を替えると、この項目だけが新しい言語になった(2026-10-04 の監査 M-7、実測)。
+                    MenuBarSubmenu(
+                        "Add to Collection",
+                        isEnabled: focusedAppState?.canAddCurrentBookToCollection == true
+                            && menuCheckmarkState.map({ $0.hasBook && !$0.isPrivateWindow && !$0.currentBookLeavesNoRecord }) == true
+                    ) {
+                        FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
+                            for: CollectionMenuLibrary.libraries(
+                                from: stores.homeMenuDirectory.directory, locale: AppLanguage.menuBarLocale
+                            ),
+                            locale: AppLanguage.menuBarLocale
+                        ) { [weak focusedAppState, collectionAddingContext] collectionID in
+                            focusedAppState?.addCurrentBook(toCollection: collectionID, using: collectionAddingContext)
+                        })
                     }
                 }
 
@@ -1022,8 +1054,9 @@ struct QooViewerApp: App {
                         Divider()
                     }
                     // ⌘Z で取り消せる(2026-09-27、監査 34)。積むのは手前のウインドウ。
-                    Button("Clear Menu") { [weak focusedAppState] in
-                        DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: focusedAppState?.dataUndo)
+                    // 積む先は編集メニューが取り出すのと同じ順で選ぶ(clearMenuUndoTarget。監査 M-3)。
+                    Button("Clear Menu") {
+                        DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: clearMenuUndoTarget)
                     }
                     .disabled(recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true)
                 }
@@ -1046,7 +1079,8 @@ struct QooViewerApp: App {
                 // または見開き表示中でも横長画像の自動単ページ化等で実際には1枚しか表示されて
                 // いない場合)は「このページをエクスポート」の1件のみを出す(ViewerView.
                 // contextMenuContentのExport Imageサブメニューと同じ判定基準)。
-                Menu("Export Image") {
+                // 本が出ていないときは押せない Button で描く(`Menu` + `.disabled` では親が押せる見た目のまま。監査 X-1)。
+                MenuBarSubmenu("Export Image", isEnabled: menuCheckmarkState?.hasBook == true) {
                     if menuCheckmarkState?.isSpreadMode == true, menuCheckmarkState?.hasPartnerPageDisplayed == true {
                         Button("Export Right Page…") {
                             focusedAppState?.performImageExport?(.rightPage)
@@ -1063,7 +1097,6 @@ struct QooViewerApp: App {
                         }
                     }
                 }
-                .disabled(focusedAppState?.currentBook == nil)
 
                 Divider()
                 // 8.1節「epub出力」グループ。本を開いていなくても有効(hasBook不問、
@@ -1114,7 +1147,8 @@ struct QooViewerApp: App {
                         sidePanelVisibilityButton
                     }
                 } else {
-                    let hasBook = focusedAppState?.currentBook != nil
+                    // ビューアに出ている本で見る(MenuCheckmarkState.hasBook。監査 M-6)。
+                    let hasBook = menuCheckmarkState?.hasBook == true
 
                     // ウインドウ表示のときは、この設定のON/OFFで表示/非表示を切り替える。
                     // フルスクリーン中は、この設定に関わらず常にフルスクリーン用の自動隠し/自動表示
@@ -1236,7 +1270,7 @@ struct QooViewerApp: App {
                     // 直接選べるサブメニューにし、現在選ばれているモードにチェックマークを表示する。
                     // 各モードには ⌘1〜⌘4 を割り当てている(cooViewer準拠。詳細は
                     // ScalingMode.menuShortcutKeyのコメント参照)。
-                    Menu("Cycle Display Mode") {
+                    MenuBarSubmenu("Cycle Display Mode", isEnabled: hasBook) {
                         ForEach(ScalingMode.allCases) { mode in
                             Toggle(
                                 mode.titleKey,
@@ -1251,7 +1285,6 @@ struct QooViewerApp: App {
                             .keyboardShortcut(mode.menuShortcutKey, modifiers: .command)
                         }
                     }
-                    .disabled(!hasBook)
 
                     Divider()
 
@@ -1307,7 +1340,8 @@ struct QooViewerApp: App {
                         directory: stores.homeMenuDirectory.directory,
                         appState: focusedAppState,
                         collectionStore: collectionStore,
-                        locale: preferences.effectiveLocale,
+                        // メニューバーの文言は起動時の言語で揃える(AppLanguage.menuBarLocale。監査 M-7)。
+                        locale: AppLanguage.menuBarLocale,
                         openAutoRenameSettings: { [openWindow] in openWindow(id: AutoRenameSettingsWindow.windowID) }
                     )
                 }
@@ -1333,13 +1367,37 @@ struct QooViewerApp: App {
                 // メタデータの編集ウインドウが前にあれば、その窓の取り消し(2026-09-21。MetadataEditorUndoRouter)。
                 let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace
                 // 保存データの削除の取り消し(2026-09-27、監査 34。DataUndoStack): 道具のウインドウ(ブックマーク・レイアウトの編集、
-                // 履歴の削除)が前にあればその窓のもの、本のウインドウでは**ファイルブラウザが出ていないときだけ**そのウインドウのもの
-                // (出ていればファイル操作の取り消し ―― 見えている所の操作を戻す)。
+                // 履歴の削除)が前にあればその窓のもの、本のウインドウではそのウインドウのもの。ファイルブラウザが出ているときは、
+                // **その画面で積んだ削除**(帯・吹き出し・メニュー)とファイル操作の新しいほう(2026-10-04 の監査 M-2、§3 の決定 13。
+                // DataUndoMenuRoute)。それまではファイルブラウザが出ている間は削除の積み場所を見ず、確認文の「取り消せます」が守られなかった。
                 let dataUndoStack = dataUndoTarget
-                let undoTitle = metadataWorkspace.map { $0.undoName }
-                    ?? dataUndoStack.map { $0.undoTitle } ?? menuCheckmarkState?.fileBrowserUndoTitle
-                let redoTitle = metadataWorkspace.map { $0.redoName }
-                    ?? dataUndoStack.map { $0.redoTitle } ?? menuCheckmarkState?.fileBrowserRedoTitle
+                let fileBrowserShown = isDataUndoTargetOnFileBrowser
+                // 道具のウインドウが前にあるときはファイル操作を出さない(今までどおり。その窓の積み場所だけ)。
+                let offersFileBrowser = DataUndoRouter.shared.stack == nil
+                let undoRoute = DataUndoMenuRoute.choose(
+                    data: dataUndoStack?.undoTop, fileBrowserShown: fileBrowserShown,
+                    fileBrowserRecency: offersFileBrowser && menuCheckmarkState?.fileBrowserUndoTitle != nil
+                        ? menuCheckmarkState?.fileBrowserUndoRecency ?? 0 : nil
+                )
+                let redoRoute = DataUndoMenuRoute.choose(
+                    data: dataUndoStack?.redoTop, fileBrowserShown: fileBrowserShown,
+                    fileBrowserRecency: offersFileBrowser && menuCheckmarkState?.fileBrowserRedoTitle != nil
+                        ? menuCheckmarkState?.fileBrowserRedoRecency ?? 0 : nil
+                )
+                let undoTitle = metadataWorkspace.map { $0.undoName } ?? {
+                    switch undoRoute {
+                    case .data: dataUndoStack?.undoTitle
+                    case .fileBrowser: menuCheckmarkState?.fileBrowserUndoTitle
+                    case nil: nil
+                    }
+                }()
+                let redoTitle = metadataWorkspace.map { $0.redoName } ?? {
+                    switch redoRoute {
+                    case .data: dataUndoStack?.redoTitle
+                    case .fileBrowser: menuCheckmarkState?.fileBrowserRedoTitle
+                    case nil: nil
+                    }
+                }()
                 let isEditingText = stores.textEditingMenuState.isEditingText
                 // 欄を編集中は欄の取り消しなので、題と可否は欄のもの(「タイプ入力を取り消す」。2026-09-27、監査 22 ――
                 // TextEditingMenuState の型コメント)。ファイル操作の名前は出さない。
@@ -1351,9 +1409,9 @@ struct QooViewerApp: App {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
                         metadataWorkspace.undo()
-                    } else if let dataUndoStack {
-                        dataUndoStack.undo()
-                    } else {
+                    } else if undoRoute == .data {
+                        dataUndoStack?.undo()
+                    } else if undoRoute == .fileBrowser {
                         focusedAppState?.fileBrowser?.operations.undo(shownTitle: undoTitle)
                     }
                 }
@@ -1366,9 +1424,9 @@ struct QooViewerApp: App {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                     } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
                         metadataWorkspace.redo()
-                    } else if let dataUndoStack {
-                        dataUndoStack.redo()
-                    } else {
+                    } else if redoRoute == .data {
+                        dataUndoStack?.redo()
+                    } else if redoRoute == .fileBrowser {
                         focusedAppState?.fileBrowser?.operations.redo(shownTitle: redoTitle)
                     }
                 }
@@ -1433,7 +1491,8 @@ struct QooViewerApp: App {
                 .disabled(menuCheckmarkState?.homeMenu.isShown != true)
                 }
 
-                let hasBook = focusedAppState?.currentBook != nil
+                // ビューアに出ている本で見る(MenuCheckmarkState.hasBook。監査 M-6)。
+                let hasBook = menuCheckmarkState?.hasBook == true
                 // シークレットウインドウがフォーカス中か、記録を残さない本(直接渡された画像から
                 // 作った本・一時フォルダに書き出した入れ子の書庫。MangaBook.leavesNoRecord)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
                 // 追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
@@ -1483,8 +1542,9 @@ struct QooViewerApp: App {
                 Divider()
 
                 // グループ2: ブックマーク(追加/削除→編集→一覧の順)
+                // 文言は見開きの相方も数える(押したときの動き・ツールバーと同じ。監査 V-3)。
                 Button(
-                    menuCheckmarkState?.isCurrentPageBookmarked == true
+                    menuCheckmarkState?.isCurrentSpreadBookmarked == true
                         ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks"
                 ) {
                     focusedAppState?.performViewerAction?(.toggleBookmark)
@@ -1508,18 +1568,22 @@ struct QooViewerApp: App {
                 .disabled(isPrivate)
 
                 // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
-                Menu("Bookmark List") {
-                    if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
-                        ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
-                            Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                                focusedAppState.jumpToBookmark?(bookmark)
+                // 中身は「同じフォルダのファイルを開く」と同じく、変わった印(currentBookmarksRevision)で組み直させる(監査 M-1)。
+                // 古い一覧が残っても別の本のページへ飛ばないよう、飛ぶ側でも本を確かめる(ViewerViewModel.jump(to:))。
+                MenuBarSubmenu("Bookmark List", isEnabled: hasBook) {
+                    Group {
+                        if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
+                            ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
+                                Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
+                                    focusedAppState.jumpToBookmark?(bookmark)
+                                }
                             }
+                        } else {
+                            Text("(No Bookmarks)")
                         }
-                    } else {
-                        Text("(No Bookmarks)")
                     }
+                    .id(menuCheckmarkState?.currentBookmarksRevision ?? 0)
                 }
-                .disabled(!hasBook)
 
                 Divider()
 
@@ -1543,7 +1607,7 @@ struct QooViewerApp: App {
                     // フラットな10項目を想定しているが、視認性のためLeft Page/Right Pageの
                     // サブメニューにまとめている(ViewerView.contextMenuContentのLayoutサブメニューと
                     // 同じ考え方)。
-                    Menu("Left Page") {
+                    MenuBarSubmenu("Left Page", isEnabled: hasBook && !isPrivate) {
                         layoutMenuItems(
                             target: menuCheckmarkState?.isRightToLeft == true ? .partner : .current,
                             hasOverride: menuCheckmarkState?.isRightToLeft == true
@@ -1551,9 +1615,8 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(!hasBook || isPrivate)
 
-                    Menu("Right Page") {
+                    MenuBarSubmenu("Right Page", isEnabled: hasBook && !isPrivate) {
                         layoutMenuItems(
                             target: menuCheckmarkState?.isRightToLeft == true ? .current : .partner,
                             hasOverride: menuCheckmarkState?.isRightToLeft == true
@@ -1561,7 +1624,6 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(!hasBook || isPrivate)
                 } else {
                     layoutMenuItems(target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
                         .disabled(!hasBook || isPrivate)

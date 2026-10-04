@@ -428,10 +428,19 @@ struct ContentView: View {
             }
     }
 
-    /// ファイルブラウザが画面に出ているか(本を開いていない + ウェルカム画面がファイルブラウザ)。
+    /// ホームが画面に出ているか(ビューアに本が出ていない)。メニューバーへ出す値はこれで見る。
+    ///
+    /// `appState.currentBook` ではなく**ビューアに出ている本**(`ViewerHandoff.shown`)で見る(2026-10-04 の監査 M-6)。ホーム → 本では
+    /// 最初の見開きが揃うまで(最長 300ms)ホームを出したままにするので、`currentBook` で見るとその間だけ表示メニューがビューアの
+    /// 項目に替わり、⌘1〜⌘4 が何もしなかった(ビューアの登録がまだ無い)。
+    private var isHomeOnScreen: Bool {
+        viewerHandoff.shown == nil
+    }
+
+    /// ファイルブラウザが画面に出ているか(ホームが出ている + ウェルカム画面がファイルブラウザ)。
     /// 編集メニューの「取り消す」「やり直す」はこのときだけファイル操作を指す。
     private var isFileBrowserShown: Bool {
-        appState.currentBook == nil && welcomeLibrary.mode == .browser
+        isHomeOnScreen && welcomeLibrary.mode == .browser
     }
 
     /// ファイルブラウザがメニューバーへ出す値。**AppState の保留付きの値を通して渡す**(2026-09-14 の 2 回目の監査 14)。
@@ -445,6 +454,8 @@ struct ContentView: View {
         return FileBrowserMenuSnapshot(
             undoTitle: writable ? fileBrowser.commandStack.undoTitle : nil,
             redoTitle: writable ? fileBrowser.commandStack.redoTitle : nil,
+            undoRecency: writable ? fileBrowser.commandStack.undoRecency : nil,
+            redoRecency: writable ? fileBrowser.commandStack.redoRecency : nil,
             // 読めないフォルダ(「アクセスを許可…」の案内)では淡色(FileBrowserActions.canWriteInto と同じ。2026-09-19 の総点検)。
             canCreateFolder: writable && fileBrowser.currentFolder != nil && fileBrowser.loadError == nil,
             navigation: shown
@@ -462,9 +473,14 @@ struct ContentView: View {
     /// **入力が変わるまで作り直さない**(2026-09-15 の 4 回目の監査)。この本体はファイルブラウザの状態の publish のたび
     /// (ピンチ・ツリーの幅のドラッグの 1 イベントごと)に評価され、判定は選んだ項目を何度も歩く(圧縮・展開は項目ごとに親のパスを作る)
     /// ので、10 万件を選んだままだと 1 イベントごとに数十万回の URL 操作になった。鍵には判定が読むものを全部入れる
-    /// (選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・よく使う項目・開いている本・ペーストボード・読み込みの失敗)。
-    /// 開いている本はほかのウインドウで変わるので、このウインドウの本体が評価されるまで古いことがある(押せば
-    /// `FileBrowserOperations` が断ってダイアログで知らせる)。
+    /// (選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・よく使う項目・開いている本・ペーストボード・読み込みの失敗・
+    /// ライブラリ機能・シークレットフォルダの一覧・リンクの先・表示中のフォルダに書けるか)。後ろの 4 つは 2026-10-04 の監査 X-2 で足した
+    /// ―― 選択を保ったまま設定やシークレットフォルダを変える・フォルダへ入った直後にリンクの先が解ける、で覚え書きが古いまま残り、
+    /// Finder エイリアスを選ぶと右クリックの「展開」は押せるのにメニューバーの「展開」は淡色のままだった(実測)。マウント表は入れていない
+    /// (着脱はほぼ必ず一覧の読み直しを起こし、一覧の番号が進む)。
+    /// 開いている本はほかのウインドウで変わるので、このウインドウの本体が評価されるまで古いことがある。押したときに入口
+    /// (`FileBrowserActions` の `can…`)が断れば鳴らす(`FileBrowserFileMenuItems.perform`。2026-10-04 の監査 FBA-5 ―― それまでは
+    /// 「押せば `FileBrowserOperations` が断ってダイアログで知らせる」と書いていたが、実際は入口の guard で黙って抜けていた)。
     private var fileBrowserMenuSelection: FileBrowserMenuSelection {
         guard let actions = appState.fileBrowserActions else { return FileBrowserMenuSelection() }
         let key = FileBrowserMenuSelectionMemo.Key(
@@ -480,7 +496,14 @@ struct ContentView: View {
             openBookPaths: fileBrowser.operations.openBookPaths(),
             // 「ここに項目を移動」の判定が読む(makeFileBrowserMenuSelection)。
             pasteboardHasFiles: fileBrowser.pasteboardHasFiles,
-            hasLoadError: fileBrowser.loadError != nil
+            hasLoadError: fileBrowser.loadError != nil,
+            // 「コレクションを作成/に登録」(canUseAsBooks)が読む。
+            isLibraryFeatureEnabled: actions.isLibraryFeatureEnabled,
+            secretFolders: secretFolderStore.folders,
+            // リンクは解けている先で判定する(FileBrowserActions.effective。展開・コレクション・このアプリケーションで開く)。
+            linkTargetsRevision: fileBrowser.linkTargetsRevision,
+            // 中身を変えられない表示中のフォルダの項目は淡色(canChange。段階 3 の FBA-11)。
+            isCurrentFolderWritable: fileBrowser.isCurrentFolderWritable
         )
         return fileBrowserMenuSelectionMemo.value(for: key) { makeFileBrowserMenuSelection(actions: actions) }
     }
@@ -520,7 +543,8 @@ struct ContentView: View {
     /// ホーム画面がメニューバーへ出す値(2026-09-15。HomeMenuStateの型コメント)。fileBrowserMenuSnapshotと同じく
     /// AppStateの保留付きの値を通して渡す。
     private var homeMenuState: HomeMenuState {
-        let isShown = appState.currentBook == nil
+        // ビューアに本が出ていないか(isHomeOnScreen。監査 M-6)。
+        let isShown = isHomeOnScreen
         let isShelf = isShown && welcomeLibrary.mode == .shelf
         let opened = welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) }
         return HomeMenuState(
@@ -600,9 +624,11 @@ struct ContentView: View {
         .focusedSceneValue(
             \.qooViewerMenuCheckmarkState,
             MenuCheckmarkState(
+                // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
+                hasBook: appState.menuShownBook.hasBook,
                 isPrivateWindow: appState.isPrivateWindow,
-                isTransientBook: appState.currentBook?.isTransient == true,
-                currentBookLeavesNoRecord: appState.currentBook?.leavesNoRecord == true,
+                isTransientBook: appState.menuShownBook.isTransient,
+                currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
                 hideToolbar: appState.hideToolbar,
                 hideProgressBar: appState.hideProgressBar,
                 hideSidePanel: appState.hideSidePanel,
@@ -622,19 +648,26 @@ struct ContentView: View {
                 // (「お気に入りに追加」/「お気に入りから削除」)が切り替わらないようにする
                 // (FavoritesFeature参照)。
                 isCurrentBookFavorited: FavoritesFeature.isEnabled
-                    ? (appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false) : false,
+                    ? (appState.menuShownBook.bookID.map { favoritesStore.isFavorited(bookID: $0) } ?? false) : false,
                 // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
                 // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
                 // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
                 // メニューの再構築でmacOS 26のクラッシュを引き起こしうる。AppState側で保留付きの
                 // @Publishedとして持つ値をそのまま読む(AppState.isCurrentPageBookmarked参照)。
-                isCurrentPageBookmarked: appState.isCurrentPageBookmarked,
+                // 文言は見開きの相方も数える値(押したときの動きと同じ。監査 V-3)。
+                isCurrentSpreadBookmarked: appState.isCurrentSpreadBookmarked,
+                // 同じフォルダのファイル・ブックマーク一覧は中身を参照から読むので、変わった印を値で渡す(監査 M-1)。
+                // どちらも保留の後で進む番号なので、メニューを開いている最中に中身が変わることはない。
+                siblingBooksRevision: appState.siblingBooksRevision,
+                currentBookmarksRevision: appState.currentBookmarksRevision,
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
                 // ファイルブラウザの値は AppState の保留付きの値を読む(fileBrowserMenuSnapshot のコメント)。
                 fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
                 fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,
+                fileBrowserUndoRecency: appState.fileBrowserMenu.undoRecency,
+                fileBrowserRedoRecency: appState.fileBrowserMenu.redoRecency,
                 canCreateFolderInFileBrowser: appState.fileBrowserMenu.canCreateFolder,
                 fileBrowserNavigation: appState.fileBrowserMenu.navigation,
                 fileBrowserSelection: appState.fileBrowserMenu.selection,
@@ -647,6 +680,9 @@ struct ContentView: View {
         .onChange(of: homeMenuState, initial: true) { _, state in
             appState.setHomeMenu(state)
         }
+        // ビューアに出ている本をメニューの写しへ(AppState.menuShownBook。監査 M-6)。閉包の無い modifier にしてあるのは、この本体の
+        // 式の型の推論を重くしないため(bookOrHome のコメント。CI の Xcode 26.6 が止まったことがある)。
+        .modifier(MenuShownBookSync(book: MenuShownBook(viewerHandoff.shown?.book), appState: appState))
         .frame(minWidth: 900, minHeight: 640)
         // ウインドウ/タブのタイトルバーおよびタブバーに表示される文字列。本を開いている間は
         // その本のタイトル(ファイル/フォルダ名)を表示し、どのタブが何の本を開いているか
@@ -2217,6 +2253,18 @@ private struct SidePanelEditingDialogs: ViewModifier {
     }
 }
 
+/// ビューアに出ている本の値を AppState の写しへ渡す(`AppState.setMenuShownBook`。監査 M-6)。
+private struct MenuShownBookSync: ViewModifier {
+    let book: MenuShownBook
+    let appState: AppState
+
+    func body(content: Content) -> some View {
+        content.onChange(of: book, initial: true) { _, book in
+            appState.setMenuShownBook(book)
+        }
+    }
+}
+
 /// `ContentView.fileBrowserMenuSelection` の覚え書き。鍵が同じなら前の値を返す(本体の評価の中で使うので publish しない)。
 @MainActor
 private final class FileBrowserMenuSelectionMemo {
@@ -2232,6 +2280,10 @@ private final class FileBrowserMenuSelectionMemo {
         let openBookPaths: [String]
         let pasteboardHasFiles: Bool
         let hasLoadError: Bool
+        let isLibraryFeatureEnabled: Bool
+        let secretFolders: [String]
+        let linkTargetsRevision: Int
+        let isCurrentFolderWritable: Bool
     }
 
     private var key: Key?

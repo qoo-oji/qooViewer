@@ -65,6 +65,20 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable, Hashable {
     /// `current.locale` の略記。
     nonisolated static var currentLocale: Locale { current.locale }
 
+    /// **メニューバーの文言を組み立てる言語** ―― 起動時に決まったアプリの言語(`Bundle.main` が選んだローカライズ)。
+    ///
+    /// メニューバーの項目名は実行中に表示言語を替えても変わらない(下の `applyAppleLanguagesOverride`。`LocalizedStringKey` と
+    /// `language:` を付けない `String(localized:)` は起動時の言語で引かれる)。以前は一部の項目だけ `String(localized:language:)` に
+    /// 表示言語を渡していたので、切り替えた直後のファイルメニューで「Rename」「Add to Collection」だけが英語になり、ほかは日本語の
+    /// まま混ざった(2026-10-04 の監査 M-7、実測)。メニューバーの文言を自分で組み立てるときは、表示言語ではなくこれを渡して起動時の言語に
+    /// 揃える(ライブラリの既定の名前・「N 項目の名前を変更…」・取り消しの題など)。ウインドウの中の文言は今までどおり表示言語で引く。
+    ///
+    /// 起動して最初に読まれた時点の値で固定する(`QooViewerApp.init` が読む)。`Bundle.main.preferredLocalizations` は起動時の
+    /// `AppleLanguages` から決まり、実行中に変わらない。
+    nonisolated static let menuBarLocale: Locale = {
+        Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+    }()
+
     /// 選んだ表示言語を、**次回の起動から**アプリ全体(メニューバー・AppKitが出すダイアログや
     /// ボタン・`String(localized:)`のすべて)にも効かせる。
     ///

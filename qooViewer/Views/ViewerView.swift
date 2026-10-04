@@ -403,7 +403,8 @@ struct ViewerView: View {
         // メニューバーの「ブックマーク」メニュー下部に、現在の本のブックマーク一覧を
         // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
         appState.jumpToBookmark = { bookmark in
-            viewModel.jump(to: bookmark)
+            // 別の本のブックマーク(メニューの一覧が古いまま残った)なら飛ばずに鳴らす(ViewerViewModel.jump(to:)。監査 M-1)。
+            if !viewModel.jump(to: bookmark) { NSSound.beep() }
         }
         // サイドパネルのリソースモニタへ、この本のキャッシュの状態を渡す橋渡し
         // (AppState.fetchResourceSnapshotのコメント参照)。onPageBoundaryRequestと同じ理由で
@@ -1618,6 +1619,13 @@ struct ViewerView: View {
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.isContrastCorrectionEnabled) { _, _ in syncMenuCheckmarkState() }
+        // レイアウトの保存データを読み直したら(自動レイアウト・ほかの窓や編集ウインドウでの変更)、メニューバーの「1 ページずらし」の
+        // 淡色・「レイアウト情報を削除」と、サイドパネルの強調(見開きの相方)を作り直す(ViewerViewModel.layoutDataRevision。監査 V-7)。
+        .onChange(of: viewModel.layoutDataRevision) { _, _ in
+            appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
+            appState.updateCurrentPartnerPageIndex(partnerPageIndex)
+            syncMenuCheckmarkState()
+        }
         // isPageShiftLocked(「1ページだけ送る」のグレーアウト判定)はcurrentIndexにも依存する
         // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。「現在のページが
         // ブックマーク済みかどうか」の判定にも使うため、appState.currentPageIndexも合わせて更新する。
@@ -4613,7 +4621,15 @@ struct ViewerView: View {
             defer: false
         )
         window.contentView = NSHostingView(
-            rootView: ActualSizePageView(image: image, backgroundColor: appearance.effectiveBackgroundColor)
+            rootView: ActualSizePageView(
+                image: image, backgroundColor: appearance.effectiveBackgroundColor,
+                // 開いている間に表示言語を替えたら題も替える(監査 M-7)。`$displayLanguage` は書き換えの前に新しい値を流すので、
+                // 渡された値の Locale で引く(preferences.effectiveLocale はまだ前の値)。
+                displayLanguageChanges: preferences.$displayLanguage.dropFirst().removeDuplicates().eraseToAnyPublisher(),
+                onDisplayLanguageChange: { [weak window] language in
+                    window?.title = String(localized: "Actual Size", language: language.locale)
+                }
+            )
         )
         // バグ修正(ビルド時の警告): window.titleはStringを受け取るため、以前はここに
         // "Actual Size"という生のリテラルを直接代入していた。これだとXcodeの文字列カタログの

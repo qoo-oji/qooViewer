@@ -59,6 +59,40 @@ struct DataUndoTests {
         #expect(stack.undoTitle == "二")
     }
 
+    @Test("ファイルブラウザが出ている間の編集メニューは、その画面で積んだ削除とファイル操作の新しいほうを出す(2026-10-04 の監査 M-2、決定 13)")
+    func theEditMenuRoutesByTheScreenThatRecorded() {
+        let stack = DataUndoStack()
+        // 閉包は Sendable(@MainActor)なので、捕まえた変数を後から書き換えず、箱の中身を書き換える。
+        let screen = ScreenBox()
+        stack.recordsOnFileBrowserScreen = { screen.isFileBrowser }
+
+        // 本棚・ビューアで積んだ削除は、ファイルブラウザが出ている間は出さない(見えていない所の操作を戻さない)。
+        stack.push(NoOpStep(title: "本棚で"))
+        #expect(DataUndoMenuRoute.choose(data: stack.undoTop, fileBrowserShown: true, fileBrowserRecency: nil) == nil)
+        #expect(DataUndoMenuRoute.choose(data: stack.undoTop, fileBrowserShown: false, fileBrowserRecency: nil) == .data)
+
+        // ファイルブラウザの画面(帯・吹き出し・メニュー)で積んだ削除は出す。以前は確認文が「取り消せます」と言うのに出なかった。
+        let olderFileOperation = UndoRecency.next()
+        screen.isFileBrowser = true
+        stack.push(NoOpStep(title: "ファイルブラウザで"))
+        #expect(DataUndoMenuRoute.choose(data: stack.undoTop, fileBrowserShown: true, fileBrowserRecency: nil) == .data)
+        #expect(DataUndoMenuRoute.choose(
+            data: stack.undoTop, fileBrowserShown: true, fileBrowserRecency: olderFileOperation) == .data)
+        // 後にしたファイル操作のほうが新しければ、そちらが先。
+        let newerFileOperation = UndoRecency.next()
+        #expect(DataUndoMenuRoute.choose(
+            data: stack.undoTop, fileBrowserShown: true, fileBrowserRecency: newerFileOperation) == .fileBrowser)
+
+        // 取り消したことが新しさになる(⇧⌘Z は直前に戻したほう)。
+        stack.undo()
+        #expect(stack.redoTop?.isFromFileBrowserScreen == true)
+        #expect(DataUndoMenuRoute.choose(
+            data: stack.redoTop, fileBrowserShown: true, fileBrowserRecency: newerFileOperation) == .data)
+        // 下に残った本棚の削除は、ファイルブラウザの間は出ない。
+        #expect(DataUndoMenuRoute.choose(
+            data: stack.undoTop, fileBrowserShown: true, fileBrowserRecency: newerFileOperation) == .fileBrowser)
+    }
+
     @Test("深さを超えたら古いものから捨てられる")
     func theOldestStepIsDiscardedBeyondTheDepth() {
         let stack = DataUndoStack()
@@ -395,6 +429,12 @@ struct DataUndoTests {
         #expect(store.entries.count == 2)
         #expect(Set(store.entries.map(\.path)).count == 2)
     }
+}
+
+/// 積んだときの画面(DataUndoStack.recordsOnFileBrowserScreen)を差し替える箱。
+@MainActor
+private final class ScreenBox {
+    var isFileBrowser = false
 }
 
 /// 積み場所の振る舞いだけを見るための、何もしない操作。

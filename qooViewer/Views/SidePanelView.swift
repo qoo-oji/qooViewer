@@ -1597,12 +1597,20 @@ private struct SidePanelBookmarksSectionView: View {
     var onRename: (Bookmark) -> Void
     var onDelete: (Bookmark) -> Void
 
+    /// 今のページ(見開きの起点)にブックマークがあるか(`ViewerViewModel.addBookmark()` の重複の判定と同じ。SP-5)。
+    private var isCurrentPageBookmarked: Bool {
+        bookmarks.contains { $0.pageIndex == currentPageIndex }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
+                // 今のページ(見開きの起点)に既にあるときも淡色(2026-10-04 の監査 SP-5。以前は押せて、`addBookmark()` の重複の
+                // guard で黙って戻った)。足す相手は起点のページだけなので、相方は数えない ―― 編集メニューの文言(相方も数える。
+                // AppState.isCurrentSpreadBookmarked)とは別の判定。
                 SidePanelNavButton(
                     systemName: "plus",
-                    isDisabled: !hasBook || !allowsEditing,
+                    isDisabled: !hasBook || !allowsEditing || isCurrentPageBookmarked,
                     help: "Add This Page to Bookmarks"
                 ) {
                     onAdd()

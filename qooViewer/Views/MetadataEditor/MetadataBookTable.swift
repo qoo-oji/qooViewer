@@ -472,9 +472,15 @@ struct MetadataBookTable: NSViewRepresentable {
             guard let table else { return }
             isApplying = true
             defer { isApplying = false }
-            // 見出しは毎回付け直す(言語を変えたときに変わる。列は十数なので軽い)。
+            // 見出しは毎回付け直す(言語を変えたときに変わる。列は十数なので軽い)。鍵の列は絵だけなので、ツールチップを付け直す
+            // (2026-10-04 の監査 M-7 まで、作ったときの言語のまま残った)。
             for tableColumn in table.tableColumns {
-                guard let column = Column(tableColumn.identifier), column != .lock else { continue }
+                guard let column = Column(tableColumn.identifier) else { continue }
+                if column == .lock {
+                    let toolTip = "Lock".ui
+                    if tableColumn.headerToolTip != toolTip { tableColumn.headerToolTip = toolTip }
+                    continue
+                }
                 let title = column.titleKey.ui
                 if tableColumn.title != title { tableColumn.title = title }
             }
