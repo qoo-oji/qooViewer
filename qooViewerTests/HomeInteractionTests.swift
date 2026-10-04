@@ -248,4 +248,32 @@ struct HomeInteractionTests {
         #expect(merged.request?.urls == [normal])
         #expect(merged.request?.sequence == nil)
     }
+
+    /// 2026-10-05 の実機確認: シークレットフォルダの本 2 冊とふつうの本 1 冊を**1 回で**まとめて受けた(先の回の下調べが終わる前に
+    /// 次の回が届き、先の回が取り消された)とき、並びの先頭がシークレットの本だと並びごと回され、ふつうの本はシークレットウインドウの
+    /// 「次の本へ」の先にしか無かった。並びをシークレットの本とそれ以外に分ける。
+    @Test("混ざった並びはシークレットフォルダの本とそれ以外に分ける")
+    func externalOpenSplitsAMixedSequenceBySecrecy() throws {
+        let temporary = try TemporaryDirectory("external-open-split-secrecy")
+        let secretFolder = try temporary.directory("secret")
+        let secret1 = secretFolder.appendingPathComponent("1.cbz")
+        let secret2 = secretFolder.appendingPathComponent("2.cbz")
+        let normal = temporary.file("3.cbz")
+        for (index, url) in [secret1, secret2, normal].enumerated() { try makeArchive(url, number: UInt8(index + 1)) }
+        let isSecret: (URL) -> Bool = { MountTable.path($0.path, isAtOrUnder: secretFolder.path) }
+
+        let prepared = ExternalOpenPreparation.prepare([normal, secret2, secret1], order: .byName)
+        let request = try #require(prepared.request)
+        let split = try #require(ExternalOpenPreparation.splitBySecrecy(request, isSecret: isSecret))
+        #expect(split.secret.urls.map(\.path) == [secret1.path])
+        #expect(split.secret.sequence?.entries.map(\.path) == [secret1.path, secret2.path])
+        #expect(split.other.urls.map(\.path) == [normal.path])
+        #expect(split.other.sequence == nil)
+
+        // 混ざっていなければ分けない(1 つの要求のまま)。
+        let onlySecret = try #require(ExternalOpenPreparation.prepare([secret1, secret2], order: .byName).request)
+        #expect(ExternalOpenPreparation.splitBySecrecy(onlySecret, isSecret: isSecret) == nil)
+        let single = try #require(ExternalOpenPreparation.prepare([normal], order: .byName).request)
+        #expect(ExternalOpenPreparation.splitBySecrecy(single, isSecret: isSecret) == nil)
+    }
 }

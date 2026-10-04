@@ -142,4 +142,24 @@ nonisolated enum ExternalOpenPreparation {
     static func routedPaths(of request: BookOpenRequest) -> Set<String> {
         Set(request.urls.map(\.path)).union(request.sequence?.entries.map(\.path) ?? [])
     }
+
+    /// 外から渡された並びに、シークレットフォルダの本とそうでない本が**混ざっていれば**、シークレットの本だけの要求とそれ以外の
+    /// 要求に分ける(2026-10-05 の実機確認。`application(_:open:)` のコメント)。どちらも並びの順を保ち、それぞれ先頭から開く。
+    /// 混ざっていない(片方しか無い)・並びが無いなら nil(分けずに 1 つの要求のまま扱う)。パスから URL を作る(フォルダかを
+    /// 確かめる)ので `FileIO` の上で呼ぶ。
+    static func splitBySecrecy(
+        _ request: BookOpenRequest, isSecret: (URL) -> Bool
+    ) -> (secret: BookOpenRequest, other: BookOpenRequest)? {
+        guard let sequence = request.sequence else { return nil }
+        let urls = sequence.entries.map { URL(fileURLWithPath: $0.path) }
+        let secret = urls.filter(isSecret)
+        let other = urls.filter { !isSecret($0) }
+        func make(_ books: [URL]) -> BookOpenRequest? {
+            guard let first = books.first else { return nil }
+            let sequence = books.count > 1 ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0) : nil
+            return BookOpenRequest(first, recordsInHistory: request.recordsInHistory, sequence: sequence)
+        }
+        guard let secretRequest = make(secret), let otherRequest = make(other) else { return nil }
+        return (secretRequest, otherRequest)
+    }
 }

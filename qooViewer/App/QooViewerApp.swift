@@ -2960,14 +2960,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // ホームのウインドウが残っていた)、複数の本は先頭を開いて残りを「次の本・前の本」でたどる。
             // 下調べはファイルを読むので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。2026-10-04 の監査 O-7 の付記)。
             // 先の回でシークレットウインドウへ回した本は入れない(O-9。ExternalOpenPreparation.prepare の routed)。
-            let prepared = await FileIO.perform {
-                ExternalOpenPreparation.prepare(candidates, order: order, excluding: routed)
+            // 並びをシークレットフォルダの本とそれ以外に分けるのも、パスから URL を作るので同じ上で(splitBySecrecy)。
+            let (prepared, secretSplit) = await FileIO.perform {
+                let prepared = ExternalOpenPreparation.prepare(candidates, order: order, excluding: routed)
+                return (prepared, prepared.request.flatMap {
+                    ExternalOpenPreparation.splitBySecrecy($0, isSecret: SecretFolderStore.isSecretAppWide)
+                })
             }
             guard !Task.isCancelled, let self else { return }
             let locale = self.preferences?.effectiveLocale ?? AppLanguage.currentLocale
             // 渡されたものが全部、先の回で回した本だった(まとめ直しで足すものが無い)。
             if prepared.request == nil, prepared.skipped == 0, !routed.isEmpty { return }
-            guard let request = prepared.request else {
+            guard var request = prepared.request else {
                 // 本が 1 つも無い。開かずに、手前のウインドウに知らせる(起動した主ウインドウはそのままホームとして使う)。
                 self.isLaunchingToOpenDocuments = false
                 self.revealLaunchWindow()
@@ -2978,9 +2982,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.noticeTarget?.postViewerNotice(message)
                 return
             }
+            // **シークレットフォルダの本とふつうの本が混ざっていたら、シークレットの本だけを回し、残りはふつうに開く**(2026-10-05 の
+            // 実機確認。O-9 / R6-3 の直しは「種類ごとに分かれて届く」ことを前提にしていたが、フォルダ 2 冊と cbz 1 冊を一度に渡すと、
+            // 先の回の下調べが終わる前に次の回が届いて先の回を取り消し、まとめ直した 3 冊の並びの先頭がシークレットの本だったので
+            // **並びごと**回され、ふつうの本はシークレットウインドウの「次の本へ」の先にしか無かった)。回すのは「常にシークレット
+            // ウインドウで開く」が回す場合だけ(回さないなら、並びはそのまま 1 つの要求として開く)。
+            var takesFreshIntent = false
+            if let secretSplit,
+               BookWindowOpener.shouldOpenSecretBookPrivately(secretSplit.secret, opensPrivately: AppPreferences.isPrivateModeDefault) {
+                self.runExternalOpen(secretSplit.secret, skipped: 0, locale: locale, intent: intent)
+                request = secretSplit.other
+                takesFreshIntent = true
+            }
+            // 残りを開く。シークレットの本を回したときは、回した側の「開く」が今ある窓の意図を進める(AppState.open の noteOpenRequest。
+            // 回すのは privateRedirect の手前)ので、残りの意図は**回し終えた後に**取る ―― 回すのも残りもメニューの番人
+            // (MenuBarMenuGate)を通して、届いた順に走らせる。
+            let openRest: (@escaping @MainActor (AppState.OpenIntent) -> Void) -> Void = { body in
+                guard takesFreshIntent else { return body(intent) }
+                MenuBarMenuGate.shared.run("AppDelegate.open-rest-\(UUID().uuidString)") {
+                    body(AppState.beginOpenIntentForAnyWindow())
+                }
+            }
             // 先の回をもう開いたウインドウがあれば、そこで開き直す(上のコメント)。
             if let target = self.externalOpenGroup?.openedIn, target.hostWindow != nil {
-                target.open(request: request, intent: intent)
+                let rest = request
+                openRest { target.open(request: rest, intent: $0) }
                 if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
                 return
             }
@@ -2992,7 +3018,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for _ in 0..<30 {
                     if let target = self.launchCoordinator?.openAppState(forBookAt: firstBookURL, isPrivate: isPrivate),
                        target.hostWindow != nil {
-                        target.open(request: request, intent: intent)
+                        let rest = request
+                        openRest { target.open(request: rest, intent: $0) }
                         if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
                         return
                     }
@@ -3000,7 +3027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard !Task.isCancelled else { return }
                 }
             }
-            self.runExternalOpen(request, skipped: prepared.skipped, locale: locale, intent: intent)
+            self.runExternalOpen(request, skipped: prepared.skipped, locale: locale, intent: takesFreshIntent ? nil : intent)
         }
     }
 
@@ -3094,7 +3121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `application(_:open:)` の続き(下調べを終えてから)。
-    private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale, intent: AppState.OpenIntent) {
+    /// - Parameter intent: 頼まれた時点の開く意図。nil なら、番人を通って走る時点で取る(シークレットの本を先に回した残り。
+    ///   `application(_:open:)` の openRest のコメント)。
+    private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale, intent: AppState.OpenIntent?) {
         // メニューバーのメニューが開いている間に外部(AppleScript・openコマンド等)から本を
         // 渡された場合は、メニューが閉じるまで保留する。ウインドウの再利用でも新規作成でも、
         // ウインドウタイトルの変更・ウインドウの生成・FocusedValueの変化を伴い、開いている
@@ -3109,7 +3138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 開く前に決める(開く窓は「シークレットモードで起動」の性質で選ばれる。performExternalOpen)。
             let routedPrivately = BookWindowOpener.shouldOpenSecretBookPrivately(
                 request, opensPrivately: AppPreferences.isPrivateModeDefault)
-            let target = self.performExternalOpen(request: request, intent: intent)
+            let target = self.performExternalOpen(request: request, intent: intent ?? AppState.beginOpenIntentForAnyWindow())
             if routedPrivately {
                 // シークレットウインドウへ回した。まとめ直しの回はこの本を除いて、ふつうに開く(O-9。ExternalOpenGroup のコメント)。
                 // 並びの本も控える(R6-3。回した先の窓がたどる)。
