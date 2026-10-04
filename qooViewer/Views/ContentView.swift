@@ -596,8 +596,20 @@ struct ContentView: View {
             .environment(\.dataUndoStack, appState.dataUndo)
     }
 
+    /// ウインドウの本体。**4 つの式に分けてある**(2026-10-04): 監査の修正で modifier が増えた後、この 1 本の連鎖が手元の
+    /// Xcode 27 でも型推論に約 9 秒かかっていた(`-warn-long-function-bodies`。CI の Xcode 26.6 は同じ形の ViewerView の連鎖で
+    /// 「unable to type-check this expression in reasonable time」を出した)。連鎖をジェネリックな関数で区切り、メニューの写し
+    /// (`MenuCheckmarkState` の 30 個ほどの引数)は型の決まった計算プロパティにして、1 つの式の推論を小さく保つ。
+    /// modifier を足すときは、足した側の関数がまた長くならないようにする。
     private var windowBody: some View {
-        applyPreferenceChangeHandlers(to: applySidePanelVisibilityHandler(to: applyFileDropTarget(to: windowContent)))
+        applyWindowLifecycle(to: applyWindowObservers(to: applyWindowEnvironment(to:
+            applyPreferenceChangeHandlers(to: applySidePanelVisibilityHandler(to: applyFileDropTarget(to: windowContent)))
+        )))
+    }
+
+    /// 環境・フォーカスの値・メニューバーへの写し・題(windowBody の分割の 1 つ目)。
+    private func applyWindowEnvironment<Content: View>(to content: Content) -> some View {
+        content
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
         // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い
@@ -623,60 +635,7 @@ struct ContentView: View {
         // メニューバーのチェックマーク表示専用に、値型でも同じ内容を公開する
         // (AppStateというクラス参照だけではチェックマークの更新が効かなかったための対処。
         // 詳細はAppState.swiftのMenuCheckmarkStateのコメント参照)。
-        .focusedSceneValue(
-            \.qooViewerMenuCheckmarkState,
-            MenuCheckmarkState(
-                // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
-                hasBook: appState.menuShownBook.hasBook,
-                isPrivateWindow: appState.isPrivateWindow,
-                isTransientBook: appState.menuShownBook.isTransient,
-                currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
-                hideToolbar: appState.hideToolbar,
-                hideProgressBar: appState.hideProgressBar,
-                hideSidePanel: appState.hideSidePanel,
-                isSlideshowActive: appState.isSlideshowActive,
-                isLoupeActive: appState.isLoupeActive,
-                isPinchZoomed: appState.isPinchZoomed,
-                isPinchZoomedToMax: appState.isPinchZoomedToMax,
-                isSpreadMode: appState.isSpreadMode,
-                isRightToLeft: appState.isRightToLeft,
-                scalingMode: appState.currentScalingMode,
-                isPageShiftLocked: appState.isPageShiftLocked,
-                // isCurrentBookFavorited/isCurrentPageBookmarkedは、AppState自身の@Publishedでは
-                // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
-                // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
-                // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
-                // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
-                // 改善要望5でお気に入りを無効化した間は、常にfalseにしてメニューの文言
-                // (「お気に入りに追加」/「お気に入りから削除」)が切り替わらないようにする
-                // (FavoritesFeature参照)。
-                isCurrentBookFavorited: FavoritesFeature.isEnabled
-                    ? (appState.menuShownBook.bookID.map { favoritesStore.isFavorited(bookID: $0) } ?? false) : false,
-                // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
-                // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
-                // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
-                // メニューの再構築でmacOS 26のクラッシュを引き起こしうる。AppState側で保留付きの
-                // @Publishedとして持つ値をそのまま読む(AppState.isCurrentPageBookmarked参照)。
-                // 文言は見開きの相方も数える値(押したときの動きと同じ。監査 V-3)。
-                isCurrentSpreadBookmarked: appState.isCurrentSpreadBookmarked,
-                // 同じフォルダのファイル・ブックマーク一覧は中身を参照から読むので、変わった印を値で渡す(監査 M-1)。
-                // どちらも保留の後で進む番号なので、メニューを開いている最中に中身が変わることはない。
-                siblingBooksRevision: appState.siblingBooksRevision,
-                currentBookmarksRevision: appState.currentBookmarksRevision,
-                hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
-                hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
-                hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
-                // ファイルブラウザの値は AppState の保留付きの値を読む(fileBrowserMenuSnapshot のコメント)。
-                fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
-                fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,
-                fileBrowserUndoRecency: appState.fileBrowserMenu.undoRecency,
-                fileBrowserRedoRecency: appState.fileBrowserMenu.redoRecency,
-                canCreateFolderInFileBrowser: appState.fileBrowserMenu.canCreateFolder,
-                fileBrowserNavigation: appState.fileBrowserMenu.navigation,
-                fileBrowserSelection: appState.fileBrowserMenu.selection,
-                homeMenu: appState.homeMenu
-            )
-        )
+        .focusedSceneValue(\.qooViewerMenuCheckmarkState, menuCheckmarkState)
         .onChange(of: fileBrowserMenuSnapshot, initial: true) { _, snapshot in
             appState.setFileBrowserMenu(snapshot)
         }
@@ -700,6 +659,11 @@ struct ContentView: View {
         // NSApp.keyWindow(その時点でたまたまキーウインドウだったもの、必ずしも正しいとは
         // 限らない)に頼らず、本を開いている当のAppStateが持つウインドウへ確実に追加できる
         // ようにするため(詳細はAppState.hostWindowのコメント参照)。
+    }
+
+    /// 本・ページ・パネル幅・自動表示の変化の見張り(windowBody の分割の 2 つ目)。
+    private func applyWindowObservers<Content: View>(to content: Content) -> some View {
+        content
         .onChange(of: appState.currentBook?.id) { _, _ in
             // 本を開いたらウェルカム画面の編集モードは解除する(戻ってきたときに、
             // 出しっぱなしの編集モードで誤って棚を触らないため)。どのコレクションの中に
@@ -758,6 +722,11 @@ struct ContentView: View {
         .onChange(of: hasAutoRevealedChrome) { _, _ in
             updateOutsideWindowMonitor()
         }
+    }
+
+    /// 出入り・ウインドウの外観と参照・アラート(windowBody の分割の 3 つ目)。
+    private func applyWindowLifecycle<Content: View>(to content: Content) -> some View {
+        content
         .onAppear {
             installSidePanelHoverMonitorIfNeeded()
             updateOutsideWindowMonitor()
@@ -1031,6 +1000,64 @@ struct ContentView: View {
             Text("The file or folder for “") + Text(appState.missingFavorite?.title ?? "")
                 + Text("” could not be found. It may have been moved or deleted.")
         }
+    }
+
+    /// メニューバーのチェックマーク表示専用に、値型でも同じ内容を公開する
+    /// (AppStateというクラス参照だけではチェックマークの更新が効かなかったための対処。
+    /// 詳細はAppState.swiftのMenuCheckmarkStateのコメント参照)。windowBody の連鎖の中に直接書くと型推論が重くなるので、
+    /// 型の決まったプロパティにしてある(windowBody のコメント)。
+    private var menuCheckmarkState: MenuCheckmarkState {
+        MenuCheckmarkState(
+            // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
+            hasBook: appState.menuShownBook.hasBook,
+            isPrivateWindow: appState.isPrivateWindow,
+            isTransientBook: appState.menuShownBook.isTransient,
+            currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
+            hideToolbar: appState.hideToolbar,
+            hideProgressBar: appState.hideProgressBar,
+            hideSidePanel: appState.hideSidePanel,
+            isSlideshowActive: appState.isSlideshowActive,
+            isLoupeActive: appState.isLoupeActive,
+            isPinchZoomed: appState.isPinchZoomed,
+            isPinchZoomedToMax: appState.isPinchZoomedToMax,
+            isSpreadMode: appState.isSpreadMode,
+            isRightToLeft: appState.isRightToLeft,
+            scalingMode: appState.currentScalingMode,
+            isPageShiftLocked: appState.isPageShiftLocked,
+            // isCurrentBookFavorited/isCurrentPageBookmarkedは、AppState自身の@Publishedでは
+            // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
+            // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
+            // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
+            // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
+            // 改善要望5でお気に入りを無効化した間は、常にfalseにしてメニューの文言
+            // (「お気に入りに追加」/「お気に入りから削除」)が切り替わらないようにする
+            // (FavoritesFeature参照)。
+            isCurrentBookFavorited: FavoritesFeature.isEnabled
+                ? (appState.menuShownBook.bookID.map { favoritesStore.isFavorited(bookID: $0) } ?? false) : false,
+            // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
+            // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
+            // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
+            // メニューの再構築でmacOS 26のクラッシュを引き起こしうる。AppState側で保留付きの
+            // @Publishedとして持つ値をそのまま読む(AppState.isCurrentPageBookmarked参照)。
+            // 文言は見開きの相方も数える値(押したときの動きと同じ。監査 V-3)。
+            isCurrentSpreadBookmarked: appState.isCurrentSpreadBookmarked,
+            // 同じフォルダのファイル・ブックマーク一覧は中身を参照から読むので、変わった印を値で渡す(監査 M-1)。
+            // どちらも保留の後で進む番号なので、メニューを開いている最中に中身が変わることはない。
+            siblingBooksRevision: appState.siblingBooksRevision,
+            currentBookmarksRevision: appState.currentBookmarksRevision,
+            hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
+            hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
+            hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
+            // ファイルブラウザの値は AppState の保留付きの値を読む(fileBrowserMenuSnapshot のコメント)。
+            fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
+            fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,
+            fileBrowserUndoRecency: appState.fileBrowserMenu.undoRecency,
+            fileBrowserRedoRecency: appState.fileBrowserMenu.redoRecency,
+            canCreateFolderInFileBrowser: appState.fileBrowserMenu.canCreateFolder,
+            fileBrowserNavigation: appState.fileBrowserMenu.navigation,
+            fileBrowserSelection: appState.fileBrowserMenu.selection,
+            homeMenu: appState.homeMenu
+        )
     }
 
     /// アプリ起動時に一度だけ(最初のウインドウでだけ)、「前回開いていた本を自動的に開く」

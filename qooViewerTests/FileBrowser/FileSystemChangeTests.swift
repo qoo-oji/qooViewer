@@ -287,6 +287,13 @@ struct FileSystemChangeTests {
 
         await state.operations.rename(text, to: "b.txt").value
         await state.settle()
+        // 知らせは箱で最大 80ms まとめてから配られ、記憶の写し(`cutPaths`)はその購読の先でもう 1 回メインへ回る。
+        // 手元では settle の間に届くが、CI の macOS 27 では間に合わずに落ちた(2026-10-04)。箱を今すぐ配らせ、
+        // 写しが届くまで少しだけ待つ(期限つき。届かなければ下の #expect が落ちる)。
+        fixture.center.flush()
+        for _ in 0..<100 where !(state.cutPaths.isEmpty && fixture.clipboard.paths.isEmpty) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(state.cutPaths.isEmpty, "動かしていない項目が淡色のまま残った")
         #expect(fixture.clipboard.paths.isEmpty)
     }

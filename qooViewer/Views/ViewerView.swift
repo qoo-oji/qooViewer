@@ -1582,6 +1582,12 @@ struct ViewerView: View {
         .focused($isFocused)
     }
 
+    /// ピンチで拡大しているか(メニューの「縮小」「拡大を解除」の淡色)。onChange へ渡すための型の決まった値。
+    private var isPinchZoomedIn: Bool { viewModel.pinchZoomFactor > 1 }
+
+    /// ピンチの拡大が上限に達しているか(「拡大」の淡色。監査 V-19)。
+    private var isPinchZoomedToLimit: Bool { viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor }
+
     /// bodyのモディファイア連鎖のうち、ライフサイクル(onAppear/onDisappear)と
     /// onChangeをまとめたグループ(mainZStackのコメント参照。型チェックが長くかかりすぎる
     /// 不具合対策で、body全体を複数の独立した式に分割するうちの1段階)。
@@ -1594,8 +1600,18 @@ struct ViewerView: View {
     /// 型注釈で分割しても改善しなかったため、この処理全体をprivateメソッド
     /// (handleOnAppear/makeScrollMonitor/makeContextClickMonitor)へ切り出し、
     /// ここからは`handleOnAppear()`という1つの関数呼び出しだけが見えるようにした。
-    @ViewBuilder
+    ///
+    /// **さらに 3 つに分けてある**(2026-10-04): 監査の修正で onChange が 17 個まで増え、CI の Xcode 26.6 が
+    /// この 1 つの連鎖(`content` から始まる式)で「unable to type-check this expression in reasonable time」を出した
+    /// (手元の Xcode 27 では通る)。連鎖が長いほど型推論の組み合わせが増えるので、ジェネリックな関数で区切って
+    /// 1 つの式に載る modifier を 6 個前後に抑える。onChange を足すときは、増えた側の関数をさらに分けること。
     private func applyLifecycleHandlers<Content: View>(to content: Content) -> some View {
+        applyPageChangeHandlers(to: applyMenuSyncHandlers(to: applyAppearanceAndDataHandlers(to: content)))
+    }
+
+    /// 出入り(onAppear/onDisappear)と、AppState へ写すデータ(ブックマーク・ページ)・ページ一覧の出し入れ。
+    @ViewBuilder
+    private func applyAppearanceAndDataHandlers<Content: View>(to content: Content) -> some View {
         content
             .onAppear {
                 handleOnAppear()
@@ -1632,8 +1648,13 @@ struct ViewerView: View {
                 removeThumbnailGridDismissMonitor()
             }
         }
-        // スライドショー実行中/ルーペ表示中/表示モード/読み方向/拡大縮小モードが変わるたびに、
-        // メニューバーの該当項目のチェックマークを最新の状態に更新する。
+    }
+
+    /// スライドショー実行中/ルーペ表示中/表示モード/読み方向/拡大縮小モードが変わるたびに、
+    /// メニューバーの該当項目のチェックマークを最新の状態に更新する(applyLifecycleHandlers の分割の 2 つ目)。
+    @ViewBuilder
+    private func applyMenuSyncHandlers<Content: View>(to content: Content) -> some View {
+        content
         .onChange(of: viewModel.isSlideshowActive) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.isLoupeActive) { _, isActive in
             syncMenuCheckmarkState()
@@ -1650,9 +1671,10 @@ struct ViewerView: View {
         }
         .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
         // 拡大しているかどうかが変わったときだけ(ピンチの途中の倍率の変化では呼ばない)。
-        .onChange(of: viewModel.pinchZoomFactor > 1) { _, _ in syncMenuCheckmarkState() }
+        // 比較の式を onChange の引数に直接書かず、型の決まった計算プロパティを渡す(型推論の負担を減らす。上の分割のコメント)。
+        .onChange(of: isPinchZoomedIn) { _, _ in syncMenuCheckmarkState() }
         // 上限に達した・離れた(「拡大」の淡色。V-19)。上限そのもの(環境設定)が変わったときも。
-        .onChange(of: viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: isPinchZoomedToLimit) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.isContrastCorrectionEnabled) { _, _ in syncMenuCheckmarkState() }
@@ -1663,6 +1685,12 @@ struct ViewerView: View {
             appState.updateCurrentPartnerPageIndex(partnerPageIndex)
             syncMenuCheckmarkState()
         }
+    }
+
+    /// ページ送り・表示枚数・拡大縮小モード・拡大の上限の変化(applyLifecycleHandlers の分割の 3 つ目)。
+    @ViewBuilder
+    private func applyPageChangeHandlers<Content: View>(to content: Content) -> some View {
+        content
         // isPageShiftLocked(「1ページだけ送る」のグレーアウト判定)はcurrentIndexにも依存する
         // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。「現在のページが
         // ブックマーク済みかどうか」の判定にも使うため、appState.currentPageIndexも合わせて更新する。
@@ -4228,7 +4256,7 @@ struct ViewerView: View {
             isSlideshowActive: viewModel.isSlideshowActive,
             isLoupeActive: viewModel.isLoupeActive,
             isPinchZoomed: viewModel.pinchZoomFactor > 1,
-            isPinchZoomedToMax: viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor,
+            isPinchZoomedToMax: isPinchZoomedToLimit,
             displayMode: viewModel.displayMode,
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
