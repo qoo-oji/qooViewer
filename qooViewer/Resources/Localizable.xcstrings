@@ -30308,6 +30308,22 @@
         }
       }
     },
+    "The volume isn’t connected. Access returns when you connect it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume isn’t connected. Access returns when you connect it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボリュームが接続されていません。接続すると、ふたたび使えます。"
+          }
+        }
+      }
+    },
     "The volume that holds “" : {
       "localizations" : {
         "en" : {

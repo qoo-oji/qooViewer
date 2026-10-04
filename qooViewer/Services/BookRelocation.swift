@@ -142,3 +142,90 @@ nonisolated enum PageKeyRelocation {
         return result
     }
 }
+
+/// **本の保存データを新しいパスへ付け替えた**、という知らせ(`.booksDidRelocate`。2026-10-04 の監査 §1-7 ―― 段 4 で決めた形)。
+///
+/// ■ なぜ要るか
+/// 付け替えはストアの行を書き換えるだけで、**画面の側が握っている bookID**(書き出しウインドウのチェックと題の編集、編集ウインドウの
+/// 選択・保留中の確認・取り消しの控え、メタデータの編集の一覧、インスペクタの打ちかけ)は古いパスのまま残った(TW-5・BE-7・BE-13・
+/// MD-2・SL-1)。ストアの知らせ(`relocatedBookIDsUserInfoKey`)は古い・新しい bookID を混ぜた集合で、対応が無い。
+///
+/// ■ なぜこの形か(採らなかった案)
+/// - 画面が `FileSystemChangeCenter` を購読する案: あの箱が運ぶのは**アプリの中の操作**だけで、アプリの外での移動を見つけた経路
+///   (起動後の `ExternalMoveSweeper`・コレクションの実在確認・フォルダの設定の追従・メタデータの編集ウインドウ・本を開いたときの
+///   `reconcileBookIDIfMoved`)は箱を通らずに付け替える。画面がそれを受けられない。
+/// - 各ストアの知らせに旧 → 新を載せる案: ストアごとに「そのストアで動いた行」しか言えず(移った先に行があれば動かない)、
+///   メタデータのストアは bookID の無い知らせを出す。画面は 5 つの知らせを継ぎ合わせることになる。
+/// 付け替えは必ず `BookRecordRelocator.apply`(アプリの中の操作も外の移動も)か、本を開いたときの付け替え(AppState)を通るので、
+/// **その 2 か所が、ストアと読書位置を書き換え終えた直後に 1 回出す**。中身は付け替えに使った `FileSystemChange`(起きた順、
+/// または同じ時点の写し)そのもので、受け手は自分の握っている bookID を `newBookID(for:)` で引き直す ―― どのストアにも行の無い本
+/// (インスペクタで初めてメタデータを打っている本)にも答えられる。
+///
+/// ■ 受け手の決まり
+/// - 同じメインアクターの番の中で、ストアの知らせ(`.layoutDataDidChange` など)の**後**に届く。ストアの知らせで裏の読み直しを
+///   始めた受け手は、この知らせで世代を進めて、付け替えの前に集めた結果を捨てる(書き出しウインドウ)。
+/// - テストの中でも `NotificationCenter.default` に出る(ほかのストアの知らせと同じ)。受け手は自分の握っている bookID しか書き換えない
+///   ので、並んで走る別のテストの知らせを受けても何も起きない。
+nonisolated struct BookRelocationNotice: Sendable {
+    /// `.booksDidRelocate` の userInfo の鍵。値はこの型。
+    static let userInfoKey = "notice"
+
+    /// 付け替えに使った変更(`relocations` だけを見る)。
+    let change: FileSystemChange
+
+    init(change: FileSystemChange) {
+        self.change = change
+    }
+
+    /// 知らせから取り出す。この型の知らせでなければ nil。
+    init?(_ notification: Notification) {
+        guard let notice = notification.userInfo?[Self.userInfoKey] as? BookRelocationNotice else { return nil }
+        self = notice
+    }
+
+    /// `bookID` の本(またはその入ったフォルダ)が移っていれば、移った先の bookID。移っていなければ nil。
+    func newBookID(for bookID: String) -> String? {
+        guard let new = change.relocatedPath(for: bookID), new != bookID else { return nil }
+        return new
+    }
+
+    /// `bookID` の今の bookID(移っていなければそのまま)。
+    func current(_ bookID: String) -> String { newBookID(for: bookID) ?? bookID }
+
+    /// 鍵が bookID の辞書を引き直す。移った先にすでに値があれば、そちらを残す(付け替えの「移った先に行があれば動かさない」と同じ)。
+    /// 2 つが同じ先へ移ったら、古い bookID の名前順で先のほう(`BookRelocationPlan.moves` と同じ)。
+    func rekeyed<Value>(_ dictionary: [String: Value]) -> [String: Value] {
+        var result: [String: Value] = [:]
+        var moved: [(old: String, new: String, value: Value)] = []
+        for (bookID, value) in dictionary {
+            if let new = newBookID(for: bookID) {
+                moved.append((bookID, new, value))
+            } else {
+                result[bookID] = value
+            }
+        }
+        for entry in moved.sorted(by: { $0.old < $1.old }) where result[entry.new] == nil {
+            result[entry.new] = entry.value
+        }
+        return result
+    }
+
+    /// bookID の集合を引き直す。
+    func rekeyed(_ bookIDs: Set<String>) -> Set<String> {
+        Set(bookIDs.map(current))
+    }
+
+    /// 付け替えを終えたことを知らせる(`BookRecordRelocator.apply` と、本を開いたときの付け替え ―― 型コメント)。
+    @MainActor
+    static func post(_ change: FileSystemChange) {
+        guard !change.relocations.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .booksDidRelocate, object: nil, userInfo: [userInfoKey: BookRelocationNotice(change: change)]
+        )
+    }
+}
+
+extension Notification.Name {
+    /// 本の保存データを新しいパスへ付け替えた(`BookRelocationNotice`)。
+    static let booksDidRelocate = Notification.Name("qooViewer.booksDidRelocate")
+}

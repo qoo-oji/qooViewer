@@ -1448,10 +1448,14 @@ final class AppState: ObservableObject {
                             if let context = self.metadataStore?.modelContext {
                                 BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
                             }
-                            // メタデータ生成が古いパスを「確かめ済み」のまま持たないように(MetadataGenerator.relocate)。
-                            MetadataGenerator.appWide?.relocate(using: FileSystemChange.foundOutsideTheApp([
+                            let found = FileSystemChange.foundOutsideTheApp([
                                 .init(from: URL(fileURLWithPath: oldBookID), to: URL(fileURLWithPath: book.id)),
-                            ]))
+                            ])
+                            // メタデータ生成が古いパスを「確かめ済み」のまま持たないように(MetadataGenerator.relocate)。
+                            MetadataGenerator.appWide?.relocate(using: found)
+                            // 画面の側が握っている bookID も付いていかせる(BookRelocationNotice。2026-10-04 の監査 §1-7 ――
+                            // 書き出し・編集・メタデータの編集ウインドウはアプリの中の移動と同じ知らせで受ける)。
+                            BookRelocationNotice.post(found)
                         }
                         // 付け替え漏れのページの鍵(2026-09-21 より前に移したフォルダの本)を、ページが分かったいま直す
                         // (PageKeyRelocation.repairs。フォルダの本でなければ何もしない)。

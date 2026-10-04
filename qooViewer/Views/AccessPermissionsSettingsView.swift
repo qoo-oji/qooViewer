@@ -19,25 +19,34 @@ struct AccessPermissionsSettingsView: View {
     var body: some View {
         SettingsPaneContainer {
             Section {
-                if folderAccess.entries.isEmpty {
+                // 並べるのは保存してある許可のすべて(2026-10-04 の監査 ST-3)。以前は解決できて開いたフォルダ(`entries`)だけで、
+                // 外したボリューム・確認中・解決できなかった許可は見えず、取り消せなかった。開いていない許可は状態を添える。
+                // 描くときにファイルには触らない(名前は作ったときに求めてある。ST-16)。
+                if folderAccess.grants.isEmpty {
                     Text("No folders have been granted access yet.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(folderAccess.entries) { entry in
+                    ForEach(folderAccess.grants) { grant in
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.displayName)
-                                Text(entry.url.path)
+                                Text(verbatim: grant.displayName)
+                                    .foregroundStyle(grant.status == .active ? .primary : .secondary)
+                                Text(verbatim: grant.path)
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                                if let status = statusText(grant.status) {
+                                    Text(status)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                             Button {
-                                folderAccess.remove(entry)
+                                folderAccess.remove(grant)
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
@@ -61,6 +70,16 @@ struct AccessPermissionsSettingsView: View {
             } header: {
                 Text("Granted Folders")
             }
+        }
+    }
+
+    /// 開いていない許可の状態(開いている許可は何も添えない)。
+    private func statusText(_ status: FolderAccessStore.Grant.Status) -> LocalizedStringKey? {
+        switch status {
+        case .active: nil
+        case .notConnected: "The volume isn’t connected. Access returns when you connect it."
+        case .resolving: "Checking…"
+        case .unresolvable: "The folder can’t be found."
         }
     }
 

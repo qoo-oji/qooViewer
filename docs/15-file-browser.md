@@ -331,6 +331,11 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
   (`normalizedNamesCache`、`FileBrowserListing.filtered`)。
 - 失敗の分類: 読めない → `needsAccess`(中央に「アクセスを許可…」)、無い・ボリュームが外れた → **残っているいちばん近い祖先へ移る**
   (外れたボリュームならコンピュータへ)。
+- **フォルダの許可が変わったら読み直す**(2026-10-04 の監査 FBU-5)。`FileBrowserState.folderAccess`(ContentView がつなぐ)の
+  `accessChanged` を受け、案内(`needsAccess`)を出しているなら読み直し、ツリーは開いているのに子が空の行を読み直して、三角の有無が
+  分からなかった閉じた行を調べ直す(`folderAccessRevision` → `reloadRowsAfterAccessChange`)。以前はどの状態も許可の一覧を購読せず、
+  ほかの窓・環境設定・よく使う項目の「＋」で許可を付けても、フォルダを移り直すまで案内が残り、ツリーの行はたたんで開き直すまで空だった
+  (アプリは前面のままなので、アクティブ化の読み直しも起きない)。
 - 「コンピュータ」(`currentFolder == nil`)は `MountTable` から作る。`/` と `/Volumes/` 直下のうち `MNT_DONTBROWSE` でないものだけ
   (`-nobrowse` で付けたディスクイメージは出ない)。ネットワーク越しのボリュームには名前も問い合わせない。
 - **「最近の項目」**(`FileBrowserLocation.recents`、`FileBrowserState.isShowingRecents`、2026-09-28、利用者の要望 ―― 帯の無いファイル

@@ -298,4 +298,76 @@ struct BookExportViewModelTests {
         #expect(viewModel.writtenTo.isEmpty)
         #expect(try String(contentsOf: destination, encoding: .utf8) == "original")
     }
+
+    // MARK: - 題・著者の種と付け替え(2026-10-04 の監査 TW-1・TW-5)
+
+    @Test("題・著者の欄は、触っていなければメタデータの今の値へ付いていき、書き換えた欄はそのまま残る(TW-1)")
+    func seededTitlesFollowTheMetadataUntilEdited() throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        let book = env.book("book")
+        env.library.metadata.upsert(bookID: book.id, author: "架空の一", title: "架空の題", series: "", seriesIndex: "")
+        viewModel.prepareOpenBook(book)
+        #expect(viewModel.titleOverrides[book.id] == "架空の題")
+        #expect(viewModel.authorOverrides[book.id] == "架空の一")
+
+        // ほかの画面(インスペクタ・メタデータの編集ウインドウ)で直した。以前は最初の値のまま凍っていた。
+        env.library.metadata.upsert(bookID: book.id, author: "架空の二", title: "直した題", series: "", seriesIndex: "")
+        viewModel.prepareOpenBook(book)
+        #expect(viewModel.titleOverrides[book.id] == "直した題")
+        #expect(viewModel.authorOverrides[book.id] == "架空の二")
+
+        // この画面で書き換えた題は残り、触っていない著者は付いていく。
+        viewModel.titleOverrides[book.id] = "書き出し用の題"
+        env.library.metadata.upsert(bookID: book.id, author: "架空の三", title: "また直した題", series: "", seriesIndex: "")
+        viewModel.prepareOpenBook(book)
+        #expect(viewModel.titleOverrides[book.id] == "書き出し用の題")
+        #expect(viewModel.authorOverrides[book.id] == "架空の三")
+        let prepared = viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
+        #expect(prepared.title == "書き出し用の題")
+        #expect(prepared.author == "架空の三")
+    }
+
+    @Test("書き出しウインドウのチェックと題・著者の編集は、本が付け替えられたら新しい bookID へ付いていく(TW-5)")
+    func checksAndEditsFollowARelocatedBook() throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        let book = env.book("book-a")
+        viewModel.prepareOpenBook(book)
+        viewModel.selectedBookIDs = [book.id]
+        viewModel.titleOverrides[book.id] = "書き出し用の題"
+        let moved = env.temporary.file("book-b").path
+
+        viewModel.followRelocation(BookRelocationNotice(change: FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: book.id), to: URL(fileURLWithPath: moved)),
+        ])))
+
+        #expect(viewModel.selectedBookIDs == [moved])
+        #expect(viewModel.titleOverrides[moved] == "書き出し用の題")
+        #expect(viewModel.titleOverrides[book.id] == nil)
+        let movedRow = BookExportViewModel.Row(bookID: moved, hasLayout: false, hasBookmarks: false, hasMetadata: false)
+        #expect(viewModel.prepare(row: movedRow, book: book, displayState: nil).title == "書き出し用の題")
+    }
+
+    @Test("カバー名の控えは、ほかの画面でカバーを変えたら捨てて求め直す(TW-2)")
+    func coverNamesAreDroppedWhenAnotherWindowChangesTheCover() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        let controller = viewModel.coverController
+        let book = env.book("book")
+        env.library.layouts.setCoverPageKey(for: book, pageKey: "p1", displayName: "p1.jpg")
+        await controller.refreshCoverName(forBookID: book.id)
+        #expect(controller.coverDisplayName(forBookID: book.id) == "p1.jpg")
+        let taskID = controller.coverNameTaskID(forBookID: book.id)
+
+        // もう 1 つの書き出しウインドウ(別のコントローラ)で変えた ―― 知らせ(.layoutDataDidChange)だけが届く。
+        env.library.layouts.setCoverPageKey(for: book, pageKey: "p3", displayName: "p3.jpg")
+        #expect(controller.coverNameTaskID(forBookID: book.id) != taskID, "セルが求め直さない")
+        #expect(controller.resolvedCoverNames[book.id] == nil)
+        await controller.refreshCoverName(forBookID: book.id)
+        #expect(controller.coverDisplayName(forBookID: book.id) == "p3.jpg")
+    }
 }

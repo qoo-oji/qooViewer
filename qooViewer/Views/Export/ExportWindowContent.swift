@@ -685,8 +685,9 @@ struct ExportCoverCell: View {
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する
         // 必要があるため非同期で解決する(BookmarkListView.PageRowViewのサムネイル読み込みと
-        // 同じ考え方)。
-        .task(id: bookID) {
+        // 同じ考え方)。id に控えの世代を入れる ―― ほかの画面でカバー・並び・除外が変わって控えを捨てたら、出たままの
+        // セルも求め直す(2026-10-04 の監査 TW-2。CoverOverrideController.invalidateCoverNames)。
+        .task(id: controller.coverNameTaskID(forBookID: bookID)) {
             await controller.refreshCoverName(forBookID: bookID)
         }
         // メタデータの編集ウインドウの一覧では、このセルを別の本の行へ使い回す(NSHostingView の rootView を入れ替えるだけなので

@@ -133,7 +133,9 @@ actor (used from `PageLoader`, an actor, or from `BookLoader`'s detached tasks) 
 `nonisolated` — see the top of Services/ArchiveReading.swift. Keep this in mind when adding new
 free functions/types touched from those code paths. **Blocking file I/O goes through `FileIO`, never `Task.detached`**: a hung
 share (SMB 30 s, hard NFS forever) parks cooperative-pool threads until every async task in the app stalls (FileIO's type comment;
-the side panel listing, next/previous book and the book-contents root moved over 2026-09-27).
+the side panel listing, next/previous book and the book-contents root moved over 2026-09-27) — **and never runs synchronously on
+the main actor either** (decision 18 of the 2026-10-04 audit: e.g. `FolderAccessStore` matches grants by the path recorded in the
+bookmark data and resolves only the one just added, instead of resolving every grant on main).
 
 **SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
 `CollectionStore` (ViewModels/) all share a
@@ -170,7 +172,10 @@ again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on
 `sinceWhen`, so every swap of watched folders — each expand/collapse in the file browser tree — reloaded the other open rows), and a tree
 row reload calls `reloadItem` only when what its child rows show has changed (`ShownChild`). Store
 notifications that concern particular books carry their IDs (`BookRelocationPlan.relocatedBookIDsUserInfoKey`,
-`ViewerViewModel.notificationConcerns`). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
+`ViewerViewModel.notificationConcerns`). **UI that holds bookIDs follows relocations through `BookRelocationNotice`**
+(`.booksDidRelocate`, 2026-10-04): `BookRecordRelocator.apply` (in-app moves and moves found outside the app alike) and the open-time
+reconcile post the `FileSystemChange` right after the stores are rewritten, and the holder rewrites its IDs with `newBookID(for:)` —
+new windows/sheets/undo snapshots that keep bookIDs must subscribe (docs/06「移動・リネームへの追従」). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
 `BookPageListCache.Entry.sourceProbe` — never by setting `didImportSourceMetadata`, which would change `isParsedOnly`.
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is

@@ -416,6 +416,27 @@ struct FileBrowserTreeView: NSViewRepresentable {
             reloadExpandedRows(in: ids)
         }
 
+        /// 最後に応えたフォルダの許可の変化(`FileBrowserState.folderAccessRevision`)。
+        private var appliedFolderAccessRevision = 0
+
+        /// フォルダの許可が付いた・外れた後に、開いているのに子が空の行を読み直し、三角の有無が分からなかった閉じた行を調べ直す
+        /// (2026-10-04 の監査 FBU-5)。読めないフォルダの子の読み込みは黙って空になり、三角は `hasSubdirectory` が nil で出たままに
+        /// なる。以前は許可の後も、たたんで開き直すまで空だった。ネットワーク上の閉じた行は調べない(`reprobe` の決まり)。
+        private func reloadRowsAfterAccessChange() {
+            guard let outline else { return }
+            let mounts = MountTable.current()
+            var collapsed: [Node] = []
+            for row in 0..<outline.numberOfRows {
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url else { continue }
+                if outline.isItemExpanded(node) {
+                    if node.children?.isEmpty == true { loadChildren(of: node) }
+                } else if node.hasSubfolders == nil, !mounts.isRemote(url) {
+                    collapsed.append(node)
+                }
+            }
+            reprobe(collapsed)
+        }
+
         /// 共有の上の開いている行を読み直す(FSEvents が当てにならない。型コメント「外での変更」)。
         private func reloadRemoteExpandedRows() {
             guard let outline else { return }
@@ -450,6 +471,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 showsRecents = view.showsRecents
                 outline.outlineWidth = outlineWidth
                 needsRedraw = true
+            }
+            // フォルダの許可が変わった(FileBrowserState.handleFolderAccessChange。FBU-5)。読めずに空だった行を読み直す。
+            if view.state.folderAccessRevision != appliedFolderAccessRevision {
+                appliedFolderAccessRevision = view.state.folderAccessRevision
+                reloadRowsAfterAccessChange()
             }
             if view.state.cutPaths != appliedCutPaths {
                 appliedCutPaths = view.state.cutPaths

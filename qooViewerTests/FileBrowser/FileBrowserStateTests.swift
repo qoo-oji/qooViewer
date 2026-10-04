@@ -52,6 +52,28 @@ struct FileBrowserStateTests {
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == fixture.id(fixture.root))
     }
 
+    @Test("ほかの窓・環境設定でフォルダの許可が変わったら、「アクセスを許可…」の案内を出していた一覧を読み直す(2026-10-04 の監査 FBU-5)")
+    func aFolderAccessChangeReloadsANeedsAccessListing() async throws {
+        let fixture = try Fixture("fb-access")
+        let locked = fixture.aFolder
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        fixture.state.navigate(to: locked)
+        await fixture.state.settle()
+        #expect(fixture.state.loadError == .needsAccess)
+
+        // 読めるようになった(許可が付いた)。以前は、フォルダを移り直すまで案内のままだった。
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        let access = FolderAccessStore(defaults: fixture.suite.defaults)
+        fixture.state.folderAccess = access
+        let revision = fixture.state.folderAccessRevision
+        #expect(access.add(url: fixture.bFolder))
+        #expect(fixture.state.folderAccessRevision != revision)
+        await fixture.state.settle()
+        #expect(fixture.state.loadError == nil)
+        #expect(fixture.names() == ["inner"])
+    }
+
     @Test("「隠しファイルを表示」を切り替えると読み直して隠しファイルが出入りし、値は次に作る状態へ引き継がれる")
     func showingHiddenFilesReloadsAndPersists() async throws {
         let fixture = try Fixture("fb-hidden")

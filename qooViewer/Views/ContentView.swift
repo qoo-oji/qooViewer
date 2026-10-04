@@ -1100,6 +1100,7 @@ struct ContentView: View {
         // 環境設定は最後に渡す: 先にペインが出ていれば、渡した時点で動き始める(FileBrowserState.activate)ので、
         // よく使う項目(起動時のフォルダ)はそれより前に要る。シークレットかどうかは作るときに渡してある(init)。
         fileBrowser.favoriteLocations = favoriteLocations
+        fileBrowser.folderAccess = folderAccess
         fileBrowser.recentFiles = recentFiles
         fileBrowser.isPrivate = isPrivateWindow
         fileBrowser.preferences = preferences

@@ -176,12 +176,20 @@ class BookExportViewModel: ObservableObject {
     // MARK: - タイトル・著者名(ユーザー要望: ファイル名/フォルダ名から推測した値を初期値にし、
     // この画面で変更できるようにしたい)
 
-    /// bookID -> タイトル(編集可能)。reload()で新しく現れた本にだけ、メタデータDBの登録内容、
-    /// 無ければファイル名/フォルダ名を qooMeta で読んだ値を初期値として
-    /// 設定する(既存の編集内容は保持する)。
+    /// bookID -> タイトル(編集可能)。reload()のたびに、メタデータDBの登録内容、無ければファイル名/フォルダ名を
+    /// qooMeta で読んだ値を初期値(種)として入れる。**利用者がこの画面で書き換えた欄は上書きしない**。
+    ///
+    /// 2026-10-04 の監査 TW-1(= MD-1)まで、入れるのは「まだ値が無い本」だけで、種と利用者の編集を同じ辞書で区別して
+    /// いなかった。最初に入れた種が「編集済み」として凍り、インスペクタ・メタデータの編集ウインドウで題・著者を直しても
+    /// 古い値で書き出された(シリーズ・巻数・ジャンルは書き出す時点で DB から読むので最新 ―― 1 冊の中で新旧が混ざった。
+    /// 著者を直すと「欄の著者 == DB の先頭の著者」も外れて 2 人目以降が落ちた)。いまは種を `seededTitles` に別に控え、
+    /// 欄が種のままなら次の種で入れ替える。
     @Published var titleOverrides: [String: String] = [:]
     /// bookID -> 著者名(編集可能)。titleOverridesと同じ考え方。
     @Published var authorOverrides: [String: String] = [:]
+    /// 最後に入れた種(bookID -> 値)。欄の値がこれと同じなら「利用者は触っていない」(`seedTitleAndAuthor`)。
+    private var seededTitles: [String: String] = [:]
+    private var seededAuthors: [String: String] = [:]
 
     func titleBinding(forBookID bookID: String) -> Binding<String> {
         Binding(
@@ -312,6 +320,57 @@ class BookExportViewModel: ObservableObject {
             }
             changeObservers.append(observer)
         }
+        // 本の付け替え(アプリの中の移動・改名・自動リネームと、アプリの外での移動を見つけたもの。BookRelocationNotice)。
+        let relocationObserver = NotificationCenter.default.addObserver(
+            forName: .booksDidRelocate, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let notice = BookRelocationNotice(notification) else { return }
+            MainActor.assumeIsolated {
+                self?.followRelocation(notice)
+            }
+        }
+        changeObservers.append(relocationObserver)
+    }
+
+    /// 対象の本が付け替えられた(2026-10-04 の監査 TW-5)。チェック・題と著者の編集・種を新しい bookID へ移す。
+    ///
+    /// 以前は付け替えの後の読み直しで、行が新しい bookID で作り直され、チェックは `formIntersection` で外れ、題は種に戻った
+    /// (古い bookID の編集は孤児で残った)。書き出しの最中なら、古い bookID で各ストアを引いて「元のファイル/フォルダが
+    /// 見つかりません」と失敗に数えた(本は在る)。
+    ///
+    /// 付け替えの前に集め始めた読み直しの結果は捨てる(古い bookID の行で選択を絞らないように ―― 世代を進め、もう一度読む)。
+    /// 一覧はその読み直しを待たずに、いまの行を新しい bookID に書き換えておく(チェックの印が消えて見えないように)。
+    func followRelocation(_ notice: BookRelocationNotice) {
+        selectedBookIDs = notice.rekeyed(selectedBookIDs)
+        titleOverrides = notice.rekeyed(titleOverrides)
+        authorOverrides = notice.rekeyed(authorOverrides)
+        seededTitles = notice.rekeyed(seededTitles)
+        seededAuthors = notice.rekeyed(seededAuthors)
+        directSourceURLs = notice.rekeyed(directSourceURLs)
+        if isExporting { relocationsDuringExport.append(notice) }
+        if rows.contains(where: { notice.newBookID(for: $0.bookID) != nil }) {
+            var seen = Set<String>()
+            rows = rows.compactMap { row -> Row? in
+                let bookID = notice.current(row.bookID)
+                guard seen.insert(bookID).inserted else { return nil }
+                return Row(bookID: bookID, hasLayout: row.hasLayout, hasBookmarks: row.hasBookmarks, hasMetadata: row.hasMetadata)
+            }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        }
+        if isReloading {
+            reloadGeneration &+= 1
+            needsAnotherReload = true
+        }
+    }
+
+    /// 書き出しの最中に届いた付け替え(起きた順)。書き出す直前に、行の bookID をこれで引き直す(`followingRelocations`)。
+    private var relocationsDuringExport: [BookRelocationNotice] = []
+
+    /// 書き出しを始めた後(`since` 番目以降の知らせ)に付け替えられていれば、今の bookID の行。
+    private func followingRelocations(_ row: Row, since start: Int = 0) -> Row {
+        let bookID = relocationsDuringExport.dropFirst(start).reduce(row.bookID) { $1.current($0) }
+        guard bookID != row.bookID else { return row }
+        return Row(bookID: bookID, hasLayout: row.hasLayout, hasBookmarks: row.hasBookmarks, hasMetadata: row.hasMetadata)
     }
 
     deinit {
@@ -464,28 +523,39 @@ class BookExportViewModel: ObservableObject {
 
         // タイトル・著者名の初期値。ユーザー要望により、メタデータDBに登録がある本は
         // そちらを優先し、無い本だけファイル名/フォルダ名から推測する。
-        // 既にユーザーがこの画面で編集済みの値は上書きしない。
+        // 既にユーザーがこの画面で編集済みの値は上書きしない(種のままの欄は新しい種へ入れ替える。titleOverrides のコメント)。
         for row in rows {
-            seedTitleAndAuthorIfNeeded(for: row)
+            seedTitleAndAuthor(for: row)
         }
     }
 
-    /// 1冊ぶんのタイトル・著者名の初期値を入れる(まだ入っていなければ)。
+    /// 1冊ぶんのタイトル・著者名の初期値(種)を入れる。欄が空か前の種のままなら今の種へ入れ替え、利用者が書き換えた欄は
+    /// そのまま(titleOverrides のコメント。題と著者は別々に判定する)。
     /// 一覧を持たない書き出し(exportOpenBook(_:to:))からも同じ規則で使うため、
     /// applyEligibleBookIDsのループから切り出してある。
-    private func seedTitleAndAuthorIfNeeded(for row: Row) {
-        guard titleOverrides[row.bookID] == nil else { return }
+    private func seedTitleAndAuthor(for row: Row) {
+        let seed = titleAndAuthorSeed(for: row)
+        let bookID = row.bookID
+        if titleOverrides[bookID] == nil || titleOverrides[bookID] == seededTitles[bookID] {
+            titleOverrides[bookID] = seed.title
+        }
+        if authorOverrides[bookID] == nil || authorOverrides[bookID] == seededAuthors[bookID] {
+            authorOverrides[bookID] = seed.author
+        }
+        seededTitles[bookID] = seed.title
+        seededAuthors[bookID] = seed.author
+    }
+
+    /// 種の値。メタデータDBに題があればその題と先頭の著者、無ければファイル名を qooMeta で読んだ値。
+    private func titleAndAuthorSeed(for row: Row) -> (title: String, author: String) {
         if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
-            titleOverrides[row.bookID] = metadata.title
-            authorOverrides[row.bookID] = metadata.author
-            return
+            return (metadata.title, metadata.author)
         }
         // ファイル名を qooMeta で読む(メタデータの編集と同じ規則・同じルールセットの選び方。2026-09-21 までは
         // 書き出しだけの別の推測 TitleAuthorFilenameParser を使っていた)。
         let rules = MetadataRulesStore.appWideRules.withLock { $0 }
         let parsed = MetadataRulesStore.reading(forBookID: row.bookID, rules: rules).metadata
-        titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
-        authorOverrides[row.bookID] = parsed.authors.first ?? ""
+        return (parsed.title.isEmpty ? row.displayName : parsed.title, parsed.authors.first ?? "")
     }
 
     // MARK: - 一括選択
@@ -717,7 +787,7 @@ class BookExportViewModel: ObservableObject {
     /// この下ごしらえが済んでいないと解決できないので、書き出しの実行時ではなく
     /// シートが現れた時点で呼ぶ。
     ///
-    /// 何度呼んでも同じ結果になる(タイトル・著者名は未設定のときだけ埋める)。
+    /// 何度呼んでも同じ結果になる(タイトル・著者名は、利用者が書き換えていない欄だけ今の種で埋める)。
     @discardableResult
     final func prepareOpenBook(_ book: MangaBook) -> Row {
         let bookID = book.id
@@ -730,7 +800,7 @@ class BookExportViewModel: ObservableObject {
             hasBookmarks: !bookmarkStore.bookmarks(forBookID: bookID).isEmpty,
             hasMetadata: metadataStore.isRegistered(bookID: bookID)
         )
-        seedTitleAndAuthorIfNeeded(for: row)
+        seedTitleAndAuthor(for: row)
         return row
     }
 
@@ -761,9 +831,13 @@ class BookExportViewModel: ObservableObject {
         totalCount = targets.count
         rememberedOverwriteDecision = nil
         didFinish = false
+        relocationsDuringExport = []
+        defer { relocationsDuringExport = [] }
 
-        for row in targets {
+        for target in targets {
             guard !isCancelled else { break }
+            // 書き出しを始めた後に付け替えられた本は、今の bookID で引く(2026-10-04 の監査 TW-5)。
+            let row = followingRelocations(target)
             currentBookDisplayName = row.displayName
             do {
                 try await exportOne(row: row, destinationFolder: destinationFolder)
@@ -782,6 +856,7 @@ class BookExportViewModel: ObservableObject {
 
     /// 1冊ぶんの材料をDB・ファイルから集め、出力先を確定して、サブクラスのexport(_:to:)へ渡す。
     private func exportOne(row: Row, destinationFolder: URL) async throws {
+        let noticesBeforeLoading = relocationsDuringExport.count
         guard let sourceURL = resolveURL(forBookID: row.bookID) else {
             throw SimpleError(message: String(localized: "The original file/folder couldn't be found.", language: preferences.effectiveLocale))
         }
@@ -791,7 +866,8 @@ class BookExportViewModel: ObservableObject {
         // シークレットフォルダの本はページ一覧のキャッシュを読み書きしない(SecretFolderStore)。
         let book = try await BookLoader.load(
             from: sourceURL, cachesPageList: usesPageListCache && !SecretFolderStore.isSecretAppWide(sourceURL))
-        try await write(prepare(row: row, book: book, displayState: openBookDisplayState), to: destinationFolder)
+        // 読んでいる間に付け替えられたら、保存データ(レイアウト・ブックマーク・題の編集)は新しい bookID で引く(TW-5)。
+        try await write(prepare(row: followingRelocations(row, since: noticesBeforeLoading), book: book, displayState: openBookDisplayState), to: destinationFolder)
     }
 
     /// 読み込み済みの本から、1冊ぶんの材料をDB・環境設定・画面の状態から集める。

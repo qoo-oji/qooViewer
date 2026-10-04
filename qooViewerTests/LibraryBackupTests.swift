@@ -146,6 +146,34 @@ struct LibraryBackupTests {
         #expect(importedTarget.confirmedSignature == nil)
     }
 
+    @Test("「起動時のフォルダ: よく使う項目」は、別の Mac へ・上書きで取り込んでも同じ項目を指す(2026-10-04 の監査 ST-12)")
+    func theStartupFavoriteSurvivesAnImport() async throws {
+        let temporary = try TemporaryDirectory("backup-startup-favorite")
+        let first = try temporary.directory("first")
+        let second = try temporary.directory("second")
+
+        let source = try InMemoryLibrary(label: "backup-src")
+        defer { source.close() }
+        source.favoriteLocations.add(first)
+        let chosen = source.favoriteLocations.add(second)
+        source.preferences.fileBrowserStartupFavoriteID = chosen.id.uuidString
+        let (file, _) = await source.buildExportFile(.everything)
+        #expect(file.fileBrowser?.startupFavoritePath == chosen.path)
+
+        // 別の Mac: 項目の id は取り込む側で振られ、設定の id は書き出した側のもの。以前はどの項目も指さなくなった。
+        let target = try InMemoryLibrary(label: "backup-dst")
+        defer { target.close() }
+        _ = await target.apply(file, policies: .all(.overwrite))
+        let imported = try #require(target.favoriteLocations.items.first { $0.path == chosen.path })
+        #expect(target.preferences.fileBrowserStartupFavoriteID == imported.id.uuidString)
+
+        // 同じ Mac へよく使う項目だけを上書きで取り込み直しても(設定は取り込まない)、手元の項目の id は変わらない。
+        var policies = LibraryImportExportService.ImportPolicies.all(.ignore)
+        policies.fileBrowser = .overwrite
+        _ = await source.apply(file, policies: policies)
+        #expect(source.favoriteLocations.item(idString: source.preferences.fileBrowserStartupFavoriteID)?.path == chosen.path)
+    }
+
     // MARK: - 環境設定
 
     @Test("環境設定は、動かしたものが1つ残らず書き出され、取り込むと同じ値に戻る")

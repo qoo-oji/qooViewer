@@ -90,6 +90,19 @@ struct HomeInspectorMetadataSection: View {
     @State private var loadedRow: LoadedRow?
     /// この欄のあるウインドウ(閉じる知らせを、このウインドウのものだけ受ける)。
     @State private var hostWindow = WeakWindowBox()
+    /// 欄が出ている間に本が付け替えられた先の bookID(2026-10-04 の監査 SL-1)。
+    ///
+    /// 欄は作ったときの `bookID` で書く。打ちかけの間に本が改名・移動されると、欄が消えるときの書き込みが古いパスへ行き、実在しない
+    /// 本の行ができた。別のウインドウで改名する経路は、窓がキーでなくなった時点で焦点が外れて先に書く(実測)ので起きないが、窓を移らずに
+    /// 本が動く経路 ―― 自動リネーム、アプリの外での移動を見つけた付け替え ―― が残っていた。アプリの中の変更(`FileSystemChangeCenter`)と
+    /// 付け替えの知らせ(`BookRelocationNotice`)の両方で引き直し、書くときはこちらを使う(`targetBookID`)。
+    /// FSEvents でしか分からないアプリの外での改名は、旧 → 新が分からないので追えない(次の付け替えの知らせまで)。
+    @State private var movedBookID: String?
+
+    /// 書く・読む相手の bookID(付け替えに付いていく。`movedBookID`)。
+    private var targetBookID: String { movedBookID ?? bookID }
+    /// 書く相手の実体。付け替えられていれば新しいパス。
+    private var targetSourceURL: URL { movedBookID.map { URL(fileURLWithPath: $0) } ?? sourceURL }
 
     private struct LoadedRow: Equatable {
         let values: BookMetadataValues
@@ -141,7 +154,7 @@ struct HomeInspectorMetadataSection: View {
             if let anchor { refocus(anchor) }
         }
         .onChange(of: metadataStore.revision) { _, _ in
-            guard didLoad, !isDirty, LoadedRow(metadataStore.metadata(forBookID: bookID)) != loadedRow else { return }
+            guard didLoad, !isDirty, LoadedRow(metadataStore.metadata(forBookID: targetBookID)) != loadedRow else { return }
             load()
         }
         .onDisappear {
@@ -158,6 +171,19 @@ struct HomeInspectorMetadataSection: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             commit()
         }
+        // 本が付け替えられたら、書く相手を新しい bookID へ移す(movedBookID のコメント)。アプリの中の変更は、一覧が選択を
+        // 付け替えてこの欄が作り直される(消えるときに書く)より先に、同じ知らせの中で受ける。
+        .onReceive(FileSystemChangeCenter.defaultForState().changes) { change in
+            followMove(to: change.relocatedPath(for: targetBookID))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .booksDidRelocate)) { note in
+            followMove(to: BookRelocationNotice(note)?.newBookID(for: targetBookID))
+        }
+    }
+
+    private func followMove(to newBookID: String?) {
+        guard let newBookID, newBookID != targetBookID else { return }
+        movedBookID = newBookID
     }
 
     // MARK: - 見出し
@@ -464,9 +490,9 @@ struct HomeInspectorMetadataSection: View {
     /// 登録済みなら DB の値、未登録なら qooMeta で 1 冊だけ読んだ提案(同じ書き手のほかの本とは見比べないので、番号の無い
     /// シリーズは見つからない。一覧の窓なら見つかる)。
     private func load() {
-        let row = metadataStore.metadata(forBookID: bookID)
+        let row = metadataStore.metadata(forBookID: targetBookID)
         draft = row?.values
-            ?? BookMetadataValues(MetadataRulesStore.singleProposal(forBookID: bookID, rules: rulesStore.rules))
+            ?? BookMetadataValues(MetadataRulesStore.singleProposal(forBookID: targetBookID, rules: rulesStore.rules))
         openedValues = draft
         isLocked = row?.isLocked == true
         openedIsLocked = isLocked
@@ -516,6 +542,8 @@ struct HomeInspectorMetadataSection: View {
     /// 欄を離れるたび・消えるたびに書くので、その 1 欄のためにほかの直しまで黙って捨てることになる。読めない文字は欄に残し(赤い案内も
     /// 残る)、直せば次に書く。欄が消えたら捨てる(数でない値はもともと書けない)。
     private func commit() {
+        // 書く相手は付け替えに付いていく(movedBookID。2026-10-04 の監査 SL-1)。
+        let bookID = targetBookID
         guard didLoad, allowsEditing, !secretFolders.contains(path: bookID) else { return }
         guard isDirty || isLocked != openedIsLocked else { return }
         let invalidVolumeSortText = isVolumeSortInvalid ? self.volumeSortText : nil
@@ -573,7 +601,7 @@ struct HomeInspectorMetadataSection: View {
             values.volumeSort = proposed.volumeSort
             values = values.trimmed
         }
-        metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
+        metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: targetSourceURL,
                                                               state: state)])
         if narrowsEditsAfterUnlock {
             MetadataWorkspace.narrowEditsAfterUnlock(bookID: bookID, values: values, written: state, store: metadataStore)

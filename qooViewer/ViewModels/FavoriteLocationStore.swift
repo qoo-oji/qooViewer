@@ -58,8 +58,12 @@ final class FavoriteLocationStore: ObservableObject {
     /// フォルダが無いものだけ**落とす(`BackupFolderPaths.shouldImport`。繋がっていないボリュームの上のものは確かめずに登録する ――
     /// 2026-09-23 の 3 回目の監査の中 5)。`replacingExisting` なら手元の一覧を捨ててから。
     /// - Returns: 登録した数。
+    ///
+    /// **上書きでも、手元にあった同じパスの項目は id をそのまま使う**(2026-10-04 の監査 ST-12)。以前は毎回 id を振り直したので、
+    /// 環境設定「起動時のフォルダ: よく使う項目」(項目の id を持つ)が、同じ Mac で上書きしただけでも外れた。
     @discardableResult
     func importBackup(paths: [String], replacingExisting: Bool) -> Int {
+        let previousIDs = Dictionary(items.map { ($0.path, $0.id) }, uniquingKeysWith: { first, _ in first })
         if replacingExisting { items = [] }
         var added = 0
         let mounts = MountTable.current()
@@ -68,11 +72,26 @@ final class FavoriteLocationStore: ObservableObject {
             guard !items.contains(where: { $0.path == normalized }),
                   BackupFolderPaths.shouldImport(normalized, mounts: mounts)
             else { continue }
-            items.append(Item(id: UUID(), path: normalized))
+            items.append(Item(id: previousIDs[normalized] ?? UUID(), path: normalized))
             added += 1
         }
         save()
         return added
+    }
+
+    /// id の文字列(環境設定 `fileBrowserStartupFavoriteID`)の項目。
+    func item(idString: String) -> Item? {
+        items.first { $0.id.uuidString == idString }
+    }
+
+    /// 取り込みの後で、環境設定「起動時のフォルダ: よく使う項目」の相手を合わせ直す(ST-12)。設定の id が今の一覧のどれでもなく、
+    /// 書き出した側で選んでいた項目のパス(`ExportedFileBrowser.startupFavoritePath`)が一覧にあれば、その項目の id を入れる。
+    /// これより前の JSON(パスを持たない)では何もしない(推測で別の項目を選ばない)。
+    func reconcileStartupFavorite(preferences: AppPreferences, exportedPath: String?) {
+        guard item(idString: preferences.fileBrowserStartupFavoriteID) == nil, let exportedPath else { return }
+        let path = Self.path(for: URL(fileURLWithPath: exportedPath, isDirectory: true))
+        guard let match = items.first(where: { $0.path == path }) else { return }
+        preferences.fileBrowserStartupFavoriteID = match.id.uuidString
     }
 
     /// そのフォルダが登録済みか(`add`と同じ規則でパスをそろえて比べる)。

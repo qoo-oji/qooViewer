@@ -876,7 +876,7 @@ struct BookmarkEditorView: View {
             ) {
                 Button("Cancel", role: .cancel) { pendingDeleteBookmarksBookID = nil }
                 Button("Delete", role: .destructive) {
-                    if let bookID = pendingDeleteBookmarksBookID {
+                    if let bookID = pendingDeleteBookmarksBookID, stillListed(bookID) {
                         DataUndoStack.deleteAllBookmarks(forBookID: bookID, in: bookmarkStore, recordingOn: dataUndo)
                     }
                     pendingDeleteBookmarksBookID = nil
@@ -900,7 +900,7 @@ struct BookmarkEditorView: View {
             ) {
                 Button("Cancel", role: .cancel) { pendingDeleteLayoutBookID = nil }
                 Button("Delete", role: .destructive) {
-                    if let bookID = pendingDeleteLayoutBookID {
+                    if let bookID = pendingDeleteLayoutBookID, stillListed(bookID) {
                         // 確認文が言うとおり狭義のレイアウトだけ(コレクション表紙・切り出し位置・書き出し用のカバーは残す。
                         // 2026-10-04 の監査 BE-2 まで行ごと消していた。LayoutStore.discardPageLayout)。
                         layoutStore.discardPageLayout(forBookID: bookID)
@@ -926,7 +926,7 @@ struct BookmarkEditorView: View {
             ) {
                 Button("Cancel", role: .cancel) { pendingDeleteBookmarksAndLayoutBookID = nil }
                 Button("Delete", role: .destructive) {
-                    if let bookID = pendingDeleteBookmarksAndLayoutBookID {
+                    if let bookID = pendingDeleteBookmarksAndLayoutBookID, stillListed(bookID) {
                         bookmarkStore.deleteAllBookmarks(forBookID: bookID)
                         // 上の「レイアウトをすべて削除」と同じ範囲(監査 BE-2)。
                         layoutStore.discardPageLayout(forBookID: bookID)
@@ -966,7 +966,30 @@ struct BookmarkEditorView: View {
                 Text("The file or folder for “") + Text(openErrorBookName ?? "")
                     + Text("” could not be found. It may have been moved or deleted.")
             }
+            // 編集中の本が付け替えられた(改名・移動・自動リネーム・アプリの外での移動を見つけた付け替え)。選択と出している確認の
+            // 相手を新しい bookID へ移す(2026-10-04 の監査 BE-7。BookRelocationNotice)。以前は選択が古いパスのまま行を失い、今の本か
+            // 先頭の本へ飛んだ。「ブックマークをすべて削除?」を出していれば「削除」で何も消さずに閉じた。一括リネームのシートは自分で
+            // 付いていく(BulkRenameBookmarksSheet.movedBookID ―― ここで書き換えると `.sheet(item:)` が出し直しになる)。
+            .onReceive(NotificationCenter.default.publisher(for: .booksDidRelocate)) { note in
+                guard let notice = BookRelocationNotice(note) else { return }
+                if let id = selectedBookID { selectedBookID = notice.current(id) }
+                if let id = pendingDeleteBookmarksBookID { pendingDeleteBookmarksBookID = notice.current(id) }
+                if let id = pendingDeleteLayoutBookID { pendingDeleteLayoutBookID = notice.current(id) }
+                if let id = pendingDeleteBookmarksAndLayoutBookID {
+                    pendingDeleteBookmarksAndLayoutBookID = notice.current(id)
+                }
+            }
         }
+    }
+
+    /// 確認の後で、相手の本がまだこの一覧の行を持つか(BE-7)。付け替えは知らせで追うが、その間にほかの画面で消された本には何も
+    /// しない(鳴らす)。
+    private func stillListed(_ bookID: String) -> Bool {
+        guard mergedRows.contains(where: { $0.bookID == bookID }) else {
+            NSSound.beep()
+            return false
+        }
+        return true
     }
 
     /// 呼び出し元(「ブックマークの編集」/「レイアウトの編集」)に応じた初期フィルタを適用する

@@ -66,11 +66,26 @@ final class LaunchCoordinator: ObservableObject {
 
     /// activeBookAppStateを更新する。同じインスタンスなら何もしない(不要なobjectWillChange
     /// 発行を避ける)。
+    ///
+    /// **そのウインドウで表示している本が替わったときも知らせる**(`activeBookSubscription`。2026-10-04 の監査 BE-6)。以前は
+    /// 同じウインドウで「次の本」・履歴から別の本・ホームへ戻る、のどれでも AppState が同じなので何も出さず、「ブックマーク・
+    /// レイアウトの編集」ウインドウでは前の本に「読書中」が残り、データの無い前の本の行も一覧に残った(実測。何か別の描き直しが
+    /// 起きるまで)。
     func setActiveBookAppState(_ appState: AppState) {
         guard activeBookAppState !== appState else { return }
         objectWillChange.send()
         activeBookAppState = appState
+        activeBookSubscription = appState.$currentBook
+            .map { $0?.id }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.objectWillChange.send() }
+            }
     }
+
+    /// `activeBookAppState` の今の本の変化の購読(`setActiveBookAppState`)。
+    private var activeBookSubscription: AnyCancellable?
 
     /// 「今読んでいる本」のうち、**記録を残してよいもの**(シークレットウインドウと、記録を残さない本 ―― その場限りの本・
     /// 一時フォルダに書き出した入れ子の書庫 ―― を除く)。保存データを書く独立ウインドウ(「ブックマーク・レイアウトの編集」・

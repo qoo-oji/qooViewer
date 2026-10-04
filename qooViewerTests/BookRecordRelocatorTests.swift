@@ -171,4 +171,61 @@ struct BookRecordRelocatorTests {
         #expect(library.collections.location(for: item).exists, "移した先の本が棚で見つからない扱いになった")
         #expect(library.bookmarks.bookmarks(forBookID: moved.path).first?.fileNodeIdentifier == after)
     }
+
+    // MARK: - 付け替えの知らせ(2026-10-04 の監査 §1-7。BookRelocationNotice)
+
+    /// 届いた付け替えの知らせを控える(並んで走るほかのテストの知らせも届くので、受け手は自分のパスで引く)。
+    private final class NoticeRecorder {
+        private(set) var notices: [BookRelocationNotice] = []
+        private var token: NSObjectProtocol?
+
+        init() {
+            token = NotificationCenter.default.addObserver(forName: .booksDidRelocate, object: nil, queue: nil) { [weak self] note in
+                guard let notice = BookRelocationNotice(note) else { return }
+                MainActor.assumeIsolated { self?.notices.append(notice) }
+            }
+        }
+
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+
+        func newBookID(for bookID: String) -> String? {
+            notices.lazy.compactMap { $0.newBookID(for: bookID) }.first
+        }
+    }
+
+    @Test("付け替え終えたら、画面が握っている bookID のために旧 → 新を知らせる。どのストアにも行の無い本にも答える")
+    func relocatingPostsTheOldToNewNotice() async throws {
+        let library = try InMemoryLibrary(label: "relocator-notice")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("relocator-notice")
+        let shelf = try temporary.directory("shelf")
+        let book = shelf.appendingPathComponent("book-a", isDirectory: true)
+        try makeBookFolder(at: book)
+        _ = try register(book, in: library)
+        let recorder = NoticeRecorder()
+
+        let renamedShelf = temporary.file("shelf-renamed")
+        try FileManager.default.moveItem(at: shelf, to: renamedShelf)
+        await makeRelocator(library).apply(FileSystemChange(relocations: [.init(from: shelf, to: renamedShelf)])).value
+
+        let newPath = renamedShelf.appendingPathComponent("book-a").path
+        #expect(recorder.newBookID(for: book.path) == newPath)
+        // 知らせはストアを書き換え終えた後に届く(受け手が新しい bookID でストアを引ける)。
+        #expect(library.bookmarks.bookmarks(forBookID: newPath).count == 1)
+        // 行の無い本(インスペクタで初めて打っている本)も、同じ知らせで引き直せる。
+        let unknown = shelf.appendingPathComponent("not-registered.cbz").path
+        #expect(recorder.newBookID(for: unknown) == renamedShelf.appendingPathComponent("not-registered.cbz").path)
+        #expect(recorder.newBookID(for: temporary.file("elsewhere").path) == nil)
+    }
+
+    @Test("知らせの引き直しは、移った先にすでに値があればそちらを残し、2 つが同じ先へ移ったら名前順で先のほう")
+    func rekeyingKeepsWhatIsAlreadyAtTheDestination() {
+        let notice = BookRelocationNotice(change: FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/架空/a"), to: URL(fileURLWithPath: "/架空/b")),
+        ]))
+        #expect(notice.rekeyed(["/架空/a": 1, "/架空/c": 3]) == ["/架空/b": 1, "/架空/c": 3])
+        #expect(notice.rekeyed(["/架空/a": 1, "/架空/b": 2]) == ["/架空/b": 2])
+        #expect(notice.rekeyed(Set(["/架空/a/1.jpg", "/架空/c"])) == Set(["/架空/b/1.jpg", "/架空/c"]))
+        #expect(notice.current("/架空/c") == "/架空/c")
+    }
 }

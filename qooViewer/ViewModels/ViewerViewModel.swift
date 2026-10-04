@@ -2534,6 +2534,8 @@ final class ViewerViewModel: ObservableObject {
         // ウインドウで開いていると(「次の本へ」などは、その本が別のウインドウで開いていても自分のウインドウで開く)、両方が同じ
         // 行を握る。以前は毎回すべての項目を書いていたので、片方で向きを変えても、もう片方がページを送るたびに古い向きで
         // 書き戻していた。読書位置は、最後に読んだウインドウのものを残す(従来どおり)。
+        let displayChanged = displayMode != persistedDisplaySettings.displayMode
+            || readingDirection != persistedDisplaySettings.readingDirection
         if displayMode != persistedDisplaySettings.displayMode {
             readingState.displayMode = displayMode
         }
@@ -2550,6 +2552,13 @@ final class ViewerViewModel: ObservableObject {
         // どこにも残らないが、save()自体も呼ばない(他の保留中の変更まで巻き込んで書かないため)。
         guard !skipsPersistence else { return }
         scheduleSave()
+        // 本を開いていない画面(編集ウインドウの右ペイン)の「最後に表示していた向き」を読み直させる(2026-10-04 の監査 BE-5。
+        // LayoutStore.lastShownDisplaySettingsDidChange)。ページ送りだけでは出さない。
+        if displayChanged {
+            NotificationCenter.default.post(
+                name: LayoutStore.lastShownDisplaySettingsDidChange, object: nil, userInfo: ["bookID": book.id]
+            )
+        }
     }
 
     /// 読書位置の行をディスクへ書く(少し待ってまとめて)。シークレットウインドウでは書かない。

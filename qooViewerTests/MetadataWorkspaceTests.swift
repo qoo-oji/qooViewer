@@ -440,6 +440,55 @@ extension MetadataWorkspaceTests {
         #expect(workspace.undoName == nil)
     }
 
+    @Test("付け替えられた本は、作り直さずに新しい bookID の行へ選択・取り消しの歩みごと移り、検索も残る(2026-10-04 の監査 MD-2)")
+    func aRelocatedBookKeepsItsSelectionAndUndo() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let generator = library.makeMetadataGenerator(books: [first, second])
+        generator.start()
+        let workspace = await MetadataWorkspace.open(generator: generator, store: library.metadata)
+        workspace.set(.info, to: ["架空の付記"], for: [first])
+        await workspace.settle()
+        workspace.searchText = "月の庭"
+        workspace.selection = [first]
+        let moved = "/書庫/移した先/[架空工房] 月の庭 1.zip"
+        let change = FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: first), to: URL(fileURLWithPath: moved)),
+        ])
+
+        // アプリでの順(BookRecordRelocator.apply): ストアとメタデータ生成を付け替えてから、知らせが届く。
+        library.metadata.applyBookRelocation(BookRelocationPlan(bookIDs: [first: moved], locators: [:], directoryBookIDs: []))
+        generator.relocate(using: change)
+        workspace.followRelocation(BookRelocationNotice(change: change))
+        await workspace.settle()
+
+        #expect(workspace.row(first) == nil)
+        #expect(workspace.row(moved) != nil)
+        #expect(workspace.selection == [moved])
+        #expect(workspace.searchText == "月の庭")
+        #expect(library.metadata.record(forBookID: moved)?.values.info == "架空の付記")
+        #expect(workspace.undoName != nil, "取り消しの歩みが消えた")
+        workspace.undo()
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: moved)?.values.info != "架空の付記")
+    }
+
+    @Test("一部の本だけ確かめ直したときは、確かめなかった本の「見つからない」を残す(MD-3)")
+    func partialExistenceChecksKeepTheOthers() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        workspace.setMissing([first])
+        #expect(workspace.row(first)?.isMissing == true)
+
+        workspace.setMissing([second], among: [second])
+        #expect(workspace.row(first)?.isMissing == true)
+        #expect(workspace.row(second)?.isMissing == true)
+        workspace.setMissing([], among: [first])
+        #expect(workspace.row(first)?.isMissing == false)
+        #expect(workspace.row(second)?.isMissing == true)
+    }
+
     @Test("メタデータを削除すると、ロックした本でも直していない本でも一覧から消え、DB の行も消える")
     func deletingMetadataRemovesTheBooks() async throws {
         let library = try InMemoryLibrary()

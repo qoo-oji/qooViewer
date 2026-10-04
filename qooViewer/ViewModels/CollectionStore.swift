@@ -1651,6 +1651,8 @@ final class CollectionStore: ObservableObject {
         let collections: [CollectionSnapshot]
         /// 消す前に外した「常に先頭/末尾」の指定(`clearPins(referencing:)`)。
         let clearedPins: [ClearedPin]
+        /// 消す前の「どうなっているか」(`restoreLocations`。2026-10-04 の監査 H-8)。
+        var locations: [UUID: BookLocation] = [:]
 
         var itemIDs: [UUID] { collections.flatMap { $0.items.map(\.id) } }
         var collectionIDs: [UUID] { collections.map(\.id) }
@@ -1756,8 +1758,30 @@ final class CollectionStore: ObservableObject {
         let items: [ItemSnapshot]
         /// 削除で書き換えた `BookCollection.updatedAt` の元の値(「更新日」の並びを戻すため)。
         let previousUpdatedAt: [UUID: Date]
+        /// 外す前の「どうなっているか」(`restoreLocations`。2026-10-04 の監査 H-8)。
+        var locations: [UUID: BookLocation] = [:]
 
         var itemIDs: [UUID] { items.map(\.id) }
+    }
+
+    /// 消す・外す前の「どうなっているか」の控え(取り消しで戻したときに書き戻す)。
+    private func recordedLocations(_ itemIDs: some Sequence<UUID>) -> [UUID: BookLocation] {
+        var result: [UUID: BookLocation] = [:]
+        for id in itemIDs { result[id] = locationByItemID[id] }
+        return result
+    }
+
+    /// 取り消しで戻した本の「どうなっているか」を書き戻し、確かめ直しを頼む(2026-10-04 の監査 H-8)。
+    ///
+    /// 消す・外すときに `locationByItemID` から外すので、以前は戻した本が次の確かめ(起動・アクティブ化・ボリュームの着脱)まで
+    /// 「未確認 = ある」として描かれ、「見つからない」の淡色が消えていた。控えの値をすぐ戻し(淡色が変わらない)、その間に
+    /// 変わっていたら確かめ直しが直す(結果が同じなら `locationByItemID` は書き換わらず、表紙の抽出も走らない)。
+    private func restoreLocations(_ locations: [UUID: BookLocation], restoredIDs: Set<UUID>) {
+        guard !restoredIDs.isEmpty else { return }
+        var next = locationByItemID
+        for (id, location) in locations where restoredIDs.contains(id) && next[id] == nil { next[id] = location }
+        if next != locationByItemID { locationByItemID = next }
+        scheduleExistenceRefresh()
     }
 
     /// `delete(_ collections:)` と同じく消し、控えを返す(表紙のファイルは消さない)。
@@ -1773,9 +1797,10 @@ final class CollectionStore: ObservableObject {
                 clearedPins.append(ClearedPin(libraryID: library.id, collectionID: id, isFirst: false))
             }
         }
-        let record = CollectionDeletionRecord(
+        var record = CollectionDeletionRecord(
             library: nil, collections: collections.map(CollectionSnapshot.init), clearedPins: clearedPins
         )
+        record.locations = recordedLocations(record.itemIDs)
         performDeletion(of: collections)
         return record
     }
@@ -1783,10 +1808,11 @@ final class CollectionStore: ObservableObject {
     /// `delete(_ library:)` と同じく消し、控えを返す(ライブラリが 1 つしか無ければ何もしない)。
     func deleteRecording(_ library: BookLibrary) -> CollectionDeletionRecord? {
         guard allLibraries().count > 1 else { return nil }
-        let record = CollectionDeletionRecord(
+        var record = CollectionDeletionRecord(
             library: LibrarySnapshot(library), collections: library.collections.map(CollectionSnapshot.init),
             clearedPins: []
         )
+        record.locations = recordedLocations(record.itemIDs)
         let collectionIDs = library.collections.map(\.id)
         modelContext.delete(library)
         invalidateLookupCaches()
@@ -1821,6 +1847,7 @@ final class CollectionStore: ObservableObject {
             libraryByID[snapshot.id] = library
         }
         var restoredAny = false
+        var restoredItemIDs = Set<UUID>()
         let existingCollectionIDs = Set(allCollections().map(\.id))
         for snapshot in record.collections where !existingCollectionIDs.contains(snapshot.id) {
             guard let libraryID = snapshot.libraryID, let library = libraryByID[libraryID] else { continue }
@@ -1834,6 +1861,7 @@ final class CollectionStore: ObservableObject {
             }
             modelContext.insert(collection)
             for item in snapshot.items { restoreItem(item, into: collection) }
+            restoredItemIDs.formUnion(snapshot.items.map(\.id))
             restoredAny = true
         }
         for pin in record.clearedPins {
@@ -1848,6 +1876,7 @@ final class CollectionStore: ObservableObject {
         invalidateLookupCaches()
         saveAndNotify()
         reload()
+        restoreLocations(record.locations, restoredIDs: restoredItemIDs)
         return true
     }
 
@@ -1883,7 +1912,8 @@ final class CollectionStore: ObservableObject {
                 previousUpdatedAt[collection.id] = collection.updatedAt
             }
         }
-        let record = ItemRemovalRecord(items: items.map(ItemSnapshot.init), previousUpdatedAt: previousUpdatedAt)
+        var record = ItemRemovalRecord(items: items.map(ItemSnapshot.init), previousUpdatedAt: previousUpdatedAt)
+        record.locations = recordedLocations(record.itemIDs)
         performRemoval(of: items)
         return record
     }
@@ -1892,6 +1922,7 @@ final class CollectionStore: ObservableObject {
     /// コレクションが無くなっていれば、その本は戻せない。1 冊も戻せなければ false。
     func restore(_ record: ItemRemovalRecord) -> Bool {
         var restoredCollections: [UUID: BookCollection] = [:]
+        var restoredItemIDs = Set<UUID>()
         for snapshot in record.items {
             guard let collectionID = snapshot.collectionID, let collection = collection(withID: collectionID),
                   item(withID: snapshot.id) == nil
@@ -1903,6 +1934,7 @@ final class CollectionStore: ObservableObject {
             guard !present else { continue }
             restoreItem(snapshot, into: collection)
             restoredCollections[collectionID] = collection
+            restoredItemIDs.insert(snapshot.id)
             invalidateLookupCaches()
         }
         guard !restoredCollections.isEmpty else { return false }
@@ -1911,6 +1943,7 @@ final class CollectionStore: ObservableObject {
         }
         invalidateLookupCaches()
         saveAndNotify()
+        restoreLocations(record.locations, restoredIDs: restoredItemIDs)
         return true
     }
 

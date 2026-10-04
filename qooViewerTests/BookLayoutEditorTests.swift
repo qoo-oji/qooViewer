@@ -63,6 +63,25 @@ struct BookLayoutEditorTests {
         await viewer.settle()
     }
 
+    @Test("開いたままの右ペインも、ビューアの r キーで変えた向きへ付いていく(2026-10-04 の監査 BE-5)")
+    func anOpenEditorFollowsTheViewersReadingDirection() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.defaultReadingDirectionSetting = .rightToLeft
+        let book = try await harness.makeBook(pageCount: 4)
+        let editor = makeEditor(harness, book)
+        #expect(editor.effectiveReadingDirection == .rightToLeft)
+
+        let viewer = await harness.open(book)
+        viewer.toggleReadingDirection()
+        await viewer.settle()
+
+        // 上書きは作られない(BookReadingState にだけ残る)。以前は、作り直さない限り右ペインは古い向きのままだった。
+        #expect(harness.library.layouts.bookLayoutSettings(forBookID: book.id)?.readingDirectionOverride == nil)
+        #expect(editor.effectiveReadingDirection == .leftToRight)
+        await viewer.settle()
+    }
+
     @Test("行は本のページ順に並び、除外ページだけ読書順の番号を持たない")
     func rowsFollowThePageOrder() async throws {
         let harness = try ViewerHarness()

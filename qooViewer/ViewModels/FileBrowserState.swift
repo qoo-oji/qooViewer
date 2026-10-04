@@ -330,6 +330,28 @@ final class FileBrowserState: ObservableObject {
     }
     /// 起動時のフォルダが「よく使う項目」のときに引く。
     weak var favoriteLocations: FavoriteLocationStore?
+    /// フォルダの許可(ContentView がつなぐ)。付与・取り消しを受けて「アクセスを許可…」の案内を読み直す(`handleFolderAccessChange`)。
+    weak var folderAccess: FolderAccessStore? {
+        didSet {
+            guard folderAccess !== oldValue else { return }
+            folderAccessObservation = folderAccess?.accessChanged.sink { [weak self] in
+                MainActor.assumeIsolated { self?.handleFolderAccessChange() }
+            }
+        }
+    }
+    private var folderAccessObservation: AnyCancellable?
+    /// フォルダの許可が変わった回数。ツリー(FileBrowserTreeView)がこれを見て、開いているのに空の行を読み直す。
+    @Published private(set) var folderAccessRevision = 0
+
+    /// フォルダの許可が付いた・外れた(どのウインドウ・環境設定・よく使う項目の「＋」からでも。2026-10-04 の監査 FBU-5)。
+    ///
+    /// 以前はどの状態も許可の一覧を購読せず、鍵窓の切り替えではペーストボードしか確かめなかったので、ほかの窓で許可を付けても
+    /// 「アクセスを許可…」の案内がフォルダを移り直すまで残り、ツリーの開いた行は空のままだった(アプリは前面のままなので、
+    /// アクティブ化の読み直しも起きない)。案内を出している(読めなかった)ときだけ読み直す。
+    func handleFolderAccessChange() {
+        folderAccessRevision &+= 1
+        if loadError == .needsAccess { reload() }
+    }
     /// 「最近の項目」の中身(FileBrowserLocation の型コメント)。ContentView がつなぐ。履歴が変われば読み直す。
     weak var recentFiles: RecentFilesStore? {
         didSet {

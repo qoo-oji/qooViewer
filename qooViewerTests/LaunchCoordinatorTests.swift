@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -248,5 +249,27 @@ struct LaunchCoordinatorTests {
         #expect(env.coordinator.pendingEditorInitialFocus == nil)
         #expect(env.coordinator.primaryAppState == nil)
         #expect(env.coordinator.allOpenAppStates.isEmpty)
+    }
+
+    @Test("同じウインドウで本が替わっても・ホームへ戻っても知らせる(編集ウインドウの「読書中」。2026-10-04 の監査 BE-6)")
+    func aBookChangeInTheActiveWindowIsPublished() throws {
+        let env = try Environment()
+        defer { env.close() }
+        let state = env.makeAppState()
+        env.coordinator.setActiveBookAppState(state)
+        final class Counter { var value = 0 }
+        let counter = Counter()
+        let subscription = env.coordinator.objectWillChange.sink { counter.value += 1 }
+        defer { subscription.cancel() }
+
+        let url = env.temporary.file("book-a")
+        state.currentBook = MangaBook(id: url.path, title: "book-a", sourceURL: url,
+                                      pages: SamplePages.pages(["p1"]), pageOrderSource: .fileName)
+        #expect(counter.value == 1)
+        state.currentBook = nil
+        #expect(counter.value == 2)
+        // 同じウインドウを選び直しても重ねて知らせない。
+        env.coordinator.setActiveBookAppState(state)
+        #expect(counter.value == 2)
     }
 }

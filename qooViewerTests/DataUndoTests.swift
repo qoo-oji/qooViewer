@@ -299,6 +299,57 @@ struct DataUndoTests {
         #expect(store.bookmarks(forBookID: bookID).count == 4)
     }
 
+    @Test("取り消しを待つ間に本が付け替えられたら、新しいパスとページの鍵で戻る(2026-10-04 の監査 BE-13)")
+    func undoingABookmarkDeletionFollowsARelocation() throws {
+        let library = try InMemoryLibrary(label: "undo-bookmark-moved")
+        defer { library.close() }
+        let store = library.bookmarks
+        let base = "/架空/undo-bookmark-moved-\(UUID().uuidString)"
+        let oldID = base + "/book-a"
+        let newID = base + "/book-b"
+        // フォルダの本のページの鍵は絶対パス(PageKeyRelocation)。
+        store.addBookmark(bookID: oldID, pageIndex: 0, pageKey: oldID + "/001.jpg", name: "一")
+        let stack = DataUndoStack()
+
+        DataUndoStack.deleteAllBookmarks(forBookID: oldID, in: store, recordingOn: stack)
+        BookRelocationNotice.post(FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: oldID), to: URL(fileURLWithPath: newID)),
+        ]))
+        stack.undo()
+
+        #expect(store.bookmarks(forBookID: oldID).isEmpty, "古いパスに行ができた")
+        #expect(store.bookmarks(forBookID: newID).map(\.pageKey) == [newID + "/001.jpg"])
+        stack.redo()
+        #expect(store.bookmarks(forBookID: newID).isEmpty)
+    }
+
+    @Test("コレクションから外した本を取り消すと、「見つからない」の淡色もすぐ戻る(2026-10-04 の監査 H-8)")
+    func undoingARemovalKeepsTheMissingState() async throws {
+        let library = try InMemoryLibrary(label: "undo-removal-missing")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("undo-removal-missing")
+        let store = library.collections
+        let home = try #require(store.libraries.first)
+        let gone = try makeBookFolder(temporary, named: "book-gone")
+        let collection = try #require(store.createCollection(name: "S", in: home, items: pendingItems([gone])))
+        try FileManager.default.removeItem(at: gone)
+        store.scheduleExistenceRefresh()
+        await store.settleExistenceRefresh()
+        let item = try #require(store.items(in: collection, sort: .nameAscending).first)
+        let itemID = item.id
+        #expect(!store.cachedFileExists(for: item))
+        let stack = DataUndoStack()
+
+        DataUndoStack.removeItems([item], in: store, recordingOn: stack)
+        stack.undo()
+
+        // 以前は確かめ直すまで「未確認 = ある」として描かれた。
+        let restored = try #require(store.item(withID: itemID))
+        #expect(!store.cachedFileExists(for: restored))
+        await store.settleExistenceRefresh()
+        #expect(!store.cachedFileExists(for: restored))
+    }
+
     // MARK: - 履歴
 
     @Test("履歴の削除を取り消すと元の位置へ戻る。すべて削除も戻せる")

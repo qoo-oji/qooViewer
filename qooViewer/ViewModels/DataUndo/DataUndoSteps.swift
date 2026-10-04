@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 // 取り消せる削除の 1 回分(DataUndoStep)。どれも「消す前に控えた値」をストアへ渡して書き戻す・もう一度消すだけで、
@@ -8,13 +9,30 @@ import Foundation
 @MainActor
 final class BookmarkDeletionUndo: DataUndoStep {
     private weak var store: BookmarkStore?
-    private let snapshots: [Bookmark.Snapshot]
+    private var snapshots: [Bookmark.Snapshot]
     let title: String
+    /// 本の付け替えの知らせ(`followRelocation`)。
+    private var relocationSubscription: AnyCancellable?
 
     init(store: BookmarkStore, snapshots: [Bookmark.Snapshot]) {
         self.store = store
         self.snapshots = snapshots
         title = String(localized: "Bookmark Deletion", language: AppLanguage.currentLocale)
+        relocationSubscription = NotificationCenter.default.publisher(for: .booksDidRelocate)
+            .sink { [weak self] notification in
+                guard let notice = BookRelocationNotice(notification) else { return }
+                MainActor.assumeIsolated { self?.followRelocation(notice) }
+            }
+    }
+
+    /// 積んでいる間に本が付け替えられたら、控えも新しい bookID・ページの鍵へ移す(2026-10-04 の監査 BE-13)。以前は消した時点の値の
+    /// まま書き戻し、その間に改名した本では古いパスに行ができた(左ペインに古い名前の行が現れ、開くと「見つかりません」)。
+    /// 控えに `bookmarkData` があれば次の起動の外の移動の追従が拾ったが、編集ウインドウの＋・一括リネームの表紙のように持たない控えは
+    /// そのまま残った。
+    func followRelocation(_ notice: BookRelocationNotice) {
+        snapshots = snapshots.map { snapshot in
+            notice.newBookID(for: snapshot.bookID).map(snapshot.relocated(to:)) ?? snapshot
+        }
     }
 
     func undo() -> Bool {

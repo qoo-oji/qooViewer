@@ -159,6 +159,18 @@ extension Bookmark {
         let volumeDeviceNumber: Int64?
         let volumeUUID: String?
 
+        /// 本が付け替えられた後の控え(bookID と、フォルダの本ならページの鍵も。`PageKeyRelocation`)。2026-10-04 の監査 BE-13:
+        /// 消した時点の値のまま書き戻すと、その間に改名・移動された本では古いパスに行ができた。
+        func relocated(to newBookID: String) -> Snapshot {
+            Snapshot(
+                id: id, bookID: newBookID, pageIndex: pageIndex,
+                pageKey: pageKey.map { PageKeyRelocation.relocated($0, fromBookID: bookID, toBookID: newBookID) ?? $0 },
+                name: name, createdAt: createdAt, updatedAt: updatedAt, bookmarkData: bookmarkData,
+                isEpubDerived: isEpubDerived, inodeNumber: inodeNumber,
+                volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+            )
+        }
+
         func makeBookmark() -> Bookmark {
             let bookmark = Bookmark(
                 bookID: bookID, pageIndex: pageIndex, pageKey: pageKey, name: name,

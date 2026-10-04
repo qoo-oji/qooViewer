@@ -143,8 +143,13 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
     /// 最後にビューアで表示していた読み方向(LayoutStore.lastShownDisplaySettings)。effectiveReadingDirection は
     /// ページごとの計算で何度も読まれるので、DB の全件フェッチを毎回しないよう控えておく。作ったときと load()、
-    /// この本宛ての layoutDataDidChange で読み直す(BookReadingState 自身には変更通知が無い)。
-    private var lastShownReadingDirection: ReadingDirection?
+    /// この本宛ての layoutDataDidChange と lastShownDisplaySettingsDidChange で読み直す(2026-10-04 の監査 BE-5 まで、
+    /// BookReadingState の変化は誰も知らせず、ビューアの r キーで向きを変えても右ペインは古い向きのままだった)。
+    /// 値が変わったら描き直させる(読み方向の表示は effectiveReadingDirection を直に読む)。
+    private var lastShownReadingDirection: ReadingDirection? {
+        didSet { if lastShownReadingDirection != oldValue { objectWillChange.send() } }
+    }
+    private var lastShownDisplayObserver: NSObjectProtocol?
 
     /// この本のレイアウトデータが、このViewModel自身の書き込みメソッドを経由せずに変更された
     /// 場合(例: BookmarkListView.swift「レイアウトを全削除」ボタンがlayoutStore.
@@ -181,11 +186,22 @@ final class BookLayoutEditorViewModel: ObservableObject {
                 self?.refreshEffectiveIndices()
             }
         }
+        lastShownDisplayObserver = NotificationCenter.default.addObserver(
+            forName: LayoutStore.lastShownDisplaySettingsDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard notification.userInfo?["bookID"] as? String == ownBookID else { return }
+                self?.reloadLastShownReadingDirection()
+            }
+        }
     }
 
     deinit {
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
+        }
+        if let lastShownDisplayObserver {
+            NotificationCenter.default.removeObserver(lastShownDisplayObserver)
         }
         // load()で開いたセキュリティスコープ付きアクセスを閉じる(securityScopedURLのコメント参照)。
         // pageLoaderが既に開いているファイルハンドルはこの呼び出しでは無効にならないため、

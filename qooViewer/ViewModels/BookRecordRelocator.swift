@@ -56,9 +56,12 @@ final class BookRecordRelocator {
             guard !relocations.isEmpty else { return }
             var ordered = FileSystemChange(relocations: relocations)
             ordered.relocationsAreSimultaneous = change.relocationsAreSimultaneous
+            // 付け替え終えた(または付け替える行が無かった)ことを、画面の側の bookID のために知らせる(BookRelocationNotice の
+            // 型コメント。2026-10-04 の監査 §1-7)。行の無い本にも出す ―― インスペクタで初めて打っている本も付いていく。
+            let planned = ordered
+            defer { BookRelocationNotice.post(planned) }
             let known = self.knownBookIDs()
             guard !known.isEmpty else { return }
-            let planned = ordered
             let plan = await Task.detached(priority: .utility) {
                 BookRelocationPlan.make(knownBookIDs: known, change: planned)
             }.value

@@ -17,7 +17,7 @@ import Combine
 /// 環境設定の「アクセス権」タブから、許可済みフォルダの一覧表示・追加・削除ができる。
 @MainActor
 final class FolderAccessStore: ObservableObject {
-    struct Entry: Identifiable, Hashable {
+    nonisolated struct Entry: Identifiable, Hashable, Sendable {
         let url: URL
         var id: String { url.path }
 
@@ -26,16 +26,85 @@ final class FolderAccessStore: ObservableObject {
         /// どこを指しているか分かりづらい。Finderが表示するのと同じ名前
         /// (`.localizedNameKey`)を優先的に使うことで、ルートフォルダなら「Macintosh HD」、
         /// 通常のフォルダならそのフォルダ名が表示されるようにする。
-        var displayName: String {
-            if let localizedName = try? url.resourceValues(forKeys: [.localizedNameKey]).localizedName,
+        ///
+        /// **作るときに 1 度だけ求める**(2026-10-04 の監査 ST-16)。以前は環境設定の一覧を描くたびに `resourceValues` を
+        /// 引いていて、応答しない共有の許可があるとメインが止まりえた。ネットワークボリュームの上では問い合わせずにパスの
+        /// 最後の部分を使う(共有のルートはマウントポイントの名前 = 共有の名前で足りる)。
+        let displayName: String
+
+        init(url: URL, mounts: MountTable = .current()) {
+            self.url = url
+            displayName = Self.displayName(of: url, mounts: mounts)
+        }
+
+        static func displayName(of url: URL, mounts: MountTable) -> String {
+            if !mounts.isRemote(url), !mounts.isOnAnUnmountedVolume(url),
+               let localizedName = try? url.resourceValues(forKeys: [.localizedNameKey]).localizedName,
                !localizedName.isEmpty {
                 return localizedName
             }
             return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
         }
+
+        static func == (a: Entry, b: Entry) -> Bool { a.url == b.url }
+        func hash(into hasher: inout Hasher) { hasher.combine(url) }
     }
 
-    @Published private(set) var entries: [Entry] = []
+    /// 開いている(解決できてアクセスを始めた)フォルダ。`isPathCovered` はこれだけを見る(解決の済む前は「許可なし」 ――
+    /// `reloadInBackground` の ■)。
+    @Published private(set) var entries: [Entry] = [] {
+        didSet {
+            guard entries != oldValue else { return }
+            rebuildGrants()
+            accessChanged.send()
+        }
+    }
+
+    /// 保存してある許可 1 件(環境設定「フォルダのアクセス権」の一覧の 1 行。2026-10-04 の監査 ST-3)。
+    ///
+    /// 以前の一覧は `entries`(解決できて開いたフォルダ)だけを並べたので、外したボリューム・解決中・解決できなかった許可は見えず、
+    /// 取り消せなかった(それだけなら「まだどのフォルダにもアクセスを許可していません」と出た)。いまは保存したブックマークから
+    /// 作り、状態を添えて、どれでも取り消せる。**ファイルには触らない**(記録したパスはブックマークのデータから読むだけ)。
+    nonisolated struct Grant: Identifiable, Hashable, Sendable {
+        enum Status: Hashable {
+            /// 解決できて、アクセスを開いている。
+            case active
+            /// 記録したパスのボリュームが繋がっていない(繋げば効く)。
+            case notConnected
+            /// ネットワークボリュームの上で、裏で解決している最中。
+            case resolving
+            /// 解決できなかった(消えた・ブックマークが壊れた)。
+            case unresolvable
+        }
+
+        let bookmarkData: Data
+        /// ブックマークに記録したパス(読めなければ nil)。
+        let recordedPath: String?
+        let status: Status
+        /// 開いているフォルダ(`active` のとき)。
+        let entry: Entry?
+        var id: Data { bookmarkData }
+
+        /// 一覧に出す名前とパス。開いていれば今の場所、そうでなければ記録したパス。
+        var displayName: String {
+            if let entry { return entry.displayName }
+            guard let recordedPath else { return "" }
+            let name = (recordedPath as NSString).lastPathComponent
+            return name.isEmpty ? recordedPath : name
+        }
+
+        var path: String { entry?.url.path ?? recordedPath ?? "" }
+    }
+
+    /// 保存してある許可のすべて(`Grant`)。`entries` と保存したブックマーク・裏の解決が変わるたびに作り直す。
+    @Published private(set) var grants: [Grant] = []
+
+    /// 開いているフォルダ(`entries`)が変わった(差し替えの**後**に送る)。付与でも取り消しでも送る。ほかの窓の「アクセスを許可…」の
+    /// 案内・ツリーの空の行が読み直す契機(2026-10-04 の監査 FBU-5。FileBrowserState.folderAccess)。
+    let accessChanged = PassthroughSubject<Void, Never>()
+
+    /// ブックマーク → それを解決して開いたフォルダのパス(`Grant` の状態と、取り消したときに閉じるフォルダを、解決し直さずに知るため)。
+    private var resolvedPathByBookmark: [Data: String] = [:]
 
     /// アクセス権(セキュリティスコープ付きブックマーク)の保存先。環境設定「リセット」の
     /// 「すべてのデータを削除」は、UserDefaultsのドメインを丸ごと消したうえで**このキーだけ**を
@@ -53,8 +122,8 @@ final class FolderAccessStore: ObservableObject {
     ///     `_ = url.startAccessingSecurityScopedResource()`していたのはこの穴埋め。
     ///     そちらは対になるstopが無く、呼ぶたびにカーネルリソースを漏らしていた)
     ///   ・それまで開いていたURLオブジェクトはstopされないまま捨てられる
-    /// という2つの漏れが同時に起きていた。開閉の管理をこのストアに閉じ、reload()のたびに
-    /// 差分だけを開閉する。
+    /// という2つの漏れが同時に起きていた。開閉の管理をこのストアに閉じ、差分だけを開閉する
+    /// (足すのは `adoptResolvedFolder`、閉じるのは `close(paths:)` と `reloadInBackground` の外れたボリューム)。
     private var accessedURLsByPath: [String: URL] = [:]
 
     /// アクセス権の保存先。通常はアプリの `UserDefaults.standard` で、テストだけが専用の
@@ -89,16 +158,31 @@ final class FolderAccessStore: ObservableObject {
     /// 裏で解決している最中のブックマーク(ブックマークに書かれたパス → その解決の仕事)。
     /// 待ちたい所(`waitForPendingResolutions`)が、関係するものだけを待てるようにパスで持つ。
     private var pendingResolutions: [String: Task<Void, Never>] = [:]
-    /// 解決の世代。同期の `reload()`(追加・削除・名前の変更)や次の裏の解決が始まったら進め、古い解決の結果は捨てる。
+    /// 解決の世代。次の裏の解決が始まったら進め、古い解決の結果は捨てる(2026-10-04 の監査 ST-16 で、全部をメインで解決し直す
+    /// 同期の `reload()` は無くした ―― 追加・取り消しは記録したパスで照合し、名前の変更は動いたフォルダだけを解決し直す)。
     private var resolutionGeneration = 0
 
     private var volumeObservers: [NSObjectProtocol] = []
 
     /// アプリの中で、許可したフォルダ(またはその親)の名前を変えた・移した(AppStores.handleFileSystemChange から)。
-    /// 一覧のパスが古いままだと `isPathCovered` が新しいパスを「許可なし」と答えるので、解決し直す(ブックマークは移動を追う)。
+    /// 一覧のパスが古いままだと `isPathCovered` が新しいパスを「許可なし」と答えるので、そのフォルダだけ閉じて解決し直す
+    /// (ブックマークは移動を追う)。以前は全部のブックマークをメインで解決し直していた(2026-10-04 の監査 ST-16 ―― ローカルの
+    /// ものはその場で、ネットワークの上のものは裏で。`reloadInBackground`)。
     func handleFileSystemChange(_ change: FileSystemChange) {
-        guard entries.contains(where: { change.relocatedPath(for: $0.url.path) != nil }) else { return }
-        reload()
+        let moved = Set(entries.filter { change.relocatedPath(for: $0.url.path) != nil }.map(\.id))
+        guard !moved.isEmpty else { return }
+        close(paths: moved)
+        reloadInBackground()
+    }
+
+    /// 開いているフォルダを閉じて一覧から外す(取り消し・移動の後。解決はしない)。
+    private func close(paths: Set<String>) {
+        for path in paths {
+            accessedURLsByPath.removeValue(forKey: path)?.stopAccessingSecurityScopedResource()
+        }
+        resolvedPathByBookmark = resolvedPathByBookmark.filter { !paths.contains($0.value) }
+        let kept = entries.filter { !paths.contains($0.id) }
+        if kept.count != entries.count { entries = kept }
     }
 
     deinit {
@@ -127,25 +211,73 @@ final class FolderAccessStore: ObservableObject {
             relativeTo: nil
         ) else { return false }
 
+        // 同じパス、または新しく許可するフォルダの配下(子孫)にあたる既存の許可を取り除く。**照合は記録したパスで**(2026-10-04 の
+        // 監査 ST-16。以前は全部のブックマークをメインで解決して比べたので、応答しない共有の許可が 1 つあると、追加のたびに止まりえた)。
+        // 取り除いた許可で開いていたフォルダも、その配下なので閉じる(新しい許可が覆う)。
         var bookmarks = rawBookmarks()
-        bookmarks.removeAll { data in
-            guard let existingURL = resolvedURL(from: data) else { return false }
-            // 同じパス、または新しく許可するフォルダの配下(子孫)にあたる既存の許可を取り除く。
-            return existingURL.path == url.path || isAncestor(url, of: existingURL)
+        let redundant = bookmarks.filter { data in
+            guard let recorded = Self.recordedPath(of: data) else { return false }
+            return isAncestor(url, of: URL(fileURLWithPath: recorded, isDirectory: true))
         }
+        bookmarks.removeAll { redundant.contains($0) }
         bookmarks.append(newData)
         defaults.set(bookmarks, forKey: Self.defaultsKey)
-        reload()
+        close(paths: Set(redundant.compactMap { resolvedPathByBookmark[$0] ?? Self.recordedPath(of: $0) }))
+        // 新しい許可だけを解決して開く(利用者が今パネルで選んだフォルダなので応答する。呼び出し側とテストは、戻った時点で
+        // `isPathCovered` が新しい答えを返すことを当てにしている)。
+        // `accessGained`(裏の解決で開いた、の知らせ)は送らない ―― 以前の追加と同じく、起動直後に見送った仕事のやり直しは頼まない
+        // (`accessChanged` は送る)。
+        let resolved = BookmarkResolution.resolve(newData) ?? url
+        adoptResolvedFolder(resolved, from: newData, announcesGain: false)
+        rebuildGrants()
         return true
     }
 
-    /// 許可を取り消す。実際のstopAccessingSecurityScopedResource()は、この後のreload()が
-    /// 差分として行う(accessedURLsByPathのコメント参照)。
+    /// 許可を取り消す(開いているフォルダから)。そのフォルダを開いた許可をすべて取り消す。
     func remove(_ entry: Entry) {
+        for grant in grants where grant.entry?.id == entry.id { remove(grant) }
+    }
+
+    /// 許可を取り消す(環境設定の一覧の 1 行。開いていない ―― 外したボリューム・解決できない ―― 許可も取り消せる。ST-3)。
+    /// 照合はブックマークのデータそのもの(解決しない。ST-16)。開いていたフォルダは、ほかの許可が同じフォルダを開いていなければ閉じる。
+    func remove(_ grant: Grant) {
         var bookmarks = rawBookmarks()
-        bookmarks.removeAll { resolvedURL(from: $0)?.path == entry.url.path }
+        bookmarks.removeAll { $0 == grant.bookmarkData }
         defaults.set(bookmarks, forKey: Self.defaultsKey)
-        reload()
+        let openedPath = resolvedPathByBookmark.removeValue(forKey: grant.bookmarkData) ?? grant.entry?.id
+        pendingResolutions.removeValue(forKey: grant.recordedPath ?? "")
+        if let openedPath, !resolvedPathByBookmark.values.contains(openedPath) {
+            close(paths: [openedPath])
+        }
+        rebuildGrants()
+    }
+
+    /// ブックマークに記録したパス(データを読むだけで、ファイルにもボリュームにも触らない)。
+    nonisolated static func recordedPath(of data: Data) -> String? {
+        URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
+    }
+
+    /// 環境設定の一覧(`grants`)を作り直す。ファイルには触らない(マウント表を読むだけ)。
+    private func rebuildGrants() {
+        let mounts = MountTable.current()
+        let entriesByPath = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let next = rawBookmarks().map { data -> Grant in
+            let recorded = Self.recordedPath(of: data)
+            if let entry = (resolvedPathByBookmark[data] ?? recorded).flatMap({ entriesByPath[$0] }) {
+                return Grant(bookmarkData: data, recordedPath: recorded, status: .active, entry: entry)
+            }
+            let status: Grant.Status
+            if let recorded, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: recorded, isDirectory: true)) {
+                status = .notConnected
+            } else if let recorded, pendingResolutions[recorded] != nil {
+                status = .resolving
+            } else {
+                status = .unresolvable
+            }
+            return Grant(bookmarkData: data, recordedPath: recorded, status: status, entry: nil)
+        }
+        .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        if next != grants { grants = next }
     }
 
     /// 指定したURLが、既に許可済みのいずれかのフォルダ自身か、その配下(子孫)に
@@ -189,45 +321,6 @@ final class FolderAccessStore: ObservableObject {
         defaults.array(forKey: Self.defaultsKey) as? [Data] ?? []
     }
 
-    private func resolvedURL(from data: Data) -> URL? {
-        // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
-        BookmarkResolution.resolve(data)
-    }
-
-    /// 追加・削除・名前の変更のあと(利用者の操作の直後)。すべてのブックマークをその場で解決し直す。
-    /// 呼び出し側(と `add` の直後に `isPathCovered` を訊くテスト)は、戻った時点で一覧が新しいことを当てにしている。
-    private func reload() {
-        // 裏で走っている解決の結果は捨てる(ここで全部を解決し直すので、後から届く古い結果で一覧を書き換えない)。
-        resolutionGeneration &+= 1
-        pendingResolutions = [:]
-        // 繋がっていないボリュームを指すブックマークは解決しない(解決はディスクイメージを勝手にマウントし直す・秒単位で止まる
-        // ことがある。BookLocationResolver のコメント)。パスはブックマークに書かれた値を読むだけで、ファイルには触らない。
-        // 保存したブックマーク自体は残す(繋げば、上のボリュームの知らせでまた解決する)。
-        let mounts = MountTable.current()
-        let newEntries = rawBookmarks()
-            .compactMap { data -> Entry? in
-                let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
-                if let path, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: true)) { return nil }
-                return resolvedURL(from: data).map(Entry.init)
-            }
-            .sorted { $0.url.path < $1.url.path }
-
-        // 一覧から消えたフォルダのアクセスを閉じる。
-        let newPaths = Set(newEntries.map(\.id))
-        for (path, url) in accessedURLsByPath where !newPaths.contains(path) {
-            url.stopAccessingSecurityScopedResource()
-            accessedURLsByPath.removeValue(forKey: path)
-        }
-        // 新しく現れたフォルダのアクセスを開く(起動時の復元も、追加直後も同じ経路になる)。
-        for entry in newEntries where accessedURLsByPath[entry.id] == nil {
-            if entry.url.startAccessingSecurityScopedResource() {
-                accessedURLsByPath[entry.id] = entry.url
-            }
-        }
-
-        entries = newEntries
-    }
-
     /// 起動時とボリュームの取り付け・取り外しの知らせで、**メインを止めずに**解決し直す(2026-09-27、表示の切り替えの監査の 11)。
     ///
     /// - いま一覧にあるフォルダ(開いているもの)は解決し直さずにそのまま使う(2026-09-23 の 3 回目の監査の中 10 ―― 以前の
@@ -255,11 +348,17 @@ final class FolderAccessStore: ObservableObject {
         }
         if kept.count != entries.count { entries = kept }
 
+        resolvedPathByBookmark = resolvedPathByBookmark.filter { keptPaths.contains($0.value) }
+        defer { rebuildGrants() }
         for data in rawBookmarks() {
-            let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path
+            let path = Self.recordedPath(of: data)
+            if resolvedPathByBookmark[data] != nil { continue }
             if let path {
                 if mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: true)) { continue }
-                if keptPaths.contains(path) { continue }
+                if keptPaths.contains(path) {
+                    resolvedPathByBookmark[data] = path
+                    continue
+                }
             }
             // ネットワークボリューム(MNT_LOCAL でないもの)の上のものだけを裏へ回し、ローカルのものは今までどおりその場で解決する。
             // 止まるのは応答しない共有で、ローカルの解決は数 ms。起動直後の仕事(スマートライブラリの集め直し・ファイルブラウザの
@@ -267,31 +366,34 @@ final class FolderAccessStore: ObservableObject {
             // ローカルのフォルダについては今までどおり起こさない(解決の済む前は「許可なし」として扱う ―― 下の ■)。
             // パスを読めないブックマーク(壊れている等)もその場で解決を試す(以前の同期の経路と同じ)。
             guard let path, mounts.isRemote(URL(fileURLWithPath: path, isDirectory: true)) else {
-                if let url = BookmarkResolution.resolve(data) { adoptResolvedFolder(url) }
+                if let url = BookmarkResolution.resolve(data) { adoptResolvedFolder(url, from: data) }
                 continue
             }
             let key = path
             pendingResolutions[key] = Task { [weak self] in
                 // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
-                let url = await FileIO.perform { BookmarkResolution.resolve(data) }
-                guard let self, self.resolutionGeneration == generation else { return }
-                self.pendingResolutions.removeValue(forKey: key)
-                guard let url else { return }
-                self.adoptResolvedFolder(url)
+                // 名前(Entry.displayName)も同じ糸の上で求める(ネットワークの上では問い合わせない ―― Entry のコメント)。
+                let entry = await FileIO.perform { BookmarkResolution.resolve(data).map { Entry(url: $0) } }
+                // 待つ間に取り消された許可(`remove(_:)` が pendingResolutions から外す)は開かない。
+                guard let self, self.resolutionGeneration == generation,
+                      self.pendingResolutions.removeValue(forKey: key) != nil else { return }
+                guard let entry else { return self.rebuildGrants() }
+                self.adoptResolvedFolder(entry.url, from: data, entry: entry)
             }
         }
     }
 
-    /// 裏で解決したフォルダを開いて一覧へ足す。
-    private func adoptResolvedFolder(_ url: URL) {
+    /// 解決したフォルダを開いて一覧へ足す。
+    private func adoptResolvedFolder(_ url: URL, from data: Data, entry: Entry? = nil, announcesGain: Bool = true) {
         let path = url.path
-        // 別のブックマーク(同じフォルダを指す古いもの)が先に足していれば何もしない。
-        guard !entries.contains(where: { $0.id == path }) else { return }
+        resolvedPathByBookmark[data] = path
+        // 別のブックマーク(同じフォルダを指す古いもの)が先に足していれば、一覧はそのまま(状態だけ作り直す)。
+        guard !entries.contains(where: { $0.id == path }) else { return rebuildGrants() }
         if accessedURLsByPath[path] == nil, url.startAccessingSecurityScopedResource() {
             accessedURLsByPath[path] = url
         }
-        entries = (entries + [Entry(url: url)]).sorted { $0.url.path < $1.url.path }
-        accessGained.send()
+        entries = (entries + [entry ?? Entry(url: url)]).sorted { $0.url.path < $1.url.path }
+        if announcesGain { accessGained.send() }
     }
 
     /// 裏の解決がまだ済んでいない許可のうち、`url` を覆いうるもの(`url` の祖先を指すもの)を待つ。

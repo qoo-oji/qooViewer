@@ -138,7 +138,7 @@ struct OpenBookExportSheet: View {
                 // タイトル・著者名(ユーザー要望: 書き出しウインドウと同じ項目をここにも)。
                 // 初期値の決め方も同じで、メタデータの登録があればそれを、無ければ
                 // ファイル名/フォルダ名からの推測を入れる
-                // (BookExportViewModel.prepareOpenBook / seedTitleAndAuthorIfNeeded参照)。
+                // (BookExportViewModel.prepareOpenBook / seedTitleAndAuthor参照)。
                 GridRow {
                     Text("Title")
                     TextField("", text: viewModel.titleBinding(forBookID: book.id))

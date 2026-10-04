@@ -418,6 +418,14 @@ final class LayoutStore: ObservableObject {
         return (state.readingDirection, state.displayMode)
     }
 
+    /// `lastShownDisplaySettings` の値(`BookReadingState` の読み方向・見開き/単ページ)が変わった、という知らせ。userInfo の
+    /// "bookID" はその本。出すのはビューア(`ViewerViewModel.persistState`)で、受けるのは本を開いていない画面(ブックマークと
+    /// レイアウトの編集ウインドウの右ペイン)。2026-10-04 の監査 BE-5: `BookReadingState` には変更の知らせが無く、上書きの無い本を
+    /// r キーで左開きに直しても、開いていた右ペインは「右開き」のまま、見開き右/左を右開きとして計算して書いた。
+    /// `.layoutDataDidChange` は使わない ―― あちらを受けるもの(開いている全冊のビューア・書き出しウインドウの読み直し・カバー名の
+    /// 控え)は、ページをめくるたびに出るこの値に関わらない。
+    static let lastShownDisplaySettingsDidChange = Notification.Name("qooViewer.lastShownDisplaySettingsDidChange")
+
     /// bookIDに対応するBookLayoutSettingsを取得し、無ければ新規作成して返す(挿入済み、
     /// 未保存)。新規作成時は、現在のbookの指紋を記録しておく(以後の差し替え検知の基準になる)。
     /// 実際に何らかのレイアウトデータを書き込む直前にだけ呼ぶ(単に「参照したいだけ」の場合は

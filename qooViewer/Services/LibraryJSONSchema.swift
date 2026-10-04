@@ -507,6 +507,11 @@ struct ExportedFileBrowser: Codable {
     /// 自動リネームの規則。**対象フォルダからは端末固有のものを落として書く**
     /// (`ExportedAutoRenameRule` のコメント)。
     var autoRenameRules: [ExportedAutoRenameRule]
+    /// 環境設定「起動時のフォルダ: よく使う項目」で選んでいる項目のパス(選んでいなければ nil。2026-10-04 の監査 ST-12)。
+    /// 設定(`qooViewer.pref.fileBrowser.startupFavoriteID`)が持つのは項目の id で、項目は取り込むたびに id を振り直すので、
+    /// 別の Mac へ・上書きで取り込むと選んだ項目が外れた。取り込み側はこのパスの項目の id を設定へ入れ直す
+    /// (`FavoriteLocationStore.reconcileStartupFavorite`)。省略できる(これより前の JSON には無い)。
+    var startupFavoritePath: String?
 }
 
 /// 自動リネームの規則 1 つ。`AutoRenameRule` をそのまま `Codable` で書けるが、対象フォルダが

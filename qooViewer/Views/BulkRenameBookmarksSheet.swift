@@ -67,21 +67,37 @@ struct BulkRenameBookmarksSheet: View {
     /// 従来順になる。Bookmark.pageKeyのコメント参照 ―― 並びが入れ替わる命名の本で、かつ
     /// キャッシュも無い、という組み合わせでのみ従来の不正確さが残る)。
     @State private var coverPageKey: String?
+    /// シートを出している間に本が付け替えられた先の bookID(2026-10-04 の監査 BE-7)。以前は出した時点の bookID のまま適用し、
+    /// 改名・移動された本では、古いパスに「表紙」のブックマークを作った(左ペインに古い名前の行が現れ、`bookmarkData` を持たない
+    /// ので外の移動の追従も拾わない)。シートは出したまま(親の `pendingBulkRenameBookID` を書き換えると `.sheet(item:)` が
+    /// 出し直しになる)、相手だけをここで移す。
+    @State private var movedBookID: String?
+
+    /// いまの相手の bookID(付け替えに付いていく)。
+    private var currentBookID: String { movedBookID ?? bookID }
 
     /// このシートが対象にするブックマーク(ページ順)。
     private var sortedBookmarks: [Bookmark] {
-        bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
+        bookmarkStore.bookmarks(forBookID: currentBookID).sorted { $0.pageIndex < $1.pageIndex }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            content(for: bookID)
+            content(for: currentBookID)
             Divider()
             bottomBar
         }
         .frame(minWidth: 420, minHeight: 480)
         .onAppear { initializeDefaultsIfNeeded() }
         .task(id: bookID) { coverPageKey = await resolveCoverPageKey() }
+        .onReceive(NotificationCenter.default.publisher(for: .booksDidRelocate)) { note in
+            guard let new = BookRelocationNotice(note)?.newBookID(for: currentBookID) else { return }
+            // フォルダの本は表紙のページの鍵も絶対パス(PageKeyRelocation)。
+            if let key = coverPageKey {
+                coverPageKey = PageKeyRelocation.relocated(key, fromBookID: currentBookID, toBookID: new) ?? key
+            }
+            movedBookID = new
+        }
     }
 
     /// 実質的な先頭ページ(実効順の1ページ目)の鍵を、本体を読み込まずにキャッシュから求める
@@ -116,7 +132,7 @@ struct BulkRenameBookmarksSheet: View {
             .keyboardShortcut(.cancelAction)
 
             Button("Apply") {
-                applyRenaming(bookID: bookID, bookmarks: sortedBookmarks)
+                applyRenaming(bookID: currentBookID, bookmarks: sortedBookmarks)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)

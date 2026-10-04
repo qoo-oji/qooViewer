@@ -1751,3 +1751,61 @@ TW-21・MD-5・MD-8・MD-12・SL-3・SL-9・X-1(1-4 に近い)・BE-14。
 
 docs: 15(「すぐに削除…」の消しきれないもの・macOS が要るフォルダ・淡色の条件・開いている本の「置き換える」・自動リネームの「元の名前に戻す」)、
 06(ゴミ箱の中の本の追従、シークレットフォルダの書き口の一覧)、04(一時コピーの寿命と除外ページの行)、14(表紙の zip の読み込みの母体)、CLAUDE.md。
+
+### 段 4(2026-10-04)
+
+**形の決定**: 付け替えの知らせ `BookRelocationNotice`(`.booksDidRelocate`、Services/BookRelocation.swift)を作り、付け替えを終えた 2 か所 ――
+`BookRecordRelocator.apply`(アプリの中の操作も、起動後の `ExternalMoveSweeper`・コレクションの実在確認・フォルダの設定の追従・メタデータの編集ウインドウが
+見つけた外の移動も、ここを通る)と `AppState.open` の開いたときの追従 ―― が、ストアと読書位置を書き換え終えた直後に、付け替えに使った `FileSystemChange` を
+載せて出す。受け手は握っている bookID を `newBookID(for:)` で引き直す。採らなかった案: (1) 画面が `FileSystemChangeCenter` を購読する ―― あの箱は
+アプリの中の操作しか運ばず、外の移動を受けられない(インスペクタだけは、一覧が選択を付け替えて欄が作り直されるより先に要るので両方を受ける)。
+(2) ストアの知らせ(`relocatedBookIDsUserInfoKey`)に旧 → 新を載せる ―― ストアごとに「そのストアで動いた行」しか言えず(移った先に行があれば動かない)、
+メタデータのストアは本を問わない知らせを出すので、画面が 5 つを継ぎ合わせることになる。知らせは行の無い本(付け替える行が無い変更)にも出す。
+CLAUDE.md と docs/06「移動・リネームへの追従」に「bookID を握る UI はこの知らせを受ける」を足した。
+
+- **TW-5**(直した): `BookExportViewModel.followRelocation` がチェック・題と著者の編集・種・直に渡された URL を新しい bookID へ移し、行もその場で
+  書き換え、走っている読み直しは世代を進めて捨てる。書き出しの最中は届いた知らせを控え、書く直前(と本を読み終えた後)に行を今の bookID で引く。
+  自動リネームの `inUsePaths` が書き出し中の本を守らない点は直していない(範囲外。付け替えに付いていくので失敗はしなくなった)。
+  テスト `BookExportViewModelTests.checksAndEditsFollowARelocatedBook`。
+- **TW-1(= MD-1)**(直した): 種を `seededTitles` / `seededAuthors` に別に控え、欄が種のままなら読み直しのたびに今の種へ入れ替える(題と著者は別々)。
+  MD-15(a)(題が空の行)は触っていない。テスト `seededTitlesFollowTheMetadataUntilEdited`。
+- **TW-2**(直した): `CoverOverrideController` が `.layoutDataDidChange` を受けて控えを捨て(本ごと / 付け替えなら関わった本 / それ以外は全部)、
+  本ごとの世代を進める。セルの `.task(id:)` は `coverNameTaskID`(本 + 世代)。求めている途中で世代が進んだ結果は書かない。§5 の
+  CoverOverrideController.swift:68-69 のコメントはこれで事実になった。テスト `coverNamesAreDroppedWhenAnotherWindowChangesTheCover`。
+- **SL-1**(直した): `HomeInspectorMetadataSection` が `FileSystemChangeCenter` と付け替えの知らせで `movedBookID` を引き直し、読む・書く相手にする。
+  FSEvents でしか分からない外での改名は旧 → 新が分からないので追えない。View の状態なのでテストは足せない(実機)。
+- **BE-7**(直した): 編集ウインドウが付け替えの知らせで `selectedBookID` と 3 つの削除の確認の相手を移し、確認の後に相手がもう一覧に無ければ何も
+  消さずに鳴らす(`stillListed`)。一括リネームのシートは出したまま自分で相手を移す(親の id を書き換えると `.sheet(item:)` が出し直しになる)。
+  「表紙」のページの鍵も `PageKeyRelocation` で移す。View の状態なのでテストは足せない(実機)。
+- **BE-13**(直した): `BookmarkDeletionUndo` が付け替えの知らせで控え(bookID・フォルダの本のページの鍵。`Bookmark.Snapshot.relocated(to:)`)を移す。
+  コレクションの削除・外したの控えは移していない(戻した本は実在確認がブックマークで追って付け替える)。テスト `DataUndoTests.undoingABookmarkDeletionFollowsARelocation`。
+- **MD-2**(直した): 付け替えで中身を作り直さない。`MetadataWorkspace.followRelocation` が移った本を覚え、メタデータ生成の次の回が新しい bookID の
+  行を並べたときに選択・灰色・段の選択・取り消しの歩みを移す(`carryRelocations`)。書き換えていたセルが古い bookID で確定しても新しい行へ書く
+  (`currentID`)。ストアの知らせで消えた行が付け替えなら、頼んだ作り直しを取りやめる(`goneAwaitingRelocation`。付け替えでない消え方は従来どおり作り直す)。
+  開いたときの実在確認で付け替えた後も作り直さない。テスト `MetadataWorkspaceTests.aRelocatedBookKeepsItsSelectionAndUndo`。
+- **MD-3**(直した): `MetadataEditorModel` が `FileSystemChangeCenter` の変更で関わる本だけ、ボリュームの着脱で全冊を確かめ直す(`FileIO` の上。
+  一部の確かめは確かめなかった本の灰色を残す ―― `setMissing(_:among:)`)。Finder で消した本は窓を開き直すまで分からない(全冊の確かめをアクティブ化の
+  たびには走らせない)。テスト `partialExistenceChecksKeepTheOthers`(配線は実機)。
+- **BE-5**(直した): ビューアが向き・見開きを書いたときに `LayoutStore.lastShownDisplaySettingsDidChange`(本の id 付き)を出し、右ペインが読み直して
+  描き直す。`.layoutDataDidChange` は使わない(開いている全冊のビューアと書き出しウインドウを起こすため)。テスト `BookLayoutEditorTests.anOpenEditorFollowsTheViewersReadingDirection`。
+- **BE-6**(直した): `LaunchCoordinator.setActiveBookAppState` がその AppState の `currentBook` の変化も購読して知らせる。テスト
+  `LaunchCoordinatorTests.aBookChangeInTheActiveWindowIsPublished`。
+- **FBU-5**(直した): `FolderAccessStore.accessChanged`(`entries` が変わった後。付与でも取り消しでも)を `FileBrowserState.folderAccess` が受け、
+  `needsAccess` なら読み直す。ツリーは `folderAccessRevision` を見て、開いているのに子が空の行を読み直し、三角の分からなかった閉じた行を調べ直す。
+  テスト `FileBrowserStateTests.aFolderAccessChangeReloadsANeedsAccessListing`(ツリーは AppKit なので実機)。
+- **ST-3**(直した): `FolderAccessStore.grants` ―― 保存したブックマークのすべてを状態(開いている / 繋がっていない / 確認中 / 解決できない)つきで持ち、
+  環境設定の一覧はこれを並べてどれでも取り消せる(`remove(_ grant:)`、照合はブックマークのデータ)。新しい文言 1 つ。テスト
+  `RecentFilesAndAccessTests.unresolvableGrantsAreListedAndRemovable`。
+- **ST-16**(直した): 追加は記録したパスで照合して足した 1 件だけを解決、取り消しは解決しない、アプリの中での名前の変更は動いたフォルダだけを閉じて
+  `reloadInBackground` で解決し直す(全部をメインで解決する同期の `reload()` は無くした)。`Entry.displayName` は作るときに 1 度だけ、ネットワークの上では
+  問い合わせない。決定 18 で CLAUDE.md の FileIO の約束を「メインで同期にしない」まで広げた。応答しない共有での実測はしていない(§4 と同じ理由)。
+  テスト `addingAGrantKeepsUnrelatedGrants`。
+- **ST-12**(直した): `ExportedFileBrowser.startupFavoritePath`(省略できる欄)を書き、取り込みは上書きでも同じパスの項目の id を使い続け、最後に設定の id が
+  どの項目でもなければそのパスの項目の id を入れ直す(`FavoriteLocationStore.reconcileStartupFavorite`)。これより前の JSON では何もしない。
+  テスト `LibraryBackupTests.theStartupFavoriteSurvivesAnImport`。
+- **H-8**(直した): 削除・外したの控えに消す前の「どうなっているか」を持ち、取り消しで戻したらすぐ書き戻して確かめ直しを頼む(結果が同じなら
+  `locationByItemID` は書き換わらず、表紙の抽出も走らない)。テスト `DataUndoTests.undoingARemovalKeepsTheMissingState`。
+- 共通の部品のテスト: `BookRecordRelocatorTests.relocatingPostsTheOldToNewNotice`・`rekeyingKeepsWhatIsAlreadyAtTheDestination`。
+
+docs: 06(付け替えの知らせ・FolderAccessStore)、07(編集ウインドウの付け替え・向き・読書中、メタデータの編集の作り直しと灰色)、08(題と著者の種、
+カバー名の控え、起動時のよく使う項目)、09(取り消しの控えの付け替え)、14(インスペクタの打ちかけ)、15(許可の変化で読み直す)、02(テスト表)、CLAUDE.md。

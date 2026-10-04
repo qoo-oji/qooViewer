@@ -399,6 +399,8 @@ final class MetadataWorkspace {
         states = input.states
         fileRanks = built.fileRanks
         let listed = Set(order)
+        // 付け替えた本の選択・灰色・段の選択・取り消しの歩みを、新しい bookID の行へ移す(followRelocation)。絞る前に。
+        carryRelocations(listed: listed)
         missing.formIntersection(listed)
         selection.formIntersection(listed)
         // 並べ替えは組んだときの sortOrder で済ませてある。入れるまでに変わっていたら(メインの外で組んだ間)並べ直す。
@@ -407,6 +409,8 @@ final class MetadataWorkspace {
 
     private func generatorDidUpdate(_ update: MetadataGenerator.Update) {
         if update.isFull || Set(generator.listedBookIDs) != Set(order) {
+            // 付け替えた本の歩みは、捨てる前に新しい bookID へ移す(followRelocation)。
+            carryRelocations(listed: Set(generator.listedBookIDs))
             forgetUndo(for: Set(order).subtracting(generator.listedBookIDs))
             reloadAll()
             return
@@ -584,6 +588,62 @@ final class MetadataWorkspace {
         refreshRegistration(changedIDs)
     }
 
+    // MARK: - 本の付け替え
+
+    /// 付け替えの知らせで分かった、並べている本の旧 → 新(まだ新しい bookID の行が来ていないもの)。
+    @ObservationIgnored private var pendingRelocations: [String: String] = [:]
+    /// 移し終えた旧 → 新(書き換えていたセルが古い bookID で確定しても、新しい行へ書く。`currentID`)。
+    @ObservationIgnored private var carriedRelocations: [String: String] = [:]
+
+    /// 一覧の本が付け替えられた(2026-10-04 の監査 MD-2。`BookRelocationNotice`)。並べている本のうち移ったものを覚え、メタデータ生成の
+    /// 次の回が新しい bookID の行を並べたときに、選択・灰色・段の選択・取り消しの歩みをそちらへ移す(`carryRelocations`)。
+    ///
+    /// 以前は付け替えのたびに窓の中身を作り直していた(`MetadataEditorModel.reopen`)ので、書き換えていたセル・絞り込み・検索・
+    /// 並べ替え・選択・取り消しが黙って消えた。行の入れ替えはメタデータ生成の回(`generatorDidUpdate` → `reloadAll`。行の形は DB から
+    /// 読み直す)に任せ、絞り込み・検索・並べ替えはそのまま残る。
+    /// - Returns: 移った、並べている本(古い bookID)。
+    @discardableResult
+    func followRelocation(_ notice: BookRelocationNotice) -> Set<String> {
+        for (old, new) in pendingRelocations {
+            if let newer = notice.newBookID(for: new) { pendingRelocations[old] = newer }
+        }
+        var moved = Set<String>()
+        for id in order {
+            guard let new = notice.newBookID(for: id) else { continue }
+            pendingRelocations[id] = new
+            moved.insert(id)
+        }
+        return moved
+    }
+
+    /// 付け替えを待っている本(古い bookID)。
+    var relocatingBookIDs: Set<String> { Set(pendingRelocations.keys) }
+
+    /// 新しい bookID が並んだ本の状態を移す(`followRelocation`)。
+    private func carryRelocations(listed: Set<String>) {
+        let ready = pendingRelocations.filter { listed.contains($0.value) && !listed.contains($0.key) }
+        guard !ready.isEmpty else { return }
+        for old in ready.keys { pendingRelocations[old] = nil }
+        carriedRelocations.merge(ready) { _, new in new }
+        func current(_ id: String) -> String { ready[id] ?? id }
+        missing = Set(missing.map(current))
+        undoSteps = undoSteps.map { $0.rekeyed(current) }
+        redoSteps = redoSteps.map { $0.rekeyed(current) }
+        if let line = lineSelection, let new = ready[line.id] {
+            lineSelection = LineSelection(id: new, column: line.column, index: line.index)
+        }
+        if let request = revealRequest, let new = ready[request.id] {
+            revealRequest = RevealRequest(id: new, serial: request.serial)
+        }
+        let moved = Set(selection.map(current))
+        if moved != selection { selection = moved }
+    }
+
+    /// 書き込みの相手の bookID。付け替えで移し終えた古い bookID なら新しいほう(セルの書き換えは始めたときの bookID で確定する)。
+    private func currentID(_ id: String) -> String {
+        positionByID[id] == nil ? (carriedRelocations[id] ?? id) : id
+    }
+
     /// 流している変更(DB への書き込みとメタデータ生成の読み直し)がすべて終わるまで待つ(テストと、書き出す前の確かめ用)。
     func settle() async {
         while let current = tail {
@@ -736,6 +796,8 @@ final class MetadataWorkspace {
     /// ―― タイトルや情報には「、」がふつうに入る。
     func setLine(_ field: QMBookMetadata.Field, of id: MetadataBookRow.ID, at index: Int, to text: String,
                  inserting: Bool = false) {
+        // 書き換えている間に本が付け替えられたら、新しい行へ書く(MD-2。currentID)。
+        let id = currentID(id)
         let pieces = Self.linePieces(field, text)
         var list = currentValues(field, of: id)
         let at = min(max(index, 0), list.count)
@@ -1011,10 +1073,13 @@ final class MetadataWorkspace {
     }
 
     /// 実体が見つからなかった本を知らせる(窓の持ち主が画面の外で確かめた結果)。
-    func setMissing(_ ids: Set<String>) {
-        let changed = ids.symmetricDifference(missing)
+    /// - Parameter checked: 確かめた本(nil なら全冊 ―― `ids` 以外は見つかった)。一部だけを確かめ直したとき(窓を開いた後のファイルの
+    ///   変化。2026-10-04 の監査 MD-3)は、確かめなかった本の灰色を残す。
+    func setMissing(_ ids: Set<String>, among checked: Set<String>? = nil) {
+        let next = checked.map { missing.subtracting($0).union(ids) } ?? ids
+        let changed = next.symmetricDifference(missing)
         guard !changed.isEmpty else { return }
-        missing = ids
+        missing = next
         refreshRegistration(changed)
     }
 
@@ -1199,6 +1264,11 @@ final class MetadataWorkspace {
         let name: String
         let states: [String: BookMetadataRowState]
 
+        /// 本が付け替えられた後の歩み(MD-2)。
+        func rekeyed(_ current: (String) -> String) -> Step {
+            Step(name: name, states: Dictionary(states.map { (current($0.key), $0.value) }, uniquingKeysWith: { a, _ in a }))
+        }
+
         /// その本を除いた歩み(残りが無ければ nil)。
         func removing(_ ids: Set<String>) -> Step? {
             let kept = states.filter { !ids.contains($0.key) }
@@ -1234,7 +1304,7 @@ final class MetadataWorkspace {
                       presetChange: ((String) -> String?)? = nil, _ change: (inout Draft) -> Void) {
         var previous: [String: BookMetadataRowState] = [:]
         var changed: [String] = []
-        for id in ids {
+        for id in ids.map(currentID) {
             guard positionByID[id] != nil else { continue }
             let before = states[id] ?? BookMetadataRowState(isLocked: false)
             guard !before.isLocked else { continue }

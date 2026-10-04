@@ -139,7 +139,9 @@ enum LibraryImportExportService {
             if selection.includeFileBrowser {
                 file.fileBrowser = ExportedFileBrowser(
                     favoriteLocationPaths: backupStores.favoriteLocations.items.map(\.path),
-                    autoRenameRules: backupStores.autoRename.rules.map(ExportedAutoRenameRule.init)
+                    autoRenameRules: backupStores.autoRename.rules.map(ExportedAutoRenameRule.init),
+                    startupFavoritePath: backupStores.favoriteLocations
+                        .item(idString: backupStores.preferences.fileBrowserStartupFavoriteID)?.path
                 )
             }
             if selection.includeSettings {
@@ -712,6 +714,13 @@ enum LibraryImportExportService {
                     favoritesStore.reloadSortOptionsFromDefaults()
                     bookmarkStore.reloadSortOptionsFromDefaults()
                 }
+            }
+            // 「起動時のフォルダ: よく使う項目」の相手を、取り込んだ一覧の id に合わせ直す(2026-10-04 の監査 ST-12。設定の id は
+            // 書き出した側の項目のもの)。よく使う項目か設定のどちらかを取り込んだときだけ。
+            if (file.fileBrowser != nil && policies.fileBrowser != .ignore) || (file.settings != nil && policies.settings != .ignore) {
+                backupStores.favoriteLocations.reconcileStartupFavorite(
+                    preferences: backupStores.preferences, exportedPath: file.fileBrowser?.startupFavoritePath
+                )
             }
         }
         return summary

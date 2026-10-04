@@ -163,6 +163,48 @@ struct RecentFilesAndAccessTests {
         #expect(reopened.entries.isEmpty)
     }
 
+    @Test("環境設定の一覧には、解決できない許可も状態つきで出て、取り消せる(2026-10-04 の監査 ST-3)")
+    func unresolvableGrantsAreListedAndRemovable() async throws {
+        let suite = PreferencesSuite(label: "access-grants")
+        let temporary = try TemporaryDirectory("access-grants")
+        let kept = try temporary.directory("kept")
+        let gone = try temporary.directory("gone")
+        let store = FolderAccessStore(defaults: suite.defaults)
+        #expect(store.add(url: kept))
+        #expect(store.add(url: gone))
+        try FileManager.default.removeItem(at: gone)
+
+        // 開き直す(起動)と、消えたフォルダは開けない。以前は一覧からも消え、取り消す手段が無かった。
+        let reopened = FolderAccessStore(defaults: suite.defaults)
+        await reopened.waitForPendingResolutions()
+        #expect(reopened.entries.map(\.url.path) == [kept.path])
+        #expect(reopened.grants.count == 2)
+        let unresolved = try #require(reopened.grants.first { $0.status != .active })
+        #expect(unresolved.status == .unresolvable)
+        #expect(unresolved.entry == nil)
+        #expect(reopened.grants.first { $0.status == .active }?.entry?.url.path == kept.path)
+
+        reopened.remove(unresolved)
+        #expect(reopened.grants.map(\.status) == [.active])
+        #expect(reopened.entries.map(\.url.path) == [kept.path])
+        #expect(FolderAccessStore(defaults: suite.defaults).grants.count == 1)
+    }
+
+    @Test("許可を足しても、ほかの許可(解決できないものも)は記録したパスで比べて残す(ST-16)")
+    func addingAGrantKeepsUnrelatedGrants() async throws {
+        let suite = PreferencesSuite(label: "access-add")
+        let temporary = try TemporaryDirectory("access-add")
+        let gone = try temporary.directory("gone")
+        let other = try temporary.directory("other")
+        let store = FolderAccessStore(defaults: suite.defaults)
+        #expect(store.add(url: gone))
+        try FileManager.default.removeItem(at: gone)
+
+        #expect(store.add(url: other))
+        #expect(store.isPathCovered(other.appendingPathComponent("book.cbz")))
+        #expect(store.grants.count == 2)
+    }
+
     @Test("既に許可済みのフォルダの配下は、重ねて許可しない")
     func aDescendantOfAGrantedFolderIsNotAddedAgain() throws {
         let suite = PreferencesSuite(label: "access")

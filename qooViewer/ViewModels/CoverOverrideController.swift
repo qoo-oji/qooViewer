@@ -66,10 +66,54 @@ final class CoverOverrideController: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
 
     /// カバーの見え方が変わったことを知らせる(このクラスの書き込み口と、外から届く
-    /// `.layoutDataDidChange`の受け口が呼ぶ)。
+    /// `.layoutDataDidChange`の受け口 ―― `invalidateCoverNames` ―― が呼ぶ)。
     func noteCoverDidChange() {
         revision &+= 1
     }
+
+    /// カバー名の控えの世代(全冊ぶん + 本ごと)。セルの `.task(id:)` に入れて、控えを捨てたら名前を求め直させる
+    /// (`coverNameTaskID`)。求めている途中で世代が進んだら、その結果は書かない(古い指定で求めた名前で上書きしない)。
+    private var allCoverNamesGeneration = 0
+    @Published private(set) var coverNameGenerations: [String: Int] = [:]
+
+    /// セルの `.task(id:)` に渡す値(本 + その本の控えの世代)。
+    func coverNameTaskID(forBookID bookID: String) -> String {
+        "\(bookID)\u{0}\(coverNameGeneration(forBookID: bookID))"
+    }
+
+    private func coverNameGeneration(forBookID bookID: String) -> Int {
+        allCoverNamesGeneration &+ (coverNameGenerations[bookID] ?? 0)
+    }
+
+    /// カバー名の控えを捨てる(2026-10-04 の監査 TW-2)。`bookIDs` が nil なら全部。
+    ///
+    /// 控えは自分の書き込み口とセルの `.task(id: bookID)` でしか作り直していなかったので、**ほかのウインドウ**(もう 1 つの
+    /// 書き出しウインドウ・1 冊書き出しシート)でカバーを変えても、ビューアで並べ替え・先頭ページを除外しても(既定のカバー =
+    /// 実効の 1 ページ目が変わる)、保存データの読み込みでレイアウトを上書きしても、開いたままの列は古い名前を出し続けた
+    /// (書き出しは DB を読むので最新で、画面だけが古い。実測で確認)。`.layoutDataDidChange` を受けて捨てる(`init`)。
+    func invalidateCoverNames(forBookIDs bookIDs: Set<String>?) {
+        if let bookIDs {
+            for bookID in bookIDs {
+                resolvedCoverNames.removeValue(forKey: bookID)
+                coverNameGenerations[bookID, default: 0] &+= 1
+            }
+        } else {
+            resolvedCoverNames = [:]
+            allCoverNamesGeneration &+= 1
+            // 全冊の世代は @Published でないので、本ごとの辞書を書いて描き直させる。
+            coverNameGenerations = coverNameGenerations
+        }
+        noteCoverDidChange()
+    }
+
+    /// 求めた名前を控える。求め始めた後に控えを捨てていたら書かない。
+    private func storeCoverName(_ name: String, forBookID bookID: String, generation: Int) {
+        guard coverNameGeneration(forBookID: bookID) == generation else { return }
+        resolvedCoverNames[bookID] = name
+    }
+
+    /// `.layoutDataDidChange` の購読(`invalidateCoverNames`)。
+    private var layoutChangeSubscription: AnyCancellable?
 
     /// カバー列に表示する名前のキャッシュ(bookID -> 表示名)。上書き設定がある場合は
     /// BookLayoutSettingsに保存済みの値をそのまま使えるが、既定(先頭ページ)の場合は本を
@@ -114,6 +158,20 @@ final class CoverOverrideController: ObservableObject {
         self.layoutStore = layoutStore
         self.preferences = preferences
         self.resolveURL = resolveURL
+        // ほかの画面でのカバーの指定・並べ替え・除外で控えを捨てる(invalidateCoverNames)。知らせの "bookID" があればその本だけ、
+        // 付け替えなら関わった本(古い・新しい bookID)、どちらも無ければ全部。
+        layoutChangeSubscription = NotificationCenter.default.publisher(for: .layoutDataDidChange)
+            .sink { [weak self] notification in
+                MainActor.assumeIsolated {
+                    if let bookID = notification.userInfo?["bookID"] as? String {
+                        self?.invalidateCoverNames(forBookIDs: [bookID])
+                    } else if let relocated = notification.userInfo?[BookRelocationPlan.relocatedBookIDsUserInfoKey] as? Set<String> {
+                        self?.invalidateCoverNames(forBookIDs: relocated)
+                    } else {
+                        self?.invalidateCoverNames(forBookIDs: nil)
+                    }
+                }
+            }
     }
 
     deinit {
@@ -133,18 +191,19 @@ final class CoverOverrideController: ObservableObject {
     /// この本のカバー表示名を最新化する。呼び出し元(カバー列のセル)の.taskから、行の表示中に
     /// 一度だけ呼ぶ想定(BookmarkListView.PageRowViewのサムネイル読み込みと同じ考え方)。
     func refreshCoverName(forBookID bookID: String) async {
+        let generation = coverNameGeneration(forBookID: bookID)
         guard let settings = layoutStore.bookLayoutSettings(forBookID: bookID) else {
-            await resolveDefaultCoverName(forBookID: bookID)
+            await resolveDefaultCoverName(forBookID: bookID, generation: generation)
             return
         }
         switch target {
         case .coverImage:
             if let externalName = settings.externalCoverFileName {
-                resolvedCoverNames[bookID] = externalName
+                storeCoverName(externalName, forBookID: bookID, generation: generation)
                 return
             }
             if settings.coverPageKey != nil, let cached = settings.coverPageDisplayName {
-                resolvedCoverNames[bookID] = cached
+                storeCoverName(cached, forBookID: bookID, generation: generation)
                 return
             }
         case .collectionCover:
@@ -153,17 +212,18 @@ final class CoverOverrideController: ObservableObject {
             // ―― 元のファイル名は複製した時点の名前でしかなく、指し示す先はもう無いかも
             // しれない(それがそもそも分離した理由。BookLayoutSettingsの型コメント参照)。
             if settings.shelfCoverImageFileName != nil {
-                resolvedCoverNames[bookID] = String(
-                    localized: "Selected Image", language: preferences.effectiveLocale
+                storeCoverName(
+                    String(localized: "Selected Image", language: preferences.effectiveLocale),
+                    forBookID: bookID, generation: generation
                 )
                 return
             }
             if settings.shelfCoverPageKey != nil, let cached = settings.shelfCoverPageDisplayName {
-                resolvedCoverNames[bookID] = cached
+                storeCoverName(cached, forBookID: bookID, generation: generation)
                 return
             }
         }
-        await resolveDefaultCoverName(forBookID: bookID)
+        await resolveDefaultCoverName(forBookID: bookID, generation: generation)
     }
 
     /// 既定(上書き無し)の場合のカバー名。実際に書き出したときと同じロジック
@@ -179,7 +239,7 @@ final class CoverOverrideController: ObservableObject {
     /// ページの並び順とファイル名だけ。まずキャッシュ(BookPageListCache)を見て、あればそれで
     /// 済ませる。無い場合だけ従来どおり読み込む(その読み込み自体がBookLoader.load経由で
     /// キャッシュを埋めるため、次回以降は読み込み無しで解決できる)。
-    private func resolveDefaultCoverName(forBookID bookID: String) async {
+    private func resolveDefaultCoverName(forBookID bookID: String, generation: Int) async {
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
         let excludedKeys = Set(
             layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
@@ -208,8 +268,10 @@ final class CoverOverrideController: ObservableObject {
                 // EPUBのfolderPathを残していた頃のキャッシュが手元にあると、その本を開き直す
                 // まで`OEBPS/Images/001.jpg`のままになってしまう。
                 let folderPath = isEpubFile(bookID) ? nil : first.folderPath
-                resolvedCoverNames[bookID] = folderPath.map { "\($0)/\(first.displayName)" }
-                    ?? first.displayName
+                storeCoverName(
+                    folderPath.map { "\($0)/\(first.displayName)" } ?? first.displayName,
+                    forBookID: bookID, generation: generation
+                )
                 return
             }
         }
@@ -219,7 +281,7 @@ final class CoverOverrideController: ObservableObject {
             for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
         )
         guard let first = ordered.first else { return }
-        resolvedCoverNames[bookID] = first.location(inBookAt: book.sourceURL).fullPath
+        storeCoverName(first.location(inBookAt: book.sourceURL).fullPath, forBookID: bookID, generation: generation)
     }
 
     // MARK: - カバーの絵(プレビュー)
