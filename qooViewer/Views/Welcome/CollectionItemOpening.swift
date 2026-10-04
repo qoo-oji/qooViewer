@@ -94,7 +94,8 @@ final class CollectionItemOpenTracker {
     /// 前の結果は捨てる(後から押したほうが利用者の意図)。期限切れは鳴らすだけ(上の「期限」)。
     ///
     /// - Parameter stillWanted: 待った後に、まだ頼んだときのままかを答える(2026-10-04 の監査 SP-10 = O-8)。このトラッカーは
-    ///   同じ画面の次の頼みしか見ないので、待つ間(最長 45 秒)に**別の入口で**本を開いた(`AppState.openRequestToken` が進んだ)、
+    ///   同じ画面の次の頼みしか見ないので、待つ間(最長 45 秒)に**別の入口で**本を頼んだ(開く意図 `AppState.OpenIntent` が進んだ。
+    ///   レビューの R6-1)、
     ///   ライブラリ機能を OFF にした、を呼ぶ側が確かめる。false なら何もしない(鳴らしもしない ―― 利用者はもう別のことをしている)。
     func resolve(
         _ material: CollectionItemOpenProbe.Material,

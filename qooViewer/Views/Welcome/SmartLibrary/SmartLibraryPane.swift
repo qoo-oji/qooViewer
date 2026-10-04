@@ -1901,11 +1901,12 @@ struct SmartLibraryContent: View {
     private func open(_ book: SmartBook) {
         // 見えている並びを渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
         let sequence = state.sequence(opening: book)
-        // 確かめを待つ間に別の入口で本を開いていたら、後から置き換えない(O-8。AppState.openRequestToken)。
+        // 確かめを待つ間にこの窓で別の本を頼んでいたら、後から置き換えない(O-8。待ち始めるここで開く意図を進める ――
+        // 後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
         let appState = appState
-        let token = appState.openRequestToken
-        withResolvedURL(for: book, stillWanted: { appState.openRequestToken == token }) {
-            appState.open(request: BookOpenRequest($0, sequence: sequence))
+        let intent = appState.beginOpenIntent()
+        withResolvedURL(for: book, stillWanted: { [weak appState] in appState?.isStillWanted(intent) == true }) {
+            appState.open(request: BookOpenRequest($0, sequence: sequence), intent: intent)
         }
     }
 }

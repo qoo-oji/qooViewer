@@ -149,6 +149,36 @@ struct RecentFilesAndAccessTests {
         #expect(reported.messages.first?.contains(offlineEntry.displayName) == true)
     }
 
+    /// 2026-10-04 のレビューの R8a-3。以前は確かめの中で行を取り除いていたので、待つ間に別の本を開くと(`stillWanted` が false)、
+    /// 消えた本の行だけが知らせなしで一覧から消えた。
+    @Test("待つ間に別の本を頼んで結果を捨てるときは、消えた本の行も取り除かない(取り除くのは知らせるときだけ)")
+    func aDroppedResolutionKeepsTheRowOfAMissingBook() async throws {
+        let suite = PreferencesSuite(label: "recent-open-dropped")
+        let temporary = try TemporaryDirectory("recent-open-dropped")
+        let gone = temporary.file("gone.cbz")
+        try Data().write(to: gone)
+        let store = RecentFilesStore(defaults: suite.defaults)
+        store.record(url: gone)
+        let entry = try #require(store.entries.first { $0.path == gone.path })
+        try FileManager.default.removeItem(at: gone)
+
+        let reported = OpenFailureReports()
+        await store.resolveForOpening(
+            entry, locale: Locale(identifier: "en"), report: { reported.messages.append($0) },
+            stillWanted: { false }, then: { reported.opened.append($0) }
+        ).value
+        #expect(reported.messages.isEmpty)
+        #expect(store.entries.contains { $0.path == gone.path }, "知らせずに行を取り除いた")
+
+        // まだ頼まれているなら、取り除いて知らせる(段 6 の「押したら消えた」を戻さない)。
+        await store.resolveForOpening(
+            entry, locale: Locale(identifier: "en"), report: { reported.messages.append($0) },
+            then: { reported.opened.append($0) }
+        ).value
+        #expect(reported.messages.count == 1)
+        #expect(!store.entries.contains { $0.path == gone.path })
+    }
+
     @MainActor
     private final class OpenFailureReports {
         var messages: [String] = []

@@ -63,8 +63,10 @@ struct ClassicWelcomeView: View {
                         bookID: entry.path,
                         action: {
                             // 開けなければ理由を下に知らせる(2026-10-04 の監査 SP-7)。解決はメインの外で(監査 §2-4)。
-                            recentFiles.resolveForOpening(entry, reportingTo: appState) { [appState] url in
-                                appState.open(url: url)
+                            // 待つ間にこの窓で別の本が頼まれたら開かない(AppState.OpenIntent。2026-10-04 のレビューの R6-1)。
+                            recentFiles.resolveForOpening(entry, reportingTo: appState, replacesBook: true) {
+                                [appState] url, intent in
+                                appState.open(url: url, intent: intent)
                             }
                         },
                         // ユーザー要望: 履歴から1件だけ消せるようにする。

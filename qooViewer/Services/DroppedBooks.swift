@@ -114,4 +114,12 @@ nonisolated enum ExternalOpenPreparation {
             ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0) : nil
         return Prepared(request: BookOpenRequest(book, sequence: sequence), skipped: found.skipped)
     }
+
+    /// シークレットウインドウへ回した要求が連れていった本のパス(`prepare` の `routed` へ足すもの)。要求の本だけでなく、**一緒に
+    /// 回した並びの本すべて** ―― 回した先の窓が「次の本」でたどる(2026-10-04 のレビューの R6-3。以前は要求の本だけを控えたので、
+    /// Finder でシークレットフォルダの本 2 冊とふつうの本を一緒に開くと、種類ごとに分かれて届いたまとめ直しの回で並びの 2 冊目が
+    /// また回され、ふつうの本がノーマルの窓で開かれなかった)。
+    static func routedPaths(of request: BookOpenRequest) -> Set<String> {
+        Set(request.urls.map(\.path)).union(request.sequence?.entries.map(\.path) ?? [])
+    }
 }

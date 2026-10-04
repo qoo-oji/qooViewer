@@ -212,4 +212,26 @@ struct HomeInteractionTests {
         #expect(nothingLeft.request == nil)
         #expect(nothingLeft.skipped == 0)
     }
+
+    /// 2026-10-04 のレビューの R6-3。以前は回した要求の本だけを控えたので、並びの 2 冊目がまとめ直しの回でまた回され、
+    /// ふつうの本がノーマルの窓で開かれなかった。
+    @Test("先の回で並びごとシークレットウインドウへ回したら、まとめ直しの回は並びの本を全部除き、残りのふつうの本を開く")
+    func externalOpenPreparationLeavesOutTheWholeRoutedSequence() throws {
+        let temporary = try TemporaryDirectory("external-open-routed-sequence")
+        let secret1 = temporary.file("1.cbz")
+        let secret2 = temporary.file("2.cbz")
+        let normal = temporary.file("3.cbz")
+        for (index, url) in [secret1, secret2, normal].enumerated() { try makeArchive(url, number: UInt8(index + 1)) }
+
+        // 先の回: 1・2 が届き、並び [1, 2] の要求として回した。
+        let firstBatch = ExternalOpenPreparation.prepare([secret2, secret1], order: .byName)
+        let routedRequest = try #require(firstBatch.request)
+        let routed = ExternalOpenPreparation.routedPaths(of: routedRequest)
+        #expect(routed == [secret1.path, secret2.path])
+
+        // まとめ直しの回: [1, 2, 3] から 3 だけを開く。
+        let merged = ExternalOpenPreparation.prepare([secret2, secret1, normal], order: .byName, excluding: routed)
+        #expect(merged.request?.urls == [normal])
+        #expect(merged.request?.sequence == nil)
+    }
 }

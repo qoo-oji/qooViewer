@@ -180,10 +180,14 @@ enum BookWindowOpener {
         }
         if let target = source.passThroughPrivateTarget(in: launchCoordinator) {
             target.open(request: request, reusesExistingWindow: false)
+            // 開いた**後**の意図を控える(この要求そのものは数え終えている。R7-5)。
             source.notePassThroughPrivateTarget(target, url: url)
             return
         }
-        source.notePassThroughPrivateTarget(nil, url: url)
+        // 初回のタブ・窓を作っている最中(まだどの窓か分からない)なら、作り終えてからそこで開く(2026-10-04 のレビューの R7-5。
+        // 以前はこの間の通り抜けごとにタブを足し、焦点も一瞬移った)。
+        if source.deferPassThroughWhileTargetIsPending(request) { return }
+        source.notePassThroughPrivateTargetPending(url: url)
         let sourceWindow = source.hostWindow
         openSecretBookPrivately(
             request, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow,
@@ -192,6 +196,13 @@ enum BookWindowOpener {
                 if let source, let key = NSApp.keyWindow, key !== sourceWindow,
                    let opened = launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow === key && $0.isPrivateWindow }) {
                     source.notePassThroughPrivateTarget(opened, url: url)
+                    // 作っている間に来た次の通り抜けは、ここで同じ窓に入れ替える。
+                    if let pending = source.takePassThroughPending(), let pendingURL = pending.primaryURL {
+                        opened.open(request: pending, reusesExistingWindow: false)
+                        source.notePassThroughPrivateTarget(opened, url: pendingURL)
+                    }
+                } else {
+                    _ = source?.takePassThroughPending()
                 }
                 sourceWindow?.makeKeyAndOrderFront(nil)
             })

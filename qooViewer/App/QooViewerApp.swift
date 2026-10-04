@@ -1034,11 +1034,14 @@ struct QooViewerApp: App {
                                 // 開けなければ、開く先になるはずだった窓に理由を知らせる(窓が無ければアラート。2026-10-04 の
                                 // 監査 SP-7 = M-4。以前は黙って何もしなかった)。
                                 // 解決はメインの外で(RecentFilesStore.resolveForOpening。2026-10-04 の監査 §2-4)。
+                                // 開く先の窓は押した時点で決め、その窓の本を置き換えるなら開く意図を進める(解決を待つ間に
+                                // その窓で別の本が頼まれたら開かない。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
+                                let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
                                 recentFiles.resolveForOpening(
-                                    entry, reportingTo: focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
-                                ) { url in
+                                    entry, reportingTo: target, replacesBook: target?.historyOpenReplacesCurrentBook ?? false
+                                ) { [weak target] url, intent in
                                     SecurityScopedHandoff.begin(url)
-                                    openRecentAccordingToPreference(url)
+                                    openRecentAccordingToPreference(url, in: target, intent: intent)
                                 }
                             }
                         }
@@ -2225,8 +2228,13 @@ struct QooViewerApp: App {
     ///
     /// 焦点が無いときの相手は、新しい窓と同じ性質の手前の窓(2026-10-04 の監査 M-8 = O-2。
     /// `LaunchCoordinator.frontmostContentAppStateForUnfocusedOpen`。以前は手前のシークレットウインドウで開いた)。
-    private func openRecentAccordingToPreference(_ url: URL) {
-        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
+    ///
+    /// - Parameter chosenTarget: 押した時点で決めた相手の窓(解決を待つ間に閉じられていれば、今の焦点から選び直す)。
+    /// - Parameter intent: 相手の窓の本を置き換えるときに、押した時点で進めた開く意図(AppState.OpenIntent)。
+    private func openRecentAccordingToPreference(_ url: URL, in chosenTarget: AppState? = nil, intent: AppState.OpenIntent? = nil) {
+        if let chosenTarget, chosenTarget.hostWindow != nil {
+            chosenTarget.openFromHistory(url, intent: intent, launchCoordinator: launchCoordinator, openWindow: openWindow)
+        } else if let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
             target.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
         } else {
             openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
@@ -2931,6 +2939,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let candidates = group.urls
         let routed = group.routedPrivatelyPaths
         let waitsForMoreBatches = isLaunchingToOpenDocuments
+        // 下調べを待つ間に、開く先になる窓で利用者が別の本を頼んだら、その窓では開かない(開く意図。2026-10-04 のレビューの
+        // R6-1 ―― 後から頼んだ方が勝つ)。開く先は下調べの後で決まるので、どの窓の意図も進めずに取り、決まった窓で照合する。
+        let intent = AppState.beginOpenIntentForAnyWindow()
         externalOpenTask = Task { @MainActor [weak self] in
             // 本を渡されて起動したときは、残りの回(約 50ms 後)が届くのを待ってから始める。1 回目だけで新しい本のウインドウを
             // 作ってしまうと、2 回目がもう 1 枚のウインドウを作る(起動済みなら、2 回目は 1 回目のウインドウで開き直すので待たない)。
@@ -2962,7 +2973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // 先の回をもう開いたウインドウがあれば、そこで開き直す(上のコメント)。
             if let target = self.externalOpenGroup?.openedIn, target.hostWindow != nil {
-                target.open(request: request)
+                target.open(request: request, intent: intent)
                 if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
                 return
             }
@@ -2974,7 +2985,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for _ in 0..<30 {
                     if let target = self.launchCoordinator?.openAppState(forBookAt: firstBookURL, isPrivate: isPrivate),
                        target.hostWindow != nil {
-                        target.open(request: request)
+                        target.open(request: request, intent: intent)
                         if prepared.skipped > 0 { target.postViewerNotice(AppState.skippedNotice(prepared.skipped, locale: locale)) }
                         return
                     }
@@ -2982,7 +2993,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard !Task.isCancelled else { return }
                 }
             }
-            self.runExternalOpen(request, skipped: prepared.skipped, locale: locale)
+            self.runExternalOpen(request, skipped: prepared.skipped, locale: locale, intent: intent)
         }
     }
 
@@ -3076,7 +3087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `application(_:open:)` の続き(下調べを終えてから)。
-    private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale) {
+    private func runExternalOpen(_ request: BookOpenRequest, skipped: Int, locale: Locale, intent: AppState.OpenIntent) {
         // メニューバーのメニューが開いている間に外部(AppleScript・openコマンド等)から本を
         // 渡された場合は、メニューが閉じるまで保留する。ウインドウの再利用でも新規作成でも、
         // ウインドウタイトルの変更・ウインドウの生成・FocusedValueの変化を伴い、開いている
@@ -3091,10 +3102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 開く前に決める(開く窓は「シークレットモードで起動」の性質で選ばれる。performExternalOpen)。
             let routedPrivately = BookWindowOpener.shouldOpenSecretBookPrivately(
                 request, opensPrivately: AppPreferences.isPrivateModeDefault)
-            let target = self.performExternalOpen(request: request)
+            let target = self.performExternalOpen(request: request, intent: intent)
             if routedPrivately {
                 // シークレットウインドウへ回した。まとめ直しの回はこの本を除いて、ふつうに開く(O-9。ExternalOpenGroup のコメント)。
-                self.externalOpenGroup?.routedPrivatelyPaths.formUnion(request.urls.map(\.path))
+                // 並びの本も控える(R6-3。回した先の窓がたどる)。
+                self.externalOpenGroup?.routedPrivatelyPaths.formUnion(ExternalOpenPreparation.routedPaths(of: request))
             } else {
                 // まとめ直しの回が同じウインドウで開き直せるように控える。
                 self.externalOpenGroup?.openedIn = target
@@ -3108,7 +3120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 受け取りと実行を分けてある)。
     /// - Returns: 本を開いたウインドウ(新しいウインドウ・タブを作ったときは nil)。
     @discardableResult
-    private func performExternalOpen(request: BookOpenRequest) -> AppState? {
+    /// - Parameter intent: 頼まれた時点の開く意図(`application(_:open:)`)。今ある窓で開くとき、その窓でその後に別の本が頼まれて
+    ///   いれば開かない(`AppState.open(request:intent:)`)。新しい窓・タブで開くときは使わない(競う相手が居ない)。
+    private func performExternalOpen(request: BookOpenRequest, intent: AppState.OpenIntent) -> AppState? {
         // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
         // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
         // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには
@@ -3135,7 +3149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if reusesWindows, let primaryAppState = launchCoordinator?.primaryAppState,
            primaryAppState.hostWindow != nil,
            primaryAppState.isPrivateWindow == opensPrivately {
-            return openInPrimaryWindow(request, primaryAppState: primaryAppState)
+            return openInPrimaryWindow(request, primaryAppState: primaryAppState, intent: intent)
         }
         // バグ修正(ユーザー報告): primaryAppStateが上の条件を満たさない場合でも、実際に
         // 本を表示している別のコンテンツウインドウがどこかに開いていれば、それを再利用する。
@@ -3147,7 +3161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 性質が一致するウインドウだけを候補にする(すぐ上の主ウインドウの判定と同じ基準。
         // LaunchCoordinator.frontmostContentAppState(matchingPrivacy:)参照)。
         if reusesWindows, let target = launchCoordinator?.frontmostContentAppState(matchingPrivacy: opensPrivately) {
-            return openInPrimaryWindow(request, primaryAppState: target)
+            return openInPrimaryWindow(request, primaryAppState: target, intent: intent)
         }
 
         // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
@@ -3207,7 +3221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。
     /// - Returns: 本を開いたウインドウ(新しいタブ・ウインドウを作ったときは nil)。
-    private func openInPrimaryWindow(_ request: BookOpenRequest, primaryAppState: AppState) -> AppState? {
+    private func openInPrimaryWindow(
+        _ request: BookOpenRequest, primaryAppState: AppState, intent: AppState.OpenIntent
+    ) -> AppState? {
         // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
         // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
         // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
@@ -3223,12 +3239,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // まだ本を表示していない(Welcome画面)場合は、環境設定に関わらず常にそのウインドウで
         // そのまま開く。既に本を表示している場合だけ、環境設定「本を開く」の「Finderから」に従う。
         guard primaryAppState.currentBook != nil else {
-            primaryAppState.open(request: request)
+            primaryAppState.open(request: request, intent: intent)
             return primaryAppState
         }
         switch preferences?.finderOpenBehavior ?? .replaceCurrentBook {
         case .replaceCurrentBook:
-            primaryAppState.open(request: request)
+            primaryAppState.open(request: request, intent: intent)
             return primaryAppState
         case .newTab:
             // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ

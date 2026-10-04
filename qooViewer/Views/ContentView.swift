@@ -1079,13 +1079,16 @@ struct ContentView: View {
         if preferences.launchOpensLastBook, !isPrivateWindow, appState.currentBook == nil,
            let bookmarkData = LastActiveBookStore.recordedBookmarkData() {
             awaitsInitialBook = true
+            // 利用者が頼んだのではない(起動時の動作)ので、開く意図は控えるだけで進めない ―― 確かめを待つ間に利用者が頼んだ本
+            // (確かめを待っているものも)を捨てさせず、何か頼まれたらこちらが降りる(AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
+            let intent = appState.openIntentWithoutClaiming()
             Task { @MainActor in
                 let url = await resolveLastActiveBookURLIfUnchanged(bookmarkData: bookmarkData)
-                guard let url, appState.currentBook == nil, appState.loadingProgress == nil else {
+                guard let url, appState.currentBook == nil, appState.loadingProgress == nil, appState.isStillWanted(intent) else {
                     if appState.loadingProgress == nil, appState.currentBook == nil { awaitsInitialBook = false }
                     return
                 }
-                appState.open(url: url)
+                appState.open(url: url, intent: intent)
                 if appState.loadingProgress == nil, appState.currentBook == nil { awaitsInitialBook = false }
             }
         }
@@ -1637,18 +1640,21 @@ struct ContentView: View {
             },
             // 履歴モードの行のクリック。環境設定「履歴から」で新しいタブ/ウインドウに開いたときはパネルを残す
             // (onOpenInNewWindow と同じ理由。AppState.openFromHistory の戻り値)。
-            onOpenFromHistory: { url in
-                let openedHere = appState.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
+            onOpenFromHistory: { url, intent in
+                let openedHere = appState.openFromHistory(
+                    url, intent: intent, launchCoordinator: launchCoordinator, openWindow: openWindow)
                 if openedHere, dismissesOnAction { appState.isSidePanelRevealed = false }
             },
             onHistoryOpenFailure: { message in appState.postViewerNotice(message) },
-            onBrowseToFolder: { url in
+            onBrowseToFolder: { url, intent in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。
                 // 「開く」指示ではなく移動の結果そこが映るだけなので、同じ本を開いている
                 // 別のウインドウへも譲らない(AppState.open(request:reusesExistingWindow:)参照)。
-                appState.open(url: url, recordsInHistory: false, reusesExistingWindow: false)
+                // 確かめ始めたときの控えで照合する(待つ間にこの窓で何か頼まれていたら開かない。2026-10-04 のレビューの R8a-1)。
+                appState.open(url: url, recordsInHistory: false, reusesExistingWindow: false, intent: intent)
             },
+            openIntentOwner: appState,
             onJumpToPage: { index in
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
@@ -1673,9 +1679,9 @@ struct ContentView: View {
                 )
             },
             // ライブラリのツリーから(要求にコレクションの本の並びが載る。SidePanelView.onOpenRequest)。
-            onOpenRequest: { request in
+            onOpenRequest: { request, intent in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
-                appState.open(request: request)
+                appState.open(request: request, intent: intent)
             },
             onOpenRequestInNewWindow: { request, destination in
                 BookWindowOpener.open(

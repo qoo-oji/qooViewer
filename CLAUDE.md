@@ -604,8 +604,11 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in
   New Window…), and never `beginSheet` a hand-built sheet window — use `WindowSheet.run(sheetWindow:for:)` (2026-10-04, the bulk rename
-  sheet stalled the operation queue when its window was closed). Anything that awaits before opening a book snapshots
-  `AppState.openRequestToken` and drops its result if it moved (another book was opened meanwhile; audit O-7/SP-10). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
+  sheet stalled the operation queue when its window was closed). Anything that awaits before opening a book takes an
+  `AppState.OpenIntent` **when it starts waiting** (`beginOpenIntent()`; `beginOpenIntentForAnyWindow()` when the window is chosen only
+  after the wait; `openIntentWithoutClaiming()` for opens nobody asked for — side-panel pass-through, launch reopen, slideshow/export next book), checks
+  `isStillWanted(_:)` after the wait and passes it to `open(…intent:)`: **the later request wins**, dropped results stay silent
+  (2026-10-04 review R6-1 — the old `openRequestToken` let whichever wait finished first win). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
   `close()` on a window with a sheet never calls the sheet's completion handler (measured), so `WindowSheet` ends its sheet with Cancel from
   `willClose` of every window under it (`CloseWatch`) — several close paths (single-tab red button, Close Window over background tabs, the
   slideshow's Close Tab) call `close()` without checking for sheets.

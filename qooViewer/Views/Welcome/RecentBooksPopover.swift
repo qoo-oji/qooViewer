@@ -115,7 +115,8 @@ struct RecentBooksPopover: View {
                 onOpenIn: { destination in
                     dismiss()
                     let (appState, launchCoordinator, openWindow) = (appState, launchCoordinator, openWindow)
-                    recentFiles.resolveForOpening(entry, reportingTo: appState) { url in
+                    // 新しいタブ・ウインドウへ開くので、この窓の本とは競わない(開く意図を進めない。AppState.OpenIntent)。
+                    recentFiles.resolveForOpening(entry, reportingTo: appState, replacesBook: false) { url, _ in
                         BookWindowOpener.open(
                             BookOpenRequest(url), to: destination, from: appState,
                             launchCoordinator: launchCoordinator, openWindow: openWindow
@@ -140,6 +141,10 @@ struct RecentBooksPopover: View {
     private func open(_ entry: RecentFilesStore.Entry) {
         dismiss()
         let appState = appState
-        recentFiles.resolveForOpening(entry, reportingTo: appState) { url in appState.open(url: url) }
+        // この窓で開く(本を出していない窓)。解決を待つ間にこの窓で別の本が頼まれたら開かない(後から頼んだ方が勝つ。
+        // AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
+        recentFiles.resolveForOpening(entry, reportingTo: appState, replacesBook: true) { url, intent in
+            appState.open(url: url, intent: intent)
+        }
     }
 }

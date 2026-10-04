@@ -252,6 +252,25 @@ struct SidePanelBrowserStateTests {
         #expect(fixture.state.currentDirectory == fixture.root)
     }
 
+    /// 2026-10-04 のレビューの R7-6(本を閉じても印が残り、後で同じ本を開いたときに再アンカーが見送られた)。
+    @Test("見送りの印は、本を閉じても下ろす")
+    func closingTheBookClearsTheAnchorSkip() async throws {
+        let fixture = try Fixture("browser-skip-closed")
+        await fixture.settle()
+
+        // images を通り抜けで開こうとして印を立てたが、本が出る前に閉じた(ホームへ戻った)。
+        fixture.state.navigate(into: fixture.images)
+        await fixture.settle()
+        fixture.state.skipNextAnchorOnce(for: fixture.images)
+        fixture.state.handlePanelRevealed(currentBook: nil)
+        await fixture.settle()
+
+        // 後で同じ本を別の経路(履歴など)で開いたら、ふつうに本の親へ再アンカーする。
+        fixture.state.handlePanelRevealed(currentBook: try await FixtureBook.load(fixture.images))
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.root)
+    }
+
     /// 2026-10-04 の監査 SP-13・決定 12。
     @Test("今の本の行は、戻る/進むで本のフォルダへ戻っても今の本として分かる(「上へ」で出たフォルダの強調とは別)")
     func theCurrentBookRowSurvivesBackAndForward() async throws {

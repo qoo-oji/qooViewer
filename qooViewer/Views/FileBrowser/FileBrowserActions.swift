@@ -111,11 +111,15 @@ final class FileBrowserActions {
             return nil
         }
         let startFolder = state.currentFolder
+        // 調べる間にこの窓で別の本が頼まれたら、調べ終えたフォルダで置き換えない(2026-10-04 のレビューの R6-2)。「開く」の
+        // 操作なので、待ち始めるここで開く意図を進める(後から頼んだ方が勝つ。AppState.OpenIntent)。
+        let intent = appState?.beginOpenIntent()
         return Task { [weak self] in
             let isBook = await Self.isImageFolder(entry.url)
             guard let self, let state = self.state else { return }
             if isBook {
-                self.appState?.open(url: entry.url)
+                guard let appState = self.appState, let intent, appState.isStillWanted(intent) else { return }
+                appState.open(url: entry.url, intent: intent)
             } else if state.currentFolder == startFolder {
                 // 調べている間に別のフォルダへ移っていたら、後から引き戻さない。
                 state.navigate(to: entry.url)
@@ -479,6 +483,8 @@ final class FileBrowserActions {
     @discardableResult
     private func openLink(_ entry: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
         let link = entry.url
+        // リンクの先を解く間にこの窓で別の本が頼まれたら、解けた先の本で置き換えない(R6-2 と同じ。AppState.OpenIntent)。
+        let intent = appState?.beginOpenIntent()
         return Task { [weak self] in
             let target = await FileIO.perform { FileBrowserLinkResolver.openingTargetInfo(of: link) }
             guard let self else { return }
@@ -487,18 +493,21 @@ final class FileBrowserActions {
                 NSWorkspace.shared.open(link)
                 return
             }
-            await self.openResolved(target.entry, fromMenu: fromMenu)?.value
+            await self.openResolved(target.entry, fromMenu: fromMenu, intent: intent)?.value
         }
     }
 
     /// 解けた先を、その項目を選んで開いたのと同じ場合分けで開く(フォルダは中へ ―― 画像フォルダの開き方の設定に従う、本と画像は
     /// qooViewer、アプリなどそれ以外は既定のアプリ = アプリは起動)。
-    private func openResolved(_ target: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
+    /// - Parameter intent: リンクを解き始めたときの開く意図。本を開くときに照合する(フォルダの中へ移る・既定のアプリで開くのは
+    ///   この窓の本と競わないので見ない)。
+    private func openResolved(_ target: FileBrowserEntry, fromMenu: Bool, intent: AppState.OpenIntent?) -> Task<Void, Never>? {
         if target.isNavigableFolder {
             return openFolder(target, fromMenu: fromMenu)
         }
         if target.opensAsBook {
-            appState?.open(url: target.url)
+            guard let appState, let intent, appState.isStillWanted(intent) else { return nil }
+            appState.open(url: target.url, intent: intent)
         } else {
             NSWorkspace.shared.open(target.url)
         }
@@ -522,11 +531,15 @@ final class FileBrowserActions {
             otherwise()
             return nil
         }
+        // 調べる間にこの窓で別の本が頼まれたら、調べ終えたフォルダで置き換えない(2026-10-04 のレビューの R6-2。Return は「開く」の
+        // 操作なので、待ち始めるここで開く意図を進める。AppState.OpenIntent)。
+        let intent = appState?.beginOpenIntent()
         return Task { [weak self] in
             let isBook = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(entry.url) }
             guard let self, self.state != nil else { return }
             if isBook {
-                self.appState?.open(url: entry.url)
+                guard let appState = self.appState, let intent, appState.isStillWanted(intent) else { return }
+                appState.open(url: entry.url, intent: intent)
             } else {
                 otherwise()
             }

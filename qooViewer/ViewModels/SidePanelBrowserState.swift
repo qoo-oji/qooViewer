@@ -181,6 +181,9 @@ final class SidePanelBrowserState: ObservableObject {
     func handlePanelRevealed(currentBook: MangaBook?) {
         guard let currentBook else {
             currentBookRowURL = nil
+            // 見送りの印も下ろす(2026-10-04 のレビューの R7-6)。通り抜けで頼んだ本が出る前に本を閉じた(読み込みの失敗・中止で
+            // 本が出なかった)とき、印が残ると、後で同じ本を履歴などから開いたときに再アンカーが黙って見送られた。
+            skipsNextAnchorFor = nil
             return
         }
         // 入れ子の書庫を書き出した一時コピーの本(本の中身ブラウザの「新しい本として開く」)では、今いる場所を保つ(2026-10-04 の監査 SP-4)。

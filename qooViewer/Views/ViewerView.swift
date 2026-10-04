@@ -1284,10 +1284,12 @@ struct ViewerView: View {
             // .askがここへ来ることは無い(finishOpenBookExportがシートへ回す)が、シートで
             // 何も選ばずに閉じられた場合と同じく「何もしない」で受ける。
             break
+        // 書き出しが終わったときの動作で、利用者がその場で頼んだのではない(開く意図を控えるだけ。AppState.openSibling の
+        // claimsOpenIntent。2026-10-04 のレビューの R6-1)。
         case .nextBookFirstPage:
-            appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true)
+            appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true, claimsOpenIntent: false)
         case .nextBook:
-            appState.openSibling(after: viewModel.book.sourceURL)
+            appState.openSibling(after: viewModel.book.sourceURL, claimsOpenIntent: false)
         case .returnToWelcome:
             returnToWelcome()
         case .closeTab:

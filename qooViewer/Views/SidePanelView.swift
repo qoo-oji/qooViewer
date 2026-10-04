@@ -92,14 +92,20 @@ struct SidePanelView: View {
     var onOpen: (URL) -> Void
     /// 「履歴」モードの行をクリックして開く。`onOpen` と違い、環境設定「本を開く」の「履歴から」に従って新しいタブ/ウインドウに
     /// 開くことがある(2026-09-28。`AppState.openFromHistory`)。パネルを閉じるかどうかは呼び出し側が結果で決める。
-    var onOpenFromHistory: (URL) -> Void
+    /// 待ってから開く(ブックマークの解決を待った)ので、待ち始めたときの開く意図を添える(nil = 新しい窓・タブで開くので照合しない。
+    /// AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
+    var onOpenFromHistory: (URL, AppState.OpenIntent?) -> Void
     /// 「履歴」モードの行が開けなかった(繋がっていないボリューム・消えた・ゴミ箱)ときの知らせを出す(2026-10-04 の監査 SP-7。
     /// 呼び出し側は `AppState.postViewerNotice` へ渡す。以前は黙って何もしなかった)。
     var onHistoryOpenFailure: (String) -> Void
     /// フォルダブラウザの移動でたどり着いたフォルダの画像を表示する(moveAndShowImages)。
     /// `onOpen`と違い**履歴に残さない** ―― 目的の本を探して通り抜けただけのフォルダで履歴が
     /// 埋まらないようにするため(BookOpenRequest.recordsInHistory参照)。
-    var onBrowseToFolder: (URL) -> Void
+    /// 画像があるかを確かめてから呼ぶので、確かめ始めたときの控え(`AppState.openIntentWithoutClaiming`)を添える(レビューの R8a-1)。
+    var onBrowseToFolder: (URL, AppState.OpenIntent) -> Void
+    /// 開く意図(AppState.OpenIntent)を取る相手(このウインドウの AppState)。**観察はしない** ―― 本のたびに変わる値をこのビューの
+    /// 描き直しの契機にしないため、`@EnvironmentObject` ではなく弱い参照で持つ。
+    weak var openIntentOwner: AppState?
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
     /// ページの右クリック →「このページをブックマークに追加/削除」(ユーザー要望)。
@@ -116,7 +122,8 @@ struct SidePanelView: View {
     var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
     /// ライブラリのツリーから本を開く(`onOpen` / `onOpenInNewWindow` の要求版。要求にコレクションの本の並び
     /// ―― `BookSequence` ―― が載る。2026-09-22)。パネルを閉じるかどうかは `onOpen` / `onOpenInNewWindow` と同じ。
-    var onOpenRequest: (BookOpenRequest) -> Void
+    /// 開く意図を添える(ツリーは項目のブックマークの解決を待ってから開く。R6-1)。
+    var onOpenRequest: (BookOpenRequest, AppState.OpenIntent?) -> Void
     var onOpenRequestInNewWindow: (BookOpenRequest, BookOpenDestination) -> Void
 
     // MARK: - ブックマークモード用
@@ -924,20 +931,27 @@ struct SidePanelView: View {
     ///
     /// 「直下に画像があるか」は `FileIO` の上で調べる(2026-10-04 の監査 §2-4・決定 18「ブロッキング I/O をメインで同期にしない」。
     /// 以前はメインで同期に列挙し、応答しない共有のフォルダへ移ると、その間アプリごと止まった)。待った後は、まだそのフォルダに
-    /// いるか(その間に別の場所へ移っていないか)と、その本がもう表示中でないかを確かめ直す。
+    /// いるか(その間に別の場所へ移っていないか)と、**その間にこの窓で何も頼まれていないか・開いていないか**を確かめ直す
+    /// (2026-10-04 のレビューの R8a-1。以前は待つ前に取った表示中の本と比べていて、何も確かめておらず、待つ間に履歴・⌘→・ドロップで
+    /// 開いた本を、確かめ終えたフォルダが置き換えた)。
+    ///
+    /// 開く意図は**控えるだけで進めない**(`openIntentWithoutClaiming`。AppState.OpenIntent の決まり)。移動は「開く」指示では
+    /// なく、画像が無ければ何も開かない ―― 意図を進めると、先に頼まれて確かめを待っている本(コレクション・履歴)を、画像の無い
+    /// フォルダへ移っただけで捨てさせてしまう。
     private func moveAndShowImages(_ move: () -> Void) {
         move()
-        guard let directory = folderState.currentDirectory, !isCurrentBookFolder(directory) else { return }
+        guard let directory = folderState.currentDirectory, !isCurrentBookFolder(directory),
+              let intent = openIntentOwner?.openIntentWithoutClaiming() else { return }
         let folderState = folderState
         let onBrowseToFolder = onBrowseToFolder
-        let bookSourceURL = bookSourceURL
-        Task { @MainActor in
+        let owner = openIntentOwner
+        Task { @MainActor [weak owner] in
             let hasImages = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(directory) }
             guard hasImages, folderState.currentDirectory?.path == directory.path,
-                  bookSourceURL?.path != directory.path
+                  owner?.isStillWanted(intent) == true
             else { return }
             folderState.skipNextAnchorOnce(for: directory)
-            onBrowseToFolder(directory)
+            onBrowseToFolder(directory, intent)
         }
     }
 
@@ -1788,12 +1802,13 @@ private struct SidePanelHistorySectionView: View {
     /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
     @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var preferences: AppPreferences
-    /// 開く前の確かめを待つ間に、この窓で別の本を開き始めたかを見る(`openRequestToken`。`resolve(_:then:)`)。
+    /// 開く前の確かめを待つ間に、この窓で別の本が頼まれたかを見る(開く意図 `AppState.OpenIntent`。`resolve(_:replacesBook:then:)`)。
     @EnvironmentObject private var appState: AppState
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var recentFiles: RecentFilesStore
     var currentBookPath: String?
-    var onOpen: (URL) -> Void
+    /// 行の「開く」(SidePanelView.onOpenFromHistory)。待ち始めたときの開く意図を添える(この窓の本を置き換えないなら nil)。
+    var onOpen: (URL, AppState.OpenIntent?) -> Void
     /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenInNewWindow)。
     var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
     /// 開けなかった理由の知らせ(SidePanelView.onHistoryOpenFailure)。
@@ -1879,14 +1894,24 @@ private struct SidePanelHistorySectionView: View {
     }
 
     /// 開く直前の解決。開けなければ理由を知らせる(2026-10-04 の監査 SP-7。RecentFilesStore.resolveForOpening)。解決は
-    /// メインの外なので、開けたら `body` を呼ぶ(監査 §2-4)。待つ間にこの窓で別の本を開き始めていたら開かない(SP-10 と同じ)。
-    private func resolve(_ entry: RecentFilesStore.Entry, then body: @escaping @MainActor (URL) -> Void) {
+    /// メインの外なので、開けたら `body` を呼ぶ(監査 §2-4)。
+    ///
+    /// この窓の本を置き換える開き方(`replacesBook`)なら、待ち始めるここで開く意図を進め、待つ間にこの窓で別の本が頼まれていたら
+    /// 開かない(後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。新しいタブ・ウインドウへ開くときは
+    /// この窓の本と競わないので、意図を進めず照合もしない(以前は照合して、待つ間にこの窓で本を開くと新しいタブの頼みまで消えた)。
+    private func resolve(
+        _ entry: RecentFilesStore.Entry, replacesBook: Bool,
+        then body: @escaping @MainActor (URL, AppState.OpenIntent?) -> Void
+    ) {
         let appState = appState
-        let token = appState.openRequestToken
+        let intent = replacesBook ? appState.beginOpenIntent() : nil
         recentFiles.resolveForOpening(
             entry, locale: preferences.effectiveLocale, report: onOpenFailure,
-            stillWanted: { [weak appState] in appState?.openRequestToken == token },
-            then: body
+            stillWanted: { [weak appState] in
+                guard let intent else { return true }
+                return appState?.isStillWanted(intent) == true
+            },
+            then: { url in body(url, intent) }
         )
     }
 
@@ -1922,7 +1947,7 @@ private struct SidePanelHistorySectionView: View {
         .help(entry.path)
         // 開く直前に初めてブックマークを解決する(消えた本は履歴から取り除かれ、開けない理由は知らせる ―― resolve(_:))。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) {
-            resolve(entry) { url in onOpen(url) }
+            resolve(entry, replacesBook: appState.historyOpenReplacesCurrentBook) { url, intent in onOpen(url, intent) }
         }
         .sidePanelContextHighlight(rowID: "history:\(entry.id)")
         .contextMenu {
@@ -1931,10 +1956,10 @@ private struct SidePanelHistorySectionView: View {
             // 一覧全体でディスクを触ることになるため、必ずクロージャの中で行うこと。
             BookOpenContextMenuItems(
                 onOpen: {
-                    resolve(entry) { url in onOpen(url) }
+                    resolve(entry, replacesBook: appState.historyOpenReplacesCurrentBook) { url, intent in onOpen(url, intent) }
                 },
                 onOpenIn: { destination in
-                    resolve(entry) { url in onOpenInNewWindow(url, destination) }
+                    resolve(entry, replacesBook: false) { url, _ in onOpenInNewWindow(url, destination) }
                 }
             )
             Divider()

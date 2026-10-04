@@ -176,7 +176,12 @@ final class AppState: ObservableObject {
     /// 直前に開いていた本を、このウインドウで開き直す(ホームのボタン)。無い・戻れないなら何もしない。
     func reopenLastBook() {
         guard canReopenLastBook, let last = lastOpenedBook else { return }
-        open(request: last.request)
+        // 利用者が名指しした「開く」なので、履歴にも残す(2026-10-04 のレビューの R7-7)。控えの要求はサイドパネルのフォルダ
+        // ブラウザの通り抜けで開いた本だと「履歴に残さない」のままで、シークレットウインドウへ回す本だと通り抜けの静かな回し方
+        // (焦点を移さない。ContentView の SecretFolderPrivateRedirect)になり、押したのに裏で開いていた。
+        var request = last.request
+        request.recordsInHistory = true
+        open(request: request)
     }
 
     /// 走っている確かめ(テストが終わりを待つ)。走っている間に次を頼まれたら、終わってからもう一度だけ確かめる
@@ -1178,12 +1183,12 @@ final class AppState: ObservableObject {
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
     func open(
         url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true,
-        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
+        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false, intent: OpenIntent? = nil
     ) {
         open(
             request: BookOpenRequest(url, recordsInHistory: recordsInHistory),
             reusesExistingWindow: reusesExistingWindow,
-            initialEdge: initialEdge, startsSlideshow: startsSlideshow
+            initialEdge: initialEdge, startsSlideshow: startsSlideshow, intent: intent
         )
     }
 
@@ -1208,33 +1213,34 @@ final class AppState: ObservableObject {
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         var seen = Set<String>()
         let candidates = urls.filter { seen.insert($0.path).inserted }
-        // 下調べを待つ間に別の本を開いた・読み込みを中止したら、後から来た結果で置き換えない(2026-10-04 の監査 O-7)。
-        // `open(request:)` と `cancelOpen()` が `openToken` を進める。
-        let tokenAtStart = openToken
+        // 下調べを待つ間に別の本を頼んだ・読み込みを中止したら、後から来た結果で置き換えない(2026-10-04 の監査 O-7)。
+        // 待ち始めるここで「開く意図」を進める(`beginOpenIntent`。2026-10-04 のレビューの R6-1 ―― 以前は待ち始めても何も進めず、
+        // 2 つの待つ入口が重なると先に終わった方が開いて、後から頼んだ方が捨てられた)。
+        let intent = beginOpenIntent()
         openProbeTask = Task { @MainActor [weak self] in
             // 下調べはファイルを読むので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。O-7 の付記。以前は
             // `Task.detached` で、応答しない共有ではプールのスレッドを止めていた)。
             if candidates.count == 1, let url = candidates.first {
                 let verdict = await FileIO.perform { DroppedBooks.single(url, order: order) }
-                guard let self, self.openToken == tokenAtStart else { return }
+                guard let self, self.isStillWanted(intent) else { return }
                 guard verdict == .open else {
                     self.postViewerNotice(String(
                         format: String(localized: "“%@” can’t be opened as a book.", language: locale), url.lastPathComponent
                     ))
                     return
                 }
-                self.open(request: request)
+                self.open(request: request, intent: intent)
                 return
             }
             let found = await FileIO.perform { DroppedBooks.multiple(candidates, order: order) }
-            guard let self, self.openToken == tokenAtStart else { return }
+            guard let self, self.isStillWanted(intent) else { return }
             guard let first = found.books.first else {
                 self.postViewerNotice(String(localized: "None of the items can be opened as a book.", language: locale))
                 return
             }
             let sequence = found.books.count > 1
                 ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
-            self.open(request: BookOpenRequest(first, sequence: sequence))
+            self.open(request: BookOpenRequest(first, sequence: sequence), intent: intent)
             if found.skipped > 0 {
                 self.postViewerNotice(Self.skippedNotice(found.skipped, locale: locale))
             }
@@ -1284,6 +1290,10 @@ final class AppState: ObservableObject {
     ///   EPUB なら、同じ向きへ飛ばして次を試す(2026-10-04 の監査 O-1・決定 2 の (c))。シークレットウインドウへ回したら、その本を
     ///   「越えた」ことにする(O-10・決定 3。`passedOverBook`)。
     ///
+    /// - Parameter intent: 待ってから開く入口が、待ち始めたときに得た「開く意図」(`beginOpenIntent` ほか。2026-10-04 のレビューの
+    ///   R6-1)。もう要らなくなっていれば(その後この窓で別の本を頼んだ・中止した・閉じた)何もしない。nil はその場で頼まれた要求
+    ///   (新しい意図として数える)。
+    ///
     /// **今の本を置き換える読み込みが失敗したら、どの入口でも今の本を残して知らせる**(2026-10-04 の監査 O-1・SP-2、決定 2 の (a))。
     /// 以前は失敗すると今の本を閉じてホームとエラーにしていた ―― 次の本が小説の EPUB・壊れた書庫だと、読んでいた本が閉じ、
     /// 「直前の本へ戻る」で戻ってもまた同じ本で閉じて先へ進めなかった。本を出していない窓(ホーム・本のために作った窓)では従来どおり
@@ -1291,8 +1301,15 @@ final class AppState: ObservableObject {
     func open(
         request: BookOpenRequest, reusesExistingWindow: Bool = true,
         initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false, isInitialRequest: Bool = false,
-        step: BookStep? = nil
+        step: BookStep? = nil, intent: OpenIntent? = nil
     ) {
+        // 待ってから開く入口の結果が、もう要らなくなっていれば開かない(呼ぶ側も確かめるが、ここでも必ず見る ―― 確かめ忘れた入口が
+        // 後から頼んだ本を置き換えないように。R6-1)。
+        if let intent, !isStillWanted(intent) { return }
+        // この要求を「開く意図」として数える(後から終わった、先に頼まれていた入口の結果を捨てさせる)。窓を作った要求そのものは
+        // 数えない ―― 窓はその本のために作られたもので、作る前の頼みと競うものが無い(通り抜けでシークレットウインドウへ回した
+        // 本の入れ替え先を、作った直後の窓でも見失わないため。R7-5)。
+        if !isInitialRequest { noteOpenRequest(fulfilling: intent) }
         // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、この窓では開かずにシークレットウインドウへ
         // 回す(2026-10-03。この窓は今の中身のまま)。窓を開くのはビューの側なので、頼みだけ出す(privateRedirect)。
         if BookWindowOpener.shouldOpenSecretBookPrivately(request, opensPrivately: isPrivateWindow) {
@@ -1440,6 +1457,8 @@ final class AppState: ObservableObject {
                     // 次の本は利用者が名指しした本ではなく、ページ送りの延長 ―― 以前はそこで止まって先へ進めなかった)。
                     var candidate = target
                     var skipped = 0
+                    // 飛ばした先の本のために開いたスコープ(次へ飛ばしたら閉じて差し替える。R7-1)。
+                    var candidateScope: URL?
                     while true {
                         attempted = candidate
                         // EPUB を飛ばして進んだ先がシークレットフォルダの本なら、そこで回す(先頭の本は上で見た)。一覧の並びなら、
@@ -1492,6 +1511,11 @@ final class AppState: ObservableObject {
                             }
                             candidate = next
                             skipped += 1
+                            // 飛ばした先の本のセキュリティスコープを開く(2026-10-04 のレビューの R7-1)。一覧の並びの本は
+                            // コレクションの項目のブックマークから解いた URL で(BookSequence.Probe)、確かめ終えたところでスコープを
+                            // 閉じて返ってくる。上で開いたのは要求の URL(飛ばした EPUB)のぶんだけなので、ブックマークが唯一の
+                            // 許可の本だと読めなかった。
+                            if let self { candidateScope = self.adoptCandidateScope(next, replacing: candidateScope, token: token) }
                         }
                     }
                 } else {
@@ -1646,6 +1670,12 @@ final class AppState: ObservableObject {
                                                        sequence: landedSequence ?? request.sequence)
                     }
                     if let landedSequence { self.bookSequence = landedSequence }
+                    // 次の本・前の本で飛ばして別の本を開いたなら、飛ばした本(要求の URL)のスコープはもう要らない(R7-1)。
+                    // 表示中の本のぶんだけを持つ(securityScopedBookURLs のコメント)。棚の読み替え(step が無い)は、棚の
+                    // フォルダのスコープで中の本を読むので残す。
+                    if step != nil, let attempted, attempted != request.primaryURL {
+                        self.releaseScopes(of: request.urls)
+                    }
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
                     self.lastOpenedBook = LastOpenedBook(request: shownRequest, sourceURL: book.sourceURL, title: book.title)
                     self.lastBookAvailability = .available
@@ -1725,6 +1755,15 @@ final class AppState: ObservableObject {
     /// ここでオーバーレイを即座に消すのは、中止したのに表示が残る時間を作らないため
     /// (実際の打ち切りは次のcheckCancellationまで数百ミリ秒かかりうる)。
     func cancelOpen() {
+        // 利用者が中止した ―― 待っている入口(この窓で先に頼まれていたもの)の結果も、もう要らない(開く意図を進める。R6-1)。
+        noteOpenRequest(fulfilling: nil)
+        abandonLoad()
+    }
+
+    /// 走っている読み込みをやめる(中止・棚を読み替えた先を別の窓へ譲る・失敗して今の本へ戻す)。**開く意図は進めない** ――
+    /// 利用者が何も頼んでいないのに、待っている入口の結果を捨てさせない(2026-10-04 のレビューの R6-1。以前は `restoreState` も
+    /// 中止と同じ `cancelOpen` で、読み込みの失敗が待っている入口の結果まで捨てさせた)。
+    private func abandonLoad() {
         openTask?.cancel()
         openTask = nil
         openToken = UUID()
@@ -1744,13 +1783,19 @@ final class AppState: ObservableObject {
     ///   場合にtrue。その本の読書位置の記憶や「開始ページ」の設定より優先して先頭へ着地させる。
     /// - Parameter startsSlideshow: 開いた本でスライドショーを続けるか(`pendingStartsSlideshow`参照)。次の本が無ければ
     ///   何も開かないので、スライドショーは止まったままになる。
-    func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false) {
+    /// - Parameter claimsOpenIntent: 利用者がその場で頼んだ「次の本へ」か(開く意図を進める。AppState.OpenIntent)。スライドショーが
+    ///   末尾に達した・書き出しの後の動作で進むときは false ―― 控えるだけにして、待っている入口(利用者が頼んだ本)を捨てさせない
+    ///   (2026-10-04 のレビューの R6-1)。スライドショーを続けるとき(`startsSlideshow`)は常に false。
+    func openSibling(
+        after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false, claimsOpenIntent: Bool = true
+    ) {
         // シークレットウインドウへ回した本を越えたことにする(passedOverBook のコメント。同じ向きのときだけ)。
         let passed = passedOverBook?.forward == true ? passedOverBook : nil
+        let claims = claimsOpenIntent && !startsSlideshow
         if let bookSequence {
             openInSequence(
                 passed?.sequence ?? bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil,
-                startsSlideshow: startsSlideshow, origin: bookSequence
+                startsSlideshow: startsSlideshow, origin: bookSequence, claimsOpenIntent: claims
             )
             return
         }
@@ -1758,19 +1803,18 @@ final class AppState: ObservableObject {
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
         // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
         let order = siblingBookOrder
-        // 兄弟を探す間に別の本を開いた・閉じたら、見つけた結果で置き換えない(2026-10-04 の監査 O-7。`openInSequence` が
-        // `bookSequence == sequence` を見るのと同じ)。
-        let tokenAtStart = openToken
+        // 兄弟を探す間に別の本を頼んだ・閉じたら、見つけた結果で置き換えない(2026-10-04 の監査 O-7。開く意図はレビューの R6-1)。
+        let intent = claims ? beginOpenIntent() : openIntentWithoutClaiming()
         let bookAtStart = currentBook?.id
         openProbeTask = Task { [weak self] in
             guard let next = await SiblingFinder.url(after: currentURL, order: order) else { return }
-            guard let self, self.openToken == tokenAtStart, self.currentBook?.id == bookAtStart else { return }
+            guard let self, self.isStillWanted(intent), self.currentBook?.id == bookAtStart else { return }
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
             self.open(
                 request: BookOpenRequest(next), reusesExistingWindow: false,
                 initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow,
-                step: BookStep(forward: true)
+                step: BookStep(forward: true), intent: intent
             )
         }
     }
@@ -1787,16 +1831,16 @@ final class AppState: ObservableObject {
         }
         let currentURL = passed?.url ?? currentURL
         let order = siblingBookOrder
-        // 次の本と同じく、探す間に別の本を開いた・閉じたら置き換えない(O-7)。
-        let tokenAtStart = openToken
+        // 次の本と同じく、探す間に別の本を頼んだ・閉じたら置き換えない(O-7・R6-1)。
+        let intent = beginOpenIntent()
         let bookAtStart = currentBook?.id
         openProbeTask = Task { [weak self] in
             guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
-            guard let self, self.openToken == tokenAtStart, self.currentBook?.id == bookAtStart else { return }
+            guard let self, self.isStillWanted(intent), self.currentBook?.id == bookAtStart else { return }
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
             self.open(
                 request: BookOpenRequest(previous), reusesExistingWindow: false,
-                initialEdge: landsOnLastPage ? .last : nil, step: BookStep(forward: false)
+                initialEdge: landsOnLastPage ? .last : nil, step: BookStep(forward: false), intent: intent
             )
         }
     }
@@ -1879,17 +1923,23 @@ final class AppState: ObservableObject {
     ///   違うのは、シークレットウインドウへ回した本を越えて探すとき(`passedOverBook`)だけ。
     private func openInSequence(
         _ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?, startsSlideshow: Bool = false,
-        origin: BookSequence? = nil
+        origin: BookSequence? = nil, claimsOpenIntent: Bool = true
     ) {
         let origin = origin ?? sequence
         let candidates = sequence.candidatePositions(forward: forward)
         guard !candidates.isEmpty else { return }
         sequenceTask?.cancel()
+        // 確かめを待つ間に別の本を頼んだら(開く意図。R6-1。利用者が頼んでいない進み方なら控えるだけ ―― openSibling の
+        // claimsOpenIntent)・並びが変わったらやめる。
+        let intent = claimsOpenIntent ? beginOpenIntent() : openIntentWithoutClaiming()
         sequenceTask = Task { [weak self] in
             guard let self else { return }
             var steps = SequenceSteps(sequence: sequence, remaining: candidates)
-            let result = await self.nextReachable(in: &steps, stillWanted: { [weak self] in self?.bookSequence == origin })
-            guard !Task.isCancelled, self.bookSequence == origin else { return }
+            let result = await self.nextReachable(in: &steps, stillWanted: { [weak self] in
+                guard let self else { return false }
+                return self.bookSequence == origin && self.isStillWanted(intent)
+            })
+            guard !Task.isCancelled, self.bookSequence == origin, self.isStillWanted(intent) else { return }
             switch result {
             case .found(let position, let url):
                 // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。開いた本が画像の本でない EPUB なら、
@@ -1897,7 +1947,7 @@ final class AppState: ObservableObject {
                 self.open(
                     request: BookOpenRequest(url, sequence: sequence.moved(to: position)),
                     reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
-                    step: BookStep(forward: forward, sequence: steps)
+                    step: BookStep(forward: forward, sequence: steps), intent: intent
                 )
             case .timedOut:
                 // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。
@@ -1911,12 +1961,84 @@ final class AppState: ObservableObject {
     /// 一覧の並びをたどって次の本を探している最中の仕事(テストが終わりを待つ。続けて押されたら前のものは取り消す)。
     private(set) var sequenceTask: Task<Void, Never>?
 
-    /// 開く要求の番号(`open(request:)` と `cancelOpen()` で変わる)。本を開く前に確かめを待つ入口が、待った後に「その間に別の本を
-    /// 開いた・やめた」かを見る(2026-10-04 の監査 SP-10 = O-8。CollectionItemOpenTracker の `stillWanted`)。
-    var openRequestToken: UUID { openToken }
+    // MARK: - 開く意図(2026-10-04 のレビューの R6-1)
+
+    /// **待ってから本を開く入口**(確かめ・下調べ・解決を待ってから `open` を呼ぶもの)が、待った後に「まだ開いてよいか」を
+    /// 確かめるための印。**後から頼んだ方が勝つ。**
+    ///
+    /// ■ なぜ要るのか
+    /// 以前は入口ごとに `openRequestToken`(`open(request:)` と `cancelOpen()` で進む)を控えて照合していた。それは「待つ間に
+    /// 別の本を**開いた**」は分かるが、待ち始めたときには何も進めないので、待つ入口が 2 つ重なると**先に終わった方**が開いて
+    /// 番号を進め、後から頼んだ方が黙って捨てられた(眠っている NAS の本 A をドロップ → 下調べの間にコレクションの本 B を押す
+    /// → A が先に終わると A が出て B は消える)。照合の無い入口(ファイルブラウザの画像フォルダ、サイドパネルの通り抜け、編集
+    /// ウインドウの「開く」)もあった。
+    ///
+    /// ■ 決まり
+    /// - 待ってから開く入口は、**待ち始めるときに** `beginOpenIntent()` で意図を進め、待った後に `isStillWanted(_:)` で照合し、
+    ///   開くときはその意図を `open(request:intent:)` へ渡す。照合に落ちたら結果を捨てる。利用者が後から別の本を頼んだ
+    ///   (または中止した・閉じた)ので、**鳴らさず知らせもしない**(見つからない・期限切れの知らせも出さない)。
+    /// - その場で頼まれた `open(request:)`(意図を持たない)・`cancelOpen()`(利用者の中止)も意図を進める。読み込みの失敗・
+    ///   棚の本を別の窓へ譲る(`abandonLoad`)・`closeBook()`(スライドショーの末尾・書き出しの後の動作でも呼ばれる)は進めない ――
+    ///   利用者が何も頼んでいないのに捨てさせない。
+    /// - 開く先の窓が待った後でないと決まらない入口(焦点の無いメニュー・編集ウインドウ・Finder から開いた本)は、
+    ///   `beginOpenIntentForAnyWindow()` で意図を取り、決まった窓の `isStillWanted(_:)` で照合する。番号はアプリ全体で 1 本の
+    ///   時計から振るので、窓をまたいでも「どちらが後に頼まれたか」が比べられる。
+    /// - 自分では何も頼んでいない入口(サイドパネルのフォルダブラウザの通り抜けで画像を映す、起動時に前回の本を開き直す、
+    ///   スライドショーの末尾・書き出しの後の動作で次の本へ進む ―― `openSibling(after:claimsOpenIntent: false)`)は
+    ///   `openIntentWithoutClaiming()` で今の意図を控えるだけにする ―― 先に頼まれた本を捨てさせない。控えた後にこの窓で何か
+    ///   頼まれた・開いたら(開いた回数も控えに入る)、自分の結果を捨てる。
+    struct OpenIntent: Equatable, Sendable {
+        fileprivate let serial: UInt64
+        /// `openIntentWithoutClaiming()` で控えたときの、この窓で開いた回数(`openRequestCount`)。自分で頼んだ意図では nil。
+        fileprivate let openCount: UInt64?
+    }
+
+    /// 意図の番号を振る時計(アプリ全体で 1 本。上の「窓をまたいでも比べられる」)。
+    private static var openIntentClock: UInt64 = 0
+    /// この窓でいちばん後に頼まれた意図の番号。
+    private var latestOpenIntentSerial: UInt64 = 0
+    /// この窓で `open(request:)` を受けた回数(窓を作った要求は数えない)。`openIntentWithoutClaiming` の控えが見る。
+    private var openRequestCount: UInt64 = 0
+
+    /// 待ってから開く入口が、待ち始めるときに呼ぶ(この窓で先に頼まれていた入口の結果を捨てさせる)。
+    func beginOpenIntent() -> OpenIntent {
+        Self.openIntentClock += 1
+        latestOpenIntentSerial = Self.openIntentClock
+        return OpenIntent(serial: latestOpenIntentSerial, openCount: nil)
+    }
+
+    /// 開く先の窓が待った後でないと決まらない入口の意図(どの窓の意図も進めない)。
+    static func beginOpenIntentForAnyWindow() -> OpenIntent {
+        openIntentClock += 1
+        return OpenIntent(serial: openIntentClock, openCount: nil)
+    }
+
+    /// 自分では何も頼んでいない入口の控え(上の決まりの最後)。
+    func openIntentWithoutClaiming() -> OpenIntent {
+        OpenIntent(serial: latestOpenIntentSerial, openCount: openRequestCount)
+    }
+
+    /// その意図の結果を、まだこの窓で開いてよいか(その後この窓で別の本が頼まれていないか)。
+    func isStillWanted(_ intent: OpenIntent) -> Bool {
+        guard latestOpenIntentSerial <= intent.serial else { return false }
+        if let openCount = intent.openCount { return openCount == openRequestCount }
+        return true
+    }
+
+    /// `open(request:)` を受けた・中止した。待っていた入口の結果を開くとき(`intent` あり)は、その意図の番号を引き継ぐ ――
+    /// 新しい番号にすると、後から頼まれて別の窓の意図として待っている入口(編集ウインドウ・Finder)まで捨ててしまう。
+    private func noteOpenRequest(fulfilling intent: OpenIntent?) {
+        if let intent {
+            latestOpenIntentSerial = max(latestOpenIntentSerial, intent.serial)
+        } else {
+            Self.openIntentClock += 1
+            latestOpenIntentSerial = Self.openIntentClock
+        }
+        openRequestCount += 1
+    }
 
     /// 開く前の下調べ(`open(urls:)`)・同じフォルダの次/前の本を探している最中の仕事。テストが終わりを待つ(2026-10-04 の監査 O-7)。
-    /// 取り消しはしない ―― 待った後に `openToken` と表示中の本で、まだ頼んだときのままかを確かめる。
+    /// 取り消しはしない ―― 待った後に開く意図(`isStillWanted`)と表示中の本で、まだ頼んだときのままかを確かめる。
     private(set) var openProbeTask: Task<Void, Never>?
 
     /// 一覧の並びをたどるとき、1 冊の確かめを待つ上限(`openInSequence` のコメント)。眠っていた外付けディスクが回り出す
@@ -1932,6 +2054,8 @@ final class AppState: ObservableObject {
     }
 
     func closeBook() {
+        // 開く意図は進めない(R6-1)。閉じるのはスライドショーの末尾・書き出しの後の動作のように、利用者がその場で頼んでいない
+        // こともある ―― 待っている入口(利用者が頼んだ本)をそれで捨てさせない(以前の照合でも、閉じても待っている入口は開いた)。
         openTask?.cancel()
         bookSequence = nil
         passedOverBook = nil
@@ -2001,17 +2125,19 @@ final class AppState: ObservableObject {
             language: locale
         )
         let bookID = currentBook?.id
+        // 許可のパネル(シート)を待つ間に別の本を頼んだら、開かない(開く意図。2026-10-04 のレビューの R6-1)。
+        let intent = beginOpenIntent()
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard await ensureAccess(toFolder: folderURL, message: accessMessage) else { return }
             // パネルはシートなので、その間にメニューバーから別の本へ移っていれば何もしない(置き換える先が違う)。
-            guard currentBook?.id == bookID else { return }
+            guard currentBook?.id == bookID, isStillWanted(intent) else { return }
             // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
             // 開く前にpendingInitialPageの宛先を確定できる。
             pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
             // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積んであるので、
             // 別のウインドウへ譲ると着地先を失う(open(request:reusesExistingWindow:)のコメント参照)。
-            open(url: folderURL, reusesExistingWindow: false)
+            open(url: folderURL, reusesExistingWindow: false, intent: intent)
         }
     }
 
@@ -2129,19 +2255,64 @@ final class AppState: ObservableObject {
     /// BookWindowOpener.openSecretBookPrivatelyQuietly)。次の通り抜けは同じタブで入れ替える。
     private weak var passThroughPrivateTargetState: AppState?
     private var passThroughPrivateURL: URL?
+    /// 回した先で開いた直後の、その窓の開く意図の控え(`openIntentWithoutClaiming`。2026-10-04 のレビューの R7-5)。これが今も
+    /// 通る(その窓でその後何も頼まれていない)間は、その窓を入れ替え先にする。
+    private var passThroughPrivateIntent: AppState.OpenIntent?
+    /// 初回(新しいタブ・窓を作った)で、その窓がまだ分からない間に来た次の通り抜けの要求と、待ち始めた時刻(R7-5)。窓が分かったら
+    /// そこで開く。以前はこの間にも新しいタブを足していた。
+    private var passThroughPrivatePendingSince: Date?
+    private var passThroughPrivatePendingRequest: BookOpenRequest?
+    /// 初回の窓が分かるのを待つ上限(BookWindowOpener.newlyOpenedWindow が探すのは 0.5 秒ほど)。過ぎたら見失ったものとして、
+    /// 次の通り抜けはまた新しく開く。
+    private static let passThroughPendingLimit: TimeInterval = 3
 
-    func notePassThroughPrivateTarget(_ target: AppState?, url: URL) {
-        if let target { passThroughPrivateTargetState = target }
+    /// 回した先で開いた(`target` がその窓。`target.open` の**後**に呼ぶ)。
+    func notePassThroughPrivateTarget(_ target: AppState, url: URL) {
+        passThroughPrivateTargetState = target
         passThroughPrivateURL = url
+        passThroughPrivateIntent = target.openIntentWithoutClaiming()
+        passThroughPrivatePendingSince = nil
     }
 
-    /// 次の通り抜けで入れ替える先。控えた窓がまだ開いていて、前回回した本を出している(読み込み中で何も出していない)ときだけ ――
-    /// 利用者がそのタブで別の本を読み始めていたら、それを入れ替えない。控えが無ければ、前回回した本を出しているシークレットウインドウ。
+    /// 初回で、新しいタブ・窓を作り始めた(窓はまだ分からない)。
+    func notePassThroughPrivateTargetPending(url: URL) {
+        passThroughPrivateTargetState = nil
+        passThroughPrivateURL = url
+        passThroughPrivateIntent = nil
+        passThroughPrivatePendingSince = Date()
+        passThroughPrivatePendingRequest = nil
+    }
+
+    /// 初回の窓を作り始めた後、窓が分かる前に次の通り抜けが来たら、その要求を控えて true(窓が分かったら開く。`takePassThroughPending`)。
+    func deferPassThroughWhileTargetIsPending(_ request: BookOpenRequest) -> Bool {
+        guard let since = passThroughPrivatePendingSince else { return false }
+        guard Date().timeIntervalSince(since) < Self.passThroughPendingLimit else {
+            passThroughPrivatePendingSince = nil
+            passThroughPrivatePendingRequest = nil
+            return false
+        }
+        passThroughPrivatePendingRequest = request
+        return true
+    }
+
+    /// 初回の窓が分かった(または見失った)。窓が分かる前に来た要求があれば返す(呼ぶ側がその窓で開く)。
+    func takePassThroughPending() -> BookOpenRequest? {
+        defer {
+            passThroughPrivatePendingSince = nil
+            passThroughPrivatePendingRequest = nil
+        }
+        return passThroughPrivatePendingRequest
+    }
+
+    /// 次の通り抜けで入れ替える先。控えた窓がまだ開いていて、**回した後その窓で何も頼まれていない**ときだけ ―― 利用者がその
+    /// タブで別の本を読み始めていたら、それを入れ替えない(R7-5。以前は「何も出していないか、前回回した本を出している」で見たので、
+    /// 前の本を出したまま次を読み込んでいる最中・読み込みに失敗した後は見失い、通り抜けるたびにタブを足していた)。控えが無ければ、
+    /// 前回回した本を出しているシークレットウインドウ。
     func passThroughPrivateTarget(in launchCoordinator: LaunchCoordinator) -> AppState? {
         guard let url = passThroughPrivateURL else { return nil }
         if let target = passThroughPrivateTargetState, target.isPrivateWindow, target.hostWindow != nil,
            launchCoordinator.allOpenAppStates.contains(where: { $0 === target }),
-           target.currentBook == nil || target.currentBook?.sourceURL.path == url.path {
+           let intent = passThroughPrivateIntent, target.isStillWanted(intent) {
             return target
         }
         return launchCoordinator.openAppState(forBookAt: url, isPrivate: true)
@@ -2164,7 +2335,29 @@ final class AppState: ObservableObject {
         bookSequence = beforeOpen.sequence
         pendingInitialEdge = beforeOpen.initialEdge
         pendingStartsSlideshow = beforeOpen.startsSlideshow
-        cancelOpen()
+        abandonLoad()
+    }
+
+    /// 次の本・前の本で画像の本でない EPUB を飛ばした先の本のスコープを開き、前に飛ばした先のぶんを閉じる(2026-10-04 のレビューの
+    /// R7-1)。開けたら(`securityScopedBookURLs` へ足したら)その URL を返す。読み込みが既に別の要求に替わっていれば何もしない
+    /// (スコープの一覧はその要求のもの)。失敗したときは `restoreState` が一覧ごと表示中の本のぶんへ戻す。
+    fileprivate func adoptCandidateScope(_ url: URL, replacing previous: URL?, token: UUID) -> URL? {
+        guard openToken == token else { return previous }
+        // 先に開いてから閉じる(同じ URL でも途切れないように。securityScopedBookURLs のコメント)。
+        let started = url.startAccessingSecurityScopedResource()
+        if let previous { releaseScopes(of: [previous]) }
+        guard started else { return nil }
+        securityScopedBookURLs.append(url)
+        return url
+    }
+
+    /// `securityScopedBookURLs` のうち `urls` のぶんを閉じて外す。
+    private func releaseScopes(of urls: [URL]) {
+        securityScopedBookURLs.removeAll { url in
+            guard urls.contains(url) else { return false }
+            url.stopAccessingSecurityScopedResource()
+            return true
+        }
     }
 
     /// 棚を読み替えた先の本がシークレットフォルダの中なら、読み込みをやめてシークレットウインドウへ回す(「常にシークレットウインドウで
@@ -2182,7 +2375,9 @@ final class AppState: ObservableObject {
         let initialEdge = pendingInitialEdge, startsSlideshow = pendingStartsSlideshow
         // 回した先の窓が本を読めるよう、棚のフォルダのアクセスを渡す(この窓はすぐ下で閉じる。コードレビューの指摘: 棚をパネルや
         // ドロップで開いて許可の外にあると、本の URL だけでは読めない)。新しい窓・タブへの受け渡しと同じ 10 秒の橋渡し。
-        SecurityScopedHandoff.begin(shelfRequest.urls)
+        // EPUB を飛ばした先の本(一覧の並びのブックマークから解いた本)も渡す(R7-1。棚の中の本なら棚のぶんで足りるが、
+        // 渡しても害は無い)。
+        SecurityScopedHandoff.begin(shelfRequest.urls + [book])
         restoreState(beforeOpen)
         if let step { passedOverBook = PassedOverBook(forward: step.forward, url: book, sequence: sequence) }
         privateRedirect = PrivateRedirect(

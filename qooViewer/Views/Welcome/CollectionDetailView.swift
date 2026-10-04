@@ -974,11 +974,12 @@ struct CollectionDetailView: View {
         // 見えている並び(検索・並べ替えの後)を渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
         // 押した時点の並びを写しておく(確かめを待つ間に並びが変わっても、見ていた並びをたどる)。
         let sequence = BookSequence.collection(items, opening: item)
-        // 確かめを待つ間に別の入口で本を開いていたら、後から置き換えない(O-8。AppState.openRequestToken)。
+        // 確かめを待つ間にこの窓で別の本を頼んでいたら、後から置き換えない(O-8。待ち始めるここで開く意図を進める ――
+        // 後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
         let appState = appState
-        let token = appState.openRequestToken
-        withExistingURL(of: item, stillWanted: { appState.openRequestToken == token }) { url in
-            appState.open(request: BookOpenRequest(url, sequence: sequence))
+        let intent = appState.beginOpenIntent()
+        withExistingURL(of: item, stillWanted: { [weak appState] in appState?.isStillWanted(intent) == true }) { url in
+            appState.open(request: BookOpenRequest(url, sequence: sequence), intent: intent)
         }
     }
 }

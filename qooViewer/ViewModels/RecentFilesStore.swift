@@ -267,6 +267,14 @@ final class RecentFilesStore: ObservableObject {
     /// 期限(`CollectionItemOpenProbe.limit`。利用者が自分で開いた本なので、眠っていた共有へ繋ぎに行く時間は待つ)を過ぎたら、
     /// 行は残して `.timedOut`(無いとは言い切れない)。
     func resolveForOpening(_ entry: Entry) async -> Result<URL, OpenFailure> {
+        let result = await probeForOpening(entry)
+        removeIfGone(entry, after: result)
+        return result
+    }
+
+    /// `resolveForOpening(_:)` の確かめだけ(行は取り除かない)。取り除くのは、待った後で開くと決まってから(`removeIfGone`)
+    /// ―― 待つ間に別の本を頼んだので結果を捨てるときに、行だけが知らせなしで消えないように(2026-10-04 のレビューの R8a-3)。
+    private func probeForOpening(_ entry: Entry) async -> Result<URL, OpenFailure> {
         if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path, isDirectory: false)) {
             return .failure(.volumeNotConnected)
         }
@@ -283,12 +291,15 @@ final class RecentFilesStore: ObservableObject {
         case .found(let url):
             return .success(url)
         case .inTrash:
-            remove(entry)
             return .failure(.inTrash)
         case .missing:
-            remove(entry)
             return .failure(.missing)
         }
+    }
+
+    /// 消えた・ゴミ箱の中の本の行を取り除く(`OpenFailure.removesEntry`)。
+    private func removeIfGone(_ entry: Entry, after result: Result<URL, OpenFailure>) {
+        if case .failure(let failure) = result, failure.removesEntry { remove(entry) }
     }
 
     /// `probeForOpening` の答え。
@@ -318,6 +329,14 @@ final class RecentFilesStore: ObservableObject {
         case missing
         /// 期限までに確かめが返ってこなかった(応答しない共有)。無いとは言い切れないので行は残す。
         case timedOut
+
+        /// 行を取り除く理由か(上の各 case の説明)。
+        var removesEntry: Bool {
+            switch self {
+            case .inTrash, .missing: true
+            case .volumeNotConnected, .timedOut: false
+            }
+        }
 
         /// 知らせの文。`name` は履歴に出ていた名前(`Entry.displayName`)。行を取り除いたものは、そう書く ―― 一覧から黙って消えると
         /// 「押したら消えた」としか見えない。
@@ -350,7 +369,9 @@ final class RecentFilesStore: ObservableObject {
     /// - Parameter report: 知らせの文を受け取る口。ふつうはその窓のビューア・ホームの下のトースト(`AppState.postViewerNotice`。
     ///   ドロップで開かなかったものと同じ口)。nil(知らせる先の窓が無い ―― メニューバーの「最近使った項目」で本の窓が 1 枚も無い)
     ///   ならアラートにする。鳴らすだけでは理由が分からない。
-    /// - Parameter stillWanted: 待った後に確かめ直すこと(その間に同じ窓で別の本を開き始めていたら開かない。false なら知らせもしない)。
+    /// - Parameter stillWanted: 待った後に確かめ直すこと(その間に同じ窓で別の本が頼まれていたら開かない。false なら知らせもせず、
+    ///   消えた本の行も取り除かない ―― 取り除くなら知らせる約束なので、次に押したときに取り除いて知らせる。2026-10-04 のレビューの
+    ///   R8a-3。以前は確かめの中で取り除いていて、待つ間に別の本を開くと行だけが知らせなしで消えた)。
     /// - Returns: 解決の Task(テストのための口)。
     @discardableResult
     func resolveForOpening(
@@ -359,8 +380,9 @@ final class RecentFilesStore: ObservableObject {
         then body: @escaping @MainActor (URL) -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor [self] in
-            let result = await resolveForOpening(entry)
+            let result = await probeForOpening(entry)
             guard stillWanted() else { return }
+            removeIfGone(entry, after: result)
             switch result {
             case .success(let url):
                 body(url)
@@ -379,18 +401,27 @@ final class RecentFilesStore: ObservableObject {
         }
     }
 
-    /// `resolveForOpening(_:locale:report:stillWanted:then:)` の、知らせを `appState` の窓へ出す版。待つ間にその窓で別の本を開き
-    /// 始めていたら(`AppState.openRequestToken`)開かない(コレクションの本の確かめと同じ。監査 SP-10)。
+    /// `resolveForOpening(_:locale:report:stillWanted:then:)` の、知らせを `appState` の窓へ出す版。
+    ///
+    /// - Parameter replacesBook: 開けたら `appState` の窓の本を置き換える(その窓で開く)か。置き換えるなら、待ち始めるここでその窓の
+    ///   開く意図を進め(`AppState.beginOpenIntent`)、待つ間にその窓で別の本が頼まれていたら開かない(後から頼んだ方が勝つ。
+    ///   コレクションの本の確かめと同じ。監査 SP-10・2026-10-04 のレビューの R6-1)。意図は `body` へ渡すので、開くときに
+    ///   `AppState.open(url:intent:)` へそのまま渡す。新しいタブ・ウインドウへ開くなら(false)意図を進めず照合もしない(その窓の
+    ///   本と競わない)。
     @discardableResult
     func resolveForOpening(
-        _ entry: Entry, reportingTo appState: AppState?, then body: @escaping @MainActor (URL) -> Void
+        _ entry: Entry, reportingTo appState: AppState?, replacesBook: Bool,
+        then body: @escaping @MainActor (URL, AppState.OpenIntent?) -> Void
     ) -> Task<Void, Never> {
-        let token = appState?.openRequestToken
+        let intent = replacesBook ? appState?.beginOpenIntent() : nil
         return resolveForOpening(
             entry, locale: appState?.preferences?.effectiveLocale ?? AppLanguage.currentLocale,
             report: appState.map { appState in { appState.postViewerNotice($0) } },
-            stillWanted: { [weak appState] in appState?.openRequestToken == token },
-            then: body
+            stillWanted: { [weak appState] in
+                guard let intent else { return true }
+                return appState?.isStillWanted(intent) == true
+            },
+            then: { url in body(url, intent) }
         )
     }
 

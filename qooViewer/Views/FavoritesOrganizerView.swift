@@ -385,8 +385,9 @@ struct FavoritesOrganizerView: View {
                             BookOpenContextMenuItems(
                                 onOpen: { openFavoriteAccordingToPreference(favorite) },
                                 onOpenIn: { destination in
-                                    let activeAppState = launchCoordinator.activeBookAppState
-                                        ?? launchCoordinator.frontmostContentAppState()
+                                    // 性質を問わない手前の窓にしない(監査 M-8 = O-2 と同じ。2026-10-04 のレビューの R7-7 の付記)。
+                                    let activeAppState = launchCoordinator.activeRecordableBookAppState
+                                        ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
                                     openFavorite(favorite, to: destination, relativeTo: activeAppState)
                                 }
                             )
@@ -678,7 +679,9 @@ struct FavoritesOrganizerView: View {
     /// (通常はウェルカム画面)があればそこへ、1つも無い場合(このウインドウ以外どこにも
     /// コンテンツウインドウが無い場合)にのみ新しいウインドウを開くようにする。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        guard let activeAppState = launchCoordinator.activeBookAppState ?? launchCoordinator.frontmostContentAppState() else {
+        // 性質を問わない手前の窓・シークレットウインドウの本にしない(監査 M-8 = O-2。2026-10-04 のレビューの R7-7 の付記)。
+        guard let activeAppState = launchCoordinator.activeRecordableBookAppState
+                ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() else {
             openFavorite(favorite, to: .newWindow, relativeTo: nil)
             return
         }

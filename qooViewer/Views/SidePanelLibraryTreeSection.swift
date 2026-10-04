@@ -38,7 +38,7 @@ struct SidePanelLibraryTreeSection: View {
     /// 2026-10-04 の監査 §2-4。以前は `@EnvironmentObject` で持ち、表紙の抽出のたびに開いているコレクションの全冊を並べ替えていた)。
     @Environment(\.collectionAdding) private var collectionAdding
     @StateObject private var model = SidePanelLibraryTreeModel()
-    /// 確かめを待つ間に別の本が開かれたかを見る(`openRequestToken`。2026-10-04 の監査 SP-10)。
+    /// 確かめを待つ間に別の本が頼まれたかを見る(開く意図 `AppState.OpenIntent`。2026-10-04 の監査 SP-10・レビューの R6-1)。
     @EnvironmentObject private var appState: AppState
     @Environment(\.locale) private var locale
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
@@ -55,7 +55,8 @@ struct SidePanelLibraryTreeSection: View {
     let currentBookPath: String?
     /// 本を開く。要求にはそのコレクションの本の並び(`BookSequence`)が載る ―― 「次の本へ」「前の本へ」がコレクションの
     /// 並びをたどる(2026-09-22、利用者の指示)。
-    var onOpen: (BookOpenRequest) -> Void
+    /// 待ち始めたときの開く意図を添える(項目のブックマークの解決を待ってから開く。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
+    var onOpen: (BookOpenRequest, AppState.OpenIntent?) -> Void
     var onOpenInNewWindow: (BookOpenRequest, BookOpenDestination) -> Void
 
     private typealias Row = SidePanelLibraryTreeModel.Row
@@ -232,10 +233,13 @@ struct SidePanelLibraryTreeSection: View {
     private func open(_ itemID: UUID) {
         guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
         let makeRequest = requestMaker(opening: item)
-        // 確かめを待つ間(最長 45 秒)に別の入口で本を開いていたら、後から置き換えない(2026-10-04 の監査 SP-10)。
+        // 確かめを待つ間(最長 45 秒)にこの窓で別の本を頼んでいたら、後から置き換えない(2026-10-04 の監査 SP-10。待ち始めるここで
+        // 開く意図を進める ―― 後から頼んだ方が勝つ。AppState.OpenIntent、レビューの R6-1)。
         let appState = appState
-        let token = appState.openRequestToken
-        withResolvedURL(item, stillWanted: { appState.openRequestToken == token }) { url in onOpen(makeRequest(url)) }
+        let intent = appState.beginOpenIntent()
+        withResolvedURL(item, stillWanted: { [weak appState] in appState?.isStillWanted(intent) == true }) { url in
+            onOpen(makeRequest(url), intent)
+        }
     }
 
     /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求を作る。

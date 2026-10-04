@@ -13,12 +13,17 @@ extension AppState {
     ///
     /// - Returns: このウインドウで開いた(置き換えた)なら true。呼び出し側がサイドパネルを閉じるかどうかの判断に使う
     ///   (別のタブ/ウインドウに開いたときは、一覧から次々に開けるようパネルを残す。`SidePanelView.onOpenInNewWindow` と同じ)。
+    ///
+    /// - Parameter intent: 履歴の解決を待つ前に取った開く意図(`historyOpenReplacesCurrentBook` のときだけ。AppState.OpenIntent、
+    ///   2026-10-04 のレビューの R6-1)。この窓で開くときに照合する。
     @discardableResult
-    func openFromHistory(_ url: URL, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction) -> Bool {
+    func openFromHistory(
+        _ url: URL, intent: OpenIntent? = nil, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction
+    ) -> Bool {
         let destination: BookOpenDestination
         switch Self.historyOpenDestination(hasOpenBook: currentBook != nil, preference: preferences?.historyOpenBehavior ?? .replaceCurrentBook) {
         case nil:
-            open(url: url)
+            open(url: url, intent: intent)
             return true
         case .some(let wanted):
             destination = wanted
@@ -27,6 +32,14 @@ extension AppState {
             BookOpenRequest(url), to: destination, from: self, launchCoordinator: launchCoordinator, openWindow: openWindow
         )
         return false
+    }
+
+    /// 履歴から開くと、この窓の本を置き換えるか(`openFromHistory` と同じ分岐)。置き換えるなら、解決を待ち始めるときに開く意図を
+    /// 進める(後から頼んだ方が勝つ。新しいタブ・ウインドウへ開くなら、この窓の本とは競わない。2026-10-04 のレビューの R6-1)。
+    var historyOpenReplacesCurrentBook: Bool {
+        Self.historyOpenDestination(
+            hasOpenBook: currentBook != nil, preference: preferences?.historyOpenBehavior ?? .replaceCurrentBook
+        ) == nil
     }
 
     /// 履歴から開く先。nil は「このウインドウで開く(置き換える)」。本を表示していなければ設定に関わらず nil。

@@ -77,6 +77,25 @@ private final class ListAnchorBox {
     }
 }
 
+/// 「開く」(左ペインのダブルクリック・右クリック、右ペインのページのダブルクリック)が、本の場所の解決(最長 45 秒。
+/// StoredBookLocator)を待っている仕事(2026-10-04 のレビューの R7-3)。以前は待つ仕事を誰も持たず、待つ間に編集ウインドウを
+/// 閉じても数十秒後に手前の窓の本が黙って置き換わり、何度も押すと全部が順に開いた。次の「開く」・ウインドウを閉じたら取り消す
+/// (待っている仕事は、解決を待ち終えた後で `Task.isCancelled` を見て降りる)。参照型なのは、閉じる知らせの閉包からも同じ箱を見るため。
+@MainActor
+private final class PendingBookOpen {
+    private var task: Task<Void, Never>?
+
+    func start(_ body: @escaping @MainActor () async -> Void) {
+        task?.cancel()
+        task = Task { @MainActor in await body() }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
 /// 右ペインで「直前にサムネイルを読み込んだ行」のpageKeyを覚えておくための入れ物。
 /// 保持量の予算超過で一覧を作り直したとき、そこへスクロールを戻すのに使う
 /// (BookmarkDetailPane.cellImageBudgetのコメント参照)。@Stateの値として持つと、
@@ -234,6 +253,8 @@ struct BookmarkEditorView: View {
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
+    /// 場所の解決を待っている「開く」(PendingBookOpen。R7-3)。
+    @State private var pendingOpen = PendingBookOpen()
     @State private var openErrorBookName: String?
 
     @Environment(\.openWindow) private var openWindow
@@ -380,6 +401,8 @@ struct BookmarkEditorView: View {
                     NSEvent.removeMonitor(doubleClickMonitor)
                 }
                 doubleClickMonitor = nil
+                // 閉じた編集ウインドウの「開く」は、もう頼まれていない(R7-3)。
+                pendingOpen.cancel()
                 windowCloseTokens.removeAll()
             }
         })
@@ -1088,19 +1111,26 @@ struct BookmarkEditorView: View {
         // 場所の解決はメインの外で、期限つき(StoredBookLocator。2026-10-04 の監査 O-12 ―― 以前はメインで同期に `.userOpen` の
         // 解決をして、電源の落ちた NAS の本では約 30 秒アプリ全体が止まった)。ゴミ箱の中まで追った場所は「見つからない」(O-11)。
         let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
-        Task { @MainActor in
+        // 開く先の窓は待った後で決まるので、どの窓の意図も進めずに取り、決まった窓で照合する(待つ間にその窓で別の本を頼んで
+        // いたら開かない ―― 後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R7-3)。
+        let intent = AppState.beginOpenIntentForAnyWindow()
+        pendingOpen.start {
             let outcome = await StoredBookLocator.resolve(material)
+            // 待つ間に編集ウインドウを閉じた・別の「開く」を押した(PendingBookOpen)。鳴らさない ―― 利用者はもう別のことをしている。
+            guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
                 if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
                 return
             }
-            SecurityScopedHandoff.begin(url)
             // 開く先は、新しい窓と同じ性質の手前の窓(監査 M-8 = O-2。以前は性質を問わない手前の窓で、手前のシークレットウインドウで
             // 読んでいた本を置き換えた ―― 上の「もう開いている窓」はノーマルの窓しか探さないのに)。
             if let targetAppState = launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
-                targetAppState.open(url: url)
+                guard targetAppState.isStillWanted(intent) else { return }
+                SecurityScopedHandoff.begin(url)
+                targetAppState.open(url: url, intent: intent)
                 closeEditorWindow()
             } else {
+                SecurityScopedHandoff.begin(url)
                 // 本を表示しているウインドウが1つも無いので、引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
                 // 窓を作るのは BookWindowOpener を通す(監査 O-3。以前は openWindow を直に呼び、シークレットフォルダの本では
                 // ノーマルの窓が一瞬できてから閉じた ―― docs/06「窓を作る所は作る前に回す」)。
@@ -1123,8 +1153,11 @@ struct BookmarkEditorView: View {
     private func openBook(bookID: String, to destination: BookOpenDestination) {
         // 解決は openBook(bookID:) と同じ(メインの外・期限つき・ゴミ箱の中は見つからない。監査 O-12・O-11)。
         let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
-        Task { @MainActor in
+        // 新しい窓・タブなので、どの窓の本とも競わない(開く意図は見ない)。待つ間に編集ウインドウを閉じた・別の「開く」を押したら
+        // やめる(PendingBookOpen。R7-3)。
+        pendingOpen.start {
             let outcome = await StoredBookLocator.resolve(material)
+            guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
                 if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
                 return
@@ -1391,6 +1424,8 @@ private struct BookmarkDetailPane: View {
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
+    /// 場所の解決を待っている「開く」(PendingBookOpen。R7-3)。
+    @State private var pendingOpen = PendingBookOpen()
     /// 列ヘッダー行(columnHeaderRow)・各行(PageRowView)で共有する列幅
     /// (ユーザー要望: 列タイトル行・区切り線・可変幅。PageListColumnWidths参照)。
     @State private var columnWidths = PageListColumnWidths()
@@ -1654,6 +1689,8 @@ private struct BookmarkDetailPane: View {
                 }
                 doubleClickMonitor = nil
                 viewModel.releaseResources()
+                // 閉じた編集ウインドウの「開く」は、もう頼まれていない(R7-3)。
+                pendingOpen.cancel()
                 windowCloseTokens.removeAll()
             }
         })
@@ -2237,44 +2274,83 @@ private struct BookmarkDetailPane: View {
         // 以前はレイアウトの行だけをメインで同期に解決し、ブックマークしか持たない本は左ペインのダブルクリックでは開けるのに
         // ここでは「見つかりません」だった)。ゴミ箱の中まで追った場所は「見つからない」(O-11)。
         let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
-        Task { @MainActor in
+        // 開く先の窓は待った後で決まるので、どの窓の意図も進めずに取り、決まった窓で照合する(R7-3。左ペインの openBook(bookID:) と同じ)。
+        let intent = AppState.beginOpenIntentForAnyWindow()
+        pendingOpen.start {
             let outcome = await StoredBookLocator.resolve(material)
+            // 待つ間に編集ウインドウを閉じた・別の「開く」を押した(PendingBookOpen。R7-3)。
+            guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
                 if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
                 return
             }
-            SecurityScopedHandoff.begin(url)
             // 開く先は新しい窓と同じ性質の手前の窓(監査 M-8 = O-2)。無ければ BookWindowOpener で新しい窓(監査 O-3。シークレット
             // フォルダの本は窓を作る前にシークレットウインドウへ回る)。
-            if let targetAppState = launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
-                targetAppState.open(url: url)
+            let targetAppState = launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
+            if let targetAppState, !targetAppState.isStillWanted(intent) { return }
+            // ジャンプ先の候補を、開く**前**に決める(R7-4。waitAndJump のコメント)。
+            let candidates = JumpCandidates(
+                bookID: bookID, url: url, target: targetAppState, launchCoordinator: launchCoordinator)
+            SecurityScopedHandoff.begin(url)
+            if let targetAppState {
+                targetAppState.open(url: url, intent: intent)
             } else {
                 BookWindowOpener.open(
                     BookOpenRequest(url), to: .newWindow, from: nil,
                     launchCoordinator: launchCoordinator, openWindow: openWindow
                 )
             }
-            waitAndJump(toPageIndex: pageIndex)
+            await waitAndJump(toPageIndex: pageIndex, candidates: candidates)
         }
     }
 
-    /// 本が開くのを待って、そのページへ飛ぶ。開いた先は**性質を問わずに**探す(2026-10-04 の監査 O-3)。シークレットフォルダの本は
-    /// 開く先(ノーマルの窓)からシークレットウインドウへ回るので、以前のように頼んだ窓・ノーマルの窓(openAppState(forBookID:))だけを
-    /// 見ていると見つけられず、ジャンプが黙って消えた。5 秒待って開かなければ(読み込みの失敗はその窓が知らせる)やめる。
-    private func waitAndJump(toPageIndex pageIndex: Int) {
-        Task { @MainActor in
-            for _ in 0..<200 {
-                if let appState = launchCoordinator.allOpenAppStates.first(where: {
-                    $0.currentBook?.id == bookID && $0.jumpToPageIndex != nil
-                }) {
-                    appState.jumpToPageIndex?(pageIndex)
-                    appState.hostWindow?.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                    closeEditorWindow()
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 25_000_000)
+    /// ページのダブルクリックで開いた本の、ジャンプしてよい窓(2026-10-04 のレビューの R7-4)。
+    ///
+    /// 開いた先は性質を問わずに探す(監査 O-3: シークレットフォルダの本は開く先からシークレットウインドウへ回る)が、**開く前から
+    /// その本を出していた窓は候補にしない** ―― 以前は全窓から「その本を出している窓」を探したので、同じ本を別のシークレット
+    /// ウインドウで読んでいると、頼んだ窓で読み込みが始まった直後にそちらへ飛んで前へ出し、頼んだ窓はジャンプ無しで着地した。
+    /// 例外は、開く操作がその窓を前へ出すだけで終わる場合: 頼んだ窓と同じ性質で同じ本を出している窓(`AppState.open` の重複の
+    /// 判定)と、シークレットウインドウへ回る本のときのシークレットウインドウ(回した先の重複の判定で、出している窓が前に出る)。
+    private struct JumpCandidates {
+        let bookID: String
+        let target: AppState?
+        let shownBefore: Set<ObjectIdentifier>
+        /// 開く操作が前へ出すだけになる、出していた窓。
+        let fronted: ObjectIdentifier?
+        let routesToPrivate: Bool
+
+        @MainActor
+        init(bookID: String, url: URL, target: AppState?, launchCoordinator: LaunchCoordinator) {
+            self.bookID = bookID
+            self.target = target
+            shownBefore = Set(launchCoordinator.allOpenAppStates.filter { $0.currentBook?.id == bookID }.map(ObjectIdentifier.init))
+            let opensPrivately = target?.isPrivateWindow ?? AppPreferences.isPrivateModeDefault
+            fronted = launchCoordinator.openAppState(forBookAt: url, isPrivate: opensPrivately).map(ObjectIdentifier.init)
+            routesToPrivate = BookWindowOpener.shouldOpenSecretBookPrivately(BookOpenRequest(url), opensPrivately: opensPrivately)
+        }
+
+        @MainActor
+        func accepts(_ appState: AppState) -> Bool {
+            guard appState.currentBook?.id == bookID, appState.jumpToPageIndex != nil else { return false }
+            let id = ObjectIdentifier(appState)
+            if appState === target || !shownBefore.contains(id) || id == fronted { return true }
+            return routesToPrivate && appState.isPrivateWindow
+        }
+    }
+
+    /// 本が開くのを待って、そのページへ飛ぶ。飛ぶ先は `candidates` が決める(R7-4)。5 秒待って開かなければ(読み込みの失敗は
+    /// その窓が知らせる)やめる。編集ウインドウを閉じた・別の「開く」を押したらやめる(呼ぶ側の PendingBookOpen の取り消し)。
+    private func waitAndJump(toPageIndex pageIndex: Int, candidates: JumpCandidates) async {
+        for _ in 0..<200 {
+            guard !Task.isCancelled else { return }
+            if let appState = launchCoordinator.allOpenAppStates.first(where: candidates.accepts) {
+                appState.jumpToPageIndex?(pageIndex)
+                appState.hostWindow?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                closeEditorWindow()
+                return
             }
+            try? await Task.sleep(nanoseconds: 25_000_000)
         }
     }
 

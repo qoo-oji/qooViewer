@@ -49,7 +49,7 @@ nonisolated enum StoredBookLocator {
     static func resolveNow(_ material: Material, purpose: BookmarkResolution.Purpose) -> URL? {
         for data in material.bookmarks {
             if let url = BookmarkResolution.resolve(data, purpose: purpose),
-               FileManager.default.fileExists(atPath: url.path),
+               existsWithinScope(url),
                let outside = BookLocationResolver.outsideTrash(url) {
                 return outside
             }
@@ -57,6 +57,15 @@ nonisolated enum StoredBookLocator {
         let recorded = URL(fileURLWithPath: material.bookID)
         guard FileManager.default.fileExists(atPath: recorded.path) else { return nil }
         return BookLocationResolver.outsideTrash(recorded)
+    }
+
+    /// 解いた URL のセキュリティスコープを開いてから在るかを見る(2026-10-04 のレビューの R7-2)。以前はスコープを開かずに
+    /// `fileExists` を見ていたので、許可の無い場所の本(直接開いてブックマークだけ付けた本)はサンドボックスで「無い」になり、
+    /// 編集ウインドウで開けなかった。同種の確かめ(CollectionStore.existingURL・RecentFilesStore.fileExists(at:))と同じ形。
+    private static func existsWithinScope(_ url: URL) -> Bool {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// `FileIO` の上で、期限つきで解決する。

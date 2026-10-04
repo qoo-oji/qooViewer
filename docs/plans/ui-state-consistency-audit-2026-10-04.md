@@ -2328,3 +2328,57 @@ CLAUDE.md(書き先は付け替えの知らせでだけ移す)。段 4 の記録
 
 docs: 15(macOS が要るフォルダの「置き換える」と自動リネーム・開いている本の照合の鍵・確認のシートの確認済みの範囲・戻す照合の位置)。
 
+
+### レビュー指摘の修正 段 C(2026-10-04)
+
+本を開く入口の分。共通の根(待ってから開く入口の照合)は、照合の仕組みを `AppState.OpenIntent`(開く意図)1 つにまとめて直した。
+待ち始めるときに `beginOpenIntent()` で意図を進め(後から頼んだ方が勝つ)、待った後に `isStillWanted(_:)` で照合し、`open(request:intent:)` へ
+渡す(`open` も照合する)。開く先が待った後で決まる入口は `beginOpenIntentForAnyWindow()`(番号はアプリ全体の 1 本の時計)、何も頼まれていない
+入口は `openIntentWithoutClaiming()`(控えるだけ。開いた回数も控える)。`openRequestToken` は無くした。照合に落ちた結果は、利用者が後から
+別の本を頼んだので鳴らさない・知らせない(見つからない・期限切れの知らせも出さない)。新しいタブ・窓へ開く入口は照合しない(競わない)。
+
+- **R6-1**(直した): 上の仕組み。移した入口: ドロップ・パネルの下調べ(`open(urls:)`)、同じフォルダの次/前の本(`openSibling`)、一覧の並び
+  (`openInSequence`。並びの照合も残す)、「このフォルダの画像をすべて開く」、コレクション・スマートライブラリ・サイドパネルのライブラリのツリー、
+  履歴 4 か所(サイドパネル・吹き出し・旧ウェルカム・メニューバー ―― `resolveForOpening(_:reportingTo:replacesBook:then:)`。置き換えるときだけ
+  意図を進める)、Finder・Dock から開いた本(`application(_:open:)` → `performExternalOpen` → `openInPrimaryWindow`)、起動時に前回の本を開き直す
+  (控えるだけ)。`cancelOpen()`(利用者の中止)は意図を進め、読み込みの失敗・棚の本を譲る(`abandonLoad`。以前は `restoreState` も `cancelOpen`
+  で、失敗が待っている入口を捨てさせた)・`closeBook()`(スライドショーの末尾・書き出しの後の動作でも呼ばれる)は進めない。スライドショーの末尾・
+  書き出しの後の動作の「次の本へ」も控えるだけ(`openSibling(after:claimsOpenIntent: false)`)。待っていた結果を開くときは意図の番号を引き継ぐ
+  (新しい番号にすると、別の窓の意図として待つ入口を捨てる)。窓を作った要求そのものは数えない(R7-5)。テスト `AppStateOpenTests` の
+  `theLaterRequestWinsWhenTwoWaitsOverlap`(入口 1 の待ちは直に書く ―― 待ちの長さを外から決められる入口が無く、終わる順を決め打ちできないと
+  直す前でも通るため)・`whatSupersedesAWaitingRequest`・`aPassiveIntentNeverSupersedesAnything`・`anIntentForAnyWindowIsCheckedAgainstTheChosenWindow`。
+  前の 2 つは、`open(urls:)` を控えるだけの照合(= 以前の `openRequestToken` と同じ働き)に、`restoreState` を `cancelOpen` に戻すと落ちることを確かめた。
+- **R6-2**(直した): ファイルブラウザの画像フォルダを本として開く 2 経路(`openFolder`・`openTreeRow`)と、同じ形のリンクの先を開く経路
+  (`openLink` → `openResolved`)が、待ち始めるときに意図を進め、待った後に照合する。「開く」の操作なので、画像フォルダでなく中へ移る・行を開閉する
+  ことになっても意図は進めたまま(後から頼んだ方が勝つ)。View の配線なのでテストは足していない(仕組みは R6-1 のテスト)。
+- **R8a-1**(直した): サイドパネルの通り抜け(`moveAndShowImages`)は意図を控えるだけにし(画像の無いフォルダへ移っただけで、先に頼まれて待っている
+  本を捨てさせない)、待った後にその控えで照合する(何も確かめていなかった比べを外した)。控えは `SidePanelView.openIntentOwner`(観察しない弱い参照)
+  から取り、`onBrowseToFolder` が `open(…intent:)` へ渡す。テストは仕組みの `aPassiveIntentNeverSupersedesAnything`。
+- **R7-3**(直した): ブックマーク・レイアウトの編集ウインドウの「開く」3 か所は、待つ仕事を `PendingBookOpen` に持ち、次の「開く」・ウインドウを
+  閉じたら取り消す(待ち終えた後に `Task.isCancelled` で降りる。何度押しても最後の 1 回だけ)。手前の窓で開くときは押した時点の
+  `beginOpenIntentForAnyWindow()` を決まった窓で照合する。UI の配線なのでテストは足していない。
+- **R7-4**(直した): ページのダブルクリックのジャンプ先を、開く前に決めた `JumpCandidates` で絞る: 頼んだ窓、開く前にその本を出していなかった窓、
+  開く操作が前へ出すだけになる窓(同じ性質で同じ本を出している窓)、シークレットウインドウへ回る本ならシークレットウインドウ。別のシークレット
+  ウインドウで同じ本を読んでいても、そちらへ飛ばない。UI の配線なのでテストは足していない。
+- **R7-1**(直した): 次の本・前の本で EPUB を飛ばした先の本のスコープを、候補を替えるたびに開き直す(`adoptCandidateScope`。前の候補のぶんは閉じる)。
+  開けたら飛ばした本(要求の URL)のぶんは閉じる(棚の読み替えは残す)。シークレットウインドウへ回すときは飛ばした先の本も橋渡しする。サンドボックスの
+  スコープはテストの中で再現できない(テストの一時フォルダは常に読める)ので、テストは足していない。
+- **R7-2**(直した): `StoredBookLocator.resolveNow` は解いた URL のスコープを開いてから在るかを見る。同じ理由でテストは足していない。
+- **R7-5**(直した): 通り抜けの回し先は、回した直後のその窓の意図の控えが今も通る(その窓でその後何も頼まれていない)間だけ入れ替え先にする。
+  初回のタブ・窓が分かる前に来た次の通り抜けは控えておき、窓が分かったらそこで開く(3 秒で見失ったものとする)。窓を作った要求は意図を数えないので、
+  作った直後の窓を控えても最初の読み込みで外れない。窓の生成と焦点に関わるのでテストは足していない(控えの照合は R6-1 のテスト)。
+- **R7-6**(直した): `handlePanelRevealed(currentBook: nil)` でも見送りの印を下ろす。テスト `SidePanelBrowserStateTests.closingTheBookClearsTheAnchorSkip`
+  (直しを外すと落ちることを確かめた)。
+- **R7-7**(直した): 「直前の本へ戻る」は要求を履歴に残す要求にして開き直す(名指しの「開く」なので、通り抜けの静かな回し方にならない)。テスト
+  `AppStateOpenTests.reopeningTheLastBookIsAnExplicitOpen`(直しを外すと落ちる)。付記の `FavoritesOrganizerView` の 2 か所も
+  `activeRecordableBookAppState ?? frontmostContentAppStateForUnfocusedOpen()` にした(お気に入りは非表示)。
+- **R6-3**(直した): シークレットウインドウへ回した要求の控えに、並びの本のパスも入れる(`ExternalOpenPreparation.routedPaths(of:)`)。テスト
+  `HomeInteractionTests.externalOpenPreparationLeavesOutTheWholeRoutedSequence`(直しを外すと落ちる)。
+- **R8a-3**(直した): 履歴の確かめ(`probeForOpening`)は行を取り除かず、待った後で開くと決まってから取り除く(`removeIfGone`。照合に落ちたら
+  取り除かない ―― 取り除くなら知らせる約束)。`resolveForOpening(_:)`(結果だけを返す口)は従来どおり取り除く。テスト
+  `RecentFilesAndAccessTests.aDroppedResolutionKeepsTheRowOfAMissingBook`(直しを外すと落ちる)。
+
+照合の対象外にした入口(新しい窓・タブを作るだけで、どの窓の本とも競わない): 各一覧の右クリックの「新規タブ/ウインドウで開く」、編集ウインドウの
+左ペインの右クリック(取り消しだけ持つ)、メタデータの編集ウインドウの「開く」(新しいノーマルウインドウ)。
+docs: 04(開く意図・EPUB を飛ばした先のスコープ・回した並び)、06(履歴の行を取り除く時・通り抜けの回し先・直前の本へ戻る)、CLAUDE.md(待ってから
+開く入口の決まりを開く意図に)。
