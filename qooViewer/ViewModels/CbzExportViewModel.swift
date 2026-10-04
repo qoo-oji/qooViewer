@@ -33,6 +33,13 @@ final class CbzExportViewModel: BookExportViewModel {
         writesVolumeElement = preferences.bookExportWritesVolumeElement
     }
 
+    /// 開くたびに環境設定の既定から始める項目に、Volume も入れる(docs/08「開いた直後の値」)。基底クラスは連番リネームと除外ページの
+    /// 2 つしか戻さないので、この項目だけ init で一度読んだ値(か、前回このウインドウで切り替えた値)のまま残っていた(2026-10-04 の監査 TW-3)。
+    override func resetOptionsToDefaults() {
+        super.resetOptionsToDefaults()
+        writesVolumeElement = preferences.bookExportWritesVolumeElement
+    }
+
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
         let input = CbzExportInput(
             book: prepared.book,

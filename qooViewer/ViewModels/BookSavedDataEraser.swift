@@ -223,7 +223,8 @@ struct BookSavedDataEraser {
             favoritesStore.removeFavorites(forBookID: bookID)
             collectionStore.removeItems(forBookID: bookID)
             bookmarkStore.deleteAllBookmarks(forBookID: bookID)
-            layoutStore.discardLayoutData(forBookID: bookID)
+            // 行ごと(コレクション表紙なども)。この操作は「その本の保存データをすべて消す」(LayoutStore.deleteLayoutRow)。
+            layoutStore.deleteLayoutRow(forBookID: bookID)
             metadataStore.delete(forBookID: bookID)
         }
         // 読書履歴だけは、本ごとではなく最後にまとめて消す(deleteReadingStates 参照)。

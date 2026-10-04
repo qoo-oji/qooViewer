@@ -1621,3 +1621,36 @@ TW-21・MD-5・MD-8・MD-12・SL-3・SL-9・X-1(1-4 に近い)・BE-14。
    MD-5・MD-8・MD-9・MD-10・MD-12・MD-13・MD-15・TW-18(§3 の 9)・TW-19・TW-21・ST-9・ST-13・ST-14・ST-15・BE-14、§2-4 のテーマ外の気づき、§5 の文書。
 
 段 2 と段 5 は、新しい面を作るときの決まり(一覧が変わったら選択を絞る、メニューが読む値は値型の写しに入れる)として CLAUDE.md・docs に書き足すと、今後の横展開漏れを防げる。
+
+## 9. 修正の記録
+
+### 段 1(2026-10-04)
+
+共通の部品: `View.auxiliaryWindowPresence`(Views/AuxiliaryWindowPresence.swift)。補助ウインドウが出た・閉じたを `onAppear` / `onDisappear` と
+窓の `willCloseNotification` の両方で受けて 1 回だけ知らせ、各窓の `setPresented(_:)` が「出たら作り直す/閉じたら一時的な状態を捨てる」。
+書き出し 3 窓(`ExportWindowContent`)もこれへ移した。docs/03「補助ウインドウは開き直したら読み直す」と CLAUDE.md に約束として書いた。
+
+- **TW-7**(直した): `LibraryCleanupViewModel.setPresented` ―― 出たら `existenceByBookID` を全部捨てて `reload()`(実在を判定し直す)、閉じたら
+  選択・絞り込み・検索を捨てる。開いたまま本が戻った場合の削除時の判定し直しは入れていない(開き直しで最新になる、というコメントの前提を実装した)。
+  テスト `LibraryCleanupTests.reopeningRebuildsTheListAndTheExistenceVerdicts`。
+- **TW-10**(直した): `ShelfCoverExportViewModel.setPresented`(出たら一覧を作り直し、選択を「全部」へ、前回の結果を消す)と、書き出しの後の `reload()`。
+  テスト `ShelfCoverImportTests.reopeningTheExportListsCoversSetWhileClosed`。
+- **TW-22**(直した): `ShelfCoverImportViewModel.setPresented`(閉じたら zip・一覧・結果を捨てる。読み込み・取り込みの途中なら次に出たとき)。
+  `apply` が直前に `KnownBooks` を集め直し、行き先がもう知っている本でない行は取り込まずに件数を知らせる。テスト `staleTargetsAreSkippedAndClosingForgetsTheZip`。
+- **TW-8**(直した): `LibraryImportWindow.handlePresence` ―― 閉じたらファイル・方針(10 個の `@State` を `ImportPolicies` 1 つにまとめた)・結果・
+  パネルの番人を捨て、次に開くとパネルが出る。読み込みの途中で閉じたときは終わってから。View の `@State` だけなのでテストは足せない(実機)。
+- **TW-9**(直した): 結果の欄を `ImportOutcome`(読み込んだ時点のファイル・方針・結果)で描く。実行中はピッカーと「別のファイルを選ぶ」を淡色、
+  読めないファイルを選んだら前のファイルも手放す。View だけなのでテストは足せない(実機)。
+- **TW-3**(直した): `CbzExportViewModel.resetOptionsToDefaults` の上書きで Volume も既定へ戻す(開くたびに呼ぶのは `auxiliaryWindowPresence`)。
+  テスト `ExportFormatViewModelTests.reopeningResetsTheVolumeToggleToThePreference`。
+- **BE-11**(直した): `DataUndoStack.removeAll()`(残りを `discard` してから空にする)を、`ownsDataUndoStack()` が窓を閉じたときに呼ぶ。
+  テスト `DataUndoTests.removeAllEmptiesBothSidesAndDiscardsEverything`。
+- **BE-2**(直した): `LayoutStore.discardLayoutData` → `deleteLayoutRow`(行ごと。`BookSavedDataEraser` だけ)、`discardImportableLayoutData` →
+  `discardPageLayout`(狭義のレイアウト。編集ウインドウの 2 つの削除・差し替え検知の「設定を破棄」・書き出し後の「保存データ」(決定 7)・
+  読み込みの上書き)。差し替え検知は行が残るので続けて `acceptCurrentContent` で指紋を記録し直す(しないと次に開くたびに尋ねる)。確認文は
+  もともと狭義の範囲を言っていたのでそのまま、書き出し後の説明(BookExportFormatSettingsView)に「お気に入り・コレクション・コレクションの表紙は
+  残ります」を足した。テスト `LayoutStoreTests.discardingTheLayoutKeepsCoversAndCorrection`、
+  `ReadingStateReplacementTests.discardingAfterAReplacementKeepsTheCoversAndStopsAsking`。
+- **TW-11**(直した): `SheetKind.confirmation(Set<UUID>)` で開いた時点の集合を値で渡し、シートは `AutoRenameService.ConfirmationPreview`
+  (対象・計画・一覧)を持つ。`confirm(_:)` は今の `makePlan(including:)` が見せたときと同じときだけ見せた対象を確認し、違えば一覧を作り直して
+  見せ直す(帯で知らせる)。テスト `AutoRenameServiceTests.confirmingAPreviewOnlyCoversWhatWasShown`。

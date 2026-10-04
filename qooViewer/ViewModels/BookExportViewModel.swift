@@ -210,8 +210,9 @@ class BookExportViewModel: ObservableObject {
     @Published var includeExcludedPages = false
 
     /// 上の2つを環境設定「レイアウト」の形式ごとの既定値へ戻す。initが取り込むのと同じ値で、
-    /// 出力ウインドウが開かれるたびにExportWindowContent.onAppearから呼ぶ(理由はそちらの
-    /// コメント参照)。
+    /// 出力ウインドウが開かれるたびにExportWindowContentの`auxiliaryWindowPresence`から呼ぶ(理由はそちらの
+    /// コメント参照)。**形式が自分の項目を持つサブクラスは、上書きしてそれも戻す**(CbzExportViewModel の
+    /// Volume。2026-10-04 の監査 TW-3 まで戻し忘れていた)。
     func resetOptionsToDefaults() {
         renumberImagesSequentially = preferences.bookExportRenumbersImages(for: format)
         includeExcludedPages = preferences.bookExportIncludesExcludedPages(for: format)
@@ -321,8 +322,8 @@ class BookExportViewModel: ObservableObject {
         // 自分のdeinitで閉じる(CoverOverrideController.securityScopedURLsのコメント参照)。
     }
 
-    /// 書き出しウインドウが出た・閉じた(ExportWindowContent の onAppear / onDisappear)。出たとき、閉じている間に変更が
-    /// あれば読み直す(`isPresented` のコメント)。
+    /// 書き出しウインドウが出た・閉じた(ExportWindowContent の `auxiliaryWindowPresence` ―― 補助ウインドウの共通の決まり)。
+    /// 出たとき、閉じている間に変更があれば読み直す(`isPresented` のコメント)。
     final func setPresented(_ presented: Bool) {
         guard presented != isPresented else { return }
         isPresented = presented

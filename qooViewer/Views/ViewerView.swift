@@ -1179,7 +1179,9 @@ struct ViewerView: View {
 
         if preferences.bookExportDataCleanup(for: format) == .delete {
             bookmarkStore.deleteAllBookmarks(forBookID: book.id)
-            layoutStore.discardLayoutData(forBookID: book.id)
+            // 狭義のレイアウトだけ。コレクション表紙・切り出し位置は残す(コレクションの所属を残すのと揃える。2026-10-04 の
+            // 監査 BE-2 / §3 の決定 7。以前は行ごと消していた。LayoutStore.discardPageLayout)。
+            layoutStore.discardPageLayout(forBookID: book.id)
             metadataStore.delete(forBookID: book.id)
             // 読書位置(BookReadingState)の行はViewerViewModelが握っているため、ここで
             // modelContextから直接消してはいけない(消した行へページ送りのたびに書き込もうと

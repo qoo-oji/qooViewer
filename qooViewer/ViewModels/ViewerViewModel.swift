@@ -3091,8 +3091,10 @@ final class ViewerViewModel: ObservableObject {
     ///   ページ単位/本全体の設定を読み直す。ページ順補正・除外ページの除去も含め、
     ///   reloadLayoutData側でその場でbook.pagesへ反映される(詳細はreloadLayoutData参照。
     ///   以前は本を開き直すまで反映されない制約があったが、ユーザー要望を受けて解消した)。
-    /// - applyExisting: false(「破棄する」)のときは、この本のレイアウトデータを削除する
-    ///   (LayoutStore.discardLayoutData)。
+    /// - applyExisting: false(「破棄する」)のときは、この本の狭義のレイアウト(読み方向・見開き強制・ページ順・ページ単位の設定)を
+    ///   削除する(LayoutStore.discardPageLayout)。コレクション表紙・切り出し位置・書き出し用のカバー・補正はページの中身と関係が
+    ///   無いので残す(2026-10-04 の監査 BE-2。以前は行ごと消していた)。行が残ったときは、指紋を今の中身で記録し直す ―― 古い指紋の
+    ///   ままだと、次に開くたびにまた「差し替えられた」と尋ねる(行ごと消していた頃は、行と一緒に指紋も消えていた)。
     ///
     /// 「エクスポートしてから破棄する」という3択目(2.5節)は、JSONエクスポート機能の実装後に
     /// 追加する予定(現時点では「破棄する」のみ)。
@@ -3101,12 +3103,13 @@ final class ViewerViewModel: ObservableObject {
         if applyExisting {
             layoutStore.acceptCurrentContent(book: book)
         } else {
-            layoutStore.discardLayoutData(forBookID: book.id)
+            layoutStore.discardPageLayout(forBookID: book.id)
+            layoutStore.acceptCurrentContent(book: book)
         }
         pendingLayoutReplacementStatus = nil
         // 差し替えの疑いがある間は見送っていたEPUB/PDFのレイアウト情報の取り込みを、
-        // ここで行う(init冒頭のコメント参照)。「破棄する」を選んだ場合は行ごと消えているため
-        // ファイル側の指定で作り直され、「そのまま使う」を選んだ場合は取り込み済みフラグが
+        // ここで行う(init冒頭のコメント参照)。「破棄する」を選んだ場合はレイアウトが消え、取り込み済みの印も
+        // 戻っているため(LayoutStore.discardPageLayout)ファイル側の指定で作り直され、「そのまま使う」を選んだ場合は取り込み済みフラグが
         // 残っていれば何もしない(=ユーザーが残すと決めた内容がそのまま残る)。
         layoutStore.importSourceLayoutIfNeeded(for: book)
         reloadLayoutData()

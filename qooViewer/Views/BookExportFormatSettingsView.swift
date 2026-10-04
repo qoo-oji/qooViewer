@@ -69,10 +69,12 @@ struct BookExportFormatSettingsView: View {
                         help: "Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume."
                     )
                 }
+                // 消すのは狭義のレイアウト(LayoutStore.discardPageLayout)。コレクション表紙・切り出し位置は消さない(2026-10-04 の
+                // 監査 BE-2 / §3 の決定 7)ので、説明にもそう書く。
                 SettingsPicker(
                     "Saved Data",
                     selection: preferences.bookExportDataCleanupBinding(for: format),
-                    help: "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone."
+                    help: "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone."
                 )
                 SettingsPicker(
                     "History",

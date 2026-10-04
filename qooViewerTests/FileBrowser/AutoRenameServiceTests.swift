@@ -158,6 +158,45 @@ struct AutoRenameServiceTests {
         #expect(await eventually { harness.exists("shelf/one.zip") })
     }
 
+    @Test("確認のシートの「名前を変更」は、見せた対象だけを、見せた規則のときだけ確認する(2026-10-04 の監査 TW-11)")
+    func confirmingAPreviewOnlyCoversWhatWasShown() async throws {
+        let harness = try Harness("confirm-preview")
+        let shelf = try harness.folder("shelf")
+        let later = try harness.folder("later")
+        try harness.file("shelf/one [tag].zip")
+        try harness.file("later/two [tag].zip")
+        harness.favorites.add(shelf)
+        harness.favorites.add(later)
+        let rule = harness.addRule(find: " [tag]", replace: "", target: shelf, confirmed: false)
+        harness.service.start()
+        let shown = try #require(rule.targets.first?.id)
+        #expect(await eventually { harness.service.targetsAwaitingConfirmation == [shown] })
+
+        // 開いた後で規則を変えた: 見せた一覧と違う変更になるので確認しない(呼び出し側は作り直して見せ直す)。
+        let stale = await harness.service.previewForConfirmation(targetIDs: [shown])
+        #expect(stale.items.map(\.newName) == ["one.zip"])
+        var edited = try #require(harness.store.rule(withID: rule.id))
+        edited.replaceWith = " [x]"
+        harness.store.update(rule: edited)
+        #expect(!harness.service.confirm(stale))
+        #expect(harness.store.rule(withID: rule.id)?.targets.first?.confirmedSignature == nil)
+
+        // 見せ直した一覧を確認する前に、同じ規則へ別の対象が足された(別のウインドウのファイルブラウザから)。
+        let fresh = await harness.service.previewForConfirmation(targetIDs: [shown])
+        #expect(fresh.items.map(\.newName) == ["one [x].zip"])
+        let (volume, bookmark) = AutoRenameService.volumeAndBookmark(for: later.path)
+        harness.store.add(
+            target: AutoRenameTarget(path: later.path, volumeUUID: volume, bookmark: bookmark), toRule: rule.id
+        )
+        #expect(harness.service.confirm(fresh))
+        #expect(await eventually { harness.exists("shelf/one [x].zip") })
+        // 見せていない対象は確認していないので、その中の今ある項目は変えない。
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(harness.exists("later/two [tag].zip"), "プレビューに出ていない対象の項目を変えた")
+        let added = try #require(harness.store.rule(withID: rule.id)?.targets.first { $0.path == AutoRename.canonicalPath(later.path) })
+        #expect(added.confirmedSignature == nil)
+    }
+
     @Test("取り込んだ規則は、変えるものが無くても確認を待ち、確認するまで後から届いた項目も変えない(2026-09-23 の 3 回目の監査の中 6)")
     func importedRulesWaitForReviewEvenWithoutChanges() async throws {
         let harness = try Harness("imported")

@@ -78,6 +78,43 @@ final class ShelfCoverImportViewModel: ObservableObject {
 
     var importableCount: Int { rows.filter(\.isImportable).count }
 
+    // MARK: - 開き直し
+
+    /// ウインドウが出ているか(`setPresented`)。ViewModel を作るのは最初に出たときなので、「出ている」から始める。
+    private var isPresented = true
+    /// 閉じたときに読み込み・取り込みの途中だったので、終わってから捨てる(次に出たときに見る)。
+    private var resetsWhenIdle = false
+
+    /// ウインドウが出た・閉じた(ShelfCoverImportWindow の `auxiliaryWindowPresence` ―― 補助ウインドウの共通の決まり)。
+    ///
+    /// **閉じたら、読み込んだ zip と一覧・結果を捨てる**(2026-10-04 の監査 TW-22)。ViewModel は閉じても残る(`Window` シーン)ので、
+    /// 以前は取り込まずに閉じた一覧が次に開いたときもそのまま出ていた。行の行き先(`selectedBookID`)は読み込んだ時点の本の bookID
+    /// なので、その間に本が移動・改名されると、「取り込む」が**古いパスに表紙の行を新しく作った**(今の本には付かない)。
+    /// 読み込み・取り込みの途中で閉じたときは、その処理が一覧を使い終わるまで待ち、次に出たときに捨てる(途中で開き直したなら、
+    /// 続いている処理の結果を見せる)。
+    func setPresented(_ presented: Bool) {
+        guard presented != isPresented else { return }
+        isPresented = presented
+        if presented {
+            if resetsWhenIdle, !isLoading, !isApplying { reset() }
+            resetsWhenIdle = false
+        } else if isLoading || isApplying {
+            resetsWhenIdle = true
+        } else {
+            reset()
+        }
+    }
+
+    private func reset() {
+        rows = []
+        ignoredEntryNames = []
+        searchText = ""
+        resultMessage = nil
+        didSucceed = false
+        loadedFileName = nil
+        loadedZipURL = nil
+    }
+
     // MARK: - 読み込み
 
     func load(zipAt url: URL) async {
@@ -162,9 +199,15 @@ final class ShelfCoverImportViewModel: ObservableObject {
         var imported = 0
         var reencoded = 0
         var failed = 0
+        // 行き先がもう「知っている本」でない行は取り込まない(2026-10-04 の監査 TW-22)。行き先は zip を読み込んだ時点の bookID
+        // なので、その後で本が移動・改名される(保存データは新しいパスへ付け替わる)と、古いパスに表紙だけの行を作っていた。
+        // 読み込み直せば今の本と照合し直せる。
+        let known = KnownBooks.collect(from: sources)
+        let importable = rows.filter(\.isImportable)
+        let targets = importable.filter { $0.selectedBookID.map(known.contains) ?? false }
+        let stale = importable.count - targets.count
         // 画像はここで**少しずつ**読み直す(ShelfCoverArchive.readEntriesのコメント参照)。
         // 読んだぶんを取り込み終えてから次を読むので、メモリに載るのは1回ぶんだけ。
-        let targets = rows.filter(\.isImportable)
         var batches: [[Row]] = []
         var batchBytes = 0
         for row in targets {
@@ -202,7 +245,6 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 }
             }
         }
-        didSucceed = failed == 0
         var message = String(
             format: String(localized: "Imported %lld collection covers.", language: locale),
             Int64(imported)
@@ -219,6 +261,15 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 format: String(localized: "%lld couldn't be imported.", language: locale), Int64(failed)
             )
         }
+        if stale > 0 {
+            message += " " + String(
+                format: String(
+                    localized: "%lld weren't imported because their books have moved since the zip was loaded. Choose the zip again to match them anew.",
+                    language: locale
+                ), Int64(stale)
+            )
+        }
+        didSucceed = failed == 0 && stale == 0
         resultMessage = message
         // 取り込んだ行は選択を外す(同じzipを二度当てて同じ絵を書き直さないため)。
         for index in rows.indices { rows[index].selectedBookID = nil }

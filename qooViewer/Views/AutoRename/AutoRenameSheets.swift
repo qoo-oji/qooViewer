@@ -11,10 +11,18 @@ struct AutoRenameConfirmationSheet: View {
     @EnvironmentObject private var store: AutoRenameStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
-    /// 開いた時点の確認待ちの対象(開いている間に増えたものは次の確認へ回す)。
+    /// 開いた時点の確認待ちの対象(開いている間に増えたものは次の確認へ回す)。呼び出し側がシートを開いたときの値を渡す
+    /// (AutoRenameSettingsWindow.SheetKind.confirmation。2026-10-04 の監査 TW-11 まで、描き直しのたびに今の集合が渡っていた)。
     let targetIDs: Set<UUID>
 
-    @State private var items: [AutoRenameService.PreviewItem]?
+    /// 見せている一覧と、それを作った計画(`confirm` が今の規則と突き合わせる)。
+    @State private var preview: AutoRenameService.ConfirmationPreview?
+    /// 一覧を作り直す契機(「名前を変更」を押したときに規則が変わっていた)。
+    @State private var previewRevision = 0
+    /// 開いた後で規則などが変わったので、一覧を作り直した。
+    @State private var didRebuildPreview = false
+
+    private var items: [AutoRenameService.PreviewItem]? { preview?.items }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -24,6 +32,15 @@ struct AutoRenameConfirmationSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if didRebuildPreview {
+                Label(
+                    "The rules or their folders changed while this list was open, so it was made again. Check the changes, then rename.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
             Group {
                 if let items {
                     Table(items) {
@@ -78,8 +95,15 @@ struct AutoRenameConfirmationSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button {
-                    service.confirm(targetIDs: targetIDs)
-                    dismiss()
+                    guard let preview else { return }
+                    // 見せた一覧と同じ規則のときだけ確認する(AutoRenameService.confirm(_:))。違えば作り直して見せ直す。
+                    if service.confirm(preview) {
+                        dismiss()
+                    } else {
+                        self.preview = nil
+                        didRebuildPreview = true
+                        previewRevision += 1
+                    }
                 } label: {
                     Text("Rename").frame(minWidth: width)
                 }
@@ -89,8 +113,8 @@ struct AutoRenameConfirmationSheet: View {
         }
         .padding(20)
         .frame(minWidth: 760, minHeight: 440)
-        .task {
-            items = await service.preview(targetIDs: targetIDs)
+        .task(id: previewRevision) {
+            preview = await service.previewForConfirmation(targetIDs: targetIDs)
         }
     }
 }

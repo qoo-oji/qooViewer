@@ -157,11 +157,30 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 
 `Window` は `for:` による値のパラメータ化ができないため、「どの本を対象に開くか」は
 `LaunchCoordinator.pendingEditorInitialFocus` のような共有オブジェクト経由で渡します。
-一度作られた補助ウインドウの ViewModel は閉じてもアプリ終了まで使い回されるので、変更通知を
-購読して一覧を読み直す必要があります(`BookExportViewModel` / `MetadataEditorViewModel`)。
-ただし**閉じている間は読み直さない**: 書き出しウインドウの ViewModel は閉じている間は印だけ付け、次に出たときに 1 回読む
-(`BookExportViewModel.setPresented`、2026-09-25 の監査。以前は一度開くと、閉じた後も知らせのたびに対象全冊のブックマークを解決して
-実在を確かめていた)。新しい補助ウインドウも同じ形にします。
+
+**補助ウインドウは開き直したら読み直す**(2026-10-04 の監査 `docs/plans/ui-state-consistency-audit-2026-10-04.md` §1-3)。
+`Window` シーンは閉じても中身のビューの `@State` と、そこに入れた ViewModel をアプリ終了まで保ちます(init も `@State` の初期値も
+二度と走らない)。何もしなければ、開き直した窓は前回閉じたときの一覧・判定・読み込んだファイル・結果をそのまま見せます ――
+古い「見つかりません」を信じて実在する本の保存データを消させる、新しい表紙の欠けたバックアップを「書き出しました」と作る、
+前回の「上書き」の方針と中身のまま読み込める、閉じた後も ⌘Z で以前の削除が戻る、という形で実際に出ていました。決まりは:
+
+- 中身のビュー(ViewModel を持つビュー)に `.auxiliaryWindowPresence { presented in … }`(Views/AuxiliaryWindowPresence.swift)を付け、
+  ViewModel の `setPresented(_:)` へ渡す。出た・閉じたは `onAppear` / `onDisappear` と窓の `willCloseNotification` の両方で受け、
+  先に来たほうで 1 回だけ知らせる(ウインドウごと閉じると `onDisappear` が来ないことがある)。最初に出たときも `true` が来るが、
+  ViewModel は「出ている」から始めるので、作った直後の読み直しは起きない。
+- **出たら**、一覧と控え(実在の判定のキャッシュなど)を作り直し、環境設定から取る「開いた直後の値」を入れ直す。
+- **閉じたら**、一時的な状態 ―― 読み込んだファイル・方針・結果・初回のパネルの番人・選択・取り消しの積み場所 ―― を捨てる。
+  読み込み・書き出しの途中で閉じたとき(処理は続く)は、その処理が使い終わるまで消さず、次に出たときに捨てる。
+- 開いている間の変化は、変更通知を購読して読み直す(`BookExportViewModel` / `MetadataEditorViewModel`)。ただし**閉じている間は
+  読み直さない**: 印だけ付け、次に出たときに 1 回読む(`BookExportViewModel.setPresented`、2026-09-25 の監査。以前は一度開くと、
+  閉じた後も知らせのたびに対象全冊のブックマークを解決して実在を確かめていた)。
+
+使っている窓: 書き出し 3 種(`BookExportViewModel.setPresented`。開いた直後の値は `resetOptionsToDefaults`、CBZ の Volume も)、
+保存データの削除(`LibraryCleanupViewModel.setPresented` ―― 実在の判定も捨てて判定し直す)、保存データの読み込み
+(`LibraryImportWindow.handlePresence`)、コレクション表紙の書き出し・読み込み(`ShelfCoverExportViewModel` /
+`ShelfCoverImportViewModel.setPresented`)、自分の取り消しの積み場所を持つ道具のウインドウ(`ownsDataUndoStack()` ―― 閉じたら
+`DataUndoStack.removeAll()`)。**新しい補助ウインドウも同じ形にします。** 開くたびに中身を作り直すわけではない(列幅など、
+残っていて困らないものはそのまま)ので、何を捨てるかは窓ごとに `setPresented` のコメントに書きます。
 
 **新しいウインドウ/タブで本を開く**経路は `BookWindowOpener.open(_:to:from:)` の1本に集約されて
 います(フォルダをファイルブラウザで開くのは `BookWindowOpener.openFolder`。ウインドウを見つけて置く後半は共有)。行き先は `BookOpenDestination`(引き継ぐ新ウインドウ/必ず通常/必ずシークレット/タブ)、

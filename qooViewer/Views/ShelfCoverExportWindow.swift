@@ -91,6 +91,8 @@ private struct ShelfCoverExportContentView: View {
         }
         .onAppear { autoSizeColumnsIfNeeded() }
         .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
+        // 開き直したら一覧を作り直す(ShelfCoverExportViewModel.setPresented。2026-10-04 の監査 TW-10)。
+        .auxiliaryWindowPresence { viewModel.setPresented($0) }
     }
 
     // MARK: - ツールバー

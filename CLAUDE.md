@@ -469,6 +469,10 @@ tabs it shows "Close Tab" ⌘W and "Close Window" ⇧⌘W itself; SwiftUI's `.sa
 arrive split by document type in several `application(_:open:)` calls, so `AppDelegate` merges calls within 1 s before opening,
 and never opens a book into the main window SwiftUI created for a launch-by-open (its title stops updating; measured 2026-09-27). AX reports stale
 names for these rebuilt items — read `NSApp.mainMenu` in-process instead.
+**Auxiliary `Window` scenes keep their view `@State` and ViewModel after closing**, so each one re-reads its list and caches
+when it reappears and drops temporary state (loaded file, results, selection, undo stack) when it closes, through
+`.auxiliaryWindowPresence` → `setPresented(_:)` (2026-10-04; stale reopened windows let the user delete a book's data on an old
+"missing" verdict) — a new auxiliary window must do the same (docs/03「補助ウインドウは開き直したら読み直す」).
 
 **Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in
 `AppearanceSettings` (ViewModels/AppearanceSettings.swift), not `AppPreferences` — `preferences.appearance` (normal

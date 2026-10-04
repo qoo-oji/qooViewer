@@ -68,6 +68,27 @@ struct DataUndoTests {
         #expect(oldest.discardCount == 1)
     }
 
+    @Test("すべて捨てると、取り消し先もやり直し先も空になり、どれも後片付けされる(道具のウインドウを閉じたとき。2026-10-04 の監査 BE-11)")
+    func removeAllEmptiesBothSidesAndDiscardsEverything() {
+        let stack = DataUndoStack()
+        let undone = NoOpStep(title: "一")
+        let pending = NoOpStep(title: "二")
+        stack.push(undone)
+        stack.push(pending)
+        stack.undo()
+        #expect(stack.undoTitle == "一")
+        #expect(stack.redoTitle == "二")
+
+        stack.removeAll()
+        #expect(stack.undoTitle == nil)
+        #expect(stack.redoTitle == nil)
+        #expect(undone.discardCount == 1)
+        #expect(pending.discardCount == 1)
+        // 空になった後の ⌘Z は何も戻さない(以前は閉じて開き直した窓で、前回の削除が戻った)。
+        stack.undo()
+        #expect(undone.undoCount == 0)
+    }
+
     @Test("戻せなかった操作は捨てられ、次の操作が出る")
     func aStepThatCannotUndoIsDropped() {
         let stack = DataUndoStack()
@@ -331,13 +352,17 @@ private final class NoOpStep: DataUndoStep {
     let title: String
     private let undoSucceeds: Bool
     private(set) var discardCount = 0
+    private(set) var undoCount = 0
 
     init(title: String = "何もしない", undoSucceeds: Bool = true) {
         self.title = title
         self.undoSucceeds = undoSucceeds
     }
 
-    func undo() -> Bool { undoSucceeds }
+    func undo() -> Bool {
+        undoCount += 1
+        return undoSucceeds
+    }
     func redo() -> Bool { true }
     func discard() { discardCount += 1 }
 }

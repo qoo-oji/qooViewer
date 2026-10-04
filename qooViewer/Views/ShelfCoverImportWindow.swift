@@ -89,6 +89,8 @@ private struct ShelfCoverImportContentView: View {
             .hardTopScrollEdgeEffect()
         }
         .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
+        // 閉じたら読み込んだ zip と一覧を捨てる(ShelfCoverImportViewModel.setPresented。2026-10-04 の監査 TW-22)。
+        .auxiliaryWindowPresence { viewModel.setPresented($0) }
     }
 
     @ViewBuilder

@@ -281,4 +281,66 @@ struct ShelfCoverImportTests {
         await viewModel.apply()
         #expect(library.layouts.shelfCoverImageFileName(forBookID: "/books/細工.cbz") == nil)
     }
+
+    // MARK: - 開き直し(2026-10-04 の監査 TW-22)
+
+    @Test("読み込んだ後で本が動いていたら、その行は古いパスへ取り込まない。閉じたら読み込んだzipと一覧を捨てる")
+    func staleTargetsAreSkippedAndClosingForgetsTheZip() async throws {
+        let library = try InMemoryLibrary(label: "cover-import-reopen")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-import-reopen")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-import-reopen")
+        _ = library.metadata.upsert(bookID: "/books/第1巻.cbz", author: "", title: "第1巻", series: "", seriesIndex: "")
+
+        var builder = ZipFixtureBuilder()
+        builder.add("第1巻.jpg", PageImageFactory.jpeg(number: 3))
+        let zipURL = temporary.file("reopen.zip")
+        try builder.write(to: zipURL)
+
+        let viewModel = ShelfCoverImportViewModel(
+            sources: library.knownBookSources, preferences: suite.makePreferences()
+        )
+        await viewModel.load(zipAt: zipURL)
+        #expect(viewModel.rows.first?.selectedBookID == "/books/第1巻.cbz")
+
+        // 読み込んだ後で本が動いた(保存データは新しいパスへ付け替わった)。
+        library.metadata.delete(forBookID: "/books/第1巻.cbz")
+        _ = library.metadata.upsert(bookID: "/moved/第1巻.cbz", author: "", title: "第1巻", series: "", seriesIndex: "")
+        await viewModel.apply()
+        // 以前は古いパスに表紙だけの行を新しく作った。
+        #expect(library.layouts.bookLayoutSettings(forBookID: "/books/第1巻.cbz") == nil)
+        #expect(viewModel.didSucceed == false)
+
+        // 閉じたら捨て、開き直しても前回の一覧は出ない。
+        viewModel.setPresented(false)
+        #expect(viewModel.rows.isEmpty)
+        #expect(viewModel.loadedFileName == nil)
+        #expect(viewModel.resultMessage == nil)
+        viewModel.setPresented(true)
+        #expect(viewModel.rows.isEmpty)
+    }
+
+    @Test("表紙の書き出しを閉じて開き直すと、閉じている間に設定した表紙も一覧に入り、既定どおり全部選ばれる(2026-10-04 の監査 TW-10)")
+    func reopeningTheExportListsCoversSetWhileClosed() async throws {
+        let temporary = try TemporaryDirectory("cover-export-reopen")
+        let (library, _) = try await makeLibraryWithCovers(
+            "cover-export-reopen", books: ["/books/第1巻.cbz"], temporary: temporary
+        )
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-export-reopen")
+        defer { withExtendedLifetime(suite) {} }
+
+        let viewModel = ShelfCoverExportViewModel(layoutStore: library.layouts, preferences: suite.makePreferences())
+        #expect(viewModel.rows.map(\.bookID) == ["/books/第1巻.cbz"])
+
+        viewModel.setPresented(false)
+        let image = temporary.file("cover-export-reopen-source.png")
+        try await library.layouts.setShelfCoverImage(forBookID: "/books/第2巻.cbz", sourceURL: nil, fileURL: image)
+        viewModel.setPresented(true)
+
+        // 以前は最初に開いたときの一覧のままで、新しい表紙は zip に入らなかった。
+        #expect(viewModel.rows.map(\.bookID) == ["/books/第1巻.cbz", "/books/第2巻.cbz"])
+        #expect(viewModel.selectedBookIDs == ["/books/第1巻.cbz", "/books/第2巻.cbz"])
+    }
 }

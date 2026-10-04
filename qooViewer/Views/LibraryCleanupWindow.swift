@@ -124,6 +124,8 @@ private struct LibraryCleanupContentView: View {
         // 両方で試みる(実際に走るのは最初の1回だけ。書き出しウインドウと同じ)。
         .onAppear { autoSizeColumnsIfNeeded() }
         .onChange(of: viewModel.totalRowCount) { _, _ in autoSizeColumnsIfNeeded() }
+        // 開き直したら一覧と実在の判定を作り直し、閉じたら選択を捨てる(LibraryCleanupViewModel.setPresented。2026-10-04 の監査 TW-7)。
+        .auxiliaryWindowPresence { viewModel.setPresented($0) }
         .alert(item: $pendingDeletion) { deletion in
             Alert(
                 title: Text(

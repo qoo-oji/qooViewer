@@ -383,4 +383,21 @@ struct ExportFormatViewModelTests {
         environment.preferences.bookExportWritesVolumeElement = true
         #expect(environment.cbz().writesVolumeElement)
     }
+
+    @Test("開き直すたびの既定への戻しは、Volume にも効く(2026-10-04 の監査 TW-3)")
+    func reopeningResetsTheVolumeToggleToThePreference() async throws {
+        let environment = try await Environment.make(pages: 1, label: "volume-reset")
+        defer { environment.close() }
+
+        let viewModel = environment.cbz()
+        // 前回このウインドウで ON にした。環境設定の既定は OFF のまま。
+        viewModel.writesVolumeElement = true
+        viewModel.resetOptionsToDefaults()
+        #expect(!viewModel.writesVolumeElement)
+
+        // 環境設定で既定を変えてから開き直すと、その値から始まる(init は二度と走らない)。
+        environment.preferences.bookExportWritesVolumeElement = true
+        viewModel.resetOptionsToDefaults()
+        #expect(viewModel.writesVolumeElement)
+    }
 }

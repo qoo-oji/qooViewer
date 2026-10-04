@@ -201,4 +201,52 @@ struct LibraryCleanupTests {
         // 一覧のどこにも出ていない本が削除対象に数えられ続けないように。
         #expect(viewModel.selectedBookIDs == [env.id("b")])
     }
+
+    // MARK: - 開き直し(2026-10-04 の監査 TW-7)
+
+    /// 実在の判定が出そろうまで待つ(判定はメインアクターの外で走る)。
+    private func waitForExistence(
+        of bookID: String, in viewModel: LibraryCleanupViewModel, toBe expected: LibraryCleanupViewModel.FileExistence
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        func matches() -> Bool {
+            guard !viewModel.isCheckingExistence, let row = viewModel.rows.first(where: { $0.bookID == bookID }) else {
+                return false
+            }
+            return row.existence == expected
+        }
+        while Date() < deadline {
+            if matches() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return matches()
+    }
+
+    @Test("閉じて開き直すと、一覧も実在の判定も作り直す(見つからなかった本が戻っていれば「ある」になる)")
+    func reopeningRebuildsTheListAndTheExistenceVerdicts() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        // 「見つかりません」と言えるのは許可済みのフォルダの中だけ(外では「不明」)。
+        #expect(env.folderAccess.add(url: env.temporary.url))
+        let bookID = env.id("away.cbz")
+        env.library.bookmarks.addBookmark(bookID: bookID, pageIndex: 0, name: "b")
+        let viewModel = env.makeViewModel()
+        #expect(await waitForExistence(of: bookID, in: viewModel, toBe: .missing))
+        viewModel.filter = .missingOnly
+        viewModel.setAllShownRowsSelected(true)
+
+        // 閉じている間に本が戻り、別の本に保存データができた。
+        viewModel.setPresented(false)
+        try Data().write(to: env.temporary.file("away.cbz"))
+        env.library.bookmarks.addBookmark(bookID: env.id("later.cbz"), pageIndex: 0, name: "c")
+        // 閉じたら選択と絞り込みは捨てる(次に開いたときの「削除」に見えないチェックが紛れ込まない)。
+        #expect(viewModel.selectedBookIDs.isEmpty)
+        #expect(viewModel.filter == .all)
+
+        viewModel.setPresented(true)
+        #expect(viewModel.rows.map(\.bookID).sorted() == [bookID, env.id("later.cbz")].sorted())
+        // 以前は前回の「見つかりません」のまま、「見つからないファイルだけ」の一括削除で実在する本を消させた。
+        #expect(await waitForExistence(of: bookID, in: viewModel, toBe: .exists))
+        #expect(viewModel.missingCount == 1)
+    }
 }

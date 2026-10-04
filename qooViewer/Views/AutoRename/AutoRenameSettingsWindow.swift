@@ -30,12 +30,21 @@ struct AutoRenameSettingsWindow: View {
         weak var window: NSWindow?
     }
 
-    enum SheetKind: String, Identifiable {
-        case confirmation
+    enum SheetKind: Identifiable {
+        /// 開いた時点の確認待ちの対象を**値で**持つ(2026-10-04 の監査 TW-11)。以前はシートの中身を作るたびに
+        /// `service.targetsAwaitingConfirmation` を読んでいたので、開いた後で確認待ちが増えると、プレビューに出ていない対象まで
+        /// 「名前を変更」が確認した。`sheet` に入った値は描き直しでは変わらない。
+        case confirmation(Set<UUID>)
         case moveSuggestions
         case activityLog
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .confirmation: "confirmation"
+            case .moveSuggestions: "moveSuggestions"
+            case .activityLog: "activityLog"
+            }
+        }
     }
 
     var body: some View {
@@ -64,8 +73,8 @@ struct AutoRenameSettingsWindow: View {
         .frame(minWidth: 900, minHeight: 520)
         .sheet(item: $sheet) { kind in
             switch kind {
-            case .confirmation:
-                AutoRenameConfirmationSheet(targetIDs: service.targetsAwaitingConfirmation)
+            case .confirmation(let targetIDs):
+                AutoRenameConfirmationSheet(targetIDs: targetIDs)
             case .moveSuggestions:
                 AutoRenameMoveSuggestionsSheet()
             case .activityLog:
@@ -219,7 +228,7 @@ struct AutoRenameSettingsWindow: View {
                 AutoRenameBanner(systemImage: "checkmark.circle", tint: .accentColor) {
                     Text("Some rules would rename items that are already in their folders. They won’t rename anything until you check the changes.")
                 } action: {
-                    Button("Review Changes…") { sheet = .confirmation }
+                    Button("Review Changes…") { sheet = .confirmation(service.targetsAwaitingConfirmation) }
                 }
             }
             if !service.moveSuggestions.isEmpty {

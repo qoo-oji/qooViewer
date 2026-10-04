@@ -8,9 +8,10 @@ import Testing
 ///
 /// - `setPageOrderOverride`: ユーザーが決めたページの並びを鍵の配列として焼き付ける。
 /// - `checkContentReplacement`: 同じパスのまま中身が差し替わっていないかを見る(指紋の比較)。
-/// - `discardLayoutData`: 1 冊ぶんのレイアウトを消す。
+/// - `discardPageLayout`: 1 冊ぶんの狭義のレイアウト(読み方向・見開き・ページ順・ページ単位)を消す。利用者が「レイアウト」を
+///   消す操作はすべてこれ。`deleteLayoutRow` は行ごと(保存データをすべて消すときだけ)。
 ///
-/// どれも「利用者が手で作ったものを、いつ捨てるか」に関わる。特に `discardLayoutData` の
+/// どれも「利用者が手で作ったものを、いつ捨てるか」に関わる。特に `deleteLayoutRow` の
 /// 早期リターン(消すものが無ければ通知も出さない)は、一括削除の重さに直結する。
 @MainActor
 struct LayoutStoreTests {
@@ -182,7 +183,8 @@ struct LayoutStoreTests {
         library.layouts.setPageLayoutState(for: source.book, pageKey: source.keys[1], state: .excluded)
         #expect(library.pageStates(forBookID: source.book.id).count == 2)
 
-        library.layouts.discardLayoutData(forBookID: source.book.id)
+        library.layouts.discardPageLayout(forBookID: source.book.id)
+        // 狭義のレイアウトしか無い行は、行ごと消える(空の行を残さない)。
         #expect(settings(library, source.book) == nil)
         #expect(library.pageStates(forBookID: source.book.id).isEmpty)
         #expect(!library.layouts.layoutBookIDs.contains(source.book.id))
@@ -198,9 +200,42 @@ struct LayoutStoreTests {
         library.layouts.setPageLayoutState(for: first.book, pageKey: first.keys[0], state: .single)
         library.layouts.setPageLayoutState(for: second.book, pageKey: second.keys[0], state: .single)
 
-        library.layouts.discardLayoutData(forBookID: first.book.id)
+        library.layouts.discardPageLayout(forBookID: first.book.id)
         #expect(library.pageStates(forBookID: first.book.id).isEmpty)
         #expect(library.pageStates(forBookID: second.book.id).count == 1)
+    }
+
+    @Test("レイアウトを消しても、コレクション表紙・切り出し位置・書き出し用のカバー・補正は残る(2026-10-04 の監査 BE-2)")
+    func discardingTheLayoutKeepsCoversAndCorrection() async throws {
+        let library = try InMemoryLibrary(label: "layout-discard-keeps-covers")
+        defer { library.close() }
+        let source = try await makeSource("layout-discard-keeps-covers")
+        let book = source.book
+
+        library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
+        library.layouts.setPageOrderOverride(for: book, Array(source.keys.reversed()))
+        library.layouts.setPageLayoutState(for: book, pageKey: source.keys[0], state: .single)
+        library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: source.keys[1], displayName: "002.jpg")
+        library.layouts.setCoverPageKey(for: book, pageKey: source.keys[2], displayName: "003.jpg")
+        library.layouts.setCoverCropAnchor(forBookID: book.id, sourceURL: book.sourceURL, anchor: .center)
+        library.layouts.setContrastCorrectionEnabled(for: book, true)
+
+        library.layouts.discardPageLayout(forBookID: book.id)
+
+        let row = try #require(settings(library, book), "行ごと消えた(表紙・切り出し位置・補正も失われる)")
+        #expect(row.isBookLevelSettingEmpty)
+        #expect(library.pageStates(forBookID: book.id).isEmpty)
+        #expect(!library.layouts.layoutBookIDs.contains(book.id))
+        // EPUB/PDF なら次に開いたときにファイルの指定を取り込み直す(行を消していた頃と同じ結果)。
+        #expect(!row.didImportSourceLayout)
+        #expect(row.shelfCoverPageKey == source.keys[1])
+        #expect(row.coverPageKey == source.keys[2])
+        #expect(row.coverCropAnchor == .center)
+        #expect(row.contrastCorrectionEnabled)
+
+        // 「その本の保存データをすべて消す」ほうは行ごと。
+        library.layouts.deleteLayoutRow(forBookID: book.id)
+        #expect(settings(library, book) == nil)
     }
 
     @Test("消すものが無ければ変更通知を出さない(一括削除で本の件数ぶん空振りしないため)")
@@ -221,7 +256,7 @@ struct LayoutStoreTests {
         defer { NotificationCenter.default.removeObserver(token) }
 
         for index in 0..<20 {
-            library.layouts.discardLayoutData(forBookID: "\(prefix)\(index).cbz")
+            library.layouts.deleteLayoutRow(forBookID: "\(prefix)\(index).cbz")
         }
         #expect(counter.count == 0)
 
@@ -237,8 +272,8 @@ struct LayoutStoreTests {
             secondCounter.increment()
         }
         defer { NotificationCenter.default.removeObserver(secondToken) }
-        library.layouts.discardLayoutData(forBookID: source.book.id)
-        library.layouts.discardLayoutData(forBookID: source.book.id)  // 2 回目は消すものが無い
+        library.layouts.deleteLayoutRow(forBookID: source.book.id)
+        library.layouts.deleteLayoutRow(forBookID: source.book.id)  // 2 回目は消すものが無い
         #expect(secondCounter.count == 1)
     }
 

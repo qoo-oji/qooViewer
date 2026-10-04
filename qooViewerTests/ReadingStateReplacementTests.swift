@@ -172,4 +172,32 @@ struct ReadingStateReplacementTests {
         #expect(reopened.readingDirection == chosen)
         #expect(reopened.currentIndex == 2)
     }
+
+    @Test("差し替え検知の「設定を破棄」は狭義のレイアウトだけを消し、表紙と切り出し位置は残し、次からは尋ねない(2026-10-04 の監査 BE-2)")
+    func discardingAfterAReplacementKeepsTheCoversAndStopsAsking() async throws {
+        let harness = try ViewerHarness(label: "replacement-discard")
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let layouts = harness.library.layouts
+        layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
+        layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: book.pages[1].sortKey, displayName: "p02.png")
+        layouts.setCoverCropAnchor(forBookID: book.id, sourceURL: book.sourceURL, anchor: .end)
+
+        // ページが増えた(枚数が変わったので「差し替えられた」と判断される)。
+        try FileManager.default.copyItem(
+            at: book.sourceURL.appendingPathComponent("p04.png"), to: book.sourceURL.appendingPathComponent("p05.png")
+        )
+        let replaced = try await harness.reloadBook()
+        let viewer = await harness.open(replaced)
+        #expect(viewer.pendingLayoutReplacementStatus != nil)
+
+        viewer.resolveLayoutReplacement(applyExisting: false)
+
+        let row = try #require(layouts.bookLayoutSettings(forBookID: book.id), "行ごと消えた(表紙・切り出し位置も失われる)")
+        #expect(layouts.pageOverrides(forBookID: book.id).isEmpty)
+        #expect(row.shelfCoverPageKey == book.pages[1].sortKey)
+        #expect(row.coverCropAnchor == .end)
+        // 行が残っても、古い指紋のまま次に開くたびに尋ね直さない。
+        #expect(layouts.checkContentReplacement(book: replaced) == .unaffected)
+    }
 }

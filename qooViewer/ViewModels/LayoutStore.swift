@@ -1193,10 +1193,15 @@ final class LayoutStore: ObservableObject {
 
     // MARK: - 削除
 
-    /// 指定した本のレイアウトデータ(本全体設定 + ページ単位設定のすべて)を削除する。
-    /// 差し替え検知(2.5節)で「破棄する」が選ばれた場合、および4.4節「レイアウトを全削除」
-    /// (1冊分)から呼ぶ。
-    func discardLayoutData(forBookID bookID: String) {
+    /// 指定した本の `BookLayoutSettings` の**行ごと**と、ページ単位設定のすべてを削除する。行に同居しているコレクション表紙・
+    /// 切り出し位置・書き出し用のカバー・コントラスト補正も消える。
+    ///
+    /// 呼ぶのは「その本の保存データをすべて消す」操作だけ(`BookSavedDataEraser` ―― 保存データの削除ウインドウ・起動時の
+    /// 見つからない本の整理)。**利用者が「レイアウト」を消す操作は `discardPageLayout`**(2026-10-04 の監査 BE-2)。以前は
+    /// 編集ウインドウの「レイアウトをすべて削除」「ブックマークとレイアウトをすべて削除」、差し替え検知の「設定を破棄」、書き出し後の
+    /// 「保存データ」の削除もこれを呼び、確認文が「読み方向・ページ順・単ページ/見開き」と言うのに、選び直したコレクション表紙・
+    /// 切り出し位置・書き出し用のカバー・補正まで黙って消していた(表紙の元画像は参照を失って掃除された。取り消しも無い)。
+    func deleteLayoutRow(forBookID bookID: String) {
         let settings = bookLayoutSettings(forBookID: bookID)
         let overrides = pageOverrides(forBookID: bookID)
         // 消すものが無ければ、save()も変更通知も出さずに帰る。
@@ -1217,11 +1222,19 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: bookID)
     }
 
-    /// 保存データのJSONを**上書きで**取り込む直前に、その本の「JSONが持っているレイアウト」だけを
-    /// 消す(LibraryImportExportService.applyLayouts)。
+    /// その本の**狭義のレイアウト**だけを消す ―― 読み方向・見開き強制・ページ順と、ページ単位の設定(`PageLayoutOverride`)。
+    /// 利用者が「レイアウト」を消す操作はすべてこれ(2026-10-04 の監査 BE-2。`deleteLayoutRow` のコメント):
+    /// - 「ブックマーク・レイアウトの編集」の「レイアウトをすべて削除」「ブックマークとレイアウトをすべて削除」
+    /// - 差し替え検知(2.5節)の「設定を破棄」(呼び出し側が続けて指紋を今の中身で記録し直す)
+    /// - 本の書き出し後の「保存データ」の削除(§3 の決定 7: コレクション表紙・切り出し位置は消さない ―― コレクションの所属を
+    ///   残すのと揃える)
+    /// - 保存データのJSONを**上書きで**取り込む直前(LibraryImportExportService.applyLayouts)。JSONの `ExportedBookLayout` が表すのは
+    ///   ちょうどこの範囲なので、「JSONが持っているレイアウト」だけを置き換えることになる(下の経緯)。
     ///
-    /// ■ なぜdiscardLayoutDataではないのか(監査で指摘 2026-09-13)
-    /// 以前は上書きの前にdiscardLayoutDataで行を丸ごと消していた。ところがこの行には、JSONに
+    /// 確認文・説明文(「読み方向・ページ順・単ページ/見開き」)はこの範囲を言っている。範囲を変えるならそちらも直す。
+    ///
+    /// ■ なぜ行ごと消さないのか(監査で指摘 2026-09-13。読み込みの上書きで見つかった)
+    /// 以前は上書きの前にdiscardLayoutData(いまの deleteLayoutRow)で行を丸ごと消していた。ところがこの行には、JSONに
     /// **書き出されない**列が同居している ―― コレクション表紙(shelfCover*)・切り出し位置
     /// (coverCropAnchorRaw)・書き出し用のカバー画像(coverPageKey/externalCover*)・
     /// コントラスト補正。行を消すとそれらも消え、JSONからは戻らない。コレクション表紙の画像は
@@ -1232,10 +1245,10 @@ final class LayoutStore: ObservableObject {
     /// ページ単位の設定)だけ。**書き出されない列が1つも使われていない行は、従来どおり行ごと消す**
     /// (空の行を残して一覧や指紋の扱いを変えない)。行を残すときは、EPUB/PDFのファイル側の
     /// レイアウトを取り込み直せるよう`didImportSourceLayout`も戻す ―― 行を消していた頃と同じ結果。
-    func discardImportableLayoutData(forBookID bookID: String) {
+    func discardPageLayout(forBookID bookID: String) {
         guard let settings = bookLayoutSettings(forBookID: bookID), settings.holdsNonExportedData
         else {
-            discardLayoutData(forBookID: bookID)
+            deleteLayoutRow(forBookID: bookID)
             return
         }
         let overrides = pageOverrides(forBookID: bookID)

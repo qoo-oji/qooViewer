@@ -127,6 +127,8 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// 削除のたびに自分でreload()するため。ウインドウを開いたまま他のウインドウで本を開いた
     /// 場合に一覧へ即座に反映されないが、掃除のための画面であり、開き直せば最新になる
     /// (逆に、削除操作の最中に一覧が勝手に組み変わるほうが扱いにくい)。
+    /// 「開き直せば最新になる」は `setPresented(true)` が作り直すことで成り立つ ―― 2026-10-04 の監査 TW-7 までは、この ViewModel が
+    /// 閉じても残る(`Window` シーン)のに開き直しで何も読み直さず、一覧も実在の判定も最初に開いたときのままだった。
     ///
     /// 母体は `KnownBooks`(メタデータの編集ウインドウと同じ数え方。以前は自前で集め、コレクション表紙の指定だけの本が漏れた)。
     /// ただし**ファイル名の読みだけのメタデータの行**(`isParsedOnly`)は「保存データ」に数えない(2026-09-22 の監査。解析した本は
@@ -165,6 +167,34 @@ final class LibraryCleanupViewModel: ObservableObject {
         selectedBookIDs.formIntersection(allRows.map(\.bookID))
         rebuildRows()
         scheduleExistenceScan(for: allRows.map(\.bookID))
+    }
+
+    // MARK: - 開き直し
+
+    /// ウインドウが出ているか(`setPresented`)。ViewModel を作るのは最初に出たときなので、「出ている」から始める。
+    private var isPresented = true
+
+    /// ウインドウが出た・閉じた(LibraryCleanupWindow の `auxiliaryWindowPresence` ―― 補助ウインドウの共通の決まり)。
+    ///
+    /// **出たら、一覧と実在の判定を作り直す**(2026-10-04 の監査 TW-7)。以前は閉じて開き直しても、最初に開いたときの一覧と判定を
+    /// そのまま見せていた。Finder で一時的に動かしていた本が「見つかりません」と出た状態で閉じ、本を戻してから開き直すと、判定は
+    /// 「見つかりません」のまま ―― 「見つからないファイルだけ」で絞って「すべて選択」→「削除」で、**実在する本の保存データを消させた**
+    /// (取り消せない)。判定のキャッシュ(`existenceByBookID`)は削除した本のぶんしか捨てていなかったので、`reload()` を呼ぶだけでは
+    /// 足りない ―― 全部捨てて判定し直す。
+    ///
+    /// **閉じたら、選択・絞り込み・検索を捨てる。** 次に開いたときは新しい一覧なので、前回のチェックが見えない本に残っていると
+    /// 「削除」の件数に紛れ込む。
+    func setPresented(_ presented: Bool) {
+        guard presented != isPresented else { return }
+        isPresented = presented
+        if presented {
+            existenceByBookID.removeAll()
+            reload()
+        } else {
+            selectedBookIDs.removeAll()
+            filter = .all
+            searchText = ""
+        }
     }
 
     // MARK: - 選択

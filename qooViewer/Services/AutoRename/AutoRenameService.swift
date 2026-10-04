@@ -225,9 +225,28 @@ final class AutoRenameService: ObservableObject {
         availability[targetID]
     }
 
+    /// 確認の一覧に出した中身(§8 の 2)。**どの対象を・どの規則で**見せたかを一緒に持ち、`confirm(_:)` がそれと今を突き合わせる。
+    struct ConfirmationPreview: Sendable {
+        /// シートを開いた時点の確認待ちの対象。開いている間に増えたものは入れない(次の確認へ回す)。
+        let targetIDs: Set<UUID>
+        /// 見せた変更を作った計画(規則の中身・並び・対象・元に戻した項目)。
+        let plan: AutoRenamePlan
+        let items: [PreviewItem]
+    }
+
+    /// 確認のシートの中身(AutoRenameConfirmationSheet)。`preview(targetIDs:)` と同じ一覧に、作った計画を添える。
+    func previewForConfirmation(targetIDs: Set<UUID>) async -> ConfirmationPreview {
+        let plan = makePlan(including: targetIDs)
+        let items = await preview(plan: plan, targetIDs: targetIDs)
+        return ConfirmationPreview(targetIDs: targetIDs, plan: plan, items: items)
+    }
+
     /// 確認の一覧の中身(§8 の 2)。`targetIDs` の対象を確認したとして、今ある項目のどれがどう変わるか。
     func preview(targetIDs: Set<UUID>) async -> [PreviewItem] {
-        let plan = makePlan(including: targetIDs)
+        await preview(plan: makePlan(including: targetIDs), targetIDs: targetIDs)
+    }
+
+    private func preview(plan: AutoRenamePlan, targetIDs: Set<UUID>) async -> [PreviewItem] {
         let roots = Set(store.rules.flatMap(\.targets).filter { targetIDs.contains($0.id) }.map(\.path))
         let currentLocale = locale()
         let results = await FileIO.perform { () -> [AutoRenameScanner.Result] in
@@ -258,6 +277,21 @@ final class AutoRenameService: ObservableObject {
     func confirm(targetIDs: Set<UUID>) {
         store.confirm(targetIDs: targetIDs)
         targetsAwaitingConfirmation.subtract(targetIDs)
+    }
+
+    /// 確認のシートで「名前を変更」を押した(2026-10-04 の監査 TW-11)。**見せた一覧と同じ規則のときだけ**、見せた対象だけを確認済みにする。
+    /// - Returns: 確認したか。シートを開いた後で規則・並び・対象・使えるかどうかが変わっていたら false で、何も確認しない ―― 呼び出し側は
+    ///   一覧を作り直して見せ直す。
+    ///
+    /// 以前のシートは親の body が描き直されるたびに**その時点の**確認待ちの集合で作り直され、一覧(`@State`)と `.task` は最初のまま
+    /// だった。開いた後で別のウインドウから同じ規則に対象を足す(またはボリュームが繋がって既存の対象が使えるようになる)と、
+    /// 「名前を変更」が一覧に出ていない対象まで確認済みにし、**見ていない既存の項目を改名した**(実測)。`store.confirm` はその時点の
+    /// 規則で印を付けるので、開いた後で規則を変えた場合も、見せたのと違う変更を確認済みにしていた。
+    @discardableResult
+    func confirm(_ preview: ConfirmationPreview) -> Bool {
+        guard makePlan(including: preview.targetIDs) == preview.plan else { return false }
+        confirm(targetIDs: preview.targetIDs)
+        return true
     }
 
     /// 移動の提案で「更新」する(§6.3)。新しい場所のボリュームとブックマークを読み直してから書き換える。

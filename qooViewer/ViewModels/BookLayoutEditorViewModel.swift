@@ -147,7 +147,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
     /// この本のレイアウトデータが、このViewModel自身の書き込みメソッドを経由せずに変更された
     /// 場合(例: BookmarkListView.swift「レイアウトを全削除」ボタンがlayoutStore.
-    /// discardLayoutData(forBookID:)を直接呼ぶ経路)に気づくための監視トークン。
+    /// discardPageLayout(forBookID:)を直接呼ぶ経路)に気づくための監視トークン。
     ///
     /// 以前はこのViewModelに通知の購読が無く、自分自身のsetPageLayout/clearPageLayout等の
     /// 書き込みメソッドの最後でrefreshEffectiveIndices()を呼ぶことでしか状態を更新しなかった。

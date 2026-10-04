@@ -11,8 +11,9 @@ import SwiftUI
 /// (`FileCommandStack` と同じ考え方)。ブックマーク・レイアウトの編集と履歴の削除のウインドウは、それぞれ自分のものを持つ
 /// (`DataUndoRouter`)。どの画面からも環境値 `\.dataUndoStack` で受け取る。
 ///
-/// ウインドウを閉じると積んだものは消える。そのとき削除したままになっていたコレクションの表紙のファイルは、次の起動の
-/// 掃除(`CollectionStore.sweepOrphanedCovers`)が消す。
+/// ウインドウを閉じると積んだものは消える。本のウインドウではこの積み場所ごと(`AppState` と一緒に)手放され、そのとき削除した
+/// ままになっていたコレクションの表紙のファイルは、次の起動の掃除(`CollectionStore.sweepOrphanedCovers`)が消す。道具のウインドウ
+/// (`Window` シーン)は閉じても積み場所が残るので、閉じたときに `removeAll()` で空にする(2026-10-04 の監査 BE-11)。
 @MainActor @Observable
 final class DataUndoStack {
     /// 積む深さ。超えたら古いものから捨てる(`FileCommandStack.depth` と同じ)。
@@ -55,6 +56,17 @@ final class DataUndoStack {
             step.discard()
             NSSound.beep()
         }
+        publish()
+    }
+
+    /// 積んだものをすべて捨てる(道具のウインドウを閉じたとき。`OwnsDataUndoStack`)。捨てる操作の後片付け(`discard`)も済ませる
+    /// ―― 深さを超えて落ちたときと同じ扱い。
+    func removeAll() {
+        guard !undoSteps.isEmpty || !redoSteps.isEmpty else { return }
+        let dropped = undoSteps + redoSteps
+        undoSteps.removeAll()
+        redoSteps.removeAll()
+        for step in dropped { step.discard() }
         publish()
     }
 
@@ -123,6 +135,14 @@ private struct OwnsDataUndoStack: ViewModifier {
             }
             .onDisappear {
                 if DataUndoRouter.shared.stack === stack { DataUndoRouter.shared.stack = nil }
+            }
+            // **閉じたら積んだものを捨てる**(2026-10-04 の監査 BE-11。docs/09「ウインドウを閉じると消える」)。`Window` シーンは閉じても
+            // `@State` を保つので、以前はこの積み場所が残り、閉じて開き直した窓で ⌘Z を押すと以前の削除が戻った(実測)。閉じたことは
+            // onDisappear だけでなく窓の willClose でも受ける(View.auxiliaryWindowPresence)。
+            .auxiliaryWindowPresence { presented in
+                guard !presented else { return }
+                if DataUndoRouter.shared.stack === stack { DataUndoRouter.shared.stack = nil }
+                stack.removeAll()
             }
     }
 }

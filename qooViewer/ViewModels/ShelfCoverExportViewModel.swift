@@ -39,7 +39,11 @@ final class ShelfCoverExportViewModel: ObservableObject {
         reload()
     }
 
-    /// 対象を集め直す(ウインドウを開いたとき・書き出したあと)。
+    /// 対象を集め直す(ウインドウを開いたとき・開き直したとき(`setPresented`)・書き出したあと)。
+    ///
+    /// 2026-10-04 の監査 TW-10 までは、このコメントに反して init でしか呼ばれていなかった。ViewModel は閉じても残る(`Window` シーン)
+    /// ので、一覧は最初に開いたときのまま ―― 後から設定した表紙は一覧にも zip にも入らず、それでいて「N 枚書き出しました」と成功に
+    /// 見えた(コレクション表紙の zip は保存データの JSON と組でバックアップになる。CLAUDE.md)。
     ///
     /// ファイル名の連番はbookID順で決まる(LayoutStore.shelfCoverArchiveEntries参照)。
     /// **一部だけを選んで書き出しても名前は変えない** ―― 一覧に出ている名前と、実際にzipへ
@@ -50,6 +54,23 @@ final class ShelfCoverExportViewModel: ObservableObject {
             Row(bookID: $0.bookID, fileName: $0.fileName, sourceURL: $0.sourceURL)
         }
         selectedBookIDs = Set(rows.map(\.bookID))
+    }
+
+    /// ウインドウが出ているか(`setPresented`)。ViewModel を作るのは最初に出たときなので、「出ている」から始める。
+    private var isPresented = true
+
+    /// ウインドウが出た・閉じた(ShelfCoverExportWindow の `auxiliaryWindowPresence` ―― 補助ウインドウの共通の決まり)。
+    /// 出たら一覧を作り直し(選択も既定の「全部」へ)、前回の結果を消す。書き出しの途中で閉じて開き直したときは、
+    /// 終わるまで一覧に触らない(終わったら `export` が読み直す)。
+    func setPresented(_ presented: Bool) {
+        guard presented != isPresented else { return }
+        isPresented = presented
+        guard presented, !isExporting else { return }
+        resultMessage = nil
+        didSucceed = false
+        skippedBookIDs = []
+        searchText = ""
+        reload()
     }
 
     var shownRows: [Row] {
@@ -127,5 +148,7 @@ final class ShelfCoverExportViewModel: ObservableObject {
                 error.localizedDescription
             )
         }
+        // 書き出している間に変わった表紙(消した・設定した)を一覧へ映す(`reload` のコメント)。結果の文言は残す。
+        reload()
     }
 }

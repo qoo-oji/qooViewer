@@ -185,19 +185,21 @@ struct ExportWindowContent<Options: View>: View {
         .frame(minWidth: max(configuration.minimumWindowWidth, contentMinWidth), minHeight: 480)
         // 一覧が非同期に埋まるため、表示直後と「行が入った瞬間」の両方で試みる
         // (autoSizeColumnsIfNeeded()のコメント参照。実際に走るのは最初の1回だけ)。
-        .onAppear {
-            // 書き出しオプションは、ウインドウを開くたびに環境設定「レイアウト」の既定値から
-            // 始める(AppPreferences.bookExportRenumbersImagesのコメントどおりの
-            // 「開いた直後の値」)。ViewModelはinitでも取り込んでいるが、SwiftUIのWindow
-            // シーンは閉じたあとも中身を保持することがあり(Settingsシーンでの同種の挙動:
-            // FB21393010)、その場合initは二度と走らず、環境設定で既定値を変えて開き直しても
-            // 初回の値のまま残る(監査で指摘)。開く直後に必ず揃え直す。
-            viewModel.resetOptionsToDefaults()
-            // 閉じている間に変わった分を読み直す(BookExportViewModel.isPresented のコメント)。
-            viewModel.setPresented(true)
-            autoSizeColumnsIfNeeded()
+        .onAppear { autoSizeColumnsIfNeeded() }
+        // 出た・閉じた(補助ウインドウの共通の決まり。View.auxiliaryWindowPresence のコメント)。
+        .auxiliaryWindowPresence { presented in
+            if presented {
+                // 書き出しオプションは、ウインドウを開くたびに環境設定「レイアウト」の既定値から
+                // 始める(AppPreferences.bookExportRenumbersImagesのコメントどおりの
+                // 「開いた直後の値」)。ViewModelはinitでも取り込んでいるが、SwiftUIのWindow
+                // シーンは閉じたあとも中身を保持することがあり(Settingsシーンでの同種の挙動:
+                // FB21393010)、その場合initは二度と走らず、環境設定で既定値を変えて開き直しても
+                // 初回の値のまま残る(監査で指摘)。開く直後に必ず揃え直す。
+                viewModel.resetOptionsToDefaults()
+            }
+            // 閉じている間に変わった分を、出たときに読み直す(BookExportViewModel.isPresented のコメント)。
+            viewModel.setPresented(presented)
         }
-        .onDisappear { viewModel.setPresented(false) }
         .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
         .alert(
             "Not Enough Free Space",

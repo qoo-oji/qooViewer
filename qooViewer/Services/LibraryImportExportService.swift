@@ -1318,8 +1318,8 @@ enum LibraryImportExportService {
 
             if policy == .overwrite {
                 // 行ごとは消さない ―― JSONに無いコレクション表紙・カバー画像などが同居している
-                // (LayoutStore.discardImportableLayoutDataのコメント参照)。
-                layoutStore.discardImportableLayoutData(forBookID: bookID)
+                // (LayoutStore.discardPageLayoutのコメント参照)。
+                layoutStore.discardPageLayout(forBookID: bookID)
             }
 
             // マージ時、本全体の設定(読み方向・見開き強制・ページ順)は「まだ何も設定されて

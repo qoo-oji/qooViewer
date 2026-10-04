@@ -32,43 +32,72 @@ struct LibraryImportWindow: View {
 
     @State private var loadedFile: QooLibraryExportFile?
     @State private var sourceFileName: String?
-    // 改善要望5でお気に入りを無効化した間は、ファイルに`favorites`があっても取り込まない
-    // (取り込んでもどこにも見えないため。FavoritesFeature参照)。読み込みの経路自体は
-    // 壊さずに残してあるので、復活させれば過去の書き出しファイルからそのまま取り込める。
-    @State private var favoritesPolicy: LibraryImportExportService.ImportPolicy =
-        FavoritesFeature.isEnabled ? .merge : .ignore
-    @State private var collectionsPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var bookmarksPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var layoutsPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var metadataPolicy: LibraryImportExportService.ImportPolicy = .merge
-    /// 規則(qooMeta。以前はフォーマット定義)は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
-    /// マージという選択肢自体が無い(ImportPolicies.metadataRulesのコメント参照)。
-    @State private var metadataRulesPolicy: LibraryImportExportService.ImportPolicy = .ignore
-    /// 2026-09-23 に足したカテゴリ。環境設定は規則と同じく「置き換えるか取り込まないか」の2択で、既定は無視。
-    @State private var readingStatesPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var smartLibraryPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var fileBrowserPolicy: LibraryImportExportService.ImportPolicy = .merge
-    @State private var settingsPolicy: LibraryImportExportService.ImportPolicy = .ignore
+    /// カテゴリごとの取り込み方針(ピッカー)。開き直すたびに既定から始める(`resetForNextOpen`)。
+    @State private var policies = Self.defaultPolicies
     @State private var isImporting = false
-    @State private var summary: LibraryImportExportService.ImportSummary?
+    /// 直前の読み込みの結果と、そのとき**実際に使った**ファイル・方針(下の `ImportOutcome`)。
+    @State private var outcome: ImportOutcome?
     @State private var loadErrorMessage: String?
     @State private var hasPromptedForFile = false
+    /// 閉じたときに読み込みの途中だったので、次に開いたときに捨てる(`handlePresence`)。
+    @State private var resetsWhenIdle = false
+
+    /// 方針の既定。
+    /// 改善要望5でお気に入りを無効化した間は、ファイルに`favorites`があっても取り込まない
+    /// (取り込んでもどこにも見えないため。FavoritesFeature参照)。読み込みの経路自体は
+    /// 壊さずに残してあるので、復活させれば過去の書き出しファイルからそのまま取り込める。
+    /// 規則(qooMeta。以前はフォーマット定義)は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
+    /// マージという選択肢自体が無い(ImportPolicies.metadataRulesのコメント参照)。
+    /// 2026-09-23 に足した環境設定も規則と同じく「置き換えるか取り込まないか」の2択で、既定は無視。
+    /// ほかは ImportPolicies の既定(マージ)のまま。
+    private static var defaultPolicies: LibraryImportExportService.ImportPolicies {
+        LibraryImportExportService.ImportPolicies(
+            favorites: FavoritesFeature.isEnabled ? .merge : .ignore,
+            metadataRules: .ignore,
+            settings: .ignore
+        )
+    }
+
+    /// 結果の欄に出すもの。**読み込んだ時点の**ファイルと方針を控える(2026-10-04 の監査 TW-9)。以前は結果の各行を「いまのピッカー」と
+    /// 「いまのファイル」で出し分けていたので、読み込んだ後で方針を変える・別のファイルを選ぶと、結果の欄が実際にしたことと違う
+    /// ことを言った(「無視」に変えた行が消える、取り込んでいないファイルのカテゴリの行が出る)。
+    private struct ImportOutcome {
+        let summary: LibraryImportExportService.ImportSummary
+        let file: QooLibraryExportFile
+        let policies: LibraryImportExportService.ImportPolicies
+    }
 
     /// ファイルに含まれているカテゴリかどうか(ユーザー要望: 方針ピッカーは、ファイルを
     /// 選ぶ前も含めて常に表示し続け、対象カテゴリが無い/ファイル未選択の間だけ無効化する
     /// ことで、選んだ瞬間にピッカーが増減してレイアウトが変わらないようにしたい)。
-    private var hasFavorites: Bool { loadedFile?.favorites != nil }
-    private var hasCollections: Bool { loadedFile?.libraries?.isEmpty == false }
-    private var hasBookmarks: Bool { loadedFile?.bookmarks?.isEmpty == false }
-    private var hasLayouts: Bool { loadedFile?.layouts?.isEmpty == false }
-    private var hasMetadata: Bool { loadedFile?.metadata?.isEmpty == false }
-    /// 規則(新しい形の `metadataRules` か、以前の形の `metadataFormats`)を含むか。
-    private var hasMetadataRules: Bool { loadedFile?.metadataRules != nil || loadedFile?.metadataFormats != nil }
-    private var hasReadingStates: Bool { loadedFile?.readingStates?.isEmpty == false }
-    private var hasSmartLibrary: Bool { loadedFile?.smartLibrary != nil }
-    private var hasFileBrowser: Bool { loadedFile?.fileBrowser != nil }
-    private var hasSettings: Bool {
-        loadedFile?.settings?.values.isEmpty == false || loadedFile?.secretFolders?.isEmpty == false
+    private var categories: FileCategories { FileCategories(loadedFile) }
+
+    /// ファイルが持っているカテゴリ。ピッカーの淡色は選んでいるファイルで、結果の欄は読み込んだときのファイル(`ImportOutcome.file`)で決める。
+    private struct FileCategories {
+        let hasFavorites: Bool
+        let hasCollections: Bool
+        let hasBookmarks: Bool
+        let hasLayouts: Bool
+        let hasMetadata: Bool
+        /// 規則(新しい形の `metadataRules` か、以前の形の `metadataFormats`)を含むか。
+        let hasMetadataRules: Bool
+        let hasReadingStates: Bool
+        let hasSmartLibrary: Bool
+        let hasFileBrowser: Bool
+        let hasSettings: Bool
+
+        init(_ file: QooLibraryExportFile?) {
+            hasFavorites = file?.favorites != nil
+            hasCollections = file?.libraries?.isEmpty == false
+            hasBookmarks = file?.bookmarks?.isEmpty == false
+            hasLayouts = file?.layouts?.isEmpty == false
+            hasMetadata = file?.metadata?.isEmpty == false
+            hasMetadataRules = file?.metadataRules != nil || file?.metadataFormats != nil
+            hasReadingStates = file?.readingStates?.isEmpty == false
+            hasSmartLibrary = file?.smartLibrary != nil
+            hasFileBrowser = file?.fileBrowser != nil
+            hasSettings = file?.settings?.values.isEmpty == false || file?.secretFolders?.isEmpty == false
+        }
     }
 
     // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
@@ -107,6 +136,8 @@ struct LibraryImportWindow: View {
                     Button(loadedFile == nil ? "Choose File…" : "Choose a Different File…") {
                         chooseFileButtonTapped()
                     }
+                    // 読み込みの途中でファイルを替えると、結果の欄が読み込んでいないファイルのものに見える(TW-9)。
+                    .disabled(isImporting)
                 }
 
                 // ユーザー要望: お気に入り/ブックマーク/ページレイアウトの取り込み方針は、
@@ -114,55 +145,55 @@ struct LibraryImportWindow: View {
                 // 触れないようグレーアウトするだけにしたい。
                 Section {
                     if FavoritesFeature.isEnabled {
-                        policyPicker("Favorites", selection: $favoritesPolicy)
-                            .disabled(!hasFavorites)
+                        policyPicker("Favorites", selection: $policies.favorites)
+                            .disabled(!categories.hasFavorites || isImporting)
                     }
-                    policyPicker("Collections", selection: $collectionsPolicy)
-                        .disabled(!hasCollections)
-                    policyPicker("Bookmarks", selection: $bookmarksPolicy)
-                        .disabled(!hasBookmarks)
+                    policyPicker("Collections", selection: $policies.collections)
+                        .disabled(!categories.hasCollections || isImporting)
+                    policyPicker("Bookmarks", selection: $policies.bookmarks)
+                        .disabled(!categories.hasBookmarks || isImporting)
                     // ユーザー要望: 「ページレイアウトの設定」から「の設定」を省き、
                     // お気に入り・ブックマークの見出しと同じ体裁の「ページレイアウト」にしたい。
-                    policyPicker("Page Layout", selection: $layoutsPolicy)
-                        .disabled(!hasLayouts)
-                    policyPicker("Metadata", selection: $metadataPolicy)
-                        .disabled(!hasMetadata)
+                    policyPicker("Page Layout", selection: $policies.layouts)
+                        .disabled(!categories.hasLayouts || isImporting)
+                    policyPicker("Metadata", selection: $policies.metadata)
+                        .disabled(!categories.hasMetadata || isImporting)
                     // フォーマット定義は本ごとのデータではなくアプリ全体の設定のため、
                     // 「マージ」を選べるようにしても意味のある結果にならない。
                     // 置き換えるか取り込まないかの2択だけを出す。
-                    Picker("Metadata Rules", selection: $metadataRulesPolicy) {
+                    Picker("Metadata Rules", selection: $policies.metadataRules) {
                         Text(LibraryImportExportService.ImportPolicy.overwrite.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.overwrite)
                         Text(LibraryImportExportService.ImportPolicy.ignore.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.ignore)
                     }
                     .pickerStyle(.segmented)
-                    .disabled(!hasMetadataRules)
+                    .disabled(!categories.hasMetadataRules || isImporting)
                     // 2026-09-23 に足したカテゴリ。
-                    policyPicker("Reading Positions", selection: $readingStatesPolicy)
-                        .disabled(!hasReadingStates)
-                    policyPicker("Smart Library", selection: $smartLibraryPolicy)
-                        .disabled(!hasSmartLibrary)
-                    policyPicker("File Browser", selection: $fileBrowserPolicy)
-                        .disabled(!hasFileBrowser)
+                    policyPicker("Reading Positions", selection: $policies.readingStates)
+                        .disabled(!categories.hasReadingStates || isImporting)
+                    policyPicker("Smart Library", selection: $policies.smartLibrary)
+                        .disabled(!categories.hasSmartLibrary || isImporting)
+                    policyPicker("File Browser", selection: $policies.fileBrowser)
+                        .disabled(!categories.hasFileBrowser || isImporting)
                     // 環境設定もアプリ全体の設定なので、規則と同じく2択(ImportPolicies.settings)。
-                    Picker("Settings", selection: $settingsPolicy) {
+                    Picker("Settings", selection: $policies.settings) {
                         Text(LibraryImportExportService.ImportPolicy.overwrite.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.overwrite)
                         Text(LibraryImportExportService.ImportPolicy.ignore.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.ignore)
                     }
                     .pickerStyle(.segmented)
-                    .disabled(!hasSettings)
+                    .disabled(!categories.hasSettings || isImporting)
                 } footer: {
                     Text("Overwrite replaces existing data for the books mentioned in the file. Merge only adds what's missing, without changing anything that already exists. Ignore skips that category entirely.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                if let summary {
+                if let outcome {
                     Section("Result") {
-                        importSummaryView(summary)
+                        importSummaryView(outcome)
                     }
                 }
             }
@@ -187,11 +218,38 @@ struct LibraryImportWindow: View {
             bottomSection
         }
         .frame(minWidth: 460, idealWidth: 460, maxWidth: 540)
-        .onAppear {
+        // 出た・閉じた(補助ウインドウの共通の決まり。View.auxiliaryWindowPresence のコメント)。
+        .auxiliaryWindowPresence { handlePresence($0) }
+    }
+
+    /// 出たら(最初に開いたときと、まっさらに戻した後に開き直したとき)ファイル選択のパネルを出す。閉じたら、読み込んだファイル・
+    /// 方針・結果・パネルの番人を捨てる(2026-10-04 の監査 TW-8)。
+    ///
+    /// この窓は `Window` シーンで、閉じても `@State` が残る。以前は開き直すと、前回のファイル名・結果・方針(「上書き」を含む)が
+    /// そのまま出て、パネルも出なかった ―― 別のバックアップを読み込むつもりで開いて「保存データを読み込む」を押すと、メモリに
+    /// 持っている前回のファイルの中身で、前回の方針のまま今のデータを書き換えた。
+    /// 読み込みの途中で閉じたときは(閉じても処理は続く)、終わるまで消さず、次に開いたときに捨てる。
+    private func handlePresence(_ presented: Bool) {
+        if presented {
+            if resetsWhenIdle, !isImporting { resetForNextOpen() }
+            resetsWhenIdle = false
             guard !hasPromptedForFile else { return }
             hasPromptedForFile = true
             chooseFileButtonTapped()
+        } else if isImporting {
+            resetsWhenIdle = true
+        } else {
+            resetForNextOpen()
         }
+    }
+
+    private func resetForNextOpen() {
+        loadedFile = nil
+        sourceFileName = nil
+        policies = Self.defaultPolicies
+        outcome = nil
+        loadErrorMessage = nil
+        hasPromptedForFile = false
     }
 
     /// ユーザー要望: 「ライブラリデータをインポート」ボタンは、ファイルを選ぶ前も
@@ -233,8 +291,11 @@ struct LibraryImportWindow: View {
     }
 
     @ViewBuilder
-    private func metadataSummaryRows(_ summary: LibraryImportExportService.ImportSummary) -> some View {
-        if hasMetadata, metadataPolicy != .ignore {
+    private func metadataSummaryRows(_ outcome: ImportOutcome) -> some View {
+        let summary = outcome.summary
+        let categories = FileCategories(outcome.file)
+        let policies = outcome.policies
+        if categories.hasMetadata, policies.metadata != .ignore {
             Text(
                 String(
                     format: String(localized: "Metadata: %d book(s) imported.", language: preferences.effectiveLocale),
@@ -257,8 +318,11 @@ struct LibraryImportWindow: View {
     }
 
     @ViewBuilder
-    private func importSummaryView(_ summary: LibraryImportExportService.ImportSummary) -> some View {
-        if loadedFile?.favorites != nil, favoritesPolicy != .ignore {
+    private func importSummaryView(_ outcome: ImportOutcome) -> some View {
+        let summary = outcome.summary
+        let categories = FileCategories(outcome.file)
+        let policies = outcome.policies
+        if categories.hasFavorites, policies.favorites != .ignore {
             Text(
                 String(
                     format: String(localized: "Favorites: %d folder(s), %d book(s) imported.", language: preferences.effectiveLocale),
@@ -277,7 +341,7 @@ struct LibraryImportWindow: View {
                 .foregroundStyle(.orange)
             }
         }
-        if hasCollections, collectionsPolicy != .ignore {
+        if categories.hasCollections, policies.collections != .ignore {
             Text(
                 String(
                     format: String(localized: "Collections: %d library(ies), %d collection(s), %d book(s) imported.", language: preferences.effectiveLocale),
@@ -297,7 +361,7 @@ struct LibraryImportWindow: View {
                 .foregroundStyle(.orange)
             }
         }
-        if loadedFile?.bookmarks?.isEmpty == false, bookmarksPolicy != .ignore {
+        if categories.hasBookmarks, policies.bookmarks != .ignore {
             Text(
                 String(
                     format: String(localized: "Bookmarks: %d bookmark(s) across %d book(s) imported.", language: preferences.effectiveLocale),
@@ -316,7 +380,7 @@ struct LibraryImportWindow: View {
                 .foregroundStyle(.orange)
             }
         }
-        if loadedFile?.layouts?.isEmpty == false, layoutsPolicy != .ignore {
+        if categories.hasLayouts, policies.layouts != .ignore {
             Text(
                 String(
                     format: String(localized: "Page Layout Settings: %d book(s) imported.", language: preferences.effectiveLocale),
@@ -337,26 +401,29 @@ struct LibraryImportWindow: View {
         }
         // メタデータ関連の行は、ViewBuilderが1つのビュー本体で扱える子の数の上限
         // (10個)を超えないよう、別のメソッドへ切り出してある。
-        metadataSummaryRows(summary)
-        backupSummaryRows(summary)
+        metadataSummaryRows(outcome)
+        backupSummaryRows(outcome)
     }
 
     /// 2026-09-23 に足したカテゴリの結果(同じく子の数の上限のため別のメソッド)。
     @ViewBuilder
-    private func backupSummaryRows(_ summary: LibraryImportExportService.ImportSummary) -> some View {
+    private func backupSummaryRows(_ outcome: ImportOutcome) -> some View {
+        let summary = outcome.summary
+        let categories = FileCategories(outcome.file)
+        let policies = outcome.policies
         let locale = preferences.effectiveLocale
-        if hasReadingStates, readingStatesPolicy != .ignore {
+        if categories.hasReadingStates, policies.readingStates != .ignore {
             Text(String(format: String(localized: "Reading Positions: %d book(s) imported.", language: locale),
                         summary.readingStatesImportedBooks))
                 .font(.caption)
         }
-        if hasSmartLibrary, smartLibraryPolicy != .ignore {
+        if categories.hasSmartLibrary, policies.smartLibrary != .ignore {
             Text(String(format: String(localized: "Smart Library: %d smart collection(s), %d target folder(s) imported.",
                                        language: locale),
                         summary.smartLibraryImportedShelves, summary.smartLibraryImportedFolders))
                 .font(.caption)
         }
-        if hasFileBrowser, fileBrowserPolicy != .ignore {
+        if categories.hasFileBrowser, policies.fileBrowser != .ignore {
             Text(String(format: String(localized: "File Browser: %d favorite location(s), %d auto rename rule(s) imported.",
                                        language: locale),
                         summary.fileBrowserImportedLocations, summary.fileBrowserImportedAutoRenameRules))
@@ -369,7 +436,7 @@ struct LibraryImportWindow: View {
                     .foregroundStyle(.secondary)
             }
         }
-        if hasSettings, settingsPolicy != .ignore {
+        if categories.hasSettings, policies.settings != .ignore {
             Text(String(format: String(localized: "Settings: %d setting(s) imported.", language: locale),
                         summary.importedSettingsCount))
                 .font(.caption)
@@ -397,16 +464,21 @@ struct LibraryImportWindow: View {
             panel.directoryURL = lastFolder
         }
         WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+            guard response == .OK, let url = panel.url, !isImporting else { return }
             LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
 
             do {
                 let file = try LibraryImportExportService.read(from: url)
                 loadedFile = file
                 sourceFileName = url.lastPathComponent
-                summary = nil
+                outcome = nil
                 loadErrorMessage = nil
             } catch {
+                // 読めなかったら前のファイルも手放す(2026-10-04 の監査 TW-9)。以前は前のファイルを持ったままで、エラーの下で
+                // 「保存データを読み込む」が押せ、押すと前のファイルが読み込まれた。
+                loadedFile = nil
+                sourceFileName = nil
+                outcome = nil
                 loadErrorMessage = String(
                     format: String(localized: "This file couldn't be read: %@", language: locale),
                     error.localizedDescription
@@ -420,19 +492,14 @@ struct LibraryImportWindow: View {
         isImporting = true
         // ⌘Q の確認のために数える(RunningWorkRegistry。途中で切れると保存データが半分だけ書き換わる)。
         let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
+        // 押した時点の方針を控える(結果の欄はこれで描く。ImportOutcome のコメント)。
+        let appliedPolicies = policies
         Task {
             defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
-            let policies = LibraryImportExportService.ImportPolicies(
-                favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
-                metadata: metadataPolicy, metadataRules: metadataRulesPolicy,
-                collections: collectionsPolicy, readingStates: readingStatesPolicy,
-                smartLibrary: smartLibraryPolicy, fileBrowser: fileBrowserPolicy,
-                settings: settingsPolicy
-            )
             // シーンが `.modelContext` を注入し忘れると、既定の空のコンテキストへ書いて何も残らない(高 2)。
             assert(modelContext.container === QooViewerApp.modelContainer, "libraryImport のシーンに .modelContext が無い")
-            summary = await LibraryImportExportService.apply(
-                loadedFile, policies: policies,
+            let summary = await LibraryImportExportService.apply(
+                loadedFile, policies: appliedPolicies,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 metadataStore: metadataStore, metadataRulesStore: metadataRulesStore,
                 collectionStore: collectionStore,
@@ -442,6 +509,7 @@ struct LibraryImportWindow: View {
                     preferences: preferences, keyBindings: keyBindingStore, secretFolders: secretFolderStore
                 )
             )
+            outcome = ImportOutcome(summary: summary, file: loadedFile, policies: appliedPolicies)
             // 取り込んだ本のカバーはpendingのまま置いてある(applyCollections参照)。
             // ここで待ち行列へ入れておくと、ウェルカム画面を開いた時点で埋まり始める。
             collectionCoverExtractor.refill()

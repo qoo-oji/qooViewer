@@ -1981,6 +1981,22 @@
         }
       }
     },
+    "%lld weren't imported because their books have moved since the zip was loaded. Choose the zip again to match them anew." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld weren't imported because their books have moved since the zip was loaded. Choose the zip again to match them anew."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件は、zipを読み込んだ後で本が移動したため読み込みませんでした。zipを選び直すと、今の本と照合し直します。"
+          }
+        }
+      }
+    },
     "%lld will be imported" : {
       "localizations" : {
         "en" : {
@@ -10398,19 +10414,19 @@
         }
       }
     },
-    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone." : {
+    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone."
+            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入りは残ります。\nこの操作は取り消せません。"
+            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入り・コレクション・コレクションの表紙は残ります。\nこの操作は取り消せません。"
           }
         }
       }
@@ -29911,6 +29927,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "規則は語を自分で持たず、ここの一覧を指しています。1 つの一覧を複数の規則が使うことがあり、足した語は使っている所すべてで効きます。"
+          }
+        }
+      }
+    },
+    "The rules or their folders changed while this list was open, so it was made again. Check the changes, then rename." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The rules or their folders changed while this list was open, so it was made again. Check the changes, then rename."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この一覧を開いている間に規則か対象フォルダが変わったため、一覧を作り直しました。変更を確かめてから名前を変更してください。"
           }
         }
       }
