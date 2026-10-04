@@ -91,6 +91,15 @@ nonisolated struct FileOperationOptions: Sendable {
     /// `itemReplacedSinceOperation` の失敗にする。取り消しが「自分が運んだそのもの」だけを戻すため(2026-09-15 の 4 回目の監査。
     /// 取り消しは元のフォルダごとにまとめて運ぶので、始める前の 1 回の確認では、長い取り消しの間に置き換わった項目を運んでいた)。
     var expectedIdentities: [URL: FileIdentity]
+    /// 「置き換える」で退避してはいけない場所(ビューアで開いている本のパス。`MangaBook.pathsInUse`)。宛先にある同じ名前の項目が
+    /// このどれかそのもの・その祖先・その中なら、**置き換えずにその項目だけを飛ばし、失敗として返す**(残りは続ける)。
+    ///
+    /// 2026-10-04 の監査 FBA-1・決定 17(a)。以前は開いている本の照合が運ぶ元(`FileBrowserOperations.refusesBecauseOpenInViewer`)
+    /// だけで、宛先で置き換えられる側は見ていなかったので、開いている本が退避のうえゴミ箱(ゴミ箱の無い場所では完全削除)へ送られた。
+    /// 衝突の確認(`conflictResolver`)で照合するだけでは塞がらない ―― 「すべてに適用」で決まった 2 件目以降と、やり直し(実行時の
+    /// Options をそのまま使う)は確認を通らない。だからエンジンが**答えの後・退避の直前に**毎回問い合わせる(その間に別のウインドウで
+    /// 開かれた本も当たる)。nil なら照合しない(テスト・取り消しの `.keepBoth` は置き換えない)。
+    var protectedFromReplacing: (@MainActor @Sendable () -> [String])?
 
     init(
         conflictPolicy: ConflictPolicy = .ask,
@@ -98,7 +107,8 @@ nonisolated struct FileOperationOptions: Sendable {
         progress: ProgressSink? = nil,
         cancellation: Cancellation = Cancellation(),
         unlockingLocked: Bool = false,
-        expectedIdentities: [URL: FileIdentity] = [:]
+        expectedIdentities: [URL: FileIdentity] = [:],
+        protectedFromReplacing: (@MainActor @Sendable () -> [String])? = nil
     ) {
         self.conflictPolicy = conflictPolicy
         self.conflictResolver = conflictResolver
@@ -106,6 +116,7 @@ nonisolated struct FileOperationOptions: Sendable {
         self.cancellation = cancellation
         self.unlockingLocked = unlockingLocked
         self.expectedIdentities = expectedIdentities
+        self.protectedFromReplacing = protectedFromReplacing
     }
 }
 
@@ -199,7 +210,8 @@ nonisolated struct FailedItem: Sendable, Equatable {
 /// ここに残る(捨てると、動いたファイルを Undo で戻す手段が無くなる。qooLibrary で監査により発見)。
 nonisolated struct TransferOutcome: Sendable, Equatable {
     var receipts: [TransferReceipt] = []
-    /// 止まった原因の項目。今は最初の失敗で止まるので 0 件か 1 件。
+    /// 止まった原因の項目(最初の失敗で止まるので多くて 1 件)と、**止めずに飛ばした項目**(置き換える相手がビューアで開いている本 ――
+    /// `FileOperationOptions.protectedFromReplacing`。2026-10-04 の監査 FBA-1)。
     var failures: [FailedItem] = []
     /// 衝突で `.skip` を選んだ項目。
     var skipped: [URL] = []
@@ -305,6 +317,15 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case volumeCannotBeMoved(URL)
     /// ボリュームそのもの、またはボリュームがマウントされているフォルダを完全に削除しようとした(2026-09-23 の 3 回目の監査の高 1)。
     case volumeCannotBeDeleted(URL)
+    /// 「置き換える」の相手がビューアで開いている本(またはそれを含む・その中にある)なので、置き換えずに飛ばした
+    /// (`FileOperationOptions.protectedFromReplacing`。2026-10-04 の監査 FBA-1)。投げずに `TransferOutcome.failures` の理由の文として使う。
+    case replacingOpenBook(URL)
+    /// 親フォルダ(または中のフォルダ)を変える許可が無いので、**何も消さずに**断った(完全削除・ゴミ箱。2026-10-04 の監査 FBA-11:
+    /// 以前は中身を消し進めてから、最後に親から外すところで失敗していた)。`folder` は許可の無いフォルダ。
+    case removalNotPermitted(item: URL, folder: URL)
+    /// macOS が要るフォルダ(ホームとその標準のフォルダ・/Users など。`FileOperationService.isProtectedLocation`)なので、移動・名前の変更・
+    /// 削除を断った(2026-10-04 の監査 FBA-11。ツリーの根の行と揃える)。
+    case protectedLocation(URL)
     /// 圧縮で、同じ名前(大文字小文字を区別しない)の項目が 2 つ最上位に並んだ(エイリアスの先の実体と同じ名前の項目。
     /// `ZipCompressor.collect`、2026-09-29 の監査)。何も書いていない。
     case duplicateArchiveEntryName(name: String, item: URL)
@@ -373,6 +394,18 @@ extension FileOperationError: LocalizedError {
         case let .volumeCannotBeDeleted(url):
             return String(
                 format: String(localized: "“%@” is a volume or contains one, so it can’t be deleted.", language: locale), url.lastPathComponent
+            )
+        case let .replacingOpenBook(url):
+            return String(format: String(localized: "“%@” is open in qooViewer, so it wasn’t replaced.", language: locale), url.lastPathComponent)
+        case let .removalNotPermitted(item, folder):
+            return String(
+                format: String(localized: "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted.", language: locale),
+                folder.lastPathComponent, item.lastPathComponent
+            )
+        case let .protectedLocation(url):
+            return String(
+                format: String(localized: "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted.", language: locale),
+                url.lastPathComponent
             )
         case let .duplicateArchiveEntryName(name, _):
             return String(

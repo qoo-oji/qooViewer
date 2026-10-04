@@ -1117,11 +1117,15 @@ private struct BookContentsSectionView: View {
 
     private func row(for entry: BookInternalBrowsing.Entry) -> some View {
         let isHighlighted = state.highlightedMatchKeys.contains(entry.matchKey)
+        // 除外したページの行は文字を淡く描く(押しても行き先が無い ―― 鳴らすだけ。2026-10-04 の監査 SP-4)。輪郭(下の panelOutlinedContent)は
+        // 文字の色によらず掛かるので、パネルの色と同じでも消えない。
+        let isExcluded = state.isExcludedPage(entry, bookPages: bookPages)
         let label = HStack(spacing: 8) {
             Image(systemName: icon(for: entry))
                 .frame(width: 16)
                 .foregroundStyle(.secondary)
             Text(entry.displayName)
+                .foregroundStyle(isExcluded ? HierarchicalShapeStyle.secondary : HierarchicalShapeStyle.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
@@ -1231,7 +1235,13 @@ private struct BookContentsSectionView: View {
         case .jumpToPage(let index):
             onJumpToPage(index)
         case .openAsNewBook(let url):
+            // 入れ子の書庫を書き出した一時コピーなら、寿命は開く側(AppState)へ移す。この状態は本が替わった直後に解放されるので、
+            // 持ったままだと開いたばかりの本のファイルを消す(2026-10-04 の監査 SP-4、実測: ページが真っ黒になった)。
+            state.handOffTemporaryFile(url)
             onOpen(url)
+        case .excludedPage:
+            // 除外したページには行き先が無い(どの階層でも同じ。BookContentsBrowserState.resolveImageClick のコメント)。
+            NSSound.beep()
         case .unavailable:
             break
         }

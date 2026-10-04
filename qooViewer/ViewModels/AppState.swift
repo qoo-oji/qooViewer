@@ -1017,9 +1017,55 @@ final class AppState: ObservableObject {
     /// ならない(素のfile URLでは常にfalseになるため、通常この配列は空のままになる)。
     private var securityScopedBookURLs: [URL] = []
 
+    /// **このウインドウが引き受けた一時コピーの本**(入れ子の書庫を一時フォルダへ書き出したもの。`MangaBook.isTemporaryCopy`)のパス。
+    ///
+    /// 2026-10-04 の監査 SP-4(実測): 本の中身ブラウザの「新しい本として開く」で書き出した一時コピーは、書き出したブラウザの状態(古い本の
+    /// もの)が持っていたので、新しい本が開いた直後にその状態が解放されて消え、開いたばかりの本のページが真っ黒になった。寿命は**その本を
+    /// 表示している側**が持つ: 開く要求に一時コピーが入っていれば引き受け(`adoptTemporaryCopies`)、表示中の本・直前の本(「直前の本へ戻る」
+    /// の行き先)・読み込み中の本のどれでもなくなったら消す(`releaseUnusedTemporaryCopies`)。ウインドウを閉じたら残りも消す(deinit)。
+    /// どれも消し損ねても、一時フォルダはアプリの終了時(と次の起動)に片付く(`TemporaryFileStore`)。
+    private var ownedTemporaryCopies: Set<String> = []
+    /// 読み込み中の要求に入っている一時コピー(まだ表示中の本ではないが、消してはいけない)。
+    private var openingTemporaryCopies: Set<String> = []
+
     deinit {
         securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+        Self.removeTemporaryCopies(ownedTemporaryCopies)
     }
+
+    /// 開く要求に入っている一時コピーを引き受け、読み込み中として控える(`ownedTemporaryCopies` のコメント)。前の要求の分は控えから外れる。
+    private func adoptTemporaryCopies(of request: BookOpenRequest) {
+        let copies = Set(request.urls.filter(MangaBook.isTemporaryCopy).map { MountTable.normalized($0.path) })
+        openingTemporaryCopies = copies
+        ownedTemporaryCopies.formUnion(copies)
+        releaseUnusedTemporaryCopies()
+    }
+
+    /// 引き受けた一時コピーのうち、表示中の本・直前の本・読み込み中の本のどれでもないものを消す。
+    private func releaseUnusedTemporaryCopies() {
+        guard !ownedTemporaryCopies.isEmpty else { return }
+        var inUse = openingTemporaryCopies
+        for url in [currentBook?.sourceURL, lastOpenedBook?.sourceURL].compactMap(\.self) {
+            inUse.insert(MountTable.normalized(url.path))
+        }
+        let unused = ownedTemporaryCopies.subtracting(inUse)
+        guard !unused.isEmpty else { return }
+        ownedTemporaryCopies.subtract(unused)
+        Self.removeTemporaryCopies(unused)
+    }
+
+    /// 一時コピーを消す(FileIO の上で。待たない)。
+    private nonisolated static func removeTemporaryCopies(_ paths: Set<String>) {
+        guard !paths.isEmpty else { return }
+        Task {
+            await FileIO.perform(qos: .utility) {
+                for path in paths { try? FileManager.default.removeItem(atPath: path) }
+            }
+        }
+    }
+
+    /// 引き受けている一時コピー(テストのための口)。
+    var temporaryCopyPathsForTesting: Set<String> { ownedTemporaryCopies }
 
     /// NSOpenPanelでフォルダ、またはzip/rar/7z/pdfファイルを選ばせる
     func openWithPanel() {
@@ -1190,6 +1236,8 @@ final class AppState: ObservableObject {
             return
         }
         openTask?.cancel()
+        // 一時コピーの本(本の中身ブラウザの「新しい本として開く」)なら、このウインドウが寿命を引き受ける(ownedTemporaryCopies のコメント)。
+        adoptTemporaryCopies(of: request)
         // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
         // (2026-09-23 の 3 回目の監査の低: 以前はセキュリティスコープ・一覧の並び・着地指定を新しい本のものへ替えた後でやめるので、
         // 表示中の本のスコープが閉じ、「次の本」も今の本の一覧をたどれなくなった)。
@@ -1363,7 +1411,13 @@ final class AppState: ObservableObject {
                     // 止まりうる)。記録の残らない本では使わないので求めない。
                     // 上(反映の前)でメインの外で求めた値(2026-09-27)。ここではボリュームへ問い合わせない。
                     let identifier = skipsPersistence ? nil : probedLocation?.identifier
-                    if !skipsPersistence {
+                    // **ゴミ箱の中の本では、付け替え・ページの鍵の修理・識別子の補完をしない**(2026-10-04 の監査 O-11)。ブックマークも iノードも
+                    // ゴミ箱へ送った本に付いていくので、Finder・ドロップ・編集ウインドウからゴミ箱の中の本を開くと、5 つのストアと読書位置が
+                    // ゴミ箱の中のパスへ移っていた ―― 元へ戻しても次に開くまで付いてこず、ゴミ箱を空にすると取り残された。外での移動の追従
+                    // (ExternalMoveSweeper・メタデータの編集の relocateMovedBooks)がゴミ箱を飛ばすのと同じ決まり(BookLocationResolver.isInTrash)。
+                    // 開くこと自体は止めない(利用者がゴミ箱の中を名指しした)。読書位置・履歴などの記録は、ほかの本と同じくそのパスで残る。
+                    let isInTrash = BookLocationResolver.isInTrash(book.sourceURL)
+                    if !skipsPersistence, !isInTrash {
                         var movedFrom: [String?] = []
                         movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         movedFrom.append(self.layoutStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
@@ -1431,7 +1485,7 @@ final class AppState: ObservableObject {
                     // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
                     // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
                     // 本の実ファイルへ到達するために必要)。
-                    if !skipsPersistence {
+                    if !skipsPersistence, !isInTrash {
                         self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL,
                                                                 knownIdentifier: identifier)
                     }
@@ -1440,6 +1494,9 @@ final class AppState: ObservableObject {
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
                     self.lastOpenedBook = LastOpenedBook(request: request, sourceURL: book.sourceURL, title: book.title)
                     self.lastBookAvailability = .available
+                    // 読み込みが済んだ。前の本が一時コピーだったなら、表示中でも直前の本でもなくなったので消える。
+                    self.openingTemporaryCopies = []
+                    self.releaseUnusedTemporaryCopies()
                     // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
                     if self.pendingInitialPage?.bookID != book.id {
                         self.pendingInitialPage = nil
@@ -1483,6 +1540,9 @@ final class AppState: ObservableObject {
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
                     self.pendingStartsSlideshow = false
+                    // 開けなかった一時コピーは、直前の本でなければもう要らない。
+                    self.openingTemporaryCopies = []
+                    self.releaseUnusedTemporaryCopies()
                     self.errorMessage = (error as? LocalizedError)?.errorDescription
                         ?? String(localized: "The book could not be opened.", language: locale)
                 }
@@ -1501,6 +1561,8 @@ final class AppState: ObservableObject {
         openTask = nil
         openToken = UUID()
         loadingProgress = nil
+        openingTemporaryCopies = []
+        releaseUnusedTemporaryCopies()
     }
 
     /// 「次の本へ」「前の本へ」および「同じフォルダのファイルを開く」が使う並び順。

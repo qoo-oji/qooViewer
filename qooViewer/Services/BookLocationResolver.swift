@@ -120,6 +120,14 @@ nonisolated enum BookLocationResolver {
         url.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
     }
 
+    /// 本を開く入口の解決の結果から、ゴミ箱の中まで追った場所を外す(nil = 見つからない)。保存データの行のブックマークはゴミ箱へ送った本にも
+    /// 付いていくので、編集ウインドウ(ブックマーク・レイアウト / メタデータ)の「開く」だけがゴミ箱の中の本を開き、開いたときの付け替えで
+    /// 保存データがゴミ箱の中のパスへ移っていた(2026-10-04 の監査 O-11)。棚・履歴・前回の本と同じく「無い」にそろえる。
+    static func outsideTrash(_ url: URL?) -> URL? {
+        guard let url, !isInTrash(url) else { return nil }
+        return url
+    }
+
     /// `.withSecurityScope`付きの解決が失敗した理由が「そのファイルはもう無い」かどうか。
     ///
     /// ■ なぜ解き直すのか(実測 2026-09-10。アプリ本体の中=サンドボックス下で測った)

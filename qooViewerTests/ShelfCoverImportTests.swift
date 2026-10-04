@@ -321,6 +321,47 @@ struct ShelfCoverImportTests {
         #expect(viewModel.rows.isEmpty)
     }
 
+    /// シークレットフォルダの一覧の箱(閉包が捕まえた後で中身を差し替える)。
+    @MainActor
+    private final class SecretFolders {
+        var folders: [String]
+        init(_ folders: [String]) { self.folders = folders }
+    }
+
+    @Test("シークレットフォルダの本は候補に出さず、読み込んだ後でシークレットにした本にも表紙を書かない(2026-10-04 の監査 TW-13)")
+    func secretFolderBooksGetNoCover() async throws {
+        let library = try InMemoryLibrary(label: "cover-import-secret")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-import-secret")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-import-secret")
+        _ = library.metadata.upsert(bookID: "/架空/秘密/第1巻.cbz", author: "", title: "第1巻", series: "", seriesIndex: "")
+        _ = library.metadata.upsert(bookID: "/架空/棚/第2巻.cbz", author: "", title: "第2巻", series: "", seriesIndex: "")
+
+        var builder = ZipFixtureBuilder()
+        builder.add("第1巻.jpg", PageImageFactory.jpeg(number: 1))
+        builder.add("第2巻.jpg", PageImageFactory.jpeg(number: 2))
+        let zipURL = temporary.file("secret.zip")
+        try builder.write(to: zipURL)
+
+        // 一覧はテストが持つ(アプリの一覧 ―― 共有の状態 ―― には触れない)。
+        let secret = SecretFolders(["/架空/秘密"])
+        let viewModel = ShelfCoverImportViewModel(
+            sources: library.knownBookSources, preferences: suite.makePreferences(),
+            secretFolders: { SecretFolderStore.Matcher(secret.folders) }
+        )
+        await viewModel.load(zipAt: zipURL)
+        #expect(viewModel.rows.first { $0.entryName == "第1巻.jpg" }?.candidates.isEmpty == true)
+        #expect(viewModel.rows.first { $0.entryName == "第2巻.jpg" }?.selectedBookID == "/架空/棚/第2巻.cbz")
+
+        // 読み込んだ後でシークレットにした。
+        secret.folders.append("/架空/棚")
+        await viewModel.apply()
+        #expect(library.layouts.shelfCoverImageFileName(forBookID: "/架空/棚/第2巻.cbz") == nil)
+        #expect(library.layouts.bookLayoutSettings(forBookID: "/架空/秘密/第1巻.cbz") == nil)
+        #expect(viewModel.didSucceed == false)
+    }
+
     @Test("表紙の書き出しを閉じて開き直すと、閉じている間に設定した表紙も一覧に入り、既定どおり全部選ばれる(2026-10-04 の監査 TW-10)")
     func reopeningTheExportListsCoversSetWhileClosed() async throws {
         let temporary = try TemporaryDirectory("cover-export-reopen")

@@ -34518,6 +34518,86 @@
           }
         }
       }
+    },
+    "“%@” is open in qooViewer, so it wasn’t replaced." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is open in qooViewer, so it wasn’t replaced."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はqooViewerで開いているため、置き換えませんでした。"
+          }
+        }
+      }
+    },
+    "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を変更するアクセス権がないため、「%2$@」は移動も削除もできません。何も削除していません。"
+          }
+        }
+      }
+    },
+    "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はmacOSが必要とするフォルダなので、移動・名前の変更・削除はできません。"
+          }
+        }
+      }
+    },
+    "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はqooViewerで開いているため、元の名前に戻しませんでした。本を閉じてから、もう一度試してください。"
+          }
+        }
+      }
+    },
+    "%lld weren't imported because their books are in secret folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld weren't imported because their books are in secret folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件は、シークレットフォルダの本なので読み込みませんでした。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

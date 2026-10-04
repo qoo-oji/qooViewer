@@ -365,6 +365,34 @@ struct AutoRenameServiceTests {
         #expect(harness.exists("shelf/one [tag].zip"))
     }
 
+    /// 2026-10-04 の監査 TW-16。自動の改名は開いている本を飛ばすのに、「元の名前に戻す」だけが開いたまま名前を変えていた。
+    @Test("実行ログから元の名前に戻すとき、ビューアで開いている本は戻さずにそう報告し、ほかの行は戻す")
+    func restoringSkipsOpenBooks() async throws {
+        let harness = try Harness("restore-open")
+        let shelf = try harness.folder("shelf")
+        try harness.file("shelf/one [tag].zip")
+        try harness.file("shelf/two [tag].zip")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        harness.service.start()
+        #expect(await eventually { harness.log.entries.filter(\.isRestorable).count == 2 })
+        let one = try #require(harness.log.entries.first { $0.originalName == "one [tag].zip" })
+        let two = try #require(harness.log.entries.first { $0.originalName == "two [tag].zip" })
+
+        harness.inUse = [shelf.appendingPathComponent("one.zip").path]
+        let problem = await harness.service.restore(entryIDs: [one.id, two.id])
+        #expect(problem != nil)
+        #expect(harness.exists("shelf/one.zip"), "開いている本の名前を戻した")
+        #expect(harness.exists("shelf/two [tag].zip"))
+        #expect(harness.log.entries.first { $0.id == one.id }?.isRestorable == true)
+        #expect(harness.store.excludedPaths == [AutoRename.canonicalPath(shelf.appendingPathComponent("two [tag].zip").path)])
+
+        // 開いているフォルダの本の中の項目も、同じ規則(開いている本との照合)で戻さない。
+        harness.inUse = [shelf.path]
+        #expect(await harness.service.restore(entryIDs: [one.id]) != nil)
+        #expect(harness.exists("shelf/one.zip"))
+    }
+
     /// 2026-09-21 の監査の L4。「元の名前に戻す」も名前の変更なのに、読み取り専用の間でも戻せていた。
     @Test("読み取り専用モードの間は、実行ログから元の名前に戻さず、そう報告する")
     func restoringIsRefusedInReadOnlyMode() async throws {

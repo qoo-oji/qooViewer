@@ -779,6 +779,107 @@ struct FileBrowserOperationsTests {
         #expect(FileManager.default.fileExists(atPath: volume.url.path))
     }
 
+    /// 2026-10-04 の監査 FBA-11(実測: 書き込めない親の中のフォルダは、中身を全部消した後で「削除できませんでした」になった)。
+    @Test("親に書けない項目は淡色で、「すぐに削除…」は確認を出す前に断って何も消さない。書けるようになれば淡色が解ける")
+    func deleteImmediatelyRefusesItemsInAReadOnlyFolder() async throws {
+        let fixture = try Fixture("fbops-delete-readonly")
+        let child = try fixture.temporary.directory("root/sub/child")
+        let inside = child.appendingPathComponent("1.txt")
+        try Data("1".utf8).write(to: inside)
+        fixture.presenter.confirmsDeletion = true
+        chmod(fixture.sub.path, 0o555)
+        defer { chmod(fixture.sub.path, 0o755) }
+        fixture.state.navigate(to: fixture.sub)
+        await fixture.state.settle()
+        let actions = FileBrowserActions()
+        actions.state = fixture.state
+        #expect(!fixture.state.isCurrentFolderWritable)
+        #expect(!actions.canChange([fixture.entry(child)]))
+
+        fixture.state.operations.deleteImmediately([fixture.entry(child)])
+        await fixture.finish()
+        #expect(fixture.presenter.deletionPrompts.isEmpty, "確認を出した")
+        #expect(fixture.presenter.problems.count == 1)
+        #expect(fixture.exists(inside), "中身が消えた")
+
+        chmod(fixture.sub.path, 0o755)
+        fixture.state.reload()
+        await fixture.state.settle()
+        #expect(fixture.state.isCurrentFolderWritable)
+        #expect(actions.canChange([fixture.entry(child)]))
+    }
+
+    @Test("macOS が要るフォルダ(ホームとその標準のフォルダ)は、ツリーの根でなくても淡色(2026-10-04 の監査 FBA-11)")
+    func protectedLocationsAreDimmed() async throws {
+        let fixture = try Fixture("fbops-protected")
+        let actions = FileBrowserActions()
+        actions.state = fixture.state
+        // 判定はパスの文字列だけ(ホームの中には触らない)。
+        let home = FileBrowserListing.realHomeDirectory()
+        #expect(!actions.canChange([fixture.entry(home)]))
+        #expect(!actions.canChange([fixture.entry(home.appendingPathComponent("Documents", isDirectory: true))]))
+        #expect(actions.canChange([fixture.entry(fixture.root.appendingPathComponent("a.txt"))]))
+    }
+
+    // MARK: - 衝突の「置き換える」と開いている本(2026-10-04 の監査 FBA-1・決定 17)
+
+    @MainActor
+    private final class OpenBookPaths {
+        var paths: [String] = []
+    }
+
+    @Test("「置き換える」の相手が開いている本なら、その項目だけ置き換えずに報告し、残りは置き換える ―― 「すべてに適用」の 2 件目も")
+    func replacingAnOpenBookIsSkippedAndReported() async throws {
+        let fixture = try Fixture("fbops-replace-open")
+        let a = fixture.root.appendingPathComponent("a.txt")
+        let b = fixture.root.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: b)
+        let existingA = fixture.other.appendingPathComponent("a.txt")
+        let existingB = fixture.other.appendingPathComponent("b.txt")
+        try Data("old a".utf8).write(to: existingA)
+        try Data("old b".utf8).write(to: existingB)
+        let open = OpenBookPaths()
+        open.paths = [existingB.path]
+        fixture.state.operations.openBookPaths = { open.paths }
+        // 1 件目の確認で「すべてに適用」+「置き換える」。2 件目(開いている本)は確認を通らずに置き換えへ進む道。
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace, applyToRemaining: true)
+
+        fixture.state.operations.transfer([a, b], to: fixture.other, isMove: false)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.count == 1)
+        #expect(try String(contentsOf: existingA, encoding: .utf8) == "a")
+        #expect(try String(contentsOf: existingB, encoding: .utf8) == "old b", "開いている本が置き換わった")
+        #expect(fixture.names(in: fixture.trash) == ["a.txt"])
+        #expect(fixture.names(in: fixture.other) == ["a.txt", "b.txt"], "退避用の隠しフォルダが残っている")
+        #expect(fixture.presenter.problems.count == 1)
+        #expect(fixture.presenter.problems.first?.message.contains(
+            FileOperationError.replacingOpenBook(existingB).localizedDescription
+        ) == true)
+    }
+
+    @Test("やり直しの「置き換える」も、その間に開いた本は置き換えない")
+    func redoDoesNotReplaceAnOpenBook() async throws {
+        let fixture = try Fixture("fbops-replace-open-redo")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let existing = fixture.other.appendingPathComponent("a.txt")
+        try Data("other".utf8).write(to: existing)
+        let open = OpenBookPaths()
+        fixture.state.operations.openBookPaths = { open.paths }
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+        fixture.state.operations.transfer([file], to: fixture.other, isMove: false)
+        await fixture.finish()
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "a")
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "other")
+
+        open.paths = [existing.path]
+        fixture.state.operations.redo()
+        await fixture.finish()
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "other", "やり直しが開いている本を置き換えた")
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
     @Test("確認を出している間に重ねて頼んだ「すぐに削除…」は、先の操作で消えた項目について尋ねない")
     func queuedDeleteSkipsItemsAlreadyGone() async throws {
         let fixture = try Fixture("fbops-delete-now-queued")

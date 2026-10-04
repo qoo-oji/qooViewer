@@ -81,6 +81,11 @@ final class FileBrowserState: ObservableObject {
     private static var selectionRevisionCounter = 0
     @Published private(set) var loadError: FileBrowserLoadError?
     @Published private(set) var isLoading = false
+    /// 表示中のフォルダの中身を変えられるか(`access(W_OK)` と読み取り専用のボリューム。`FileOperationPreflight.checkWritable`)。読み込むたびに
+    /// 一緒に求める(FileIO の上)。**false の間、その中の項目のカット・ゴミ箱・すぐに削除・名前の変更は淡色**(`FileBrowserActions.canChange`。
+    /// 2026-10-04 の監査 FBA-11: 親に書けない項目の「すぐに削除…」が中身を全部消してから失敗していた)。「コンピュータ」「最近の項目」では true
+    /// (項目ごとの親は見ない ―― 断るのは入口とエンジン)。
+    @Published private(set) var isCurrentFolderWritable = true
     /// 一覧に、この項目が見える位置までスクロールしてほしい(上へ移動・戻る・reveal のあと)。
     /// `serial`は同じ項目への2回目の依頼を別物にするため。
     @Published private(set) var scrollRequest: ScrollRequest?
@@ -843,12 +848,18 @@ final class FileBrowserState: ObservableObject {
                 }
             }
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
+            var isWritable = true
             if let recentEntries {
                 let mountTable = MountTable.current()
                 outcome = .success(await FileIO.perform { FileBrowserListing.recentEntries(from: recentEntries, mountTable: mountTable) })
             } else if let folder {
                 do {
-                    outcome = .success(try await FileIO.perform { sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden)) })
+                    let listed = try await FileIO.perform { () -> ([FileBrowserEntry], Bool) in
+                        let entries = sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden))
+                        return (entries, (try? FileOperationPreflight.checkWritable(folder)) != nil)
+                    }
+                    outcome = .success(listed.0)
+                    isWritable = listed.1
                 } catch is CancellationError {
                     return
                 } catch {
@@ -860,6 +871,7 @@ final class FileBrowserState: ObservableObject {
             guard let self, self.generation == mine else { return }
             switch outcome {
             case .success(let list):
+                if self.isCurrentFolderWritable != isWritable { self.isCurrentFolderWritable = isWritable }
                 self.apply(list, sortedWith: sort)
             case .failure(.notFound), .failure(.volumeUnavailable):
                 // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)。空の一覧に

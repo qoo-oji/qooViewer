@@ -54,10 +54,17 @@ final class BookContentsBrowserState: ObservableObject {
         )
     )
 
-    /// 「新しい本として開く」ためだけに書き出した一時ファイル。解決役が持つものとは別で、
-    /// 渡した先(新しく開かれた本)がいつまで使うか分からないため、こちらで寿命を持つ
+    /// 「新しい本として開く」ためだけに書き出した一時ファイルのうち、**まだ開く側へ渡していないもの**。解決役が持つものとは別
     /// (NestedArchiveResolver.materializeToIndependentFileのコメント参照)。
+    ///
+    /// 渡したら(`handOffTemporaryFile`)寿命は開いた側 ―― その本を表示しているウインドウの `AppState`(`AppState.ownedTemporaryCopies`)――
+    /// へ移る(2026-10-04 の監査 SP-4、実測)。以前は渡した後もここで持ち、本が替わった直後にこの状態(古い本のもの)が解放されて消して
+    /// いたので、開いたばかりの一時コピーの本のページが真っ黒になった(新しい本の読み手が書庫を開くのと削除が競争した)。
     private var temporaryFileURLs: [URL] = []
+
+    /// 本のページの鍵(読み込んだときの全ページ。除外したページも入る)。今のページの並び(`bookPages`)に無くここにある画像の行は、
+    /// **除外したページ**(`resolveImageClick` の `.excludedPage`)。
+    private let bookPageKeys: Set<String>
 
     /// 一覧を作っている最中の仕事(`reload`)。
     private var listingTask: Task<Void, Never>?
@@ -166,6 +173,7 @@ final class BookContentsBrowserState: ObservableObject {
     }
 
     private init(book: MangaBook, root: PreparedRoot) {
+        bookPageKeys = Set(book.pages.map(\.sortKey))
         switch root {
         case .imageFiles(let urls):
             currentLevel = .imageFileList(urls)
@@ -611,25 +619,35 @@ final class BookContentsBrowserState: ObservableObject {
     /// 裏の `walk` へも渡すので nonisolated(ただの定数)。
     nonisolated static let maxResolutionDepth = 32
 
-    enum ImageClickResult {
+    enum ImageClickResult: Equatable {
         case jumpToPage(Int)
         case openAsNewBook(URL)
+        /// レイアウトで除外したページ。行き先が無い(呼び出し側は鳴らす)。
+        case excludedPage
         case unavailable
     }
 
+    /// 画像の行が、この本の**除外したページ**か(読み込んだときのページにあって、今の並び `bookPages` に無い)。一覧の行を淡く描く。
+    func isExcludedPage(_ entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> Bool {
+        entry.isImage && bookPageKeys.contains(entry.matchKey) && pageIndex(ofMatchKey: entry.matchKey, in: bookPages) == nil
+    }
+
     /// entryのクリック(画像のみ意味を持つ)を解決する。bookPages(呼び出し元が
-    /// AppState.currentBookPagesを渡す)のsortKeyと一致すれば、そのページへのジャンプを
-    /// 返す。一致しなければ(ネストしたアーカイブの中まで踏み込んで初めて見つかった、
-    /// BookLoaderが元々読み込んでいない画像 — BookLoaderはネストしたアーカイブを一切
-    /// 読み込まないため)、現在の階層の元になったアーカイブ/フォルダ自体を新しい本として
-    /// 開く指示を返す。クリックした画像そのものへ厳密にジャンプすることまではスコープに
-    /// 含めない(AppState.openにページ指定を通す仕組みが無く、影響範囲が大きくなるための
-    /// 意図的な割り切り)。
+    /// AppState.currentBookPagesを渡す)のsortKeyと一致すれば、そのページへのジャンプを返す。
+    ///
+    /// **除外したページなら、どの階層でも `.excludedPage`**(2026-10-04 の監査 SP-4)。以前は同じ「除外ページの行のクリック」が、フォルダの本では
+    /// 何もせず、本そのものの書庫では本を開き直し、入れ子の書庫ではその書庫を一時コピーにして新しい本として開く、と 3 通りに分かれていた。
+    ///
+    /// 本のページでもなければ(入れ子の書庫の中で、入れ子の深さ・大きさの上限で BookLoader が読み込まなかった画像など)、現在の階層の元に
+    /// なったアーカイブ/フォルダ自体を新しい本として開く指示を返す(入れ子なら一時ファイルへ書き出す ―― 渡す側は `handOffTemporaryFile`)。
+    /// クリックした画像そのものへ厳密にジャンプすることまではスコープに含めない(AppState.openにページ指定を通す仕組みが無く、影響範囲が
+    /// 大きくなるための意図的な割り切り)。
     func resolveImageClick(on entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> ImageClickResult {
         guard entry.isImage else { return .unavailable }
         if let index = pageIndex(ofMatchKey: entry.matchKey, in: bookPages) {
             return .jumpToPage(index)
         }
+        if bookPageKeys.contains(entry.matchKey) { return .excludedPage }
         // 一覧を作っている最中は、行と今の階層(currentLocator)が食い違う(navigate のコメント)。
         guard !isListingPending, let locator = currentLocator, let url = materializedURL(for: locator) else {
             return .unavailable
@@ -671,12 +689,18 @@ final class BookContentsBrowserState: ObservableObject {
     /// 入れ子でなければ元のファイルをそのまま返す。入れ子の場合は、解決役が持っている
     /// 一時ファイルを流用せず**独立したコピー**を書き出す ―― 向こうの寿命はLRUの追い出しに
     /// 握られており、受け取った側(新しく開かれた本)がいつまで使うか分からないため。
-    /// こちらで書き出したぶんの削除はこの状態オブジェクトが持つ(temporaryFileURLs)。
+    /// 書き出したぶんは、開く側へ渡すまでこの状態オブジェクトが持つ(temporaryFileURLs)。
     private func materializedURL(for locator: ArchiveLocator) -> URL? {
         guard locator.isNested else { return locator.rootURL }
         guard let url = try? resolver.materializeToIndependentFile(locator) else { return nil }
         temporaryFileURLs.append(url)
         return url
+    }
+
+    /// 「新しい本として開く」で書き出した一時ファイルを、開く側へ渡す(以後ここでは消さない)。開く側の `AppState` が引き受ける
+    /// (`AppState.ownedTemporaryCopies`。`temporaryFileURLs` のコメント)。書き出したものでなければ何もしない。
+    func handOffTemporaryFile(_ url: URL) {
+        temporaryFileURLs.removeAll { $0 == url }
     }
 
     private func localizedErrorMessage(for error: Error, fallback: String.LocalizationValue) -> String {

@@ -224,7 +224,9 @@ context menu is open swaps Copy → Copy as Pathname, Open With → Always Open 
 (skipped under tests) — keep that record-before-backup order. Anything that deletes a tree item by item lists names with `readdir`
 (`FileOperationService.directoryEntryNames`): `FileManager.contentsOfDirectory` silently omits `._*` names even on APFS, and a
 `rmdir` on an exFAT folder left with only `._` files hung the kernel (and Finder) during the 2026-09-15 audit — do not run such
-experiments on FAT/exFAT disk images from parallel agents. On FAT/exFAT `st_ctime` is just the modification date (measured
+experiments on FAT/exFAT disk images from parallel agents. A recursive delete refuses *before* deleting anything it could not finish
+(`FileOperationService.removalRefusal` / `firstUnremovableFolder`: `removeItem` empties a folder whose parent is not writable and only then
+fails, measured 2026-10-04), and the home folder and its standard folders are refused by path (`isProtectedLocation`). On FAT/exFAT `st_ctime` is just the modification date (measured
 2026-09-15), so "has the source changed" checks there compare size and mtime with the copy (`FileOperationService.SourceChangeCheck`),
 never ctime against the clock. **The app mutates the file system while it stays active** (file browser operations, undo/redo,
 auto rename), so "refresh on app activation" is not enough any more: every such change is reported from one place, `FileOperationService`'s
@@ -235,8 +237,11 @@ auto rename), so "refresh on app activation" is not enough any more: every such 
 (`BookRecordRelocator` rekeys the five stores + `BookReadingState` by path, across volumes too, then existence refreshes). New code that
 moves/renames/deletes user files must go through `FileOperationService`, and new UI that mirrors the file system must subscribe. Under tests
 each state gets a private center/clipboard and `AppStores` does not subscribe. Operations on a book open in any viewer are refused
-(`FileBrowserOperations.refusesBecauseOpenInViewer`), and a book whose bookmark resolves into the Trash counts as missing
-(`BookLocationResolver.isInTrash`). Audit and rationale: `docs/plans/fs-ui-consistency-audit.md`, docs/15「アプリ自身の変更の知らせ」.
+(`FileBrowserOperations.refusesBecauseOpenInViewer`; a conflict's "Replace" skips and reports an open book in the engine,
+`FileOperationOptions.protectedFromReplacing`, so "apply to all" and redo are covered — new transfer paths pass it; auto rename's
+"restore" checks `inUsePaths` too), and a book whose bookmark resolves into the Trash counts as missing
+(`BookLocationResolver.isInTrash`; entry points that open a book from saved data filter with `outsideTrash`, and `AppState.open` never
+relocates saved data to a path in the Trash). Audit and rationale: `docs/plans/fs-ui-consistency-audit.md`, docs/15「アプリ自身の変更の知らせ」.
 Tab / ⇧Tab moves keyboard focus between the tree and the list/icon view through `FileBrowserState.requestFocus`
 (the AppKit lists never reached each other through the key view loop; a Tab from the right pane reveals the current folder's row through
 the same `reveal` as "expand to current folder"), and Return in the tree toggles the selected row — an image folder (rule 1 only,

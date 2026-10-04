@@ -1053,8 +1053,9 @@ struct BookmarkEditorView: View {
             return
         }
 
-        guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen)
-            ?? layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen)
+        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
+        guard let url = BookLocationResolver.outsideTrash(bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen))
+            ?? BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen))
         else {
             openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
@@ -1081,8 +1082,9 @@ struct BookmarkEditorView: View {
     /// BookWindowOpenerが持っている)。URLの解決と、解決できなかったときのエラー表示は
     /// openBook(bookID:)と同じ。
     private func openBook(bookID: String, to destination: BookOpenDestination) {
-        guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen)
-            ?? layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen)
+        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
+        guard let url = BookLocationResolver.outsideTrash(bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen))
+            ?? BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen))
         else {
             openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
@@ -2189,7 +2191,8 @@ private struct BookmarkDetailPane: View {
             return
         }
 
-        guard let url = layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen) else {
+        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
+        guard let url = BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen)) else {
             openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
         }

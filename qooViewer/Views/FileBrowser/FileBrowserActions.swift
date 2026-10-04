@@ -195,8 +195,21 @@ final class FileBrowserActions {
     /// **ボリュームそのもの・ボリュームがマウントされているフォルダも淡色**(2026-09-23 の 3 回目の監査の高 1)。「コンピュータ」の行でなく
     /// `/Volumes` をフォルダとして開いたときの行は `isVolume` が false で、以前は「すぐに削除…」がボリュームの中身を全部消した。判定は
     /// マウント表とパスの文字列だけ(ファイルに触らない)。移す・消すエンジンも断る。
+    ///
+    /// **macOS が要るフォルダ(ホーム・その標準のフォルダ・/Users など)と、中身を変えられないフォルダの中の項目も淡色**(2026-10-04 の
+    /// 監査 FBA-11。ツリーの根の行と揃える)。前者はパスの文字列だけ(`FileOperationService.isProtectedLocation`)、後者は表示中のフォルダを
+    /// 読んだときに一緒に求めた値(`FileBrowserState.isCurrentFolderWritable`)だけを見る ―― ここではファイルに触らない。ほかのフォルダの
+    /// 項目(ツリーの行・最近の項目)は淡色にしないが、入口とエンジンが断る。
     func canChange(_ entries: [FileBrowserEntry]) -> Bool {
         canWrite(entries) && !isOpenInViewer(entries) && !containsMountPoint(entries)
+            && !entries.contains { FileOperationService.isProtectedLocation($0.url) } && !isInUnwritableFolder(entries)
+    }
+
+    /// どれかが、中身を変えられない表示中のフォルダの中の項目か(`canChange`)。
+    func isInUnwritableFolder(_ entries: [FileBrowserEntry]) -> Bool {
+        guard let state, !state.isCurrentFolderWritable, let folder = state.currentFolder else { return false }
+        let folderID = FileBrowserState.id(for: folder)
+        return entries.contains { FileBrowserState.id(for: $0.url.deletingLastPathComponent()) == folderID }
     }
 
     /// どれかがマウントポイントそのものか、配下にマウントポイントを含むか(`canChange`)。

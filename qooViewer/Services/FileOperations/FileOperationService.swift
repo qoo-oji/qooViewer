@@ -282,18 +282,30 @@ actor FileOperationService {
         guard hasTrash else { throw FileOperationError.trashUnavailable(first) }
 
         var outcome = TrashOutcome()
-        let locked = await FileIO.perform { Set(items.filter { Self.isLocked($0) }) }
+        // macOS が要るフォルダ(ホームとその標準のフォルダなど)は送らない(2026-10-04 の監査 FBA-11。画面は淡色にし、入口 ――
+        // FileBrowserOperations.remove ―― でも断るが、ここが最後の砦)。**親を変える許可は見ない**: ゴミ箱へ送るのは改名なので、
+        // 許可が無ければ何も動かずに失敗する(完全削除のように中身だけが消えることは無い)。判定を足すと、ペーストボード・履歴越しに
+        // 項目だけの許可で送れていたものまで断りかねない(`removalRefusal` のコメント)。
+        let refusals = Dictionary(uniqueKeysWithValues: items.compactMap { item in
+            Self.isProtectedLocation(item) ? (item, FileOperationError.protectedLocation(item)) : nil
+        })
+        for item in items {
+            if let refusal = refusals[item] { outcome.failures.append(FailedItem(url: item, reason: refusal.localizedDescription)) }
+        }
+        let candidates = items.filter { refusals[$0] == nil }
+        guard let firstCandidate = candidates.first else { throw refusals[first] ?? FileOperationError.itemMissing(first) }
+        let locked = await FileIO.perform { Set(candidates.filter { Self.isLocked($0) }) }
         let refusesLocked = !locked.isEmpty && !unlockingLocked
-        let sending = refusesLocked ? items.filter { !locked.contains($0) } : items
+        let sending = refusesLocked ? candidates.filter { !locked.contains($0) } : candidates
         let unlocked: Set<URL> = !locked.isEmpty && unlockingLocked
             ? await FileIO.perform { Set(locked.filter { Self.setLocked($0, false) }) }
             : []
         if refusesLocked {
-            for item in items where locked.contains(item) {
+            for item in candidates where locked.contains(item) {
                 outcome.failures.append(FailedItem(url: item, reason: FileOperationError.itemLocked(item).localizedDescription))
             }
         }
-        guard !sending.isEmpty else { throw FileOperationError.itemLocked(first) }
+        guard !sending.isEmpty else { throw FileOperationError.itemLocked(firstCandidate) }
 
         // recycle は完了ハンドラの非同期 API なので FileIO.perform には載せない(待っているスレッドが無い)。
         // 代わりに期限を付ける。
@@ -360,12 +372,25 @@ actor FileOperationService {
                 if Self.containsMountPoint(item) {
                     return FileOperationError.volumeCannotBeDeleted(item).localizedDescription
                 }
+                // **消せないと分かっているものは、1 つも消さずに断る**(2026-10-04 の監査 FBA-11、実測)。`removeItem` は子から消し進めるので、
+                // 親フォルダに書けない項目(`chmod 555` の親の中のフォルダ、/Users に並んだホームフォルダ)は中身を全部消した後で、
+                // 最後に親から外すところで「アクセス権がありません」になっていた ―― フォルダ自体だけが空で残る。macOS が要るフォルダ
+                // (ホームの標準のフォルダなど)もここで断る(画面は淡色。入口でも断る)。
+                if let refusal = Self.removalRefusal(for: item) {
+                    return refusal.localizedDescription
+                }
                 // ロックの確かめ・外す・消すを**1 つのかたまり**にする(往復を分けると、その隙間で止まったときに
                 // ロックだけ外れた状態が残る)。
                 var cleared: [URL] = []
                 if Self.containsLockedItem(item) {
                     guard unlockingLocked else { return FileOperationError.itemLocked(item).localizedDescription }
                     cleared = Self.lockedItems(atOrUnder: item).filter { Self.setLocked($0, false) }
+                }
+                // 中のフォルダも同じ(書けない・読めないフォルダがあると、そこまでの子だけが消えた木が残る)。ロックを外した**後で**見る
+                // (ロックされたフォルダは書けないと答えるが、利用者が「続ける」と答えたなら外してから消してよい)。
+                if let blocking = Self.firstUnremovableFolder(under: item) {
+                    for url in cleared where Self.itemExists(at: url) { _ = Self.setLocked(url, true) }
+                    return FileOperationError.removalNotPermitted(item: item, folder: blocking).localizedDescription
                 }
                 do {
                     try Self.removeAbsorbingTransientFailure(at: item)
@@ -473,6 +498,14 @@ actor FileOperationService {
                     isMove: isMove, placedByThisOperation: placed, environment: environment
                 )
                 if let remembered = resolution.rememberedDecision { blanketDecision = remembered }
+                if let refusal = resolution.refusal {
+                    // 置き換える相手がビューアで開いている本だった(FileOperationOptions.protectedFromReplacing)。この項目は飛ばして
+                    // 理由を残し、**残りは続ける**(2026-10-04 の監査 FBA-1・決定 17(a)。名前の変更・移動・ゴミ箱が開いている本を
+                    // 断るのと同じ扱い。1 件のために全体を止めると、同じ確認でほかの項目を選んだ利用者の意図まで捨てる)。
+                    outcome.failures.append(FailedItem(url: item, reason: refusal.localizedDescription))
+                    tracker.finishItem()
+                    continue
+                }
                 guard let resolved = resolution.destination else {
                     outcome.skipped.append(item)
                     tracker.finishItem()
@@ -595,12 +628,16 @@ actor FileOperationService {
         let destination: ResolvedDestination?
         /// 「以降すべてに適用」で答えが決まったなら、その答え。
         let rememberedDecision: ConflictDecision?
+        /// 置き換えを断った理由(相手がビューアで開いている本)。あれば `destination` は nil で、失敗として数える。
+        var refusal: FileOperationError?
     }
 
     private nonisolated enum ConflictCheck: Sendable {
         case decided(ResolvedDestination)
         case skip
         case needsUserDecision
+        /// 置き換えてはいけない相手だった(`FileOperationOptions.protectedFromReplacing`)。何にも触っていない。
+        case refused(FileOperationError)
     }
 
     /// **ブロッキングする部分(存在確認・退避・名前探し)とユーザーを待つ部分を分けてある。** 前者は
@@ -610,8 +647,17 @@ actor FileOperationService {
         _ source: URL, _ target: URL, decision: ConflictDecision, options: FileOperationOptions, isMove: Bool,
         placedByThisOperation placed: Set<FileIdentity>, environment: FileOperationEnvironment
     ) async throws -> Resolution {
+        // 置き換えてはいけない場所(開いている本)は、**置き換えると決まった答えで調べる直前に**毎回尋ねる(FileOperationOptions.
+        // protectedFromReplacing のコメント。確認に答えている間に別のウインドウで開いた本も当たる)。置き換えない答えでは尋ねない。
+        func protectedPaths(for decision: ConflictDecision) async -> [String] {
+            guard decision.policy == .replace, let protected = options.protectedFromReplacing else { return [] }
+            return await protected()
+        }
+        let initialProtected = await protectedPaths(for: decision)
         var check = try await FileIO.perform {
-            try Self.checkConflict(source, target, decision: decision, isMove: isMove, placed: placed, environment: environment)
+            try Self.checkConflict(
+                source, target, decision: decision, isMove: isMove, placed: placed, protectedPaths: initialProtected, environment: environment
+            )
         }
         var remembered: ConflictDecision?
         if case .needsUserDecision = check {
@@ -621,13 +667,17 @@ actor FileOperationService {
             let answer = await resolver(FileConflict(source: source, destination: target))
             guard answer.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
             if answer.applyToRemaining { remembered = answer }
+            let answeredProtected = await protectedPaths(for: answer)
             check = try await FileIO.perform {
-                try Self.checkConflict(source, target, decision: answer, isMove: isMove, placed: placed, environment: environment)
+                try Self.checkConflict(
+                    source, target, decision: answer, isMove: isMove, placed: placed, protectedPaths: answeredProtected, environment: environment
+                )
             }
         }
         switch check {
         case .decided(let resolved): return Resolution(destination: resolved, rememberedDecision: remembered)
         case .skip: return Resolution(destination: nil, rememberedDecision: remembered)
+        case .refused(let error): return Resolution(destination: nil, rememberedDecision: remembered, refusal: error)
         case .needsUserDecision: throw FileOperationError.conflictResolutionRequired(destination: target)
         }
     }
@@ -642,9 +692,10 @@ actor FileOperationService {
     /// 「置き換える」の退避用の隠しフォルダの名前の頭。
     nonisolated static let replaceHolderPrefix = ".qooViewer-replace-"
 
+    /// - Parameter protectedPaths: 置き換えてはいけない場所(`FileOperationOptions.protectedFromReplacing` の答え)。`.replace` のときだけ見る。
     private nonisolated static func checkConflict(
         _ source: URL, _ target: URL, decision: ConflictDecision, isMove: Bool, placed: Set<FileIdentity>,
-        environment: FileOperationEnvironment
+        protectedPaths: [String] = [], environment: FileOperationEnvironment
     ) throws -> ConflictCheck {
         let policy = decision.policy
         let journal = environment.replaceJournal
@@ -682,6 +733,11 @@ actor FileOperationService {
             // 運ぶ項目ごと退避されてしまうので断る。
             if MountTable.path(source.standardizedFileURL.path, isAtOrUnder: target.standardizedFileURL.path) {
                 throw FileOperationError.alreadyExists(target)
+            }
+            // 置き換える相手がビューアで開いている本(それを含むフォルダ・その中の項目も)なら、退避する前に断る(2026-10-04 の監査 FBA-1・
+            // 決定 17(a))。ここが「すべてに適用」の 2 件目以降とやり直しも通る唯一の場所。何にも触っていないので戻すものも無い。
+            if overlaps(target, anyOf: protectedPaths) {
+                return .refused(.replacingOpenBook(target))
             }
             // **既存を消さずに同じフォルダへ退避してから書く。** 書き込みが失敗・中断したら退避を戻す
             // (壊れたコピーで健康なファイルを書き潰さない。qooLibrary でのユーザー指摘)。同じフォルダ内の
@@ -1111,6 +1167,58 @@ actor FileOperationService {
         }
     }
 
+    // MARK: - 消してよいか(ブロッキング側)
+
+    /// ゴミ箱へ送る・完全に削除する前に、**何にも触らずに断る**理由(2026-10-04 の監査 FBA-11)。macOS が要るフォルダ
+    /// (`isProtectedLocation`)と、親フォルダを変える許可が無い項目(読み取り専用のボリュームも)。無ければ nil。
+    ///
+    /// 親への許可は `access(W_OK)`(`FileOperationPreflight.checkWritable`。モードビットは SMB で嘘をつく)。完全削除(`deletePermanently`)と
+    /// 入口の「すぐに削除…」だけが使う ―― ゴミ箱へ送るのは改名なので、許可が無ければ何も動かずに失敗する。`access` がサンドボックスの
+    /// 許可まで答えるかは確かめていない(項目そのものへの許可だけで親から外すこと自体は通る ―― ペーストボード越しの ⌥⌘V の移動で実測、
+    /// `FileBrowserOperations.paste` のコメント)。答えるとしても、取り消せない削除を断る側に倒れるだけ。
+    nonisolated static func removalRefusal(for item: URL) -> FileOperationError? {
+        if isProtectedLocation(item) { return .protectedLocation(item) }
+        let parent = item.deletingLastPathComponent()
+        do {
+            try FileOperationPreflight.checkWritable(parent)
+        } catch {
+            return .removalNotPermitted(item: item, folder: parent)
+        }
+        return nil
+    }
+
+    /// `item`(フォルダなら中のフォルダも)のうち、中身を消せない最初のフォルダ(読めない・書けない・入れない)。無ければ nil。
+    /// **リンクの先へは入らない**(lstat。`removeItem` はリンク自体しか消さない)。名前は `readdir` で取る(`._*` も。`directoryEntryNames`)。
+    /// 自分のスタックで歩く(深い木でスレッドのスタックを使い切らない)。
+    nonisolated static func firstUnremovableFolder(under item: URL) -> URL? {
+        var pending = [item.path]
+        while let path = pending.popLast() {
+            var info = stat()
+            guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { continue }
+            guard access(path, R_OK | W_OK | X_OK) == 0, let names = try? directoryEntryNames(atPath: path) else {
+                return URL(fileURLWithPath: path)
+            }
+            pending.append(contentsOf: names.map { (path as NSString).appendingPathComponent($0) })
+        }
+        return nil
+    }
+
+    /// macOS が要るフォルダか: ホームフォルダ・その標準のフォルダ(書類・デスクトップ・ダウンロード・ライブラリ・ムービー・ミュージック・
+    /// ピクチャ・パブリック・アプリケーション)と、`/Users` `/Applications` `/Library` `/System`(2026-10-04 の監査 FBA-11)。Finder も
+    /// これらをゴミ箱へ入れない。ツリーでは根の行(ホーム)を淡色にしていたが、`/` や `/Users` を許可して右ペインに出すと同じフォルダが
+    /// ふつうの行として並び、ゴミ箱・すぐに削除・名前の変更が効いた。**パスの文字列だけで見る**(ファイルに触らない。画面の淡色にも使う)。
+    /// 起動ボリュームのデータ側の書き方(`FileBrowserState.dataVolumePrefix` を頭に付けたもの)も同じものとして扱う。
+    nonisolated static func isProtectedLocation(_ url: URL) -> Bool {
+        protectedLocationPaths.contains(MountTable.normalized(FileBrowserState.pathOutsideDataVolume(MountTable.normalized(url.path))))
+    }
+
+    /// `isProtectedLocation` の一覧(比べる形)。実際のホームから組み立てる(サンドボックスの `homeDirectoryForCurrentUser` はコンテナ)。
+    nonisolated static let protectedLocationPaths: Set<String> = {
+        let home = MountTable.normalized(FileBrowserListing.realHomeDirectory().path)
+        let standard = ["Applications", "Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public"]
+        return Set([home] + standard.map { home + "/" + $0 } + ["/Users", "/Applications", "/Library", "/System"])
+    }()
+
     // MARK: - ロック(ブロッキング側)
 
     /// Finder の「ロック」(`uchg`)が掛かっているか。**リンクを辿らない**(lstat)。
@@ -1147,6 +1255,17 @@ actor FileOperationService {
             if stopAtFirst { break }
         }
         return result
+    }
+
+    /// `url` が `paths` のどれかそのもの・その祖先・その中か(ビューアで開いている本との照合。`FileBrowserOperations.openBookConflict` と
+    /// 「置き換える」の守り `FileOperationOptions.protectedFromReplacing` の共通の規則)。パスの文字列だけで見る(ファイルに触らない)。
+    nonisolated static func overlaps(_ url: URL, anyOf paths: [String]) -> Bool {
+        guard !paths.isEmpty else { return false }
+        let path = MountTable.normalized(url.path)
+        return paths.contains { other in
+            let open = MountTable.normalized(other)
+            return MountTable.path(open, isAtOrUnder: path) || MountTable.path(path, isAtOrUnder: open)
+        }
     }
 
     /// `item` がマウントポイントそのものか、配下にマウントポイントを含むか(完全削除が断る。`deletePermanently`)。

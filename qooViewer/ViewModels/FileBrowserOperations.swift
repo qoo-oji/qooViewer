@@ -114,6 +114,8 @@ final class FileBrowserOperations: ObservableObject {
     /// 避けるのと同じ決まり(`AutoRenameService` の `inUsePaths`)。許すと、ウインドウの題と「次の本 / 前の本」が古い名前のまま迷子になり、
     /// フォルダの本はページを読めなくなる。断るのは項目が開いている本そのもの・その祖先(フォルダごと動かす)・その中身(フォルダの本の
     /// 中の画像)のとき。コピー・圧縮・展開は元を変えないので断らない。取り消し・やり直しは確かめない(受領書を一律に覗く口が無い)。
+    /// **衝突の「置き換える」で宛先の側が開いている本だったときは、エンジンがその項目だけを飛ばして報告する**(2026-10-04 の監査 FBA-1・
+    /// 決定 17(a)。`FileOperationOptions.protectedFromReplacing` を `transferOptions` が繋ぐ。やり直しも同じ Options で走るので当たる)。
     /// - Returns: 断ったら true(問題として見せ終えている)。
     private func refusesBecauseOpenInViewer(_ urls: [URL]) -> Bool {
         guard let conflict = Self.openBookConflict(among: urls, openBookPaths: openBookPaths()) else { return false }
@@ -125,14 +127,22 @@ final class FileBrowserOperations: ObservableObject {
         return true
     }
 
+    /// **macOS が要るフォルダ(ホーム・その標準のフォルダ・/Users など)は、移動・名前の変更・ゴミ箱・削除を断る**(2026-10-04 の監査 FBA-11。
+    /// `FileOperationService.isProtectedLocation`)。ツリーでは根の行(ホーム)をもともと淡色にしていたが、`/` や `/Users` の許可で右ペインに
+    /// 出したホームフォルダの行は効いた。画面も同じ判定で淡色にする(`FileBrowserActions.canChange`)。パスの文字列だけで見る。
+    /// - Returns: 断ったら true(問題として見せ終えている)。
+    private func refusesProtectedLocation(_ urls: [URL]) -> Bool {
+        guard let protected = urls.first(where: FileOperationService.isProtectedLocation) else { return false }
+        presenter?.showProblem(FileBrowserProblem(title: FileOperationError.protectedLocation(protected).localizedDescription, message: ""))
+        return true
+    }
+
     /// `urls` のうち、開いている本に当たる最初の項目(`refusesBecauseOpenInViewer` のコメント)。
+    /// 規則は `FileOperationService.overlaps`(衝突の「置き換える」の守りと同じもの。2026-10-04 の監査 FBA-1)。
     nonisolated static func openBookConflict(among urls: [URL], openBookPaths: [String]) -> URL? {
         guard !openBookPaths.isEmpty else { return nil }
         let open = openBookPaths.map(MountTable.normalized)
-        return urls.first { url in
-            let path = MountTable.normalized(url.path)
-            return open.contains { MountTable.path($0, isAtOrUnder: path) || MountTable.path(path, isAtOrUnder: $0) }
-        }
+        return urls.first { FileOperationService.overlaps($0, anyOf: open) }
     }
 
     // MARK: - 取り消し・やり直し
@@ -285,7 +295,7 @@ final class FileBrowserOperations: ObservableObject {
             let isInDestination = { (url: URL) in FileBrowserState.id(for: url.deletingLastPathComponent()) == destinationPath }
             // 自分のフォルダへの移動は何もしない(エンジンの決まり)ので、同じフォルダの項目は外す。
             var movers = moves.filter { !isInDestination($0) }
-            guard !self.refusesBecauseOpenInViewer(movers) else { return }
+            guard !self.refusesBecauseOpenInViewer(movers), !self.refusesProtectedLocation(movers) else { return }
             let duplicates = copies.filter(isInDestination)
             var copiers = copies.filter { !isInDestination($0) }
             // **ロックされた項目の移動は先に尋ねる**(2026-09-14。以前は OS が断って「権限がありません」と出るだけだった)。
@@ -413,12 +423,24 @@ final class FileBrowserOperations: ObservableObject {
                 ))
                 return
             }
+            // macOS が要るフォルダ(ホームとその標準のフォルダなど)は、確認を出す前に断る(2026-10-04 の監査 FBA-11。画面は淡色 ――
+            // `FileBrowserActions.canChange`。エンジンも断る)。
+            guard !self.refusesProtectedLocation(remaining) else { return }
             var urls = remaining
             let hasTrash = self.hasTrash
             let canTrash = immediately
                 ? false
                 : await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
             if !canTrash {
+                // **完全に削除するなら、親を変える許可の無い項目は確認を出す前に断る**(2026-10-04 の監査 FBA-11、実測: 書き込めない親の
+                // 中のフォルダは、中身を全部消した後で「削除できませんでした」になり、フォルダだけが空で残った)。エンジンも消す前に断るが、
+                // 確認で「削除」を押させてから断るより先に知らせる。ゴミ箱へ送るほうは見ない(改名なので、許可が無ければ何も動かない)。
+                let deleting = urls
+                let refusal = await FileIO.perform { deleting.lazy.compactMap(FileOperationService.removalRefusal(for:)).first }
+                if let refusal {
+                    self.presenter?.showProblem(FileBrowserProblem(title: refusal.localizedDescription, message: ""))
+                    return
+                }
                 let reason: ImmediateDeletionReason = immediately ? .requested : .noTrash
                 guard await self.asking(openBookCheck: urls, { await $0.confirmImmediateDeletion(of: urls, reason: reason) }) == true else { return }
             }
@@ -501,7 +523,7 @@ final class FileBrowserOperations: ObservableObject {
         return enqueue { [weak self] in
             guard let self else { return }
             let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed != url.lastPathComponent, !self.refusesBecauseOpenInViewer([url]) else { return }
+            guard trimmed != url.lastPathComponent, !self.refusesBecauseOpenInViewer([url]), !self.refusesProtectedLocation([url]) else { return }
             // ロックされた項目は尋ねてから(移動と同じ。2026-09-14)。
             var unlocking = false
             if await FileIO.perform({ FileOperationService.isLocked(url) }) {
@@ -536,7 +558,7 @@ final class FileBrowserOperations: ObservableObject {
             .map(\.element.url)
         return enqueue { [weak self] in
             guard let self, let state = self.state, let first = targets.first else { return }
-            guard !self.refusesBecauseOpenInViewer(targets) else { return }
+            guard !self.refusesBecauseOpenInViewer(targets), !self.refusesProtectedLocation(targets) else { return }
             let folder = first.deletingLastPathComponent()
             let folderID = FileBrowserState.id(for: folder)
             guard targets.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == folderID }) else { return }
@@ -837,7 +859,10 @@ final class FileBrowserOperations: ObservableObject {
                 }
             },
             progress: sink,
-            cancellation: cancellation
+            cancellation: cancellation,
+            // 置き換えられる側がビューアで開いている本なら、その項目は置き換えずに飛ばす(2026-10-04 の監査 FBA-1)。閉包はペインが繋いだ
+            // ものをそのまま持つ ―― 弱参照の self 越しにすると、ウインドウを閉じた後に走り続ける操作・やり直しで守りが外れる。
+            protectedFromReplacing: openBookPaths
         )
     }
 

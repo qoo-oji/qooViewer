@@ -231,6 +231,24 @@ struct SidePanelBrowserStateTests {
         #expect(fixture.state.currentDirectory == fixture.root)
     }
 
+    /// 2026-10-04 の監査 SP-4(実測: フォルダブラウザがアプリの一時フォルダへ移った)。
+    @Test("一時コピーの本(本の中身ブラウザの「新しい本として開く」)では、再アンカーせず今いる場所を保つ")
+    func aTemporaryCopyDoesNotReAnchor() async throws {
+        let fixture = try Fixture("browser-anchor-temporary")
+        await fixture.settle()
+        fixture.state.navigate(into: fixture.inner)
+        await fixture.settle()
+        let copy = TemporaryFileStore.makeFileURL(extension: "cbz").deletingPathExtension()
+        try FixtureFolder.make(at: copy, pages: [.init("001.png", number: 1)])
+        defer { try? FileManager.default.removeItem(at: copy) }
+        let book = try await FixtureBook.load(copy)
+        #expect(book.isTemporaryCopy)
+
+        fixture.state.handlePanelRevealed(currentBook: book)
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.inner)
+    }
+
     @Test("同じフォルダへの再アンカーでは履歴を積まない")
     func reAnchoringToTheSameFolderDoesNotPushHistory() async throws {
         let fixture = try Fixture("browser-anchor-same")

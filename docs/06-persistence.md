@@ -215,6 +215,11 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   アプリの中の操作は起きた順に届くので、これまでどおりつなぐ。2026-09-23 の 3 回目の監査まで写しもつないでいて、Finder で
   2 巻 → 3 巻、1 巻 → 2 巻と振り直すと 1 巻の保存データが今の 3 巻に付き、入れ替えでは互いのデータが残っていた。
 - 開いたときの追従でも、5 つのストアの `reconcileBookIDIfMoved` が返す元のパスから読書位置を付け替える(`BookRecordRelocator.relocateReadingStates`)。
+- **ゴミ箱の中の本では付け替えない**(2026-10-04 の監査 O-11。`BookLocationResolver.isInTrash`)。ブックマークも iノードもゴミ箱へ送った本に
+  付いていくので、Finder・ドロップ・編集ウインドウからゴミ箱の中の本を開くと、開いたときの追従(と識別子の補完・ページの鍵の修理)が 5 つの
+  ストアと読書位置をゴミ箱の中のパスへ移し、元へ戻しても次に開くまで付いてこず、ゴミ箱を空にすると取り残された。開くこと自体は止めない
+  (利用者がゴミ箱の中を名指しした)が、`AppState.open` は追従・補完を飛ばす。保存データから本の場所を引いて開く入口(ブックマークとレイアウトの
+  編集・メタデータの編集)は、ゴミ箱の中まで追った解決を「見つからない」にする(`BookLocationResolver.outsideTrash`。棚・履歴・前回の本と同じ)。
 - **メタデータだけは「移った先に行がある」の例外**: 移った先の行が読みだけ(`isParsedOnly`)で、元の行がそうでなければ、元の行で置き換える
   (`reconcileBookIDIfMoved` と `applyBookRelocation` の両方)。
 - ブックマークを持たない記録(読書位置だけの本)は追えない。
@@ -420,7 +425,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 - 本を開かずに書く所は場所で断る(`SecretFolderStore.isSecretAppWide`。アプリの一覧の写しで、テストの作ったストアは書かない):
   `BookLoader.load` のページ一覧キャッシュ(全経路が通る 1 か所)、ファイルブラウザの絵のディスクキャッシュ
   (`FileBrowserThumbnailProvider`)、動画の絵の先作り、コレクションへの追加(`CollectionStore.makePendingItems` と自動登録フォルダ。
-  保存データの読み込みは特別扱いしない)、表紙の抽出、表紙の指定(`CoverOverrideController.allowsCoverChanges`)、スマートライブラリの
+  保存データの読み込みは特別扱いしない)、表紙の抽出、表紙の指定(`CoverOverrideController.allowsCoverChanges`)、コレクション表紙の zip の
+  読み込み(`ShelfCoverImportViewModel` ―― 候補から外し、取り込む直前にも見る。2026-10-04 の監査 TW-13)、スマートライブラリの
   一覧と `catalog.json`、メタデータ生成の母体と `MetadataCorpusStore`、書き出し・「ブックマーク・レイアウトの編集」のキャッシュ。
 - 既存の保存データは**読むが書かない**(シークレットウインドウと同じ)。移動への追従・保存データの読み込みも特別扱いしない。
   環境設定のペイン(`SecretFolderSettingsView`)でフォルダごとの冊数を出し、`BookSavedDataEraser` と履歴の削除でまとめて消せる

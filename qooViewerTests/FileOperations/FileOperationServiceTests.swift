@@ -834,6 +834,60 @@ struct FileOperationServiceTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    // MARK: - 消せないものは消さない(2026-10-04 の監査 FBA-11)
+
+    /// 実測(使い捨てボリューム): 書き込めない親の中のフォルダの「すぐに削除…」は、中身を全部消してから最後に親から外すところで
+    /// 「アクセス権がありません」になり、フォルダだけが空で残った。
+    @Test("親に書けない項目・中に書けないフォルダがある項目は、完全削除で 1 つも消さずに断る。書けるようになれば消せる")
+    func deletePermanentlyRefusesWhatItCannotFinish() async throws {
+        let parent = try temporary.directory("delete-readonly/RO")
+        let child = parent.appendingPathComponent("child")
+        let first = try write("1", to: "delete-readonly/RO/child/1.txt")
+        let second = try write("2", to: "delete-readonly/RO/child/sub/2.txt")
+        let sub = second.deletingLastPathComponent()
+        chmod(parent.path, 0o555)
+        defer {
+            // 一時フォルダを片付けられるように。
+            chmod(parent.path, 0o755)
+            chmod(sub.path, 0o755)
+        }
+
+        let refused = await service.deletePermanently([child])
+        #expect(refused.deleted.isEmpty)
+        #expect(refused.failures.first?.reason
+            == FileOperationError.removalNotPermitted(item: child, folder: parent).localizedDescription)
+        #expect(FileManager.default.fileExists(atPath: first.path), "中身が消えた")
+        #expect(FileManager.default.fileExists(atPath: second.path), "中身が消えた")
+
+        // 親は書けるが、中のフォルダに書けない。
+        chmod(parent.path, 0o755)
+        chmod(sub.path, 0o555)
+        let blocked = await service.deletePermanently([child])
+        #expect(blocked.deleted.isEmpty)
+        #expect(blocked.failures.first?.reason
+            == FileOperationError.removalNotPermitted(item: child, folder: sub).localizedDescription)
+        #expect(FileManager.default.fileExists(atPath: first.path), "中身が消えた")
+
+        chmod(sub.path, 0o755)
+        let allowed = await service.deletePermanently([child])
+        #expect(allowed.deleted == [child])
+        #expect(!FileManager.default.fileExists(atPath: child.path))
+    }
+
+    @Test("macOS が要るフォルダ: ホームとその標準のフォルダ・/Users など。中の項目・ほかの場所は当たらない。データ側の書き方も同じ")
+    func protectedLocationsArePathsOnly() {
+        // パスの文字列だけで答える(ホームの中には触らない)。
+        let home = FileBrowserListing.realHomeDirectory()
+        #expect(FileOperationService.isProtectedLocation(home))
+        #expect(FileOperationService.isProtectedLocation(home.appendingPathComponent("Documents")))
+        #expect(FileOperationService.isProtectedLocation(home.appendingPathComponent("Pictures/")))
+        #expect(FileOperationService.isProtectedLocation(URL(fileURLWithPath: "/System/Volumes/Data" + home.path + "/Movies")))
+        #expect(FileOperationService.isProtectedLocation(URL(fileURLWithPath: "/Users")))
+        #expect(!FileOperationService.isProtectedLocation(home.appendingPathComponent("Documents/架空の棚")))
+        #expect(!FileOperationService.isProtectedLocation(home.appendingPathComponent("架空の棚")))
+        #expect(!FileOperationService.isProtectedLocation(temporary.url))
+    }
+
     @Test("起動ボリュームにはゴミ箱がある")
     func bootVolumeHasATrash() async {
         let url = temporary.url

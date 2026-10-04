@@ -81,12 +81,14 @@ struct MetadataEditorWindow: View {
                               generator: metadataGenerator, modelContext: modelContext),
                 preferences: preferences,
                 relocator: bookRecordRelocator,
+                // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11: 「開く」でゴミ箱の中の
+                // 本を開き、保存データがゴミ箱の中のパスへ付け替わっていた)。見つからなければ呼び出し側は素のパス(元の場所)を使う。
                 resolveURL: { [weak metadataStore, weak bookmarkStore, weak layoutStore, weak collectionStore] bookID in
-                    bookmarkStore?.resolvedURLFromBookmarkData(forBookID: bookID)
-                        ?? layoutStore?.resolvedURL(forBookID: bookID)
-                        ?? metadataStore?.resolvedURL(forBookID: bookID)
-                        ?? collectionStore?.anyBookmarkData(forBookID: bookID)
-                            .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) }
+                    BookLocationResolver.outsideTrash(bookmarkStore?.resolvedURLFromBookmarkData(forBookID: bookID))
+                        ?? BookLocationResolver.outsideTrash(layoutStore?.resolvedURL(forBookID: bookID))
+                        ?? BookLocationResolver.outsideTrash(metadataStore?.resolvedURL(forBookID: bookID))
+                        ?? BookLocationResolver.outsideTrash(collectionStore?.anyBookmarkData(forBookID: bookID)
+                            .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) })
                 })
             self.model = model
             await model.open()

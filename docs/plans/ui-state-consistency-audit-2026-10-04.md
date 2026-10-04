@@ -1710,3 +1710,44 @@ TW-21・MD-5・MD-8・MD-12・SL-3・SL-9・X-1(1-4 に近い)・BE-14。
   前の控えも捨てる。`FileBrowserActions.openLink` は控えを使わずにいつも解き直し、結果を控えにも入れる。ドロップは同期の判定なので
   控えのまま(読み直しで新しくなる)。docs/15 の「先が無ければ鳴らす」は今の動き(リンク自身を LaunchServices へ)に直した。
   テスト `linkTargetsAreResolvedAgainOnReload`。
+
+### 段 3(2026-10-04)
+
+方針は §1-8 のとおり、判定を入口だけでなく**書く・消す・付け替える直前**(エンジン・`AppState.open` の成功側・取り込みの直前)にも置いた。
+開いている本との照合の規則は 1 つにまとめた(`FileOperationService.overlaps`。`FileBrowserOperations.openBookConflict` もこれを呼ぶ)。
+
+- **FBA-1**(直した): `FileOperationOptions.protectedFromReplacing`(開いている本のパスを返す閉包。`transferOptions` が `openBookPaths` を渡す)を
+  エンジンの `resolveDestination` が置き換えると決まった答えで調べる直前に毎回問い合わせ、`checkConflict` の `.replace` が退避の前に
+  `.refused(.replacingOpenBook)` を返す。その項目だけ `TransferOutcome.failures` に入れて残りは続ける(決定 17(a))。「すべてに適用」の 2 件目以降と
+  やり直し(実行時の Options で走る)も同じ道を通る。テスト `FileBrowserOperationsTests.replacingAnOpenBookIsSkippedAndReported`・`redoDoesNotReplaceAnOpenBook`。
+- **TW-16**(直した): `AutoRenameService.restore` が項目ごとに戻す直前の `inUsePaths()` と照らし(`AutoRename.canonicalPath` で揃えて `overlaps`)、
+  開いている本・それを含むフォルダ・その中の項目は戻さずに理由を返す。ボタンは淡色にしていない(開いているかは押した時点で決まる)。
+  テスト `AutoRenameServiceTests.restoringSkipsOpenBooks`。
+- **O-11**(直した): (1) 開く入口の解決 ―― ブックマークとレイアウトの編集の 3 か所(`openBook(bookID:)` 2 つと `openBookAndJump`)とメタデータの編集の
+  `resolveURL` ―― を `BookLocationResolver.outsideTrash` に通す(メタデータの編集の閉包は表紙の指定にも使うので、ゴミ箱の中の本はそこでも「見つからない」)。
+  (2) `AppState.open` の成功側で `isInTrash(book.sourceURL)` なら 5 つのストアの `reconcileBookIDIfMoved`・ページの鍵の修理・識別子の補完
+  (メタデータの `backfillIdentifiers` も)を飛ばす(Finder・ドロップから開いた場合も)。開くことと履歴・読書位置の記録はそのまま。
+  テスト `AppStateOpenTests.openingABookInTheTrashKeepsItsRowsWhereTheyWere`。
+- **TW-13**(直した): `ShelfCoverImportViewModel` の照合の母体を「知っている本 − シークレットフォルダの本」にし(`matchableBooks`。一覧は差し替えられる
+  `secretFolders`、既定はアプリの一覧の写し)、読み込むときと取り込む直前の両方で作る。読み込んだ後でシークレットにした本は取り込まず、
+  件数を新しい文言で知らせる。段 1 の「動いた本」の判定はそのまま。テスト `ShelfCoverImportTests.secretFolderBooksGetNoCover`。
+- **FBA-11**(直した): エンジンの `deletePermanently` が消す前に `removalRefusal`(macOS が要るフォルダ ―― `isProtectedLocation`、パスの文字列だけ ――
+  と、親への `access(W_OK)`)で断り、ロックを外した後で中のフォルダの読み・書き・実行を `firstUnremovableFolder` で確かめて、どれか欠けたら
+  1 つも消さずに `removalNotPermitted` を返す。入口 `remove` も macOS が要るフォルダを確認の前に断り、完全削除なら親への許可も確認の前に見る。
+  淡色は `canChange` に「macOS が要るフォルダ」と「中身を変えられない表示中のフォルダの項目」(`FileBrowserState.isCurrentFolderWritable`、一覧を
+  読むときに FileIO の上で一緒に求める)を足した(ツリーの行・最近の項目は淡色にしないが入口とエンジンが断る)。移動・名前の変更・一括リネームの
+  入口も macOS が要るフォルダを断る。**ゴミ箱に入れるほうは親への許可では断らない**と決めた: 送るのは改名で、許可が無ければ何も動かずに失敗する
+  (中身は消えない)。`access` がサンドボックスの許可まで答えるかを確かめていないので、項目だけの許可で送れていたもの(ペーストボード・履歴越し)を
+  新しく断る危険のほうを避けた。ゴミ箱のエンジンは macOS が要るフォルダだけを断る。テスト `FileOperationServiceTests.deletePermanentlyRefusesWhatItCannotFinish`・
+  `protectedLocationsArePathsOnly`、`FileBrowserOperationsTests.deleteImmediatelyRefusesItemsInAReadOnlyFolder`・`protectedLocationsAreDimmed`
+  (一時フォルダの `chmod 555` で足りたので使い捨てボリュームは使っていない)。
+- **SP-4**(直した): 一時コピーの寿命を開く側の `AppState` へ移した(`ownedTemporaryCopies`。開く要求に一時コピーがあれば引き受け、表示中の本・
+  直前の本・読み込み中の本のどれでもなくなったら FileIO の上で消す。閉じたウインドウの分は deinit)。本の中身ブラウザは開く側へ渡した時点で
+  手放す(`handOffTemporaryFile`)。一時コピーの本ではフォルダブラウザを再アンカーしない(`SidePanelBrowserState.handlePanelRevealed`)。
+  除外したページの行は 3 通りを 1 つにして `.excludedPage`(淡く描き、押すと鳴らす)。「新しい本として開く」に残るのは本のページでもない画像だけ。
+  §5 の `resolveImageClick` の古いコメントも直した。テスト `AppStateOpenTests.temporaryCopiesLiveWhileShownOrLast`、
+  `BookContentsBrowserStateTests.excludedPagesHaveNoDestinationAtAnyLevel`(フォルダの本と入れ子の書庫)、`SidePanelBrowserStateTests.aTemporaryCopyDoesNotReAnchor`。
+  行の淡色と鳴らすことは View なので実機。
+
+docs: 15(「すぐに削除…」の消しきれないもの・macOS が要るフォルダ・淡色の条件・開いている本の「置き換える」・自動リネームの「元の名前に戻す」)、
+06(ゴミ箱の中の本の追従、シークレットフォルダの書き口の一覧)、04(一時コピーの寿命と除外ページの行)、14(表紙の zip の読み込みの母体)、CLAUDE.md。

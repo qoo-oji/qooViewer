@@ -307,6 +307,8 @@ final class AutoRenameService: ObservableObject {
     /// 実行ログの行を元の名前に戻す。戻した項目は規則の対象から外す(AutoRenameStore.excludedPaths)。
     /// - Returns: 戻せなかった項目があれば、その説明(1 件目)。
     ///
+    /// **ビューアで開いている本(とそれを含むフォルダ)は戻さず、そう報告する**(2026-10-04 の監査 TW-16。ボタンは淡色にしない ―― 開いて
+    /// いるかは戻す直前に確かめる)。
     /// **読み取り専用の間は何も戻さない**(2026-09-21 の監査の L4。ボタンは淡色にしてある ―― AutoRenameActivityLogSheet)。
     /// 戻している途中で読み取り専用へ切り替わったら、残りは戻さずにそう報告する(戻したぶんはそのまま)。
     func restore(entryIDs: Set<UUID>) async -> String? {
@@ -319,6 +321,20 @@ final class AutoRenameService: ObservableObject {
             }
             let current = URL(fileURLWithPath: entry.folderPath + "/" + newName)
             let originalPath = entry.folderPath + "/" + entry.originalName
+            // **ビューアで開いている本(それを含むフォルダ・その中の項目)は戻さない**(2026-10-04 の監査 TW-16)。自動の改名が開いている本を
+            // 飛ばす(`inUsePaths`)・ファイルブラウザの名前の変更が断る(`FileBrowserOperations.refusesBecauseOpenInViewer`)のと同じ決まりで、
+            // 以前はここだけ素通しだった ―― 開いたまま名前が変わり、フォルダの本ならページのパスが切れた。規則は開いている本との照合の
+            // 共通のもの(`FileOperationService.overlaps`)、パスの書き方は自動の改名と同じ `AutoRename.canonicalPath` で揃える。項目ごとに、
+            // 戻す直前の一覧で見る(前の項目を戻す間に開かれた本も当たる)。
+            if FileOperationService.overlaps(
+                URL(fileURLWithPath: AutoRename.canonicalPath(current.path)), anyOf: inUsePaths().map(AutoRename.canonicalPath)
+            ) {
+                firstProblem = firstProblem ?? String(
+                    format: String(localized: "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again.", language: currentLocale),
+                    newName
+                )
+                continue
+            }
             let identity = entry.identity
             // 名前を変えた後に同じパスへ別の項目が来ていたら触らない(ファイルブラウザの取り消しと同じ考え方)。
             let matches = await FileIO.perform { FileIdentity.matches(current, identity) }

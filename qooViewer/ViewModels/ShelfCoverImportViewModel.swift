@@ -60,10 +60,29 @@ final class ShelfCoverImportViewModel: ObservableObject {
 
     private let sources: KnownBooks.Sources
     private let preferences: AppPreferences
+    /// シークレットフォルダの一覧(呼ぶたびに今の値)。既定はアプリの一覧の写し。**テストは自分の一覧を渡す**(アプリの一覧は共有の状態)。
+    private let secretFolders: () -> SecretFolderStore.Matcher
 
-    init(sources: KnownBooks.Sources, preferences: AppPreferences) {
+    init(
+        sources: KnownBooks.Sources, preferences: AppPreferences,
+        secretFolders: @escaping () -> SecretFolderStore.Matcher = { SecretFolderStore.currentAppWideMatcher }
+    ) {
         self.sources = sources
         self.preferences = preferences
+        self.secretFolders = secretFolders
+    }
+
+    /// 照合の母体にする本(知っている本から、シークレットフォルダの本を除いたもの)。
+    ///
+    /// **シークレットフォルダの本には表紙を書かない**(2026-10-04 の監査 TW-13。CLAUDE.md「a new such path must check it too」)。知っている本
+    /// (`KnownBooks`)にはシークレットにする前の記録が残っているので、以前はその本も候補に出て、取り込むと表紙の行を作った。ほかの表紙の
+    /// 入口は `allowsCoverChanges` で断っている。読み込むときと取り込む直前の両方で作る(開いている間にシークレットフォルダが増えても書かない)。
+    private func matchableBooks() -> (books: Set<String>, secret: Set<String>) {
+        let secret = secretFolders()
+        let known = KnownBooks.collect(from: sources)
+        guard !secret.isEmpty else { return (known, []) }
+        let hidden = known.filter { secret.contains(path: $0) }
+        return (known.subtracting(hidden), hidden)
     }
 
     /// 検索で絞り込んだ後の行。
@@ -142,7 +161,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 error.localizedDescription
             )
         case .success(let read):
-            let known = KnownBooks.collect(from: sources)
+            let known = matchableBooks().books
             let index = KnownBooks.index(of: known)
             rows = read.entries.map { entry in
                 // manifestが指す本が、この環境にも居るときだけ採用する
@@ -202,10 +221,12 @@ final class ShelfCoverImportViewModel: ObservableObject {
         // 行き先がもう「知っている本」でない行は取り込まない(2026-10-04 の監査 TW-22)。行き先は zip を読み込んだ時点の bookID
         // なので、その後で本が移動・改名される(保存データは新しいパスへ付け替わる)と、古いパスに表紙だけの行を作っていた。
         // 読み込み直せば今の本と照合し直せる。
-        let known = KnownBooks.collect(from: sources)
+        // シークレットフォルダの本も取り込まない(`matchableBooks` のコメント。読み込んだ後でシークレットにした本は、ここで外れて別に知らせる)。
+        let (known, secretBooks) = matchableBooks()
         let importable = rows.filter(\.isImportable)
         let targets = importable.filter { $0.selectedBookID.map(known.contains) ?? false }
-        let stale = importable.count - targets.count
+        let secret = importable.filter { $0.selectedBookID.map(secretBooks.contains) ?? false }.count
+        let stale = importable.count - targets.count - secret
         // 画像はここで**少しずつ**読み直す(ShelfCoverArchive.readEntriesのコメント参照)。
         // 読んだぶんを取り込み終えてから次を読むので、メモリに載るのは1回ぶんだけ。
         var batches: [[Row]] = []
@@ -269,7 +290,13 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 ), Int64(stale)
             )
         }
-        didSucceed = failed == 0 && stale == 0
+        if secret > 0 {
+            message += " " + String(
+                format: String(localized: "%lld weren't imported because their books are in secret folders.", language: locale),
+                Int64(secret)
+            )
+        }
+        didSucceed = failed == 0 && stale == 0 && secret == 0
         resultMessage = message
         // 取り込んだ行は選択を外す(同じzipを二度当てて同じ絵を書き直さないため)。
         for index in rows.indices { rows[index].selectedBookID = nil }

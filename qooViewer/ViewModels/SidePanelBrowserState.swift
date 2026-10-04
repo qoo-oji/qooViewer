@@ -164,6 +164,9 @@ final class SidePanelBrowserState: ObservableObject {
             skipsNextAnchor = false
             return
         }
+        // 入れ子の書庫を書き出した一時コピーの本(本の中身ブラウザの「新しい本として開く」)では、今いる場所を保つ(2026-10-04 の監査 SP-4)。
+        // 親はアプリの一時フォルダで、そこへ移ると利用者の知らないフォルダ(空、または UUID 名の書庫)が並んだ。
+        if currentBook.isTemporaryCopy { return }
         let anchor = Self.browserAnchor(for: currentBook)
         let directoryChanged = anchor.directory != currentDirectory
         if directoryChanged {
