@@ -993,6 +993,9 @@ final class AppState: ObservableObject {
     /// そのままloadingProgressへ書くと、消したはずのオーバーレイが復活する。
     /// ViewerViewのactiveViewerTokenと同じ、使い捨てトークンで順序の逆転を解く。
     private var openToken = UUID()
+    /// 窓を作った要求(ContentView の initialRequest)の読み込みの識別子(`open(request:isInitialRequest:)`)。シークレットウインドウへ
+    /// 回したとき、元の窓を閉じてよいのは**この読み込みから回したときだけ**(PrivateRedirect.closesUnusedWindow)。
+    private var initialOpenToken: UUID?
 
     /// open(url:)でstartAccessingSecurityScopedResource()に成功したURL(していなければnil)。
     ///
@@ -1140,14 +1143,17 @@ final class AppState: ObservableObject {
     ///   ここで確実に捨てる。
     /// - Parameter startsSlideshow: 開いた本ですぐスライドショーを始めるか(`pendingStartsSlideshow`参照)。
     ///   `initialEdge`と同じく、指定が無ければ前の操作が積んだ指定をここで捨てる。
+    /// - Parameter isInitialRequest: 窓を作った要求そのものを開く(ContentView の onAppear だけが true)。シークレットウインドウへ
+    ///   回したときに、本を出さないまま残る窓を閉じてよいかの判定に使う(`initialOpenToken`)。
     func open(
         request: BookOpenRequest, reusesExistingWindow: Bool = true,
-        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
+        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false, isInitialRequest: Bool = false
     ) {
         // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、この窓では開かずにシークレットウインドウへ
         // 回す(2026-10-03。この窓は今の中身のまま)。窓を開くのはビューの側なので、頼みだけ出す(privateRedirect)。
         if BookWindowOpener.shouldOpenSecretBookPrivately(request, opensPrivately: isPrivateWindow) {
-            privateRedirect = PrivateRedirect(request: request, initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+            privateRedirect = PrivateRedirect(request: request, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
+                                              closesUnusedWindow: isInitialRequest)
             return
         }
         // ユーザー要望: 同じ本を、同じ性質のウインドウ/タブで二重に開かない。既に開いて
@@ -1225,6 +1231,7 @@ final class AppState: ObservableObject {
 
         let token = UUID()
         openToken = token
+        if isInitialRequest { initialOpenToken = token }
         loadingProgress = BookLoadProgress()
         // 進捗はメインアクター外(BookLoaderの読み込みタスク)から届く。**必ずweakで捕まえる**
         // ―― 読み込みは未接続の外付け/ネットワークボリューム上の本では長く待つため、強参照だと
@@ -1796,6 +1803,10 @@ final class AppState: ObservableObject {
         /// 新しい窓・タブは作られた窓が自分で要求を開くので、渡す口が無い(1 ページ目から、スライドショー無し)。
         var initialEdge: InitialPageEdge?
         var startsSlideshow = false
+        /// 回した後、本を一度も出していない元の窓を閉じてよいか。**窓を作った要求の読み込みから回したときだけ** true
+        /// (2026-10-04 の監査: 以前は窓ごとの「本を開くために作った」だけで決めていたので、最初の本が開けずにホームへ戻った窓から
+        /// 後でシークレットフォルダの本を開くと、利用者が使っていたその窓が閉じた)。
+        var closesUnusedWindow = false
         static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     }
 
@@ -1834,7 +1845,7 @@ final class AppState: ObservableObject {
         restoreState(beforeOpen)
         privateRedirect = PrivateRedirect(
             request: BookOpenRequest(book, recordsInHistory: shelfRequest.recordsInHistory, sequence: shelfRequest.sequence),
-            initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+            initialEdge: initialEdge, startsSlideshow: startsSlideshow, closesUnusedWindow: token == initialOpenToken)
         return true
     }
 

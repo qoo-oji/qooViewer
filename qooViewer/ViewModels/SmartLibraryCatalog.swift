@@ -297,9 +297,9 @@ final class SmartLibraryCatalog: ObservableObject {
             // シークレットフォルダの本は並べない・記録しない・保存しない(catalog.json と corpus.json は本のパスを持つ。
             // SecretFolderStore)。探した結果(`scanned`)には残し、一覧が変わったら探し直さずにここで絞り直す。
             let unfilteredScan = scan
-            let secretFolders = SecretFolderStore.currentAppWideFolders
+            let secretFolders = SecretFolderStore.currentAppWideMatcher
             if !secretFolders.isEmpty {
-                scan.books.removeAll { SecretFolderStore.contains(path: $0.path, in: secretFolders) }
+                scan.books.removeAll { secretFolders.contains(path: $0.path) }
             }
             // 2. 探した本の一覧を記録する(メタデータを作るのはメタデータ生成。記録の残るウインドウが出ている間だけ ――
             //    シークレットウインドウだけで出した本は記録しない。`persistingCount`)。
@@ -381,9 +381,9 @@ final class SmartLibraryCatalog: ObservableObject {
                   !self.hasLoaded, self.books.isEmpty
             else { return }
             // 前回の一覧にシークレットフォルダの本があれば出さない(その後に足したフォルダ。保存し直すのは集め直したとき)。
-            let secretFolders = SecretFolderStore.currentAppWideFolders
+            let secretFolders = SecretFolderStore.currentAppWideMatcher
             self.books = secretFolders.isEmpty ? cached.books
-                : cached.books.filter { !SecretFolderStore.contains(path: $0.id, in: secretFolders) }
+                : cached.books.filter { !secretFolders.contains(path: $0.id) }
             self.isTruncated = cached.isTruncated
             self.revision += 1
             // 読んだものは保存してあるものそのもの。最初の集め直しが同じ一覧なら書き直さない(2026-09-25 の監査。以前は起動のたびに

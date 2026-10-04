@@ -257,7 +257,8 @@ just sensible groups (`FileBrowserMenuCommand.groups(for:)`, pinned by `appSpeci
 are placed by this rule.
 **A tree row gets the same menu as that folder in the right pane** (2026-10-04, user decision; `groups(for: .tree) == groups(for: .folder)`):
 root rows (volumes, Home, Favorite Locations — `FileBrowserMenuContext.isTreeRoot`) dim cut/trash/rename/Quick Look/Edit Metadata, and the three items
-that work on the list's selection (rename, Quick Look, Edit Metadata) first reveal the row in the right pane (`FileBrowserActions.performOnTreeRowInList`).
+that work on the list's selection (rename, Quick Look, Edit Metadata) first reveal the row in the right pane (`FileBrowserActions.performOnTreeRowInList`;
+dimmed on rows with no parent folder, e.g. mount points under /Volumes — `canRevealTreeRowInList`).
 With the tree focused, ⌘C/⌘X/⌘V and ⌘⌫/⌥⌘⌫ act on the selected row (`FileBrowserTreeOutlineView`, `canPerformInTree`); ⌘I/⌃⌘A/⌘Y stay on the list.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
@@ -585,7 +586,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   writes stop; the appearance set and the title mark switch with the shown book (`ContentView.showsAsPrivate`). Paths that write
   a book's path or contents **without opening it** decide by location with `SecretFolderStore.isSecretAppWide` (`BookLoader.load`'s
   page-list cache, file-browser thumbnails, collection adds via `CollectionStore.makePendingItems`, cover extraction/overrides,
-  smart library catalog, metadata generator corpus) — a new such path must check it too. The list lives in `qooViewer.secretFolders`
+  smart library catalog, metadata generator corpus) — a new such path must check it too; code that checks many books in a row builds
+  one `SecretFolderStore.Matcher` and reuses it (per-call matching normalised every folder again: ~0.4 s per 50k books × 5 folders on the
+  main actor, 2026-10-04 audit). The list lives in `qooViewer.secretFolders`
   (not `qooViewer.pref.*`: a settings reset must not silently restart recording) and joins the saved-data JSON with "Settings",
   import only adds. With "Always Open in a Private Window" on, secret books opened from a normal window are routed to a private
   one (tab / replace / new window): window-creating paths (`BookWindowOpener.open`, `QooViewerApp.openInNewWindow`) route

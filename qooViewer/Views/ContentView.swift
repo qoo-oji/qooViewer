@@ -895,7 +895,7 @@ struct ContentView: View {
                 // このウインドウはこの本のために作られたので、既に同じ本を開いている
                 // ウインドウがあっても譲らない(譲ると中身の無いウインドウだけが残る。
                 // そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
-                appState.open(request: initialRequest, reusesExistingWindow: false)
+                appState.open(request: initialRequest, reusesExistingWindow: false, isInitialRequest: true)
                 // 読み込みを始めずに終えた(選んだ画像が多すぎる等)ときは、待たずにホームとエラーを出す。
                 if appState.loadingProgress == nil, appState.currentBook == nil {
                     awaitsInitialBook = false
@@ -1338,8 +1338,10 @@ struct ContentView: View {
                 // この本を開くためだけに作られた窓で、まだ一度も本を出していないなら閉じる。ノーマルの窓を作る所は作る前に回すので、
                 // ここへ来るのは棚を読み替えた先がシークレットフォルダの本だったときぐらい(AppState.open)。判定は AppState の
                 // いまの値で見る(読み込みをやめた知らせ・awaitsInitialBook の書き換えとの順序に頼らない。コードレビューの指摘)。
-                guard wasCreatedForBook, let appState, appState.currentBook == nil, appState.lastOpenedBook == nil,
-                      let window = appState.hostWindow else { return }
+                // **窓を作った要求から回したときだけ**(closesUnusedWindow。2026-10-04 の監査: 最初の本が開けずにホームへ戻った窓から
+                // 後で開いた本を回したときに、使っていた窓が閉じた)。
+                guard redirect.closesUnusedWindow, wasCreatedForBook, let appState, appState.currentBook == nil,
+                      appState.lastOpenedBook == nil, let window = appState.hostWindow else { return }
                 window.alphaValue = 0
                 window.close()
             }))

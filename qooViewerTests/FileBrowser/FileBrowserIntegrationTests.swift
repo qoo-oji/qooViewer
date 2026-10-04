@@ -479,6 +479,16 @@ struct FileBrowserIntegrationTests {
         for command in [FileBrowserMenuCommand.rename, .quickLook, .editMetadata] {
             #expect(!menuEnabled(command, rootRow), "\(command)")
         }
+        // 根ではないが親フォルダの無い行(Volumes の下に並ぶマウントポイント。ここでは `/` で代える)も、右ペインへ出せないので淡色
+        // (2026-10-04 の監査: 押せるのに何も起きなかった)。
+        let mountPoint = FileBrowserEntry(
+            url: URL(fileURLWithPath: "/", isDirectory: true), displayName: "mount", isDirectory: true, isPackage: false,
+            isSymbolicLink: false, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        let mountRow = FileBrowserTreeEditTarget(entry: mountPoint, isRoot: false)
+        for command in [FileBrowserMenuCommand.rename, .quickLook, .editMetadata] {
+            #expect(!menuEnabled(command, mountRow), "\(command)")
+        }
         // キーのゴミ箱(⌘⌫ / ⌥⌘⌫)も根の行ではしない。
         #expect(actions.canPerformInTree(.moveToTrash, on: row))
         #expect(actions.canPerformInTree(.deleteImmediately, on: row))

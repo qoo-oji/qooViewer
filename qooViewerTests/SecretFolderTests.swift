@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -5,7 +6,7 @@ import Testing
 
 /// シークレットフォルダ(2026-10-03。SecretFolderStore、docs/plans/secret-folder-plan.md)。
 ///
-/// アプリの一覧の写し(`SecretFolderStore.appWideFolders`)は共有の状態なので触らない。ここで作るストアは
+/// アプリの一覧の写し(`SecretFolderStore.appWideMatcher`)は共有の状態なので触らない。ここで作るストアは
 /// どれも `isAppWide: false`(既定)で、写しへは書かない。
 @MainActor
 struct SecretFolderTests {
@@ -43,6 +44,31 @@ struct SecretFolderTests {
 
         store.add(paths: ["/var/架空の一時/別"])
         #expect(store.contains(path: "/private/var/架空の一時/別/本.zip"))
+    }
+
+    @Test("使い回す判定(Matcher)は 1 回きりの判定と同じ答え。一覧の変化の知らせの中でも、ストアは新しい一覧で答える(2026-10-04 の監査)")
+    func matcherAgreesAndIsUpdatedBeforePublishing() {
+        // NFD と NFC(濁点・半濁点)も同じ場所として比べる。
+        let folders = ["/架空/秘密", "/private/var/架空の一時/別", "/架空/末尾/", "/架空/ガイド".decomposedStringWithCanonicalMapping]
+        let matcher = SecretFolderStore.Matcher(folders)
+        for path in ["/架空/秘密/本.zip", "/架空/秘密ではない/本.zip", "/var/架空の一時/別/本.zip", "/架空/末尾", "/架空/本.zip",
+                     "/架空/ガイド/本.zip", "/架空/ガイドブック/本.zip", "/架空/秘密"] {
+            #expect(matcher.contains(path: path) == SecretFolderStore.contains(path: path, in: folders), "\(path)")
+        }
+        #expect(SecretFolderStore.Matcher([]).isEmpty && !SecretFolderStore.Matcher([]).contains(path: "/架空/本.zip"))
+        #expect(matcher.contains(path: "/架空/ガイド/本.zip") && !matcher.contains(path: "/架空/ガイドブック/本.zip"))
+        #expect(SecretFolderStore.Matcher(["/"]).contains(path: "/架空/本.zip"))
+
+        // `$folders` は値が替わる前に知らせる。受け手がストアに尋ねても、もう新しい一覧で答える(AppStores の記録し直し)。
+        let store = SecretFolderStore(defaults: nil)
+        var answers: [Bool] = []
+        let subscription = store.$folders.dropFirst().sink { _ in
+            answers.append(store.contains(path: "/架空/秘密/本.zip"))
+        }
+        store.add(URL(fileURLWithPath: "/架空/秘密", isDirectory: true))
+        store.remove("/架空/秘密")
+        subscription.cancel()
+        #expect(answers == [true, false])
     }
 
     @Test("保存して読み直しても残り、名前を変えたフォルダに付いていく")

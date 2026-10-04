@@ -159,7 +159,8 @@ struct SecretFolderSettingsView: View {
     }
 
     private func historyEntries(in folder: String) -> [RecentFilesStore.Entry] {
-        recentFiles.entries.filter { SecretFolderStore.contains(path: $0.path, in: [folder]) }
+        let secret = SecretFolderStore.Matcher([folder])
+        return recentFiles.entries.filter { secret.contains(path: $0.path) }
     }
 
     private func recount() {
@@ -174,7 +175,8 @@ struct SecretFolderSettingsView: View {
         ))
         var result: [String: [String]] = [:]
         for folder in folders {
-            result[folder] = known.filter { SecretFolderStore.contains(path: $0, in: [folder]) }.sorted()
+            let secret = SecretFolderStore.Matcher([folder])
+            result[folder] = known.filter { secret.contains(path: $0) }.sorted()
         }
         savedBookIDsByFolder = result
     }

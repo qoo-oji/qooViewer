@@ -576,27 +576,32 @@ final class AppStores: ObservableObject {
         // シークレットフォルダの本は記録に残さない(corpus.json は本のパスを持つ。SecretFolderStore の型コメント)。
         // 一覧が変わったら、記録済みの中からも外し、外したフォルダのコレクションの本は記録し直す(スマートライブラリの本は
         // 次に集めたときに記録し直される)。
+        // **判定は届いた新しい一覧で**(2026-10-04 の監査): `$folders` は値が替わる前に知らせるので、ストアの一覧を読むと古い一覧で
+        // 判定し、足したフォルダのコレクションの本を外した直後に記録し直していた(corpus.json にパスが残る)。
         secretFolderStore.$folders
             .dropFirst()
             .sink { [weak self] folders in
                 MainActor.assumeIsolated {
-                    self?.metadataCorpusStore.removeBooks(where: { SecretFolderStore.contains(path: $0, in: folders) })
-                    self?.recordCollectionBooks()
+                    let secret = SecretFolderStore.Matcher(folders)
+                    self?.metadataCorpusStore.removeBooks(where: { secret.contains(path: $0) })
+                    self?.recordCollectionBooks(excluding: secret)
                 }
             }
             .store(in: &metadataCorpusSubscriptions)
-        let secretFolders = secretFolderStore.folders
-        metadataCorpusStore.removeBooks(where: { SecretFolderStore.contains(path: $0, in: secretFolders) })
+        let secretFolders = secretFolderStore.matcher
+        metadataCorpusStore.removeBooks(where: { secretFolders.contains(path: $0) })
         recordCollectionBooks()
         // 画面を出すのを先に(起動直後の数秒は、母体を集めて索引を読むのに使わない)。
         metadataGenerator.start(initialDelay: .seconds(2))
     }
 
-    /// コレクションの本の一覧を記録する(ライブラリ機能が ON の間だけ)。
-    private func recordCollectionBooks() {
+    /// コレクションの本の一覧を記録する(ライブラリ機能が ON の間だけ)。シークレットフォルダの本は除く。
+    /// - Parameter secret: 除くフォルダ。nil ならストアのいまの一覧(一覧の変化の知らせの中では、届いた新しい一覧を渡す)。
+    private func recordCollectionBooks(excluding secret: SecretFolderStore.Matcher? = nil) {
         guard preferences.libraryFeatureEnabled else { return }
+        let secret = secret ?? secretFolderStore.matcher
         metadataCorpusStore.recordCollectionBooks(
-            collectionStore.allRegisteredBookIDs().filter { !secretFolderStore.contains(path: $0) })
+            collectionStore.allRegisteredBookIDs().filter { !secret.contains(path: $0) })
     }
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。

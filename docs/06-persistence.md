@@ -410,6 +410,11 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   (こちらは題の本の名前と揃えて `currentBook` で決める)、ノーマルの窓で切り替わったときの知らせ。
 - 同じ本の開き直しでシークレットかが変わったときは、ビューアを作り直す(`ViewerHandoff.viewIdentity` ―― ビューモデルの
   `skipsPersistence` は作るときに決まる)。
+- 判定は `SecretFolderStore.Matcher`(フォルダを NFC・`/private` 抜き・末尾の `/` 抜きにそろえ、UTF-8 のバイト列で比べる)。
+  **何冊も続けて確かめる所は 1 度作って使い回す**(2026-10-04 の監査: 以前は 1 冊ごとにフォルダの側も正規化し直し、正準等価で比べる
+  `String.hasPrefix` で比べていたので、スマートライブラリの集め直し・メタデータ生成のたびにメインで 5 万冊・5 フォルダあたり約 0.4 秒。
+  いまは約 0.07 秒)。ストアの `matcher` は `folders` より先に替える(`$folders` の知らせは値が替わる前に届くので、受け手が尋ねても
+  新しい一覧で答える。受け手の `AppStores` の記録し直しも、届いた一覧で判定する)。
 - 本を開かずに書く所は場所で断る(`SecretFolderStore.isSecretAppWide`。アプリの一覧の写しで、テストの作ったストアは書かない):
   `BookLoader.load` のページ一覧キャッシュ(全経路が通る 1 か所)、ファイルブラウザの絵のディスクキャッシュ
   (`FileBrowserThumbnailProvider`)、動画の絵の先作り、コレクションへの追加(`CollectionStore.makePendingItems` と自動登録フォルダ。
@@ -433,7 +438,9 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   - 今の窓で開く所(`AppState.open`。次/前の本・サイドパネル・ホーム・ドロップ・履歴・Finder からの使い回し)は窓を作らないので、
     `AppState.privateRedirect` を出し、`ContentView` が受けて `BookWindowOpener.openSecretBookPrivately` を呼ぶ(`OpenWindowAction`
     は AppState に持たせない約束)。棚を読み替えた先がシークレットフォルダの本だったときもここで分かる(本を開くためだけに作られた
-    窓で、まだ一度も本を出していなければ閉じる。この形だけは窓が一瞬出る。棚の EPUB を飛ばして進んだ先も見る。棚のフォルダの
+    窓で、まだ一度も本を出していなければ閉じる ―― **閉じるのは窓を作った要求の読み込みから回したときだけ**(`PrivateRedirect.
+    closesUnusedWindow`。2026-10-04 の監査: 最初の本が開けずにホームへ戻った窓から後で開いた本を回したとき、使っていた窓が閉じた)。
+    この形だけは窓が一瞬出る。棚の EPUB を飛ばして進んだ先も見る。棚のフォルダの
     アクセスは `SecurityScopedHandoff` で回した先へ渡す)。着地の指定(前の本の最後のページへ等)とスライドショーは、今ある
     シークレットウインドウで入れ替えるときだけ引き継ぐ(新しい窓・タブは自分で要求を開くので渡す口が無い)。
   - 設定は static(`AppPreferences.opensSecretFolderBooksPrivately` / `currentSecretFolderPrivatePlacement`)で読む。窓を作る所が

@@ -33,28 +33,62 @@ final class SecretFolderStore: ObservableObject {
 
     /// nil なら保存しない(テストの中のアプリ・テスト)。
     private let defaults: UserDefaults?
-    /// アプリに 1 つのストアか。真なら一覧を `appWideFolders` にも写す。知らせを受ける側は、テストの作ったストアの知らせを
+    /// アプリに 1 つのストアか。真なら一覧を `appWideMatcher` にも写す。知らせを受ける側は、テストの作ったストアの知らせを
     /// これで見分けて無視する。
     nonisolated let isAppWideStore: Bool
 
     /// - Parameters:
     ///   - defaults: 保存先。nil ならメモリの上だけ。**既定は nil** ―― 省いて作ったストアが実物の `UserDefaults.standard` を
     ///     書き換えないように(テストは共有の状態に触らない。CLAUDE.md)。アプリ(`AppStores`)は `.standard` を渡す。
-    ///   - isAppWide: アプリに 1 つのもの(`AppStores`)。真なら一覧を `appWideFolders` にも写す。テストの中で作ったストアは写さない
+    ///   - isAppWide: アプリに 1 つのもの(`AppStores`)。真なら一覧を `appWideMatcher` にも写す。テストの中で作ったストアは写さない
     ///     (共有の状態に触らない)。
     init(defaults: UserDefaults? = nil, isAppWide: Bool = false) {
         self.defaults = defaults
         isAppWideStore = isAppWide
         folders = (defaults?.stringArray(forKey: Self.defaultsKey) ?? []).map(MountTable.normalized)
-        if isAppWideStore { Self.appWideFolders.withLock { [folders] in $0 = folders } }
+        matcher = Matcher(folders)
+        if isAppWideStore { Self.appWideMatcher.withLock { [matcher] in $0 = matcher } }
     }
 
     // MARK: - 判定
 
-    /// アプリの一覧の写し。ストアを受け取れない所(本を読み込むタスク・ファイルブラウザの絵・裏の仕事)が読む。
-    nonisolated static let appWideFolders = Mutex<[String]>([])
-    /// アプリの一覧の写しの、いまの値。
-    nonisolated static var currentAppWideFolders: [String] { appWideFolders.withLock { $0 } }
+    /// アプリの一覧の写し(比べる形にしたもの)。ストアを受け取れない所(本を読み込むタスク・ファイルブラウザの絵・裏の仕事)が読む。
+    nonisolated static let appWideMatcher = Mutex<Matcher>(Matcher([]))
+    /// アプリの一覧の写しの、いまの値。何冊も続けて確かめる所は、これを 1 度取って使い回す。
+    nonisolated static var currentAppWideMatcher: Matcher { appWideMatcher.withLock { $0 } }
+
+    /// この一覧を比べる形(`comparable`)にしたもの。**何冊も続けて確かめる所は 1 度作って使い回す**(2026-10-04 の監査:
+    /// 以前は 1 冊ごとにフォルダの側も正規化し直し、`String` の `hasPrefix`(正準等価で比べるので遅い)で比べていたので、
+    /// スマートライブラリの集め直し・メタデータ生成のたびに、メインで 5 万冊・5 フォルダあたり約 0.4 秒かかっていた。
+    /// 両側とも NFC にそろえてあるので、比べるのは UTF-8 のバイト列でよい ―― 同じ条件で約 0.07 秒)。
+    nonisolated struct Matcher: Sendable, Equatable {
+        /// 比べる形のフォルダの UTF-8。
+        private let folders: [[UInt8]]
+
+        init(_ folders: [String]) {
+            self.folders = folders.map { Array(SecretFolderStore.comparable($0).utf8) }
+        }
+
+        var isEmpty: Bool { folders.isEmpty }
+
+        /// `path` がどれかのフォルダそのものか、その中にあるか(`MountTable.path(_:isAtOrUnder:)` と同じ規則を、バイト列で)。
+        func contains(path: String) -> Bool {
+            guard !folders.isEmpty else { return false }
+            let target = Array(SecretFolderStore.comparable(path).utf8)
+            return folders.contains { Self.bytes(target, areAtOrUnder: $0) }
+        }
+
+        private static let slash = UInt8(ascii: "/")
+
+        private static func bytes(_ path: [UInt8], areAtOrUnder ancestor: [UInt8]) -> Bool {
+            if ancestor == [slash] { return path.first == slash }
+            guard path.count >= ancestor.count, path.starts(with: ancestor) else { return false }
+            return path.count == ancestor.count || path[ancestor.count] == slash
+        }
+    }
+
+    /// 比べる形にしたこの一覧(`folders` を変えるたびに作り直す)。
+    private(set) var matcher = Matcher([])
 
     /// 比べるための形。**`/private/var`・`/private/tmp` と `/var`・`/tmp` を同じものとして扱う**(2026-10-03、CI で判明):
     /// `standardizedFileURL` は実在するときだけ `/private` を外す(実在依存)ので、フォルダを足した経路と本の bookID
@@ -64,21 +98,19 @@ final class SecretFolderStore: ObservableObject {
         BookExistenceProbe.comparablePath(MountTable.normalized(path))
     }
 
-    /// `path` がシークレットフォルダそのものか、その中(サブフォルダを含む)にあるか。
+    /// `path` がシークレットフォルダそのものか、その中(サブフォルダを含む)にあるか(1 回きりの判定。続けて確かめるなら `Matcher`)。
     nonisolated static func contains(path: String, in folders: [String]) -> Bool {
-        guard !folders.isEmpty else { return false }
-        let target = comparable(path)
-        return folders.contains { MountTable.path(target, isAtOrUnder: comparable($0)) }
+        Matcher(folders).contains(path: path)
     }
 
     /// アプリの一覧の写しで確かめる。
     nonisolated static func isSecretAppWide(path: String) -> Bool {
-        contains(path: path, in: currentAppWideFolders)
+        appWideMatcher.withLock { $0.contains(path: path) }
     }
 
     nonisolated static func isSecretAppWide(_ url: URL) -> Bool { isSecretAppWide(path: url.path) }
 
-    func contains(path: String) -> Bool { Self.contains(path: path, in: folders) }
+    func contains(path: String) -> Bool { matcher.contains(path: path) }
 
     /// そのフォルダが一覧にそのまま載っているか(右クリックの「追加」と「外す」の切り替え)。
     func isListed(_ url: URL) -> Bool {
@@ -135,8 +167,11 @@ final class SecretFolderStore: ObservableObject {
     }
 
     private func setFolders(_ updated: [String]) {
+        // 比べる形を先に作り直す(`$folders` の知らせは値が替わる前に届く ―― 受け手が `contains` を呼んでも新しい一覧で答える)。
+        let updatedMatcher = Matcher(updated)
+        matcher = updatedMatcher
+        if isAppWideStore { Self.appWideMatcher.withLock { $0 = updatedMatcher } }
         folders = updated
-        if isAppWideStore { Self.appWideFolders.withLock { $0 = updated } }
         defaults?.set(updated, forKey: Self.defaultsKey)
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }

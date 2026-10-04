@@ -628,6 +628,16 @@ extension FileBrowserActions {
         }
     }
 
+    /// ツリーの行を右ペインへ出せるか(`performOnTreeRowInList` の前提)。根の行(`isTreeRoot`)と、親フォルダの無い行は出せない ――
+    /// 隠しファイルを表示しているときに Macintosh HD ▸ Volumes の下に並ぶボリュームの行(マウントポイント)は、根ではない
+    /// ふつうのフォルダの行だが、右ペインの一覧ではボリュームとして「コンピュータ」に並ぶので親フォルダが無い(2026-10-04 の監査:
+    /// 押せるのに何も起きなかった)。ツリー以外の一覧の行は、いつも右ペインにあるので出せる。
+    static func canRevealTreeRowInList(_ context: FileBrowserMenuContext) -> Bool {
+        guard context.kind == .tree else { return true }
+        guard !context.isTreeRoot, context.entries.count == 1, let entry = context.entries.first else { return false }
+        return FileBrowserState.parent(of: entry.url) != nil
+    }
+
     /// ツリーの行の右クリックの「名前を変更」「クイックルック」「メタデータの編集…」(2026-10-04、利用者の決定)。3 つとも**右ペインの一覧の
     /// 選択**を相手にする仕組み(名前の欄は一覧の行にだけある・クイックルックのパネルは一覧が受ける・インスペクタは一覧の選択を見せる)なので、
     /// 右ペインをその行の親フォルダへ移してその行を選び(`FileBrowserState.reveal`。「戻る」で元のフォルダへ戻れる)、読み終えてから一覧の
@@ -638,7 +648,11 @@ extension FileBrowserActions {
     /// - Returns: 移って行うまでの Task(**テストのための口**)。
     @discardableResult
     func performOnTreeRowInList(_ command: FileBrowserMenuCommand, _ entry: FileBrowserEntry) -> Task<Void, Never>? {
-        guard let state, let parent = FileBrowserState.parent(of: entry.url) else { return nil }
+        guard let state, let parent = FileBrowserState.parent(of: entry.url) else {
+            // 淡色にしてあるので来ないはず(`canRevealTreeRowInList`)。来たら黙らずに鳴らす。
+            NSSound.beep()
+            return nil
+        }
         let parentKey = FileBrowserState.location(of: parent).selectionKey
         state.reveal(entry.url)
         return Task { [weak self, weak state] in
@@ -911,7 +925,7 @@ enum FileBrowserMenuCommand {
             return actions.canCopyPathnames(entries)
         case .editMetadata:
             // ツリーの根の行は右ペインへ出せないことがある(`performOnTreeRowInList`)。
-            return !context.isTreeRoot && actions.allowsSaving && actions.canUseAsSingleBook(entries)
+            return FileBrowserActions.canRevealTreeRowInList(context) && actions.allowsSaving && actions.canUseAsSingleBook(entries)
         case .exportBook:
             return actions.canUseAsSingleBook(entries) && actions.state?.bookSheet == nil
         case .compress, .compressHere, .compressTo:
@@ -923,6 +937,7 @@ enum FileBrowserMenuCommand {
             // ツリーの根(ボリューム・ホーム・よく使う項目)は移さない・消さない・名前を変えない(`canPerformInTree` と同じ。根を移すと
             // ツリーの根そのものが動く。ホームをゴミ箱に入れる項目を押せる状態にしない。名前の変更は右ペインへ出せないことがある)。
             if context.isTreeRoot { return false }
+            if self == .rename, !FileBrowserActions.canRevealTreeRowInList(context) { return false }
             return actions.canChange(entries)
         case .copy:
             return actions.canModify(entries)
@@ -940,7 +955,7 @@ enum FileBrowserMenuCommand {
         case .showInFinder, .getInfo:
             return !entries.isEmpty
         case .quickLook:
-            return !context.isTreeRoot && !entries.isEmpty
+            return FileBrowserActions.canRevealTreeRowInList(context) && !entries.isEmpty
         case .makeAlias:
             return actions.canMakeAlias(entries)
         case .secretFolder:
