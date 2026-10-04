@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import CoreGraphics
 import SwiftUI
@@ -203,6 +204,8 @@ struct CollectionGridView: View {
                 // メニューの値を作った後で並びが変わっていることがあるので、いま出ているものに絞る(監査 H-1)。
                 let shown = Set(collections.map(\.id))
                 deletingCollectionIDs = ids.filter(shown.contains)
+                // 1 つも残らなければ鳴らす(メニューを押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
+                if deletingCollectionIDs.isEmpty { NSSound.beep() }
             case .focusSearch:
                 isSearchFocused = true
             default:

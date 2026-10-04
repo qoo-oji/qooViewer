@@ -49,11 +49,21 @@ final class ShelfCoverExportViewModel: ObservableObject {
     /// **一部だけを選んで書き出しても名前は変えない** ―― 一覧に出ている名前と、実際にzipへ
     /// 入る名前が食い違わないほうが分かりやすい(同じ名前の本が複数ある場合に、選ばなかった
     /// ぶんの番号が飛ぶことはある)。
-    func reload() {
+    ///
+    /// - Parameter keepingSelection: 今のチェックを残す(書き出したあと)。残っている行は今のチェックのまま、新しく現れた行だけ
+    ///   既定どおりチェックを付ける。以前は書き出しのたびに全部へ戻り、一部だけを選んで書き出した直後に別の zip を作ると全部が
+    ///   入った(2026-10-04 のレビューの R1-3)。false(開き直したとき)は既定の「全部」へ。
+    func reload(keepingSelection: Bool = false) {
+        let previousIDs = Set(rows.map(\.bookID))
         rows = layoutStore.shelfCoverArchiveEntries().map {
             Row(bookID: $0.bookID, fileName: $0.fileName, sourceURL: $0.sourceURL)
         }
-        selectedBookIDs = Set(rows.map(\.bookID))
+        let currentIDs = Set(rows.map(\.bookID))
+        if keepingSelection {
+            selectedBookIDs = selectedBookIDs.intersection(currentIDs).union(currentIDs.subtracting(previousIDs))
+        } else {
+            selectedBookIDs = currentIDs
+        }
     }
 
     /// ウインドウが出ているか(`setPresented`)。ViewModel を作るのは最初に出たときなので、「出ている」から始める。
@@ -148,7 +158,7 @@ final class ShelfCoverExportViewModel: ObservableObject {
                 error.localizedDescription
             )
         }
-        // 書き出している間に変わった表紙(消した・設定した)を一覧へ映す(`reload` のコメント)。結果の文言は残す。
-        reload()
+        // 書き出している間に変わった表紙(消した・設定した)を一覧へ映す(`reload` のコメント)。結果の文言とチェックは残す。
+        reload(keepingSelection: true)
     }
 }

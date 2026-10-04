@@ -115,6 +115,26 @@ nonisolated enum ExternalOpenPreparation {
         return Prepared(request: BookOpenRequest(book, sequence: sequence), skipped: found.skipped)
     }
 
+    /// 「新規ウインドウで開く…」の下調べの答え(`prepareForNewWindow`)。
+    enum NewWindowOpen: Sendable {
+        /// この要求で新しい窓を作る。
+        case open(BookOpenRequest)
+        /// 開けるものが無い。**窓を作らず**、この文で知らせる。
+        case refuse(message: String)
+    }
+
+    /// 「新規ウインドウで開く…」(本の窓に焦点が無いときの ⌘O も)の下調べ。`prepare` を通し、要求が無ければ窓を作らずに知らせる文を
+    /// 返す(2026-10-04 の監査 O-6)。パネルで選んだ後の決め方をここへ出したのは、テストが**メニューの通る道**で確かめられるように
+    /// (2026-10-04 のレビューの R6-6 ―― 以前のテストは `prepare` の規則だけを見ていて、メニューが下調べ前の要求で窓を作る形に
+    /// 戻っても通った)。ファイルに触るので `FileIO` の上で呼ぶ。本でないので並びに入れなかった数は知らせない(docs/04)。
+    static func prepareForNewWindow(_ urls: [URL], order: SiblingBookOrder, locale: Locale) -> NewWindowOpen {
+        if let request = prepare(urls, order: order).request { return .open(request) }
+        let message = urls.count == 1
+            ? String(format: String(localized: "“%@” can’t be opened as a book.", language: locale), urls[0].lastPathComponent)
+            : String(localized: "None of the items can be opened as a book.", language: locale)
+        return .refuse(message: message)
+    }
+
     /// シークレットウインドウへ回した要求が連れていった本のパス(`prepare` の `routed` へ足すもの)。要求の本だけでなく、**一緒に
     /// 回した並びの本すべて** ―― 回した先の窓が「次の本」でたどる(2026-10-04 のレビューの R6-3。以前は要求の本だけを控えたので、
     /// Finder でシークレットフォルダの本 2 冊とふつうの本を一緒に開くと、種類ごとに分かれて届いたまとめ直しの回で並びの 2 冊目が

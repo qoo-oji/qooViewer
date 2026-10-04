@@ -205,8 +205,18 @@ struct LayoutStoreTests {
         #expect(library.pageStates(forBookID: second.book.id).count == 1)
     }
 
-    @Test("レイアウトを消しても、コレクション表紙・切り出し位置・書き出し用のカバー・補正は残る(2026-10-04 の監査 BE-2)")
-    func discardingTheLayoutKeepsCoversAndCorrection() async throws {
+    /// 利用者がレイアウトを消す 3 つの操作(呼び出し側が使う `BookDataDeletion` の入口)。
+    enum DiscardingOperation: CaseIterable, Sendable {
+        case deleteLayout, deleteBookmarksAndLayout, cleanUpAfterExport
+    }
+
+    @Test(
+        "利用者がレイアウトを消す操作は、コレクション表紙・切り出し位置・書き出し用のカバー・補正を残す(2026-10-04 の監査 BE-2、レビューの R1-4)",
+        arguments: DiscardingOperation.allCases
+    )
+    func discardingTheLayoutKeepsCoversAndCorrection(_ operation: DiscardingOperation) async throws {
+        // 以前のテストは `discardPageLayout` そのものを呼んでいたので、呼び出し側(編集ウインドウの 2 つの確認・書き出し後の
+        // 片付け)が行ごと消す形に戻っても通った。呼び出し側が通る `BookDataDeletion` から確かめる(レビューの R1-4)。
         let library = try InMemoryLibrary(label: "layout-discard-keeps-covers")
         defer { library.close() }
         let source = try await makeSource("layout-discard-keeps-covers")
@@ -219,8 +229,21 @@ struct LayoutStoreTests {
         library.layouts.setCoverPageKey(for: book, pageKey: source.keys[2], displayName: "003.jpg")
         library.layouts.setCoverCropAnchor(forBookID: book.id, sourceURL: book.sourceURL, anchor: .center)
         library.layouts.setContrastCorrectionEnabled(for: book, true)
+        library.bookmarks.addBookmark(bookID: book.id, pageIndex: 0, pageKey: source.keys[0], name: "印")
 
-        library.layouts.discardPageLayout(forBookID: book.id)
+        switch operation {
+        case .deleteLayout:
+            BookDataDeletion.deleteLayout(forBookID: book.id, layoutStore: library.layouts)
+        case .deleteBookmarksAndLayout:
+            BookDataDeletion.deleteBookmarksAndLayout(
+                forBookID: book.id, bookmarkStore: library.bookmarks, layoutStore: library.layouts
+            )
+        case .cleanUpAfterExport:
+            BookDataDeletion.deleteAfterExport(
+                forBookID: book.id, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+                metadataStore: library.metadata
+            )
+        }
 
         let row = try #require(settings(library, book), "行ごと消えた(表紙・切り出し位置・補正も失われる)")
         #expect(row.isBookLevelSettingEmpty)
@@ -232,6 +255,7 @@ struct LayoutStoreTests {
         #expect(row.coverPageKey == source.keys[2])
         #expect(row.coverCropAnchor == .center)
         #expect(row.contrastCorrectionEnabled)
+        #expect(library.bookmarkRows(forBookID: book.id).count == (operation == .deleteLayout ? 1 : 0))
 
         // 「その本の保存データをすべて消す」ほうは行ごと。
         library.layouts.deleteLayoutRow(forBookID: book.id)

@@ -179,19 +179,33 @@ struct HomeInteractionTests {
     }
 
     /// 2026-10-04 の監査 O-6。「新規ウインドウで開く…」は以前、本が 1 冊も見つからないと下調べ前の要求のまま窓を作ってエラーを出した。
-    /// 今は Dock・Finder と同じ下調べを通し、要求が無ければ窓を作らない。
-    @Test("「新規ウインドウで開く…」の下調べ: 空のフォルダ 1 つ・本でないものだけなら要求を作らない(窓を作らずに知らせる)")
+    /// 今は Dock・Finder と同じ下調べを通し、要求が無ければ窓を作らない。メニューがパネルの後に呼ぶ `prepareForNewWindow` を通す
+    /// (2026-10-04 のレビューの R6-6 ―― 以前のテストは `prepare` の規則だけを見ていた)。パネルと窓を作るところは実機で確かめる。
+    @Test("「新規ウインドウで開く…」の下調べ: 空のフォルダ 1 つ・本でないものだけなら窓を作らずに知らせ、本なら開く")
     func newWindowOpenRefusesNonBooksBeforeMakingAWindow() throws {
         let temporary = try TemporaryDirectory("new-window-open")
         let empty = try temporary.directory("empty")
         let note = temporary.file("readme.txt")
         try Data("memo".utf8).write(to: note)
+        let book = temporary.file("book.cbz")
+        try makeArchive(book, number: 1)
+        let locale = Locale(identifier: "en")
 
-        let emptyOnly = ExternalOpenPreparation.prepare([empty], order: .byName)
-        #expect(emptyOnly.request == nil)
-        let nonBooks = ExternalOpenPreparation.prepare([empty, note], order: .byName)
-        #expect(nonBooks.request == nil)
-        #expect(nonBooks.skipped == 2)
+        guard case .refuse(let single) = ExternalOpenPreparation.prepareForNewWindow([empty], order: .byName, locale: locale) else {
+            Issue.record("空のフォルダ 1 つで窓を作ろうとした")
+            return
+        }
+        #expect(single == String(format: String(localized: "“%@” can’t be opened as a book.", language: locale), "empty"))
+        guard case .refuse(let several) = ExternalOpenPreparation.prepareForNewWindow([empty, note], order: .byName, locale: locale) else {
+            Issue.record("本でないものだけで窓を作ろうとした")
+            return
+        }
+        #expect(several == String(localized: "None of the items can be opened as a book.", language: locale))
+        guard case .open(let request) = ExternalOpenPreparation.prepareForNewWindow([empty, book], order: .byName, locale: locale) else {
+            Issue.record("本を開かなかった")
+            return
+        }
+        #expect(request.urls.map(\.lastPathComponent) == ["book.cbz"])
     }
 
     @Test("まとめ直しの回は、先の回でシークレットウインドウへ回した本を入れない。全部が回した本なら何も開かず、数えもしない(O-9)")

@@ -384,19 +384,24 @@ final class CollectionStore: ObservableObject {
     ///
     /// **絞り込んでから並べる**(並べてから絞ると、「タイトル」順で一致しない本のぶんまで
     /// タイトルを求めることになる)。
+    ///
+    /// `keeping` の bookID の本は、検索に当たらなくても残す(インスペクタで直している本。直した題で検索から外れても、欄に焦点が
+    /// ある間は一覧と選択に残す ―― `WelcomeLibraryState.bookKeptWhileEditing`。2026-10-04 のレビューの R2-2)。
     func items(
-        in collection: BookCollection, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
+        in collection: BookCollection, sort: FavoritesSortOption, matching query: LibrarySearchQuery?,
+        keeping keptBookID: String? = nil
     ) -> [CollectionItem] {
         // 同じ描き直しの中で何度も求められる(コレクションの中の一覧は body の中で見出し・件数・格子・マーキーの範囲・右クリックの
         // 対象のために 5〜6 回、選んだセルごとの右クリックメニューでも)ので、控えから返す(`itemsMemo` のコメント)。
+        let kept = query == nil ? nil : keptBookID
         let key = ItemsMemoKey(
-            collectionID: collection.id, sort: sort, terms: query?.terms, revision: revision,
+            collectionID: collection.id, sort: sort, terms: query?.terms, keptBookID: kept, revision: revision,
             fileDatesRevision: fileDatesRevision, titleToken: titleResolver.stateToken
         )
         if let memoized = itemsMemo[key] { return memoized }
         let result: [CollectionItem]
         if let query {
-            result = sorted(collection.items.filter { itemMatches($0, query: query) }, sort: sort)
+            result = sorted(collection.items.filter { $0.bookID == kept || itemMatches($0, query: query) }, sort: sort)
         } else {
             result = items(in: collection, sort: sort)
         }
@@ -418,6 +423,7 @@ final class CollectionStore: ObservableObject {
         let collectionID: UUID
         let sort: FavoritesSortOption
         let terms: [String]?
+        let keptBookID: String?
         let revision: UInt64
         let fileDatesRevision: UInt64
         let titleToken: String

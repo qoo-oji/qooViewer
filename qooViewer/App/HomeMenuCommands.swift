@@ -302,7 +302,8 @@ struct HomeMenuItems: View {
         // 表示中 ∩ 選択)と重なるものだけを動かす(2026-10-04、監査 H-1 ―― 見えていない棚を動かさない)。
         let live = Set(welcome.openedCollectionID.map { [$0] } ?? welcome.targetCollectionIDs)
         let collections = home.collectionTargets.filter(live.contains).compactMap { collectionStore.collection(withID: $0) }
-        guard collectionStore.move(collections, to: target) else { return }
+        // 1 つも残らない・名前が衝突して断られたら鳴らす(押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
+        guard !collections.isEmpty, collectionStore.move(collections, to: target) else { return NSSound.beep() }
         // 開いていたコレクションを移したら一覧へ戻り、移したものを選択から外す(右クリックと共通。WelcomeLibraryState.collectionsMovedAway)。
         welcome.collectionsMovedAway(Set(collections.map(\.id)))
     }

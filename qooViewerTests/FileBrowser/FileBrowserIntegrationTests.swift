@@ -1115,6 +1115,18 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canAddToSmartLibrary([shelf]))
     }
 
+    @Test("本のフォルダとシークレットフォルダを混ぜて断ったとき、題は本の名前だけ、シークレットの分は説明に添える(2026-10-04 のレビューの R6-5)")
+    func smartTargetRefusalSeparatesBooksFromSecretFolders() {
+        let locale = Locale(identifier: "en")
+        let secret = URL(fileURLWithPath: "/架空/秘密", isDirectory: true)
+        let problem = FileBrowserActions.bookFolderCannotBeSmartTarget(names: ["pages"], secretRefused: [secret], locale: locale)
+        #expect(problem.title == FileBrowserActions.bookFolderCannotBeSmartTarget(names: ["pages"], locale: locale).title)
+        #expect(problem.message.hasSuffix(SmartLibraryTargetAdding.secretRefusedMessage([secret], locale: locale)))
+        // シークレットフォルダが無ければ、説明は今までのまま。
+        #expect(!FileBrowserActions.bookFolderCannotBeSmartTarget(names: ["pages"], locale: locale).message.contains("\n"))
+        // 配線(断った本だけの名前を渡す)は、アプリ全体のシークレットフォルダの一覧(共有の状態)に頼るのでテストしていない。
+    }
+
     @Test("「パス名をコピー」はパスを文字列で載せる(複数なら 1 行に 1 つ)。読み取り専用でも使え、ペーストは淡色になる")
     func copyPathnames() throws {
         let fixture = try Fixture("fb-copy-pathname")

@@ -546,17 +546,30 @@ struct HomeInspectorMetadataSection: View {
     }
 
     /// スマートライブラリで選んでいる本を直している間は、絞り込みから外れても並びに残させる(2026-10-04 の監査 SL-3・決定 5)。
-    /// 焦点が離れたら戻す(書いた値で絞り直されるのは集め直しの後)。ほかの画面(ファイルブラウザ・ライブラリ)の欄では何もしない。
+    /// 本棚(コレクションの中)も同じ ―― 直した題で検索から外れても残させる(2026-10-04 のレビューの R2-2。
+    /// `WelcomeLibraryState.bookKeptWhileEditing`)。焦点が離れたら戻す(書いた値で絞り直されるのはその後)。ファイルブラウザの欄では
+    /// 何もしない(並びはメタデータで絞らない)。
     /// 残させた本の id は控えておき、戻すときはそれを渡す(その間に本が付け替えられて `targetBookID` が変わっていても戻せるように)。
+    /// 戻すのは両方へ(戻す側は自分が残している本のときだけ外す)。焦点がある間に画面が移っても取り残さないように。
     private func updateKeptBook(isFocused: Bool) {
-        guard let smartLibrary = appState.smartLibrary else { return }
-        if isFocused, home.mode == .smart {
+        if isFocused, home.mode == .smart || home.mode == .shelf {
+            guard keptBookID != targetBookID else { return }
+            if let previous = keptBookID { stopKeeping(previous) }
             keptBookID = targetBookID
-            smartLibrary.keepWhileEditing(targetBookID)
-        } else if let kept = keptBookID {
+            if home.mode == .smart {
+                appState.smartLibrary?.keepWhileEditing(targetBookID)
+            } else {
+                home.keepWhileEditing(targetBookID)
+            }
+        } else if !isFocused, let kept = keptBookID {
             keptBookID = nil
-            smartLibrary.stopKeepingWhileEditing(kept)
+            stopKeeping(kept)
         }
+    }
+
+    private func stopKeeping(_ bookID: String) {
+        appState.smartLibrary?.stopKeepingWhileEditing(bookID)
+        home.stopKeepingWhileEditing(bookID)
     }
 
     /// 欄を DB へ書く。**変えた欄だけを「直した欄」にする**(ほかの欄はファイル名の読みに付いていく。メタデータの編集

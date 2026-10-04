@@ -505,16 +505,22 @@ nonisolated enum SmartGrouping: String, Codable, CaseIterable, Hashable, Sendabl
     /// 束の 1 冊目の題の位置、最後に読んだ日の順なら最近読んだ本の位置)。2 冊以上ある束だけを作り、1 冊だけなら
     /// そのまま 1 冊として置く(束を開いても 1 冊しか無いのは手間なだけ)。束の中は シリーズ → 巻 の順
     /// (著者の束でも、同じシリーズの巻が並ぶように)。
-    func grouped(_ books: [SmartBook]) -> [SmartGridItem] {
+    ///
+    /// `keepingSeparate` の本は束に入れず、1 冊として自分の位置に置く(インスペクタで直している本が束へ隠れないように ――
+    /// `SmartLibraryViewState.recompute`。2026-10-04 のレビューの R2-1)。
+    func grouped(_ books: [SmartBook], keepingSeparate separateID: String? = nil) -> [SmartGridItem] {
         guard self != .none else { return books.map(SmartGridItem.book) }
+        func groupKey(of book: SmartBook) -> String? {
+            book.id == separateID ? nil : key(of: book)
+        }
         var membersByKey: [String: [SmartBook]] = [:]
         for book in books {
-            if let key = key(of: book) { membersByKey[key, default: []].append(book) }
+            if let key = groupKey(of: book) { membersByKey[key, default: []].append(book) }
         }
         var emitted = Set<String>()
         var result: [SmartGridItem] = []
         for book in books {
-            guard let key = key(of: book), let members = membersByKey[key], members.count >= 2 else {
+            guard let key = groupKey(of: book), let members = membersByKey[key], members.count >= 2 else {
                 result.append(.book(book))
                 continue
             }

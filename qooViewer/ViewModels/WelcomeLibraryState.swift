@@ -383,6 +383,26 @@ final class WelcomeLibraryState: ObservableObject {
         }
     }
 
+    /// インスペクタのメタデータの欄に焦点がある間、コレクションの中の検索から外れても並びに残す本(bookID。2026-10-04 のレビューの R2-2)。
+    ///
+    /// コレクションの中の検索はメタデータの題も照合するので、インスペクタで題を直して検索から外れると、並びの変化で `showItems` が
+    /// 選択を絞り、インスペクタが「選択されていません」になって次の欄の焦点と打ちかけの文字が消えた(監査 H-1 の直しの副作用)。
+    /// スマートライブラリの `SmartLibraryViewState.bookKeptWhileEditing`(監査 SL-3)と同じ決まり: 欄に焦点がある間は残し
+    /// (`CollectionStore.items(in:sort:matching:keeping:)`)、焦点が離れたらふつうに絞る。
+    @Published private(set) var bookKeptWhileEditing: String?
+
+    /// 欄に焦点が入った(`HomeInspectorMetadataSection`)。
+    func keepWhileEditing(_ bookID: String) {
+        guard bookKeptWhileEditing != bookID else { return }
+        bookKeptWhileEditing = bookID
+    }
+
+    /// 欄から焦点が離れた・欄が消えた。ほかの本の欄が既に入れ替えていれば何もしない。
+    func stopKeepingWhileEditing(_ bookID: String) {
+        guard bookKeptWhileEditing == bookID else { return }
+        bookKeptWhileEditing = nil
+    }
+
     /// 一覧で操作の相手にするコレクション = **表示中 ∩ 選択**(表示順)。ゴミ箱・ホームメニュー・インスペクタはこれを読む
     /// (右クリックの `contextTargets`・Return・⌘C は前から表示中の並びから引いていた)。並びが変わるたびに選択は絞られるが、
     /// 絞る前の一瞬(ストアの変化から画面の onChange まで)にも隠れたものを相手にしないよう、読む側でも交わりを取る。

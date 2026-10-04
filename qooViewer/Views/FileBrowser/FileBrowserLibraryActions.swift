@@ -174,7 +174,8 @@ extension FileBrowserActions {
     func addToSmartLibrary(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard canAddToSmartLibrary(entries), let smartLibraryStore else { return nil }
         let urls = entries.map { effective($0).url }
-        let names = entries.filter { !smartLibraryStore.containsFolder(effective($0).url) }.map(\.displayName)
+        // 断った本のフォルダを、一覧に出ている名前で言うため(下の `bookFolderCannotBeSmartTarget`)。
+        let nameByURL = Dictionary(entries.map { (effective($0).url, $0.displayName) }, uniquingKeysWith: { first, _ in first })
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         return Task { [weak self, weak smartLibraryStore] in
             guard let smartLibraryStore, let result = await SmartLibraryTargetAdding.add(
@@ -189,7 +190,13 @@ extension FileBrowserActions {
                 if result.refusedBooks.isEmpty, !result.refusedSecret.isEmpty {
                     self.state?.showToast(SmartLibraryTargetAdding.secretRefusedMessage(result.refusedSecret, locale: locale))
                 } else {
-                    self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(names: names, locale: locale))
+                    // 「本なので足せない」と言うのは本だったフォルダだけ。シークレットフォルダも一緒に選んでいたら、それは別の理由
+                    // として添える(以前は選んだフォルダの名前を全部並べ、シークレットフォルダも「本」と書いた。2026-10-04 の
+                    // レビューの R6-5)。
+                    let names = result.refusedBooks.map { nameByURL[$0] ?? FileManager.default.displayName(atPath: $0.path) }
+                    self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(
+                        names: names, secretRefused: result.refusedSecret, locale: locale
+                    ))
                 }
                 return
             }
@@ -202,15 +209,19 @@ extension FileBrowserActions {
         }
     }
 
-    static func bookFolderCannotBeSmartTarget(names: [String], locale: Locale) -> FileBrowserProblem {
+    /// - Parameter secretRefused: 一緒に選んでいて、シークレットフォルダなので足さなかったフォルダ。あれば説明に添える(R6-5)。
+    static func bookFolderCannotBeSmartTarget(
+        names: [String], secretRefused: [URL] = [], locale: Locale
+    ) -> FileBrowserProblem {
         let title = names.count == 1
             ? String(format: String(localized: "“%@” is a book, so it can’t be a target folder.", language: locale), names[0])
             : String(localized: "The selected folders are books, so they can’t be target folders.", language: locale)
-        return FileBrowserProblem(
-            title: title,
-            message: String(localized: "Add the folder that holds the books. Every book in it appears in the smart library.",
-                            language: locale)
-        )
+        var message = String(localized: "Add the folder that holds the books. Every book in it appears in the smart library.",
+                             language: locale)
+        if !secretRefused.isEmpty {
+            message += "\n\n" + SmartLibraryTargetAdding.secretRefusedMessage(secretRefused, locale: locale)
+        }
+        return FileBrowserProblem(title: title, message: message)
     }
 
     // MARK: - このアプリケーションで開く

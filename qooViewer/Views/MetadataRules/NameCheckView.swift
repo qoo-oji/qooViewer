@@ -235,14 +235,23 @@ struct NameCheckPane: View {
                     Text("Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read.")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if pickedNames.isEmpty {
-                ContentUnavailableView {
-                    Label("No book is read with this rule set", systemImage: "books.vertical")
-                } description: {
-                    Text("Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu.")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if rows.isEmpty {
+            } else {
+                if isShowingReference { referenceNotice }
+                results
+            }
+        }
+        .onChange(of: draft.preset) { recompute() }
+        .onChange(of: saved.preset) { recompute() }
+        .onChange(of: picked.token) { recompute() }
+        .onChange(of: presetName) { recompute() }
+        .onAppear { recompute() }
+    }
+
+    /// 読めぐあいの表(数えた本があるとき)。
+    @ViewBuilder
+    private var results: some View {
+        Group {
+            if rows.isEmpty {
                 ContentUnavailableView {
                     Label(filter == .changed ? "Your edit changed nothing yet" : "Every name was read in full", systemImage: "checkmark.circle")
                 } description: {
@@ -257,15 +266,35 @@ struct NameCheckPane: View {
                 .listStyle(.inset)
             }
         }
-        .onChange(of: draft.preset) { recompute() }
-        .onChange(of: saved.preset) { recompute() }
-        .onChange(of: picked.token) { recompute() }
-        .onChange(of: presetName) { recompute() }
-        .onAppear { recompute() }
+    }
+
+    /// 参考として全冊を読んでいることの知らせ(`isShowingReference`)。
+    private var referenceNotice: some View {
+        Label {
+            Text("No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu.")
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "info.circle")
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
     /// このルールセットで読む本の名前(監査 MD-5)。
     private var pickedNames: [String] { picked.names(readWith: presetName) }
+
+    /// このルールセットで読む本が 1 冊も無いので、**参考として一覧の全冊を読む**か(2026-10-04 のレビューの R8b-3、利用者の決定)。
+    ///
+    /// MD-5 で数える本をこのルールセットで読む本に絞ったので、作ったばかりのルールセット(まだどの本も選んでいない)や、保存前の
+    /// 自動の条件では 0 冊になり、直している型で名前がどう読めるかを試す手立てが無くなった。そのときだけ全冊を読み、そうだと
+    /// 知らせる(`referenceNotice`)。全冊にしたのは、既定のルールセットで読む本に絞るより試せる名前が多く、新しいルールセットで
+    /// 読ませたい本がどれでも入っているため。1 冊でも読む本があれば、その本だけ(MD-5 のまま)。
+    private var isShowingReference: Bool { pickedNames.isEmpty && !picked.names.isEmpty }
+
+    /// 数える本の名前。
+    private var countedNames: [String] { isShowingReference ? picked.names : pickedNames }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
@@ -307,8 +336,9 @@ struct NameCheckPane: View {
         var token = Hasher()
         token.combine(picked.token)
         token.combine(presetName)
+        token.combine(isShowingReference)
         check.update(now: draft.usable(isVolume: isVolume).formats, before: saved.usable(isVolume: isVolume).formats,
-                     names: pickedNames, token: token.finalize())
+                     names: countedNames, token: token.finalize())
     }
 }
 

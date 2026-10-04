@@ -138,6 +138,27 @@ struct AutoRenameServiceTests {
         #expect(FileOperationService.isProtectedLocation(path: FileBrowserListing.realHomeDirectory().path + "/Movies"))
     }
 
+    @Test("走査は、別の綴り(大文字小文字違い)で開いている本も候補にしない(2026-10-04 のレビューの R3-4)")
+    func scannerMatchesOpenBooksIgnoringCase() throws {
+        let temporary = try TemporaryDirectory("auto-rename-in-use-case")
+        let shelf = try temporary.directory("shelf")
+        try Data("x".utf8).write(to: shelf.appendingPathComponent("one [tag].zip"))
+        try Data("x".utf8).write(to: shelf.appendingPathComponent("two [tag].zip"))
+        let text = AutoRename.RuleText(find: " [tag]", replaceWith: "", includesFolders: true)
+        let plan = AutoRenamePlan(
+            rules: [.init(id: UUID(), name: "1", text: text)],
+            targets: [.init(id: UUID(), ruleIndex: 0, path: AutoRename.canonicalPath(shelf.path), includesSubfolders: false)]
+        )
+        // ビューアは別の綴り(フォルダ名の大文字小文字違い)で開いている。大文字小文字を区別しないボリュームでは同じ本。
+        let openSpelling = shelf.deletingLastPathComponent().appendingPathComponent("SHELF").appendingPathComponent("ONE [tag].zip").path
+        let result = AutoRenameScanner.examine(
+            folder: shelf.path, recursive: false, plan: plan, inUsePaths: [openSpelling], takesSnapshots: false,
+            isProtected: { _ in false }
+        )
+        #expect(result.candidates.map(\.name) == ["two [tag].zip"])
+        #expect(result.foldersWithItemsInUse == [AutoRename.canonicalPath(shelf.path)])
+    }
+
     // MARK: - 名前の変更
 
     @Test("確認済みの対象では、今ある項目の名前をサブフォルダまで変え、実行ログに残す")

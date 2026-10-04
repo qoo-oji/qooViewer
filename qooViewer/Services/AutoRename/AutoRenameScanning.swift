@@ -156,8 +156,12 @@ nonisolated enum AutoRenameScanner {
     ) -> Result {
         var result = Result()
         var visited = 0
+        // 開いている本との照合は、ファイルブラウザ・「元の名前に戻す」と同じ鍵(大文字小文字を畳む `FileOperationService.comparisonKey`)
+        // で比べる(2026-10-04 のレビューの R3-4。以前は綴りどおりで、よく使う項目を別の綴り(`~/books`)で登録すると、ディスクの綴り
+        // (`~/Books/…`)で開いている本を候補にしえた)。先に畳んでおく(項目ごとに畳み直さない)。
         visit(
-            AutoRename.canonicalPath(folder), recursive: recursive, plan: plan, inUsePaths: inUsePaths.map(AutoRename.canonicalPath),
+            AutoRename.canonicalPath(folder), recursive: recursive, plan: plan,
+            inUseKeys: inUsePaths.map { FileOperationService.comparisonKey(AutoRename.canonicalPath($0)) },
             takesSnapshots: takesSnapshots, isRegistered: isRegistered, isProtected: isProtected, result: &result, visited: &visited
         )
         return result
@@ -167,7 +171,7 @@ nonisolated enum AutoRenameScanner {
     static let maxFoldersPerExamination = 100_000
 
     private static func visit(
-        _ folder: String, recursive: Bool, plan: AutoRenamePlan, inUsePaths: [String], takesSnapshots: Bool,
+        _ folder: String, recursive: Bool, plan: AutoRenamePlan, inUseKeys: [String], takesSnapshots: Bool,
         isRegistered: @escaping (String) -> Bool, isProtected: (String) -> Bool, result: inout Result, visited: inout Int
     ) {
         guard visited < maxFoldersPerExamination, !Cancellation.isRequestedInCurrentScope,
@@ -198,7 +202,7 @@ nonisolated enum AutoRenameScanner {
         if recursive {
             for subfolder in subfolders.sorted() {
                 visit(
-                    subfolder, recursive: true, plan: plan, inUsePaths: inUsePaths, takesSnapshots: takesSnapshots,
+                    subfolder, recursive: true, plan: plan, inUseKeys: inUseKeys, takesSnapshots: takesSnapshots,
                     isRegistered: isRegistered, isProtected: isProtected, result: &result, visited: &visited
                 )
             }
@@ -222,7 +226,8 @@ nonisolated enum AutoRenameScanner {
                 // 名前の変更は FBA-11 から断っていたが、自動の改名は素通りだった ―― よく使う項目そのものも対象にできるので、ホームを
                 // 対象にすると規則がホームの標準のフォルダの名前を変えた)。見送りとしては残さない(規則の誤りではなく、毎回同じ)。
                 if isProtected(path) { continue }
-                if inUsePaths.contains(where: { MountTable.path($0, isAtOrUnder: path) }) {
+                let key = FileOperationService.comparisonKey(path)
+                if inUseKeys.contains(where: { MountTable.path($0, isAtOrUnder: key) }) {
                     result.foldersWithItemsInUse.insert(folder)
                     continue
                 }

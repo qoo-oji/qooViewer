@@ -105,6 +105,50 @@ struct LibrarySearchTests {
         #expect(library.collections.containsItem(in: collection, matching: query))
     }
 
+    @Test("インスペクタで直している本は、直した題で検索から外れても一覧と選択に残り、焦点が離れたら絞られる(2026-10-04 のレビューの R2-2)")
+    func theBookBeingEditedStaysInTheSearchResults() throws {
+        let library = try InMemoryLibrary(label: "search-kept")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("search-kept")
+        let shelf = try #require(library.collections.libraries.first)
+        let first = try makeBookFolder(temporary, named: "first")
+        let second = try makeBookFolder(temporary, named: "second")
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: shelf, items: pendingItems([first, second])
+        ))
+        library.metadata.upsert(bookID: first.path, author: "", title: "Moon", series: "", seriesIndex: "")
+        library.metadata.upsert(bookID: second.path, author: "", title: "Moon Two", series: "", seriesIndex: "")
+        let suite = PreferencesSuite(label: "search-kept")
+        defer { withExtendedLifetime(suite) {} }
+        let state = WelcomeLibraryState(defaults: suite.defaults)
+        let query = try #require(LibrarySearchQuery("moon"))
+        // CollectionDetailView.items と同じ引き方。
+        let shown = {
+            library.collections.items(in: collection, sort: .nameAscending, matching: query,
+                                      keeping: state.bookKeptWhileEditing)
+        }
+        state.showItems(shown().map(\.id))
+        let firstItem = try #require(shown().first { $0.bookID == first.path })
+        state.selectedItemIDs = [firstItem.id]
+
+        // 欄に焦点が入り、題を直した(検索に当たらなくなった)。
+        state.keepWhileEditing(first.path)
+        library.metadata.upsert(bookID: first.path, author: "", title: "Sun", series: "", seriesIndex: "")
+        state.showItems(shown().map(\.id))
+        #expect(shown().count == 2)
+        #expect(state.targetItemIDs == [firstItem.id])
+
+        // 別の本の欄の後始末は、この本を外さない。
+        state.stopKeepingWhileEditing(second.path)
+        #expect(state.bookKeptWhileEditing == first.path)
+
+        // 焦点が離れたら、ふつうに絞る。
+        state.stopKeepingWhileEditing(first.path)
+        state.showItems(shown().map(\.id))
+        #expect(shown().map(\.bookID) == [second.path])
+        #expect(state.targetItemIDs.isEmpty)
+    }
+
     // MARK: - 検索を捨てる/残す
 
     @Test("ライブラリを切り替えると検索は消え、コレクションから戻っても検索は残る")

@@ -417,4 +417,28 @@ struct ShelfCoverImportTests {
         #expect(viewModel.rows.map(\.bookID) == ["/books/第1巻.cbz", "/books/第2巻.cbz"])
         #expect(viewModel.selectedBookIDs == ["/books/第1巻.cbz", "/books/第2巻.cbz"])
     }
+
+    @Test("表紙を書き出した後もチェックはそのまま。書き出している間に現れた表紙だけ既定どおり選ぶ(2026-10-04 のレビューの R1-3)")
+    func exportingKeepsTheSelection() async throws {
+        let temporary = try TemporaryDirectory("cover-export-keep")
+        let (library, _) = try await makeLibraryWithCovers(
+            "cover-export-keep", books: ["/books/第1巻.cbz", "/books/第2巻.cbz"], temporary: temporary
+        )
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-export-keep")
+        defer { withExtendedLifetime(suite) {} }
+
+        let viewModel = ShelfCoverExportViewModel(layoutStore: library.layouts, preferences: suite.makePreferences())
+        viewModel.setSelected(false, bookID: "/books/第2巻.cbz")
+        await viewModel.export(to: temporary.file("covers.zip"))
+        #expect(viewModel.didSucceed)
+        // 以前は書き出しの後に全部へ戻っていた。
+        #expect(viewModel.selectedBookIDs == ["/books/第1巻.cbz"])
+
+        // 一覧に無かった表紙が増えていたら、それは選ぶ(既定は全部)。
+        let image = temporary.file("cover-export-keep-source.png")
+        try await library.layouts.setShelfCoverImage(forBookID: "/books/第3巻.cbz", sourceURL: nil, fileURL: image)
+        await viewModel.export(to: temporary.file("covers-2.zip"))
+        #expect(viewModel.selectedBookIDs == ["/books/第1巻.cbz", "/books/第3巻.cbz"])
+    }
 }

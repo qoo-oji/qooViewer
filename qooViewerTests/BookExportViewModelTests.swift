@@ -111,6 +111,33 @@ struct BookExportViewModelTests {
         #expect(!viewModel.isBusy)
     }
 
+    @Test("空き容量を確かめている間にウインドウを閉じたら書き出さず、開き直しても書き出さない(2026-10-04 のレビューの R8a-2)")
+    func closingTheWindowDuringTheDiskCheckAbandonsTheExport() async throws {
+        let environment = try Environment()
+        defer { environment.close() }
+        let viewModel = environment.makeViewModel()
+        let destination = environment.temporary.url
+
+        // 閉じずに待てば書き出しへ進む(対象の行が無いので書くものは無い)。
+        #expect(await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) == .exported)
+
+        // 確かめている途中(メインの外で数えている間)に閉じる。確かめの結果はメインへ戻ってから読むので、淡色になったのを見て
+        // 同じ周回の中で閉じれば、必ず「確かめている間」になる。
+        let closed = Task { await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) }
+        while !viewModel.isBusy { await Task.yield() }
+        viewModel.setPresented(false)
+        #expect(await closed.value == .abandoned)
+
+        // 閉じて開き直した場合も同じ。
+        let reopened = Task { await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) }
+        while !viewModel.isBusy { await Task.yield() }
+        viewModel.setPresented(true)
+        viewModel.setPresented(false)
+        viewModel.setPresented(true)
+        #expect(await reopened.value == .abandoned)
+        #expect(!viewModel.isBusy)
+    }
+
     // MARK: - シークレットウインドウ
 
     /// シークレットウインドウからの 1 冊書き出しは、書き出し本体もカバー欄もページ一覧のディスクキャッシュを読み書きしない

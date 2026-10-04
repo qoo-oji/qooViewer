@@ -19,6 +19,10 @@ extension View {
     /// - 閉じたことは `onDisappear` と、載っている `NSWindow` の `willCloseNotification` の**両方**で受け、先に来たほうで 1 回だけ知らせる。
     ///   ウインドウごと閉じられたときに `onDisappear` が呼ばれないことがある(BookmarkListView.observeWindowClose・ViewerView の
     ///   setUpWindowObservers のコメント)ので、onDisappear だけでは「閉じた」を落としうる。
+    /// - 出たことは `onAppear` と、覚えている `NSWindow` の `didBecomeKeyNotification` の**両方**で受ける(2026-10-04 のレビューの R1-5)。
+    ///   閉じても `onDisappear` が来ない窓(上)では、開き直しても `onAppear` が来ない恐れがあるため。書き出しの 3 窓は onAppear だけで
+    ///   動いているので実際に落ちるかは確かめていない(実機で確かめていない予防の受け口)。閉じた窓はキーにならないので、キーになった
+    ///   = 出ている。中身が外されたとき(窓は出たまま)はこの購読ごと外れるので、ほかの窓から戻っただけで「出た」にはならない。
     /// - 置き場所は、ViewModel を持つ中身のビュー(ViewModel を遅れて作る窓では、作った後に現れる子)。
     func auxiliaryWindowPresence(_ action: @escaping (_ isPresented: Bool) -> Void) -> some View {
         modifier(AuxiliaryWindowPresence(action: action))
@@ -38,11 +42,7 @@ private struct AuxiliaryWindowPresence: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear {
-                guard !tracker.isPresented else { return }
-                tracker.isPresented = true
-                action(true)
-            }
+            .onAppear { markPresented() }
             .onDisappear { markClosed() }
             .background(WindowAccessor { window in
                 // 外されたとき(nil)は覚えている窓のままにする。閉じた窓の willClose を受けるのに要る。
@@ -52,6 +52,16 @@ private struct AuxiliaryWindowPresence: ViewModifier {
                 guard let window = tracker.window, (note.object as? NSWindow) === window else { return }
                 markClosed()
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+                guard let window = tracker.window, (note.object as? NSWindow) === window, window.isVisible else { return }
+                markPresented()
+            }
+    }
+
+    private func markPresented() {
+        guard !tracker.isPresented else { return }
+        tracker.isPresented = true
+        action(true)
     }
 
     private func markClosed() {

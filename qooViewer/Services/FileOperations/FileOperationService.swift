@@ -1388,8 +1388,15 @@ actor FileOperationService {
     /// 以前は `a.txt` → `b.txt`(b が a のハードリンク)を「自分自身」として素の rename(2) に回し、rename(2) は同じ実体への
     /// 改名を**何もせずに成功**として返す(POSIX)ので、名前は変わらないまま「変えた」と報告し、取り消しの記録も積んでいた。
     /// Swift の `==` は正規化の違いを同じと見るので、大文字小文字をそろえて比べれば足りる。
+    ///
+    /// そろえ方はパスの照合の鍵(`comparisonKey`)と同じ `folding(.caseInsensitive)`(2026-10-04 のレビューの R3-4 でそろえた。以前は
+    /// `lowercased()`)。大文字小文字を区別しない APFS は `straße` と `strasse` を同じ名前として扱う(lstat が同じ実体を返し、rename(2) で
+    /// 名前が変わる ―― 2026-10-04 に実測)ので、「自分自身への改名」もこれと同じ畳み方で見る。`lowercased()` のときはこの改名を排他の
+    /// 改名(RENAME_EXCL)へ回していたが、APFS はそれでも通した(実測。結果は変わらない ―― テスト `sharpSToDoubleSRenameSucceeds`)。
+    /// 呼び出し側は先に同じ実体か(`refersToSameEntry`)を確かめるので、畳み方が広くなっても別の項目を素の rename(2) へ回すのは、
+    /// 区別するボリュームで `ß`/`ss` だけが違うハードリンクの兄弟どうしのときだけ(`a`/`A` で既にあった形)。
     nonisolated static func namesDifferOnlyInCaseOrNormalization(_ a: String, _ b: String) -> Bool {
-        a.lowercased() == b.lowercased()
+        a.folding(options: .caseInsensitive, locale: nil) == b.folding(options: .caseInsensitive, locale: nil)
     }
 
     /// 2 つのパスが同じ実体か(大文字小文字・正規化違いの改名の判定)。どちらかが無ければ別。

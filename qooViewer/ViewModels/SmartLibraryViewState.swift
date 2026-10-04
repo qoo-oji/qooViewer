@@ -320,10 +320,13 @@ final class SmartLibraryViewState: ObservableObject {
     /// 以前は表示形式に関わらず束の中の本をすべて残していたので、リストで束の中の本を選んでからアイコン表示へ移ると、グリッドには
     /// 何も選ばれていないのに、インスペクタとメニューバーの「Finder で表示」「メタデータの編集…」がその本に効き、Return は黙って
     /// 何もしなかった(2026-10-04、監査 SL-2)。
-    var selectableItemIDs: [String] {
-        var ids = gridItemIDs
+    var selectableItemIDs: [String] { selectableIDs(in: gridItems) }
+
+    /// `items` を並べたときに選べるものの識別子(`selectableItemIDs` の中身。組み直しの途中でも問えるように並びを受け取る)。
+    private func selectableIDs(in items: [SmartGridItem]) -> [String] {
+        var ids = items.map(\.id)
         guard viewMode == .list, !expandedListGroupIDs.isEmpty else { return ids }
-        for item in gridItems {
+        for item in items {
             guard case .group(_, _, let books) = item, expandedListGroupIDs.contains(item.id) else { continue }
             ids.append(contentsOf: books.map { SmartGridItem.book($0).id })
         }
@@ -578,7 +581,17 @@ final class SmartLibraryViewState: ObservableObject {
             gridItems = SmartSort.sorted(visibleBooks.filter { grouping.key(of: $0) == openedGroup || $0.id == kept },
                                          by: .series, ascending: true).map(SmartGridItem.book)
         } else {
-            gridItems = grouping.grouped(visibleBooks)
+            var items = grouping.grouped(visibleBooks)
+            // 直している本が束へ隠れるなら(束ねた一番上で、直した著者・シリーズが別の本と揃った・リストで開いた束から閉じた束へ
+            // 移った)、その本だけ束に入れずに出す。以前は `pruneSelection` が隠れた本の選択を束の選択に置き換え、インスペクタが
+            // 束の表示になって、次の欄の焦点と打ちかけの文字が消えた(2026-10-04 のレビューの R2-1)。選択を「見えない本」のまま
+            // 残す案は、グリッドに何も選ばれていないのにインスペクタが本を見せる食い違い(監査 SL-2)に戻るので採らなかった。
+            // 隠れないときは束のまま(焦点が入っただけで本が束から飛び出さないように)。
+            if let kept, visibleBooks.contains(where: { $0.id == kept }),
+               !selectableIDs(in: items).contains(SmartGridItem.bookIDPrefix + kept) {
+                items = grouping.grouped(visibleBooks, keepingSeparate: kept)
+            }
+            gridItems = items
         }
         if pendingScrollReset {
             pendingScrollReset = false

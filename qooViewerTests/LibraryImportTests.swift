@@ -256,6 +256,24 @@ struct LibraryImportTests {
         #expect(library.bookmarkRows(forBookID: source.book.id).map(\.pageIndex) == [3])
     }
 
+    @Test("手元のブックマークも、取り込んだレイアウトの並びへ番号を振り直す(2026-10-04 のレビューの R2-7)")
+    func existingBookmarksAreRenumberedAfterALayoutImport() async throws {
+        let source = try await ExportSource.zip(pages: 4, label: "import-order-renumber")
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        library.bookmarks.addBookmark(bookID: source.book.id, pageIndex: 0, pageKey: source.key(1), name: "手元の印")
+
+        await library.apply(
+            QooLibraryExportFile(layouts: [layoutEntry(source, pageOrder: source.pageKeys.reversed())]),
+            policies: LibraryImportExportService.ImportPolicies(layouts: .overwrite)
+        )
+
+        // 逆順にしたので、1 枚目は最後(番号 3)。以前は本を開くまで 0 のままだった。
+        let rows = library.bookmarkRows(forBookID: source.book.id)
+        #expect(rows.map(\.pageIndex) == [3])
+        #expect(rows.map(\.name) == ["手元の印"])
+    }
+
     @Test("本の中に無い鍵のブックマークは落ちる(本ごと落ちはしない)")
     func unknownKeysAreDropped() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-bm-unknown")

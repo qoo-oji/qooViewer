@@ -182,7 +182,7 @@ relocator carries — rows added while it plans included; review R4-1). "The fil
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is
 persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file — must decide whether it joins
-the export, and normally does (`QooLibraryExportFile`, `formatVersion` 6). Settings need no work: `SettingsBackup`
+the export, and normally does (`QooLibraryExportFile`, `formatVersion` 7). Settings need no work: `SettingsBackup`
 picks up every `qooViewer.pref.*` key by prefix, so a new preference is exported automatically; anything with
 a different prefix must be added there. What is deliberately left out is security-scoped bookmarks (folder
 permissions, the recent-books history, `*FolderBookmark*` keys — they mean nothing on another Mac) and whatever the app can rebuild by
@@ -499,7 +499,8 @@ when it reappears and drops temporary state (loaded file, results, selection, un
 "missing" verdict) — a new auxiliary window must do the same (docs/03「補助ウインドウは開き直したら読み直す」).
 **Selections follow what is shown** (2026-10-04): every list prunes its selection whenever its order of ids changes
 (`GridSelection.prune(to:)` — the shelf via `WelcomeLibraryState.showCollections`/`showItems`, the smart library via `pruneSelection`,
-the Edit Metadata window on each filter), and delete/move/menu/inspector targets are built as **shown ∩ selected**
+the Edit Metadata window on each filter; the one exception is the book whose Home inspector field has focus, kept listed and never hidden in a
+group — `bookKeptWhileEditing` on both `WelcomeLibraryState` and `SmartLibraryViewState`), and delete/move/menu/inspector targets are built as **shown ∩ selected**
 (`targetCollectionIDs`, `contextTargets`), re-intersected after a confirmation; a sheet is presented only while its target resolves,
 and a fallback shown in place of a vanished target is written back to the state (before this, the trash and the Home menu deleted or
 moved collections the window no longer showed). **Pages are matched by key** (`PageRef.sortKey` ↔ `Bookmark.pageKey`), never by

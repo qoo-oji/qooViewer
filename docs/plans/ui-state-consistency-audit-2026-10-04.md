@@ -2464,3 +2464,62 @@ docs: 06(差し替えの確認で記録する指紋)、07(上へ/下への淡色
 docs: 02(`PendingBookOpensTests`)、04(窓を作った要求の番号・新しいタブへの「開く」の待ち・リンクの先・シートの「次の本へ」・
 「最近使った項目」)、06(控えた通り抜けの回し直し・控えと番号の順)、09(見送りの印を下ろす時)、CLAUDE.md(窓を作った要求の番号と
 `PendingBookOpens`)。
+
+### レビュー指摘の修正 段 E(2026-10-04)
+
+ホーム・ライブラリ・書き出し・メタデータ・その他の分と、段 B の修正で見つかった R3-4。R8a-5 は段 A で直し済み。
+
+- **R2-1**(直した): スマートライブラリで直している本(`bookKeptWhileEditing`)が束へ隠れるなら、その本だけ束に入れずに 1 冊として出す
+  (`SmartGrouping.grouped(_:keepingSeparate:)`。隠れるかは `selectableIDs(in:)` で問う。隠れないとき ―― 束の中のまま直している ―― は
+  束から出さない)。選択を「見えない本」のまま残す案は SL-2 の食い違いに戻るので採らなかった。テスト
+  `SmartLibraryTests.theBookBeingEditedIsNotHiddenInAGroup`(直しを外すと落ちることを確かめた)。
+- **R2-2**(直した): 本棚にも「直している間は残す」を足した(`WelcomeLibraryState.bookKeptWhileEditing` → `CollectionDetailView.items` →
+  `CollectionStore.items(in:sort:matching:keeping:)`。控えの鍵にも入れた)。インスペクタの `updateKeptBook` は本棚とスマートライブラリの
+  両方へ。テスト `LibrarySearchTests.theBookBeingEditedStaysInTheSearchResults`(直しを外すと落ちることを確かめた)。
+- **R2-6**(直した): ホーム ▸「コレクションを削除…」「別のライブラリへ移動」(名前の衝突で断られたときも)・「コレクションから取り除く」で、
+  表示中との交わりが空なら鳴らす。メニューの配線なのでテストは足していない。
+- **R2-7**(直した): 保存データの読み込みでレイアウトを取り込んだ後、手元のブックマークを今の並びへ振り直す(`applyLayouts` が
+  `renumberBookmarks`。鍵の無い古い行のための従来順の鍵は、並びを書き換える前に控える)。書き出し後の片付けはブックマークごと消すので振り直す
+  ものが無い(docs/07 にそう書いた)。テスト `LibraryImportTests.existingBookmarksAreRenumberedAfterALayoutImport`(直しを外すと落ちることを
+  確かめた)。
+- **R1-3**(直した): 表紙の書き出しの後の読み直しはチェックを残す(`reload(keepingSelection:)`。残っている行は今のまま、新しく現れた行だけ
+  選ぶ)。テスト `ShelfCoverImportTests.exportingKeepsTheSelection`(直しを外すと落ちることを確かめた)。
+- **R1-4**(直した): 呼び出し側(編集ウインドウの「レイアウトをすべて削除」「ブックマークとレイアウトをすべて削除」・`ViewerView.cleanUpExportedBook`)
+  の消し方を `BookDataDeletion`(ViewModels/BookDataDeletion.swift)へ出し、`LayoutStoreTests.discardingTheLayoutKeepsCoversAndCorrection` を
+  3 つの入口ごとの引数つきテストにした(入口を行ごと消す形にすると 3 件とも落ちることを確かめた)。
+- **R1-5**(直した): 保存データの削除ウインドウは閉じたら削除の確認の相手(`pendingDeletion`)を捨てる。`auxiliaryWindowPresence` は出たことを
+  `onAppear` に加えて覚えている窓の `didBecomeKeyNotification` でも受ける(落ちる場面は実機で確かめていない予防。閉じた窓はキーにならず、
+  中身が外されたときは購読ごと外れる)。どちらも View の状態なのでテストは足していない。
+- **R6-4**(直した): `quitAfterReset` は `terminate` から戻ったら(断られた)印を下ろし、走っている作業が終わるのを待って頼み直す(少なくとも
+  10 秒空ける)。アプリの終了なのでテストは足していない。
+- **R6-5**(直した): 「本なので足せない」の題には `result.refusedBooks` の名前(一覧の表示名)だけを出し、シークレットフォルダの分は
+  `secretRefusedMessage` を説明に添える(`bookFolderCannotBeSmartTarget(names:secretRefused:locale:)`)。テスト
+  `FileBrowserIntegrationTests.smartTargetRefusalSeparatesBooksFromSecretFolders` は文の組み立てだけ(引数が新しいので直す前の形では書けない)。
+  配線はアプリ全体のシークレットフォルダの一覧(共有の状態)に頼るのでテストしていない。
+- **R6-6**(直した): パネルの後の決め方を `ExternalOpenPreparation.prepareForNewWindow`(開く要求か、知らせる文か)へ出し、メニューはそれに
+  従うだけにした。テスト `HomeInteractionTests.newWindowOpenRefusesNonBooksBeforeMakingAWindow` はそれを通す(関数が新しいので、直す前の
+  `BookOpenRequest.sequenced` の形へ戻して落ちることは確かめていない)。パネルと窓を作るところは実機。
+- **R8a-2**(直した): `BookExportViewModel.exportAfterCheckingDiskSpace`: 確かめている間に閉じられた(開き直された ―― 出た回の番号
+  `presentationSerial` で見分ける)ら書き出さない。行のチェック(`ExportSelectionCell`)は `isBusy` の間淡色。テスト
+  `BookExportViewModelTests.closingTheWindowDuringTheDiskCheckAbandonsTheExport`(待ちの後の確かめを外すと落ちることを確かめた)。
+- **R8a-4**(直した): `ShelfCoverImportViewModel.load(zipAt:)` の展開・検査を `FileIO.perform` へ。取り込み・読み込みの最中は鳴らして断る。
+  ファイル I/O の置き場所なのでテストは足していない(既存の読み込みのテストが通る)。
+- **R8b-2**(直した): テストは鍵を押した後・読みが届く前に `applyExternalChanges([second: 鍵の無いレコード])` を差し込む(直す前の
+  `isLocked` で確かめ直す形へ戻すと落ちることを確かめた)。コメントの「直す前でも通る」の但し書きも直した。
+- **R8b-3**(直した、利用者の決定どおり): 名前の読めぐあいは、直しているルールセットで読む本が 1 冊も無いときだけ、**一覧の全冊**を参考として
+  読み、上に知らせる(新しい文言は英語キー + 日本語訳。使われなくなった 2 つのキーは xcstrings から外した)。全冊にしたのは、既定の
+  ルールセットで読む本に絞るより試せる名前が多いため。View なのでテストは足していない。
+- **R8b-4**(直した): `SettingsRowLabel` の ⓘ は行が無効でも押せる(`.disabled(false)` は外側を打ち消さないので `.environment(\.isEnabled, true)`、
+  見た目は 0.5 の不透明度)。共通の部品で直したので「前回読んでいた本を開き直す」「表示中のサムネイルの拡大画像を先に用意」ほか淡色の行
+  すべてに効く。実機未確認・テストなし。
+- **R8b-5**(直した): CLAUDE.md の `formatVersion` を 7 に(`LibraryJSONSchema.swift` の `formatVersion: Int = 7` を確かめた)。
+- **R3-4**(直した): 自動リネームの走査は開いている本と `FileOperationService.comparisonKey`(大文字小文字を畳む)の鍵で比べる(先に畳む)。
+  あわせて `namesDifferOnlyInCaseOrNormalization` を `folding(.caseInsensitive)` にそろえた。APFS は `straße` と `strasse` を同じ名前として
+  扱い(実測)、以前の `lowercased()` ではこの改名を排他の改名へ回していたが、APFS はそれも通した(実測)ので改名の結果は変わらない。
+  テスト `AutoRenameServiceTests.scannerMatchesOpenBooksIgnoringCase`(直しを外すと落ちることを確かめた)、
+  `FileOperationServiceTests` に ß/ss の判定(直す前は落ちる)と `sharpSToDoubleSRenameSucceeds`(直す前でも通る見張り)。
+
+docs: 03(補助ウインドウの出た知らせ・閉じたら捨てる確認の相手)、04(`prepareForNewWindow`)、06(`BookDataDeletion`)、07(読み込み後の
+振り直し・名前の読めぐあいの参考の本)、08(空き容量の確かめの間に閉じたら)、09(リセット後の終了の頼み直し・淡色の行の ⓘ)、
+14(直している本を束に隠さない・本棚の直している間・交わりが空なら鳴らす・表紙の書き出しのチェック・読み込みの FileIO)、
+15(スマートライブラリへの追加の断りの文・走査の照合の鍵)、CLAUDE.md(`formatVersion` 7、選択を絞る決まりの例外)。

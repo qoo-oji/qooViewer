@@ -105,9 +105,15 @@ struct SettingsRowLabel: View {
     /// 薄くなり、そうでないと「押せないのは右のコントロールだけ」に見えてしまうので、
     /// ここで項目名も一緒に沈める。
     ///
-    /// **`Text` にだけ掛けること。** この `HStack` ごと薄くすると、SwiftUIが既に薄くしている
-    /// ⓘのボタンに二重にかかり、補足のある行だとほとんど見えなくなる。
+    /// **`Text` にだけ掛けること。** この `HStack` ごと薄くすると、ⓘのボタン(下で自分で薄くしている)に
+    /// 二重にかかり、補足のある行だとほとんど見えなくなる。
     /// 濃さは `SettingsPopUp` の無効時と同じ値にしてあり、行の中で見え方が揃う。
+    ///
+    /// **ⓘは行が無効でも押せる**(2026-10-04 のレビューの R8b-4)。淡色の行の補足は「なぜ淡色か」の説明であることが多い
+    /// (「前回読んでいた本を開き直す」「表示中のサムネイルの拡大画像を先に用意」)のに、`.disabled` が行全体に掛かると
+    /// ⓘのボタンも無効になり、クリックのポップオーバーで読めなかった。`.disabled(false)` は外側の `.disabled(true)` を
+    /// 打ち消さない(SwiftUI の決まり)ので、ⓘにだけ `isEnabled` の環境を戻し、見た目は行に合わせて自分で薄くする。
+    /// 実機ではまだ確かめていない(吹き出しとポップオーバーが淡色の行で出ること)。
     @Environment(\.isEnabled) private var isEnabled
 
     @State private var isShowingHelp = false
@@ -135,6 +141,9 @@ struct SettingsRowLabel: View {
                 .buttonStyle(.plain)
                 .help(Text(help))
                 .accessibilityLabel(Text("More Information"))
+                // 行が無効でも押せるように(上の `isEnabled` のコメント)。薄さは無効なボタンの見た目に合わせる。
+                .opacity(isEnabled ? 1 : 0.5)
+                .environment(\.isEnabled, true)
                 .popover(isPresented: $isShowingHelp, arrowEdge: .bottom) {
                     // ■ 幅は `maxWidth` ではなく固定の `width` にしてある(重要)
                     // 以前は `.frame(maxWidth: 320)` だった。macOS 26 では問題なかったが、

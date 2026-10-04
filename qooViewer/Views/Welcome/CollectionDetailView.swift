@@ -1,3 +1,4 @@
+import AppKit
 import QooMetaKit
 import Combine
 import CoreGraphics
@@ -140,8 +141,11 @@ struct CollectionDetailView: View {
 
     /// いま出ている本(検索で絞り込んだ後)。全選択・マーキー・右クリックの対象はすべてこれ
     /// (見えていないものに手を出さない決まり。WelcomeLibraryState.searchText参照)。
+    /// インスペクタで直している本は、検索から外れても欄に焦点がある間は残す(`WelcomeLibraryState.bookKeptWhileEditing`。
+    /// 2026-10-04 のレビューの R2-2)。
     private var items: [CollectionItem] {
-        collectionStore.items(in: collection, sort: state.itemSort, matching: searchQuery)
+        collectionStore.items(in: collection, sort: state.itemSort, matching: searchQuery,
+                              keeping: state.bookKeptWhileEditing)
     }
 
     /// いま出ている本が残らず選ばれているか。空のときは false(押せる先が無い)。
@@ -444,7 +448,8 @@ struct CollectionDetailView: View {
         // (メニューの値を作った後で検索・別のウインドウの操作で隠れた本を外さない。監査 H-1)。
         let shown = Set(items.map(\.id))
         let targets = ids.filter(shown.contains).compactMap { collectionStore.item(withID: $0) }
-        guard !targets.isEmpty else { return }
+        // 1 冊も残らなければ鳴らす(押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
+        guard !targets.isEmpty else { return NSSound.beep() }
         DataUndoStack.removeItems(targets, in: collectionStore, recordingOn: dataUndo)
         state.clearSelection()
     }

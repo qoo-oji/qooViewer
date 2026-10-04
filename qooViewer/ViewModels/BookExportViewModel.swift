@@ -172,6 +172,8 @@ class BookExportViewModel: ObservableObject {
     /// ブックマークの解決と実在の確認を裏で繰り返していた)。
     private var isPresented = true
     private var needsReloadWhenPresented = false
+    /// 出た回の番号(出るたびに 1 つ進む)。待っている間に閉じて開き直されたかを見分ける(`exportAfterCheckingDiskSpace`)。
+    private var presentationSerial = 0
 
     // MARK: - タイトル・著者名(ユーザー要望: ファイル名/フォルダ名から推測した値を初期値にし、
     // この画面で変更できるようにしたい)
@@ -402,6 +404,7 @@ class BookExportViewModel: ObservableObject {
     final func setPresented(_ presented: Bool) {
         guard presented != isPresented else { return }
         isPresented = presented
+        if presented { presentationSerial &+= 1 }
         guard presented, needsReloadWhenPresented else { return }
         needsReloadWhenPresented = false
         reload()
@@ -734,6 +737,31 @@ class BookExportViewModel: ObservableObject {
             }
         }
         return check ?? true
+    }
+
+    /// `exportAfterCheckingDiskSpace` の結果。
+    enum DiskSpaceCheckedExport: Equatable {
+        /// 書き出した(書き出しを始めて終えた)。
+        case exported
+        /// 空き容量が足りないので書き出さなかった(呼び出し側が知らせる)。
+        case insufficientSpace
+        /// 確かめている間にウインドウが閉じられた(開き直された)ので、何もしなかった。
+        case abandoned
+    }
+
+    /// 出力先の空き容量を確かめてから、選んでいる本を書き出す(ウインドウの「書き出す」)。
+    ///
+    /// **確かめている間(最長 `diskSpaceCheckLimit`)にウインドウが閉じられたら書き出さない**(2026-10-04 のレビューの R8a-2)。以前は
+    /// 待った後にそのまま `startExport` へ進んだので、閉じたウインドウの裏で書き出しが始まり、結果のシートは次に開いたときに出た。
+    /// 閉じて開き直した場合も、開き直した一覧は読み直されているので書き出さない(押し直してもらう)。行のチェックは確かめている間
+    /// 淡色(`isBusy`。ExportSelectionCell)なので、選択は押したときのまま。
+    final func exportAfterCheckingDiskSpace(destinationFolder: URL) async -> DiskSpaceCheckedExport {
+        let serial = presentationSerial
+        let hasSpace = await hasSufficientDiskSpace(at: destinationFolder)
+        guard isPresented, presentationSerial == serial else { return .abandoned }
+        guard hasSpace else { return .insufficientSpace }
+        await startExport(destinationFolder: destinationFolder)
+        return .exported
     }
 
     // MARK: - bookIDからのURL解決

@@ -2161,12 +2161,11 @@ struct QooViewerApp: App {
         let urls = panel.urls
         let order = preferences.siblingBookOrder
         Task { @MainActor in
-            let prepared = await FileIO.perform { ExternalOpenPreparation.prepare(urls, order: order) }
-            guard let request = prepared.request else {
-                let message = urls.count == 1
-                    ? String(format: String(localized: "“%@” can’t be opened as a book.", language: locale),
-                             urls[0].lastPathComponent)
-                    : String(localized: "None of the items can be opened as a book.", language: locale)
+            // 決め方は `prepareForNewWindow`(テストはそこを通る。2026-10-04 のレビューの R6-6)。
+            switch await FileIO.perform({ ExternalOpenPreparation.prepareForNewWindow(urls, order: order, locale: locale) }) {
+            case .open(let request):
+                openInNewWindow(request, asTab: false, tabTarget: nil)
+            case .refuse(let message):
                 if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
                     target.postViewerNotice(message)
                 } else {
@@ -2176,9 +2175,7 @@ struct QooViewerApp: App {
                     alert.informativeText = message
                     _ = await WindowSheet.run(alert)
                 }
-                return
             }
-            openInNewWindow(request, asTab: false, tabTarget: nil)
         }
     }
 

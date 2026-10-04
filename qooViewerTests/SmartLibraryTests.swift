@@ -483,6 +483,72 @@ struct SmartLibraryTests {
         #expect(state.selection.ids.isEmpty)
     }
 
+    @Test("直している本が束へ隠れるなら、その本だけ束に入れずに出し、選択を束に替えない(2026-10-04 のレビューの R2-1)")
+    func theBookBeingEditedIsNotHiddenInAGroup() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.grouping = .series
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "1"),
+            book("/b/b.zip", series: "星の庭", volume: "1"),
+            book("/b/c.zip", series: "星の庭", volume: "2"),
+        ], shelves: [])
+        #expect(state.gridItems.map(\.id) == ["book|/b/a.zip", "series|星の庭"])
+        state.setSelection(["book|/b/a.zip"], cursor: "book|/b/a.zip")
+
+        // アイコン表示の一番上で、a のシリーズを b・c と揃えた。束へは入れず、1 冊のまま選んでおく。
+        state.keepWhileEditing("/b/a.zip")
+        state.update(books: [
+            book("/b/a.zip", series: "星の庭", volume: "3"),
+            book("/b/b.zip", series: "星の庭", volume: "1"),
+            book("/b/c.zip", series: "星の庭", volume: "2"),
+        ], shelves: [])
+        #expect(state.gridItems.map(\.id) == ["book|/b/a.zip", "series|星の庭"])
+        #expect(state.selection.ids == ["book|/b/a.zip"])
+        if case .group(_, _, let books)? = state.gridItems.last {
+            #expect(books.map(\.id) == ["/b/b.zip", "/b/c.zip"])
+        } else {
+            Issue.record("束がありません")
+        }
+
+        // リストで開いた束の本を、閉じている束へ移したときも同じ。
+        state.stopKeepingWhileEditing("/b/a.zip")
+        state.viewMode = .list
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "1"),
+            book("/b/d.zip", series: "月の庭", volume: "2"),
+            book("/b/b.zip", series: "星の庭", volume: "1"),
+            book("/b/c.zip", series: "星の庭", volume: "2"),
+        ], shelves: [])
+        state.expandedListGroupIDs = ["series|月の庭"]
+        state.setSelection(["book|/b/a.zip"], cursor: "book|/b/a.zip")
+        state.keepWhileEditing("/b/a.zip")
+        // 束の中のまま直している間(束の鍵が変わらない)は、束から飛び出さない。
+        state.update(books: [
+            book("/b/a.zip", title: "新しい題", series: "月の庭", volume: "1"),
+            book("/b/d.zip", series: "月の庭", volume: "2"),
+            book("/b/b.zip", series: "星の庭", volume: "1"),
+            book("/b/c.zip", series: "星の庭", volume: "2"),
+        ], shelves: [])
+        #expect(state.gridItems.map(\.id) == ["series|月の庭", "series|星の庭"])
+        #expect(state.selection.ids == ["book|/b/a.zip"])
+        state.update(books: [
+            book("/b/a.zip", title: "新しい題", series: "星の庭", volume: "3"),
+            book("/b/d.zip", series: "月の庭", volume: "2"),
+            book("/b/b.zip", series: "星の庭", volume: "1"),
+            book("/b/c.zip", series: "星の庭", volume: "2"),
+        ], shelves: [])
+        #expect(state.selection.ids == ["book|/b/a.zip"])
+        #expect(state.selectableItemIDs.contains("book|/b/a.zip"))
+
+        // 焦点が離れたら、ふつうに束ねる(隠れた本の選択は束の選択に替わる)。
+        state.stopKeepingWhileEditing("/b/a.zip")
+        state.recompute(now: now)
+        #expect(state.selection.ids == ["series|星の庭"])
+    }
+
     @Test("本と束をまとめて選ぶと、メニューバーの「1 冊だけ」にはならない(2026-10-04、監査 SL-11)")
     func aBookAndAGroupAreNotASingleBook() {
         let suite = TestDefaultsPool.checkout()

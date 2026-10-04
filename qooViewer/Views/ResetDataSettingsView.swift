@@ -62,7 +62,8 @@ struct ResetDataSettingsView: View {
 
     /// 完了アラートを出したまま放っておかれても終える秒数(2026-10-04 の監査 ST-4、決定 16(a))。
     static let quitDelayAfterReset: Duration = .seconds(10)
-    /// 終了を 1 度だけ頼む(タイマー・ボタン・閉じたときが重なっても、終了の確認を 2 度出さない)。
+    /// 終了を頼んでいる最中か(タイマー・ボタン・閉じたときが重なっても、終了の確認を 2 度出さない。断られたら下ろす ――
+    /// `quitAfterReset`)。
     private static var hasRequestedQuit = false
 
     var body: some View {
@@ -209,11 +210,31 @@ struct ResetDataSettingsView: View {
     }
 
     /// 削除の後の終了。何度呼ばれても 1 度だけ`terminate`する。
+    ///
+    /// **断られたら、走っている作業が終わってから頼み直す**(2026-10-04 のレビューの R6-4)。`terminate` は終えるときは戻らず、
+    /// 戻ったら断られた ―― 書き出し・ファイル操作などが走っていて(`RunningWorkRegistry`)、終了の確認で「キャンセル」が選ばれた。
+    /// 以前は印を立てたままだったので二度と終了を頼まず、削除の途中の状態(表紙・規則は消え、SwiftData と UserDefaults は終了時に
+    /// 消える)のまま使い続けられた。作業が終われば確認なしで終わる。ほかの理由で断られ続けても詰めて頼まないよう、頼み直しは
+    /// 少なくとも `quitDelayAfterReset` 空ける。
     private static func quitAfterReset() {
         guard !hasRequestedQuit else { return }
         hasRequestedQuit = true
         NSApp.terminate(nil)
+        hasRequestedQuit = false
+        guard !isWaitingToRetryQuit else { return }
+        isWaitingToRetryQuit = true
+        Task { @MainActor in
+            try? await Task.sleep(for: quitDelayAfterReset)
+            while RunningWorkRegistry.shared.hasRunningWork {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            isWaitingToRetryQuit = false
+            quitAfterReset()
+        }
     }
+
+    /// 断られた終了を頼み直すのを待っているか(`quitAfterReset`)。
+    private static var isWaitingToRetryQuit = false
 
     /// 「整理」セクションの2つのボタンの共通幅。`.frame`を当てるのはボタンではなくラベル
     /// (Labelそのもの)なので、ボタン自身の左右の余白は足さず、アイコンとテキストの間隔ぶん

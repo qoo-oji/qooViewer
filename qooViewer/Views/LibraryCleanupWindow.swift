@@ -125,7 +125,12 @@ private struct LibraryCleanupContentView: View {
         .onAppear { autoSizeColumnsIfNeeded() }
         .onChange(of: viewModel.totalRowCount) { _, _ in autoSizeColumnsIfNeeded() }
         // 開き直したら一覧と実在の判定を作り直し、閉じたら選択を捨てる(LibraryCleanupViewModel.setPresented。2026-10-04 の監査 TW-7)。
-        .auxiliaryWindowPresence { viewModel.setPresented($0) }
+        // 閉じたら削除の確認の相手も捨てる(赤いボタンで確認ごと窓を閉じた後に開き直すと、古い相手のまま確認が出直す恐れがあった。
+        // 2026-10-04 のレビューの R1-5。相手は View の @State で、窓を閉じても残る ―― auxiliaryWindowPresence のコメント)。
+        .auxiliaryWindowPresence { isPresented in
+            viewModel.setPresented(isPresented)
+            if !isPresented { pendingDeletion = nil }
+        }
         .alert(item: $pendingDeletion) { deletion in
             Alert(
                 title: Text(

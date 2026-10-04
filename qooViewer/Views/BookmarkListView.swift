@@ -915,8 +915,8 @@ struct BookmarkEditorView: View {
                 Button("Delete", role: .destructive) {
                     if let bookID = pendingDeleteLayoutBookID, stillListed(bookID) {
                         // 確認文が言うとおり狭義のレイアウトだけ(コレクション表紙・切り出し位置・書き出し用のカバーは残す。
-                        // 2026-10-04 の監査 BE-2 まで行ごと消していた。LayoutStore.discardPageLayout)。
-                        layoutStore.discardPageLayout(forBookID: bookID)
+                        // 2026-10-04 の監査 BE-2 まで行ごと消していた。BookDataDeletion)。
+                        BookDataDeletion.deleteLayout(forBookID: bookID, layoutStore: layoutStore)
                     }
                     pendingDeleteLayoutBookID = nil
                     // 上のブックマーク全削除と同じ理由(ユーザー要望)。
@@ -940,9 +940,10 @@ struct BookmarkEditorView: View {
                 Button("Cancel", role: .cancel) { pendingDeleteBookmarksAndLayoutBookID = nil }
                 Button("Delete", role: .destructive) {
                     if let bookID = pendingDeleteBookmarksAndLayoutBookID, stillListed(bookID) {
-                        bookmarkStore.deleteAllBookmarks(forBookID: bookID)
-                        // 上の「レイアウトをすべて削除」と同じ範囲(監査 BE-2)。
-                        layoutStore.discardPageLayout(forBookID: bookID)
+                        // レイアウトは上の「レイアウトをすべて削除」と同じ範囲(監査 BE-2。BookDataDeletion)。
+                        BookDataDeletion.deleteBookmarksAndLayout(
+                            forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                        )
                     }
                     pendingDeleteBookmarksAndLayoutBookID = nil
                     // 上のブックマーク全削除・レイアウト全削除と同じ理由(ユーザー要望)。

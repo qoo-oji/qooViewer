@@ -569,15 +569,14 @@ struct ExportWindowContent<Options: View>: View {
         Task {
             defer { if didAccess { destination.stopAccessingSecurityScopedResource() } }
             // 空き容量の確かめはメインの外で(BookExportViewModel.hasSufficientDiskSpace。2026-10-04 の監査 TW-21 ―― 以前はメインで
-            // 元の本を走査し、その間ウインドウが固まった)。
-            guard await viewModel.hasSufficientDiskSpace(at: destination) else {
+            // 元の本を走査し、その間ウインドウが固まった)。確かめている間に閉じられたら書き出さない(exportAfterCheckingDiskSpace。
+            // 2026-10-04 のレビューの R8a-2)。
+            if await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) == .insufficientSpace {
                 insufficientSpaceMessage = String(
                     localized: "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.",
                     language: locale
                 )
-                return
             }
-            await viewModel.startExport(destinationFolder: destination)
         }
     }
 }
@@ -604,6 +603,9 @@ private struct ExportSelectionCell: View {
         )
         .toggleStyle(.checkbox)
         .labelsHidden()
+        // 書き出し中・空き容量を確かめている間は変えさせない(確かめた後に書き出すのは押したときの選択。2026-10-04 のレビューの
+        // R8a-2 ―― 以前は確かめている最長 30 秒の間にチェックを変えられ、書き出す本が押したときと変わった)。
+        .disabled(viewModel.isBusy)
     }
 }
 

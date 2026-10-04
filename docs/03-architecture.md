@@ -169,11 +169,14 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 前回の「上書き」の方針と中身のまま読み込める、閉じた後も ⌘Z で以前の削除が戻る、という形で実際に出ていました。決まりは:
 
 - 中身のビュー(ViewModel を持つビュー)に `.auxiliaryWindowPresence { presented in … }`(Views/AuxiliaryWindowPresence.swift)を付け、
-  ViewModel の `setPresented(_:)` へ渡す。出た・閉じたは `onAppear` / `onDisappear` と窓の `willCloseNotification` の両方で受け、
-  先に来たほうで 1 回だけ知らせる(ウインドウごと閉じると `onDisappear` が来ないことがある)。最初に出たときも `true` が来るが、
+  ViewModel の `setPresented(_:)` へ渡す。出た・閉じたは `onAppear` / `onDisappear` と窓の `didBecomeKeyNotification` /
+  `willCloseNotification` の両方で受け、先に来たほうで 1 回だけ知らせる(ウインドウごと閉じると `onDisappear` が来ないことがあり、
+  そのときは開き直しても `onAppear` が来ない恐れがある ―― キーになったら出たと見る受け口は 2026-10-04 のレビュー R1-5 で足した予防で、
+  落ちる場面は実機で確かめていない)。最初に出たときも `true` が来るが、
   ViewModel は「出ている」から始めるので、作った直後の読み直しは起きない。
 - **出たら**、一覧と控え(実在の判定のキャッシュなど)を作り直し、環境設定から取る「開いた直後の値」を入れ直す。
-- **閉じたら**、一時的な状態 ―― 読み込んだファイル・方針・結果・初回のパネルの番人・選択・取り消しの積み場所 ―― を捨てる。
+- **閉じたら**、一時的な状態 ―― 読み込んだファイル・方針・結果・初回のパネルの番人・選択・取り消しの積み場所・View の `@State` に
+  持つ確認の相手(保存データの削除の `pendingDeletion`。レビュー R1-5) ―― を捨てる。
   読み込み・書き出しの途中で閉じたとき(処理は続く)は、その処理が使い終わるまで消さず、次に出たときに捨てる。
 - 開いている間の変化は、変更通知を購読して読み直す(`BookExportViewModel` / `MetadataEditorViewModel`)。ただし**閉じている間は
   読み直さない**: 印だけ付け、次に出たときに 1 回読む(`BookExportViewModel.setPresented`、2026-09-25 の監査。以前は一度開くと、

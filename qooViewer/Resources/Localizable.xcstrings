@@ -35113,34 +35113,18 @@
         }
       }
     },
-    "No book is read with this rule set" : {
+    "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No book is read with this rule set"
+            "value" : "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このルールセットで読む本がありません"
-          }
-        }
-      }
-    },
-    "Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ここに数えるのは、メタデータの編集ウインドウの本のうち、このルールセットで読む本だけです。本ごとのルールセットは自動で選ばれるほか、右クリックの「ファイル名の解析ルール」で選べます。"
+            "value" : "メタデータの編集ウインドウに、このルールセットで読む本がまだ無いため、参考としてすべての本を読んでいます。本ごとのルールセットは自動で選ばれるほか、右クリックの「ファイル名の解析ルール」で選べます。"
           }
         }
       }

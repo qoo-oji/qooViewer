@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -137,18 +138,24 @@ final class ShelfCoverImportViewModel: ObservableObject {
     // MARK: - 読み込み
 
     func load(zipAt url: URL) async {
+        // 取り込み・読み込みの最中は読み直さない(行と読み込んだ zip を差し替えると、取り込みが読み終えていない行の中身が別の zip から
+        // 来る。「ファイルを選ぶ」はその間淡色だが、選ぶパネルが出ている間に始まった場合のために入口でも断る。2026-10-04 の
+        // レビューの R8a-4)。
+        guard !isApplying, !isLoading else { return NSSound.beep() }
         isLoading = true
         resultMessage = nil
         loadedFileName = url.lastPathComponent
         loadedZipURL = url
         defer { isLoading = false }
 
-        // 展開・復号・検査はメインアクターの外(ShelfCoverArchive.readの約束)。
+        // 展開・復号・検査はメインアクターの外(ShelfCoverArchive.readの約束)。ブロッキングする読み出しなので FileIO の上で
+        // (CLAUDE.md の FileIO の約束。取り込み側の `readEntries` と揃えた ―― 以前は Task.detached で協調スレッドを塞いだ。
+        // 2026-10-04 のレビューの R8a-4)。
         let maxPixelSize = CollectionCoverSourceStore.maxPixelSize
         let didAccess = url.startAccessingSecurityScopedResource()
-        let outcome = await Task.detached {
+        let outcome = await FileIO.perform {
             Result { try ShelfCoverArchive.read(zipAt: url, maxPixelSize: maxPixelSize) }
-        }.value
+        }
         if didAccess { url.stopAccessingSecurityScopedResource() }
 
         switch outcome {

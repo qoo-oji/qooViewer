@@ -1324,6 +1324,15 @@ enum LibraryImportExportService {
             // MangaBook(book)を使う(ページを持たないスタブでは指紋が不正確になり、次に
             // この本を開いたときに誤って「差し替えられた」と判定されてしまう)。
             let existingSettings = layoutStore.bookLayoutSettings(forBookID: bookID)
+            // 手元のブックマークのうち鍵を持たない古い行(1.36 以前)の番号は、取り込む前の並びの従来順で数えたもの。並びを
+            // 書き換える前に、その従来順の鍵を控えておく(下の振り直し。鍵を持つ行しか無ければ作らない ―― 並べ直しが要るので)。
+            let legacyKeysBeforeImport: [String] = bookmarkStore.bookmarks(forBookID: bookID).contains { $0.pageKey == nil }
+                ? EffectivePageOrder.legacyOrderedPageKeys(
+                    for: book, pageOrderOverride: existingSettings?.pageOrderOverride,
+                    excludedKeys: Set(layoutStore.pageOverrides(forBookID: bookID)
+                        .filter { $0.state == .excluded }.map(\.pageKey))
+                )
+                : []
 
             if policy == .overwrite {
                 // 行ごとは消さない ―― JSONに無いコレクション表紙・カバー画像などが同居している
@@ -1376,6 +1385,18 @@ enum LibraryImportExportService {
                 pageOrder: pageOrder,
                 pageChanges: pageChanges
             )
+            // 並び(並べ替え・除外)が変わったので、手元のブックマークの番号を今の並びへ振り直す(ビューアが開いていなくても ――
+            // docs/07「ページの鍵」。2026-10-04 のレビューの R2-7: 以前は振り直さず、次に本を開くまで、ブックマーク一覧の番号・
+            // 一括リネームの連番・「次のブックマーク」が古い並びのページを見た)。JSON のブックマークはこの後 `applyBookmarks` が
+            // 取り込んだ後の並びで数えて足す。
+            let importedSettings = layoutStore.bookLayoutSettings(forBookID: bookID)
+            let currentOrderedKeys = EffectivePageOrder.pageKeys(
+                for: book, pageOrderOverride: importedSettings?.pageOrderOverride,
+                excludedKeys: Set(layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey))
+            )
+            bookmarkStore.renumberBookmarks(forBookID: bookID, currentOrderedKeys: currentOrderedKeys) {
+                legacyKeysBeforeImport
+            }
             summary.layoutsImportedBooks += 1
         }
     }

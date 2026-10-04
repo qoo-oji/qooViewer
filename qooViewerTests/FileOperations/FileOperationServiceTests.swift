@@ -70,6 +70,16 @@ struct FileOperationServiceTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == ["Comic.cbz"])
     }
 
+    /// 2026-10-04 のレビューの R3-4 で「自分自身への改名」の畳み方を `folding(.caseInsensitive)` にそろえたときの見張り。直す前
+    /// (`lowercased()` で排他の改名へ回していた形)でも APFS は通すので、直す前でも通る ―― 結果が変わらないことを押さえる。
+    @Test("APFS が同じ名前として扱う ß → ss の名前の変更もできる(2026-10-04 のレビューの R3-4)")
+    func sharpSToDoubleSRenameSucceeds() async throws {
+        let file = try write("x", to: "case-sharp-s/straße.txt")
+        let receipt = try await service.rename(file, to: "strasse.txt")
+        #expect(receipt.renamed.lastPathComponent == "strasse.txt")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == ["strasse.txt"])
+    }
+
     @Test("別の項目がある名前へは変更しない(上書きしない)")
     func renameRefusesToOverwrite() async throws {
         let a = try write("a", to: "rename-collide/a.txt")
@@ -89,6 +99,8 @@ struct FileOperationServiceTests {
         #expect(FileOperationService.namesDifferOnlyInCaseOrNormalization("comic.cbz", "Comic.CBZ"))
         #expect(FileOperationService.namesDifferOnlyInCaseOrNormalization("\u{304B}\u{3099}.txt", "\u{304C}.txt"), "NFD と NFC")
         #expect(!FileOperationService.namesDifferOnlyInCaseOrNormalization("a.txt", "b.txt"))
+        // APFS(大文字小文字を区別しない)が同じ名前として扱うもの。パスの照合の鍵と同じ畳み方(2026-10-04 のレビューの R3-4)。
+        #expect(FileOperationService.namesDifferOnlyInCaseOrNormalization("straße.txt", "STRASSE.txt"))
     }
 
     // MARK: - 移動・コピー
