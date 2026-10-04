@@ -107,7 +107,7 @@ struct RecentFilesAndAccessTests {
 
     /// 2026-10-04 の監査 SP-7 = M-4・H-6。以前は nil だけを返し、4 つの入口がどれも黙っていた。
     @Test("履歴の項目を開けないときは理由を返す: 繋がっていないボリュームは行を残し、消えた本は行を取り除く")
-    func resolvingForOpeningReportsWhyItFailed() throws {
+    func resolvingForOpeningReportsWhyItFailed() async throws {
         let suite = PreferencesSuite(label: "recent-open-failure")
         let temporary = try TemporaryDirectory("recent-open-failure")
         let present = temporary.file("present.cbz")
@@ -126,20 +126,25 @@ struct RecentFilesAndAccessTests {
         try #require(store.entries.contains { $0.path == offline })
 
         let offlineEntry = try #require(store.entries.first { $0.path == offline })
-        #expect(store.resolveForOpening(offlineEntry) == .failure(.volumeNotConnected))
+        #expect(await store.resolveForOpening(offlineEntry) == .failure(.volumeNotConnected))
         #expect(store.entries.contains { $0.path == offline }, "繋がっていないボリュームの行を消した")
 
         let goneEntry = RecentFilesStore.Entry(path: gone.path, isDirectory: false, bookmark: goneBookmark)
-        #expect(store.resolveForOpening(goneEntry) == .failure(.missing))
+        #expect(await store.resolveForOpening(goneEntry) == .failure(.missing))
         #expect(!store.entries.contains { $0.path == gone.path })
 
         let presentEntry = try #require(store.entries.first { $0.path == present.path })
-        let resolved = try store.resolveForOpening(presentEntry).get()
+        let resolved = try await store.resolveForOpening(presentEntry).get()
         #expect(resolved.standardizedFileURL.path == present.standardizedFileURL.path)
 
         // 知らせは理由ごとの文で、名前を含む。
         let reported = OpenFailureReports()
-        #expect(store.resolveForOpening(offlineEntry, locale: Locale(identifier: "en"), report: { reported.messages.append($0) }) == nil)
+        // 解決はメインの外(FileIO)で、開けたら閉包を呼ぶ形(2026-10-04 の監査 §2-4)。開けなければ閉包は呼ばない。
+        await store.resolveForOpening(
+            offlineEntry, locale: Locale(identifier: "en"), report: { reported.messages.append($0) },
+            then: { reported.opened.append($0) }
+        ).value
+        #expect(reported.opened.isEmpty)
         #expect(reported.messages.count == 1)
         #expect(reported.messages.first?.contains(offlineEntry.displayName) == true)
     }
@@ -147,6 +152,7 @@ struct RecentFilesAndAccessTests {
     @MainActor
     private final class OpenFailureReports {
         var messages: [String] = []
+        var opened: [URL] = []
     }
 
     @Test("1件だけの削除は、保存済みのデータからも消える")

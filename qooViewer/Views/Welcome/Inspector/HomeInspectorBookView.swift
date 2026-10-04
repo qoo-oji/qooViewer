@@ -119,7 +119,10 @@ struct HomeInspectorBookView: View {
                 resolveURL: { [box] _ in box.url }
             )
         }
-        .task { await loadCollectionItemFacts() }
+        .task {
+            await loadCollectionItemFacts()
+            await loadSmartBookFacts()
+        }
     }
 
     // MARK: - 表紙
@@ -190,7 +193,8 @@ struct HomeInspectorBookView: View {
     private var facts: HomeInspectorFileFacts? {
         switch book {
         case .fileBrowser(_, let displayed, _): HomeInspectorFileFacts(entry: displayed)
-        case .smart(let smartBook): HomeInspectorFileFacts(smartBook: smartBook)
+        // スマートライブラリの本は、探したときの写しをまず出し、選んだ 1 冊だけ読み直したら差し替える(`loadSmartBookFacts`)。
+        case .smart(let smartBook): loadedFacts ?? HomeInspectorFileFacts(smartBook: smartBook)
         case .collectionItem: loadedFacts
         }
     }
@@ -260,6 +264,53 @@ struct HomeInspectorBookView: View {
             missing.isMissing = true
             loadedFacts = missing
         }
+    }
+
+    /// スマートライブラリの本の情報を、選んだ 1 冊だけ読み直す(2026-10-04 の監査 SL-8)。
+    ///
+    /// 一覧はアプリの外の変化では探し直さない(SmartLibraryCatalog の型コメントの仕様)ので、写しのままだと、消えた本・書き換わった本
+    /// でも探したときの大きさ・日付を出し続けた。読むのは FileIO の上で、期限つき。**ネットワーク越しの本は読まない**(写しのまま。
+    /// 選ぶたびに共有へ往復しない)。「無い」と言うのは OS が無いと答えたときと、ボリュームが繋がっていないときだけ
+    /// (`LastBookPresence` と同じ分け方 ―― 読めなかったことを「見つかりません」に読み替えない)。
+    private func loadSmartBookFacts() async {
+        guard case .smart(let smartBook) = book else { return }
+        let url = URL(fileURLWithPath: smartBook.id, isDirectory: smartBook.kind == .folder)
+        let mounts = MountTable.current()
+        guard !mounts.isRemote(url) else { return }
+        let reading = try? await FileIO.withDeadline(.seconds(10)) {
+            await FileIO.perform { Self.readSmartBook(url, mounts: mounts) }
+        }
+        guard !Task.isCancelled, let reading else { return }
+        switch reading {
+        case .present(let entry):
+            loadedFacts = HomeInspectorFileFacts(entry: entry)
+        case .absent:
+            var missing = HomeInspectorFileFacts(smartBook: smartBook)
+            missing.isMissing = true
+            loadedFacts = missing
+        case .unknown:
+            break
+        }
+    }
+
+    nonisolated private enum SmartBookReading: Sendable {
+        case present(FileBrowserEntry)
+        case absent
+        case unknown
+    }
+
+    /// **ブロッキングする**(FileIO の上で)。
+    nonisolated private static func readSmartBook(_ url: URL, mounts: MountTable) -> SmartBookReading {
+        if mounts.isOnAnUnmountedVolume(url) { return .absent }
+        var info = stat()
+        guard stat(url.path, &info) == 0 else {
+            switch errno {
+            case ENOENT, ENOTDIR: return .absent
+            default: return .unknown
+            }
+        }
+        var kindCache: [String: String] = [:]
+        return .present(FileBrowserListing.makeEntry(url, kindCache: &kindCache))
     }
 
     nonisolated private struct CollectionItemReading: Sendable {

@@ -33857,22 +33857,6 @@
         }
       }
     },
-    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image or Add Margins." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image or Add Margins."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(メタデータの編集で表紙を右クリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
-          }
-        }
-      }
-    },
     "Which series a book whose title holds a compilation word joins" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -35045,6 +35029,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld件は、シークレットフォルダの本なので読み込みませんでした。"
+          }
+        }
+      }
+    },
+    "Move and Copy of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move and Copy of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目の移動とコピー"
+          }
+        }
+      }
+    },
+    "Moving and copying %lld items…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moving and copying %lld items…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目を移動・コピーしています…"
+          }
+        }
+      }
+    },
+    "The location of “%@” didn’t respond. Try again later." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The location of “%@” didn’t respond. Try again later."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」のある場所が応答しませんでした。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(ホームのインスペクタで表紙を右クリック、またはメタデータの編集ウインドウで表紙をクリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
           }
         }
       }

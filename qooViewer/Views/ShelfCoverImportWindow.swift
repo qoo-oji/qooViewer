@@ -132,7 +132,8 @@ private struct ShelfCoverImportContentView: View {
             .toggleStyle(.button)
             .labelStyle(.titleAndIcon)
             .help("Select All / Deselect All")
-            .disabled(viewModel.rows.isEmpty)
+            // 取り込みの最中は選び直させない(監査 TW-19。ShelfCoverImportViewModel.setSelection のコメント)。
+            .disabled(viewModel.rows.isEmpty || viewModel.isApplying)
 
             if viewModel.isApplying {
                 ProgressView().controlSize(.small)
@@ -309,6 +310,7 @@ private struct ShelfCoverImportBookCell: View {
                     .foregroundStyle(row.selectedBookID == nil ? Color.secondary : Color.primary)
             }
             .menuStyle(.borderlessButton)
+            .disabled(viewModel.isApplying)
             .help(row.selectedBookID ?? "")
         }
     }

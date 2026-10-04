@@ -87,6 +87,30 @@ struct BookExportViewModelTests {
         }
     }
 
+    // MARK: - 空き容量の確かめ(2026-10-04 の監査 TW-21)
+
+    @Test("元の本の合計はメインの外で数える材料から求まり(フォルダは中身の合計、見つからない本は 0)、確かめの後は淡色が解ける")
+    func theSourceSizeIsSummedFromMaterials() async throws {
+        let environment = try Environment()
+        defer { environment.close() }
+        let folder = try environment.temporary.directory("folder-book")
+        try Data(repeating: 1, count: 300).write(to: folder.appendingPathComponent("001.png"))
+        try Data(repeating: 1, count: 200).write(to: folder.appendingPathComponent("002.png"))
+        let archive = environment.temporary.file("book.cbz")
+        try Data(repeating: 1, count: 1_000).write(to: archive)
+        let materials: [(direct: URL?, material: StoredBookLocator.Material)] = [
+            (nil, StoredBookLocator.Material(bookID: folder.path, bookmarks: [])),
+            (archive, StoredBookLocator.Material(bookID: "/not/recorded.cbz", bookmarks: [])),
+            (nil, StoredBookLocator.Material(bookID: environment.temporary.file("gone.cbz").path, bookmarks: [])),
+        ]
+        let total = await FileIO.perform { BookExportViewModel.totalSourceSize(of: materials) }
+        #expect(total == 1_500)
+
+        let viewModel = environment.makeViewModel()
+        #expect(await viewModel.hasSufficientDiskSpace(at: environment.temporary.url))
+        #expect(!viewModel.isBusy)
+    }
+
     // MARK: - シークレットウインドウ
 
     /// シークレットウインドウからの 1 冊書き出しは、書き出し本体もカバー欄もページ一覧のディスクキャッシュを読み書きしない

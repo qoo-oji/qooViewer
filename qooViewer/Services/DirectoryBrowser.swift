@@ -225,9 +225,9 @@ nonisolated enum DirectoryBrowser {
     ///
     /// **directContents(of:)へ委譲してはいけない。** あちらは「サブフォルダが無い」と言い切る
     /// ために画像だけのフォルダを最後まで読むが、この関数はSidePanelView.moveAndShowImages
-    /// (戻る/進む/1階層上)から**メインスレッドで同期的に**呼ばれる。数千枚の画像がある
-    /// フォルダをネットワークボリューム上で全走査すると秒単位でUIが固まる(監査で検出)。
-    /// ここは画像が1枚見つかった時点で打ち切る。
+    /// (戻る/進む/1階層上)が移るたびに呼ぶ。数千枚の画像があるフォルダをネットワークボリューム上で
+    /// 全走査すると秒単位で待たされる(監査で検出。当時はメインで同期に呼んでいてUIが固まった ――
+    /// 2026-10-04 から FileIO の上で呼ぶ)。ここは画像が1枚見つかった時点で打ち切る。
     static func directlyContainsImageFile(_ directory: URL) -> Bool {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,

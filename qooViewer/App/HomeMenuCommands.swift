@@ -285,19 +285,11 @@ struct HomeMenuItems: View {
     }
 
     /// 帯のライブラリのチップを押したときと同じ(WelcomeTopBar.chip)。
+    /// 決まりはチップと共通(WelcomeLibraryState.showLibrary。2026-10-04 の監査 H-13 ―― 以前は見ているライブラリで
+    /// `openedCollectionID = nil` だけにし、出てきた棚を選ばなかった)。
     private static func selectLibrary(_ id: UUID, appState: AppState?, home: HomeMenuState) {
         guard let welcome = appState?.welcomeLibrary else { return }
-        if welcome.mode != .shelf {
-            welcome.mode = .shelf
-            // 見ていたライブラリなら、開いていたコレクションもそのまま(離れたときの棚へ戻る)。
-            if id == home.libraryID { return }
-        }
-        if id == home.libraryID {
-            welcome.openedCollectionID = nil
-            return
-        }
-        welcome.selectedLibraryID = id
-        welcome.openedCollectionID = nil
+        welcome.showLibrary(id, currentLibraryID: home.libraryID)
     }
 
     /// 右クリックの「別のライブラリへ移動」と同じ(CollectionGridView.moveMenu)。1 つでも名前が衝突したら何もしない
@@ -311,12 +303,8 @@ struct HomeMenuItems: View {
         let live = Set(welcome.openedCollectionID.map { [$0] } ?? welcome.targetCollectionIDs)
         let collections = home.collectionTargets.filter(live.contains).compactMap { collectionStore.collection(withID: $0) }
         guard collectionStore.move(collections, to: target) else { return }
-        // 開いていたコレクションを移したら一覧へ戻る(いま見ているライブラリにはもう無い)。
-        if let opened = welcome.openedCollectionID, home.collectionTargets.contains(opened) {
-            welcome.openedCollectionID = nil
-        }
-        // 移した先は今見えていないので、選択に残さない(見えていないものをゴミ箱が消さないための決まり)。
-        welcome.clearSelection()
+        // 開いていたコレクションを移したら一覧へ戻り、移したものを選択から外す(右クリックと共通。WelcomeLibraryState.collectionsMovedAway)。
+        welcome.collectionsMovedAway(Set(collections.map(\.id)))
     }
 }
 

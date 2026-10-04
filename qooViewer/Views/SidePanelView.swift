@@ -921,13 +921,24 @@ struct SidePanelView: View {
     /// **ここを通らない場所の変わり方もある** ―― 履歴やお気に入りから本を開いたときの
     /// 再アンカー(handlePanelRevealed)がそれで、あちらは「開いた本に合わせて表示を移す」
     /// 逆向きの動きなので、ここで本を開き直してはいけない(無限に開き直すことになる)。
+    ///
+    /// 「直下に画像があるか」は `FileIO` の上で調べる(2026-10-04 の監査 §2-4・決定 18「ブロッキング I/O をメインで同期にしない」。
+    /// 以前はメインで同期に列挙し、応答しない共有のフォルダへ移ると、その間アプリごと止まった)。待った後は、まだそのフォルダに
+    /// いるか(その間に別の場所へ移っていないか)と、その本がもう表示中でないかを確かめ直す。
     private func moveAndShowImages(_ move: () -> Void) {
         move()
-        guard let directory = folderState.currentDirectory,
-              DirectoryBrowser.directlyContainsImageFile(directory),
-              !isCurrentBookFolder(directory) else { return }
-        folderState.skipNextAnchorOnce(for: directory)
-        onBrowseToFolder(directory)
+        guard let directory = folderState.currentDirectory, !isCurrentBookFolder(directory) else { return }
+        let folderState = folderState
+        let onBrowseToFolder = onBrowseToFolder
+        let bookSourceURL = bookSourceURL
+        Task { @MainActor in
+            let hasImages = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(directory) }
+            guard hasImages, folderState.currentDirectory?.path == directory.path,
+                  bookSourceURL?.path != directory.path
+            else { return }
+            folderState.skipNextAnchorOnce(for: directory)
+            onBrowseToFolder(directory)
+        }
     }
 
     /// フォルダ行のシングルクリック(「開く・移動をダブルクリックにする」がOFFのとき)。
@@ -1735,6 +1746,9 @@ private struct SidePanelBookmarksSectionView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
+        // 今のページの行の強調も、重ね色がアクセントカラーに近いと面に溶ける(フォルダ行と同じ。2026-10-04 の監査 SP-11 ――
+        // 面をアクセント色 100% にした実測で、フォルダ行には縁が出てこの行には出ず、どれが今か分からなかった)。
+        .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
         .help(bookmark.name)
         // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
@@ -1774,6 +1788,8 @@ private struct SidePanelHistorySectionView: View {
     /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
     @Environment(\.dataUndoStack) private var dataUndo
     @EnvironmentObject private var preferences: AppPreferences
+    /// 開く前の確かめを待つ間に、この窓で別の本を開き始めたかを見る(`openRequestToken`。`resolve(_:then:)`)。
+    @EnvironmentObject private var appState: AppState
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var recentFiles: RecentFilesStore
     var currentBookPath: String?
@@ -1862,9 +1878,16 @@ private struct SidePanelHistorySectionView: View {
         }
     }
 
-    /// 開く直前の解決。開けなければ理由を知らせて nil(2026-10-04 の監査 SP-7。RecentFilesStore.resolveForOpening(_:locale:report:))。
-    private func resolve(_ entry: RecentFilesStore.Entry) -> URL? {
-        recentFiles.resolveForOpening(entry, locale: preferences.effectiveLocale, report: onOpenFailure)
+    /// 開く直前の解決。開けなければ理由を知らせる(2026-10-04 の監査 SP-7。RecentFilesStore.resolveForOpening)。解決は
+    /// メインの外なので、開けたら `body` を呼ぶ(監査 §2-4)。待つ間にこの窓で別の本を開き始めていたら開かない(SP-10 と同じ)。
+    private func resolve(_ entry: RecentFilesStore.Entry, then body: @escaping @MainActor (URL) -> Void) {
+        let appState = appState
+        let token = appState.openRequestToken
+        recentFiles.resolveForOpening(
+            entry, locale: preferences.effectiveLocale, report: onOpenFailure,
+            stillWanted: { [weak appState] in appState?.openRequestToken == token },
+            then: body
+        )
     }
 
     private func row(for entry: RecentFilesStore.Entry) -> some View {
@@ -1893,12 +1916,13 @@ private struct SidePanelHistorySectionView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
+        // 今の本の行の強調も、重ね色がアクセントカラーに近いと面に溶ける(フォルダ行と同じ。監査 SP-11)。
+        .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
         // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
         .help(entry.path)
         // 開く直前に初めてブックマークを解決する(消えた本は履歴から取り除かれ、開けない理由は知らせる ―― resolve(_:))。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) {
-            guard let url = resolve(entry) else { return }
-            onOpen(url)
+            resolve(entry) { url in onOpen(url) }
         }
         .sidePanelContextHighlight(rowID: "history:\(entry.id)")
         .contextMenu {
@@ -1907,12 +1931,10 @@ private struct SidePanelHistorySectionView: View {
             // 一覧全体でディスクを触ることになるため、必ずクロージャの中で行うこと。
             BookOpenContextMenuItems(
                 onOpen: {
-                    guard let url = resolve(entry) else { return }
-                    onOpen(url)
+                    resolve(entry) { url in onOpen(url) }
                 },
                 onOpenIn: { destination in
-                    guard let url = resolve(entry) else { return }
-                    onOpenInNewWindow(url, destination)
+                    resolve(entry) { url in onOpenInNewWindow(url, destination) }
                 }
             )
             Divider()
@@ -2336,6 +2358,9 @@ private struct SidePanelPageCell: View {
                     }
                 }
             }
+            // 今のページの枠はアクセント色の状態そのもの ―― 面をアクセント色で塗ると消える(監査 SP-11)。
+            // 反対色の縁は同じ形の内側に重なる(右クリックの枠 HomeContextMenuTargetBorder と同じ描き方)。
+            .panelOutlinedAccent(in: RoundedRectangle(cornerRadius: 4), isEnabled: isCurrent)
             // サムネイルにカーソルを乗せている間、拡大プレビューとファイル名を表示する
             // (ユーザー要望)。ホバーした瞬間に即座にpopoverを出さず、一定時間
             // (hoverPreviewDelayNanoseconds)ホバーし続けた場合にだけ表示する。一覧を縦に
@@ -2395,7 +2420,11 @@ private struct SidePanelPageCell: View {
         .contentShape(Rectangle())
         .background(
             Group {
-                if isCurrent { SelectionEmphasisHighlight(shape: RoundedRectangle(cornerRadius: 6, style: .continuous)) }
+                if isCurrent {
+                    // 行の地も同じ(監査 SP-11)。縁は地の形にだけ引く(行全体に引くと横の余白 4pt の外へはみ出す)。
+                    SelectionEmphasisHighlight(shape: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .panelOutlinedAccent(in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
             }
             .padding(.horizontal, 4)
         )

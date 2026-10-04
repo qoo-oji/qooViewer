@@ -466,6 +466,19 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.replacingDeletesImmediately == [true])
     }
 
+    @Test("移動とコピーが混ざったドロップの題は「移動とコピー」(2026-10-04 の監査 FBA-12。以前は「コピー」だった)")
+    func mixedTransfersHaveANeutralTitle() {
+        typealias Kind = FileBrowserOperations.TransferKind
+        #expect(Kind(moves: true, copies: false) == .move)
+        #expect(Kind(moves: false, copies: true) == .copy)
+        #expect(Kind(moves: true, copies: true) == .moveAndCopy)
+        let english = Locale(identifier: "en")
+        #expect(FileBrowserOperations.transferName(count: 3, kind: .moveAndCopy, locale: english) == "Move and Copy of 3 Items")
+        #expect(FileBrowserOperations.activityTitle(count: 3, kind: .moveAndCopy, locale: english) == "Moving and copying 3 items…")
+        #expect(FileBrowserOperations.transferName(count: 2, kind: .move, locale: english) == "Move of 2 Items")
+        #expect(FileBrowserOperations.activityTitle(count: 2, kind: .copy, locale: english) == "Copying 2 items…")
+    }
+
     @Test("ペーストボードの読み戻しは末尾の / が違ってもカットと一致する")
     func cutPathsIgnoreTrailingSlash() {
         let plain = URL(fileURLWithPath: "/tmp/qooViewerTests-never/folder")

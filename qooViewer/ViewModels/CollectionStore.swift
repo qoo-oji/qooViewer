@@ -155,9 +155,20 @@ final class CollectionStore: ObservableObject {
     /// 作った時点でライブラリは必ず1つ以上ある。
     func reload() {
         invalidateLookupCaches()
-        libraries = allLibraries().sorted { $0.sortOrder < $1.sortOrder }
+        libraries = Self.orderedLibraries(allLibraries())
         ensureDefaultLibrary()
         adoptDefaultLibraryName()
+    }
+
+    /// 帯の並び(`sortOrder` の順)。**番号が同じものどうしは作った順、さらに id で決める**(2026-10-04 の監査 H-14)。以前は番号だけで
+    /// 並べ、同じ番号どうしの前後が取得の順任せで、起動のたびに入れ替わりえた(番号が重なる経路は作成・取り消しで塞いだが、既に
+    /// 重なっている保存データもある)。
+    static func orderedLibraries(_ libraries: [BookLibrary]) -> [BookLibrary] {
+        libraries.sorted {
+            if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+            return $0.id.uuidString < $1.id.uuidString
+        }
     }
 
     private func invalidateLookupCaches() {
@@ -651,7 +662,8 @@ final class CollectionStore: ObservableObject {
     func createLibrary(name: String) -> BookLibrary? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !hasLibraryNamed(trimmed) else { return nil }
-        let library = BookLibrary(name: trimmed, sortOrder: allLibraries().count)
+        // 末尾の番号は「今ある番号の最大 + 1」(監査 H-14。以前は数を使い、取り消しで戻したライブラリの番号と重なりえた)。
+        let library = BookLibrary(name: trimmed, sortOrder: (allLibraries().map(\.sortOrder).max() ?? -1) + 1)
         modelContext.insert(library)
         invalidateLookupCaches()
         saveAndNotify()
@@ -1513,6 +1525,9 @@ final class CollectionStore: ObservableObject {
         var books: [Book] = []
         /// 中の本が全部なくなるため、一緒に削除されるコレクションの名前(表示用)。
         var emptiedCollectionNames: [String] = []
+        /// 同じコレクションの id。実行時に消してよいのは**ここに挙げた(シートで名指しした)コレクションだけ**
+        /// (2026-10-04 の監査 H-12。`applyMissingBookSweep` のコメント)。
+        var emptiedCollectionIDs: Set<UUID> = []
 
         var isEmpty: Bool { books.isEmpty }
     }
@@ -1539,6 +1554,7 @@ final class CollectionStore: ObservableObject {
                   missingCount == collection.items.count
             else { continue }
             sweep.emptiedCollectionNames.append(collection.name)
+            sweep.emptiedCollectionIDs.insert(collection.id)
         }
         // コレクションごとにまとめ、その中は名前順(シートで読める並びにする)。
         sweep.books.sort {
@@ -1556,6 +1572,10 @@ final class CollectionStore: ObservableObject {
     ///
     /// 候補を数えてから実行するまでの間に別のウインドウが消していることがあるので、**idから
     /// 引き直してから**消す。数え直しはしない(確認した一覧と違うものを消さないため)。
+    ///
+    /// **削除するコレクションはシートで名指ししたもの(`emptiedCollectionIDs`)に限る**(2026-10-04 の監査 H-12)。以前は空になるかを
+    /// 実行時に数え直していたので、シートを出している間に別のウインドウで残りの本が外されると、名指ししていないコレクションが
+    /// 取り消せずに消えた(自動登録フォルダの指定ごと)。名指ししたものでも、その間に本が増えて空にならないなら消さない。
     func applyMissingBookSweep(_ sweep: MissingBookSweep) {
         let items = sweep.books.compactMap { item(withID: $0.id) }
         guard !items.isEmpty else { return }
@@ -1568,7 +1588,7 @@ final class CollectionStore: ObservableObject {
             removedCountByCollection[collection.id] = (collection, (entry?.count ?? 0) + 1)
         }
         let emptiedCollections = removedCountByCollection.values
-            .filter { $0.count == $0.collection.items.count }
+            .filter { sweep.emptiedCollectionIDs.contains($0.collection.id) && $0.count == $0.collection.items.count }
             .map(\.collection)
 
         remove(items)
@@ -1836,7 +1856,8 @@ final class CollectionStore: ObservableObject {
     /// 同じ id のものが既にあれば(別のウインドウで戻した等)そのコレクションは飛ばす。
     func restore(_ record: CollectionDeletionRecord) -> Bool {
         var libraryByID: [UUID: BookLibrary] = [:]
-        for library in allLibraries() { libraryByID[library.id] = library }
+        let existingLibraries = Self.orderedLibraries(allLibraries())
+        for library in existingLibraries { libraryByID[library.id] = library }
         if let snapshot = record.library, libraryByID[snapshot.id] == nil {
             let library = BookLibrary(name: snapshot.name, sortOrder: snapshot.sortOrder, usesDefaultName: snapshot.usesDefaultName)
             library.id = snapshot.id
@@ -1853,6 +1874,13 @@ final class CollectionStore: ObservableObject {
             }
             modelContext.insert(library)
             libraryByID[snapshot.id] = library
+            // 元の位置へ差し込み、全体の番号を 0 から振り直す(監査 H-14。以前は元の番号のまま入れ、消した後に作ったライブラリの
+            // 番号と重なって並びが取得の順任せになった)。
+            var ordered = existingLibraries
+            ordered.insert(library, at: min(max(snapshot.sortOrder, 0), ordered.count))
+            for (index, each) in ordered.enumerated() where each.sortOrder != index {
+                each.sortOrder = index
+            }
         }
         var restoredAny = false
         var restoredItemIDs = Set<UUID>()

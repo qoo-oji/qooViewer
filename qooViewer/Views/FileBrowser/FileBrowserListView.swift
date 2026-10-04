@@ -124,12 +124,14 @@ struct FileBrowserListView: NSViewRepresentable {
         // 前の一覧のスクロール位置へ戻す(本を開いてホームへ戻った・表示形式を切り替えて戻した。FileBrowserState.savedScrollOrigins)。
         // 戻すときは、残っている「この項目まで見せて」の依頼を済んだことにする(作り直した一覧が古い依頼を拾うと、戻した位置から
         // 動いてしまう)。
-        let savedOrigin = state.takeSavedScrollOrigin(for: .list)
-        if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        // 控えた後にもう一方の表示で選択を動かしていたら、そちらを見せる(FileBrowserState.takeSavedScrollRestoration。監査 FBU-8)。
+        let restoration = state.takeSavedScrollRestoration(for: .list)
+        if restoration != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        if case .reveal(let id) = restoration { coordinator.revealAfterRestoring(id: id) }
         coordinator.appliedFocusRequest = state.focusRequest
         coordinator.appliedQuickLookRequest = state.quickLookRequest
         coordinator.update(from: self)
-        if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
+        if case .origin(let savedOrigin) = restoration { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
     }
 
@@ -273,6 +275,14 @@ struct FileBrowserListView: NSViewRepresentable {
             appliedScroll = request
         }
 
+        /// 作り直した一覧で見せる項目(`FileBrowserState.SavedScrollRestoration.reveal`。監査 FBU-8)。スクロールの依頼と同じ所
+        /// (`update(from:)` の、一覧を取り込んだ後)で 1 度だけ使う。
+        private var pendingRevealID: String?
+
+        func revealAfterRestoring(id: String) {
+            pendingRevealID = id
+        }
+
         /// 捨てる一覧のスクロール位置を状態へ控える(FileBrowserState.savedScrollOrigins)。表に出しているフォルダのものとして控える。
         func saveScrollOrigin(of scroll: HomeWheelScrollView) {
             state?.saveScrollOrigin(scroll.scrollOriginForSaving, for: .list, folder: displayedFolder)
@@ -381,6 +391,10 @@ struct FileBrowserListView: NSViewRepresentable {
                 if let row = entries.firstIndex(where: { $0.id == request.id }) {
                     table.scrollRowToVisible(row)
                 }
+            }
+            if let id = pendingRevealID {
+                pendingRevealID = nil
+                if let row = entries.firstIndex(where: { $0.id == id }) { table.scrollRowToVisible(row) }
             }
             if let request = state.renameRequest, request != appliedRename,
                let row = entries.firstIndex(where: { $0.id == request.id }) {

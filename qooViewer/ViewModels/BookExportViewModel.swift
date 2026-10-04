@@ -229,6 +229,10 @@ class BookExportViewModel: ObservableObject {
     // MARK: - 実行中の状態
 
     @Published private(set) var isExporting = false
+    /// 「書き出す」の前の空き容量の確かめの最中(`hasSufficientDiskSpace`。メインの外で数えるので待ちが生じる。監査 TW-21)。
+    @Published private(set) var isCheckingDiskSpace = false
+    /// 書き出しの操作を淡色にするか(書き出し中か、その前の確かめの最中)。
+    var isBusy: Bool { isExporting || isCheckingDiskSpace }
     @Published private(set) var currentBookDisplayName: String?
     @Published private(set) var completedCount = 0
     @Published private(set) var totalCount = 0
@@ -623,17 +627,36 @@ class BookExportViewModel: ObservableObject {
 
     /// 選択されている本の元ファイル/フォルダの合計サイズ。アーカイブ・PDFはfileSizeKey、
     /// フォルダは中の画像ファイルサイズを再帰合計する。
-    final func totalSourceSize() -> Int64 {
-        let targets = rows.filter { selectedBookIDs.contains($0.bookID) }
+    ///
+    /// **メインでは走らせない**(2026-10-04 の監査 TW-21・決定 18)。以前はメインアクターで本の場所を解決し、フォルダを再帰で列挙して
+    /// いたので、書き出す本が多い・フォルダの本が大きい・眠っている共有の本を含むと、「書き出す」を押した後に窓ごと固まった。
+    /// 手がかり(ブックマーク)はメインで値へ写し取り(`StoredBookLocator.Material`)、解決と列挙は `FileIO` の上で行う。
+    private func sourceSizeMaterials() -> [(direct: URL?, material: StoredBookLocator.Material)] {
+        rows.filter { selectedBookIDs.contains($0.bookID) }.map { row in
+            (directSourceURLs[row.bookID], StoredBookLocator.material(
+                forBookID: row.bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                metadataStore: metadataStore, collectionStore: collectionStore
+            ))
+        }
+    }
+
+    /// **ブロッキングする**(FileIO の上で)。見つからない本は 0 として数える(以前と同じ)。
+    nonisolated static func totalSourceSize(
+        of materials: [(direct: URL?, material: StoredBookLocator.Material)]
+    ) -> Int64 {
         var total: Int64 = 0
-        for row in targets {
-            guard let url = resolveURL(forBookID: row.bookID) else { continue }
+        for (direct, material) in materials {
+            if Cancellation.isRequestedInCurrentScope { break }
+            // 開いている本を書き出すときの URL はそのまま(利用者が実際に開いた URL。`directSourceURLs`)。
+            guard let url = direct ?? StoredBookLocator.resolveNow(material, purpose: .background) else { continue }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             total += sourceSize(of: url)
         }
         return total
     }
 
-    private func sourceSize(of url: URL) -> Int64 {
+    nonisolated private static func sourceSize(of url: URL) -> Int64 {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return 0 }
         if isDirectory.boolValue {
@@ -642,6 +665,7 @@ class BookExportViewModel: ObservableObject {
                 at: url, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [.skipsHiddenFiles]
             ) {
                 for case let fileURL as URL in enumerator {
+                    if Cancellation.isRequestedInCurrentScope { break }
                     let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
                     if values?.isDirectory != true, let size = values?.fileSize {
                         total += Int64(size)
@@ -666,7 +690,9 @@ class BookExportViewModel: ObservableObject {
     /// と誤警告された)。Finderの「使用可能な容量」表示と一致する素直な合計値である
     /// volumeAvailableCapacityKeyを優先して使い、それが取得できない場合にのみ
     /// ForImportantUsage版へフォールバックする形に変更する。
-    final func availableCapacity(at folderURL: URL) -> Int64? {
+    ///
+    /// **ブロッキングする**(ボリュームへの問い合わせ。FileIO の上で ―― 監査 TW-21)。
+    nonisolated static func availableCapacity(at folderURL: URL) -> Int64? {
         let values = try? folderURL.resourceValues(
             forKeys: [.volumeAvailableCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
         )
@@ -676,13 +702,25 @@ class BookExportViewModel: ObservableObject {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
+    /// 合計を数えるのを待つ上限。過ぎたら確かめずに続ける(数え切れないことを「容量不足」と読み替えない ―― 上と同じ考え)。
+    static let diskSpaceCheckLimit: Duration = .seconds(30)
+
     /// 出力先の空き容量が合計サイズの1.2倍未満なら警告(false)。
     /// どの形式も画像を再圧縮せずそのまま埋め込むため、元とおおむね近いサイズになる想定で、
-    /// 同じ倍率をそのまま使う。
-    final func hasSufficientDiskSpace(at folderURL: URL) -> Bool {
-        guard let available = availableCapacity(at: folderURL) else { return true }
-        let required = Double(totalSourceSize()) * 1.2
-        return Double(available) >= required
+    /// 同じ倍率をそのまま使う。数えるのは FileIO の上で、期限つき(上のコメント)。
+    final func hasSufficientDiskSpace(at folderURL: URL) async -> Bool {
+        // 数えている間は書き出しと同じく操作を淡色にする(`isBusy`。「書き出す」を待つ間にもう一度押させない)。
+        isCheckingDiskSpace = true
+        defer { isCheckingDiskSpace = false }
+        let materials = sourceSizeMaterials()
+        let check = try? await FileIO.withDeadline(Self.diskSpaceCheckLimit) {
+            await FileIO.perform { () -> Bool in
+                guard let available = Self.availableCapacity(at: folderURL) else { return true }
+                let required = Double(Self.totalSourceSize(of: materials)) * 1.2
+                return Double(available) >= required
+            }
+        }
+        return check ?? true
     }
 
     // MARK: - bookIDからのURL解決

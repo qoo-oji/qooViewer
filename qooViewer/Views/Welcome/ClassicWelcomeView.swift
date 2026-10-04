@@ -62,9 +62,10 @@ struct ClassicWelcomeView: View {
                         title: entry.displayName,
                         bookID: entry.path,
                         action: {
-                            // 開けなければ理由を下に知らせる(2026-10-04 の監査 SP-7)。
-                            guard let url = recentFiles.resolveForOpening(entry, reportingTo: appState) else { return }
-                            appState.open(url: url)
+                            // 開けなければ理由を下に知らせる(2026-10-04 の監査 SP-7)。解決はメインの外で(監査 §2-4)。
+                            recentFiles.resolveForOpening(entry, reportingTo: appState) { [appState] url in
+                                appState.open(url: url)
+                            }
                         },
                         // ユーザー要望: 履歴から1件だけ消せるようにする。
                         // ファイルの実体には触れない(サイドパネルの「履歴」モードの

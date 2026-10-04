@@ -1,3 +1,4 @@
+import QooMetaKit
 import SwiftUI
 
 /// サイドパネルのブックマークモードの下段: ライブラリ → コレクション → 本のツリー
@@ -21,12 +22,22 @@ import SwiftUI
 /// 再帰させている。こちらは階層が2段で固定なので、展開状態から「いま見えている行」の配列を
 /// 作って`LazyVStack`へ流す ―― 数千冊のコレクションを開いても、組み立てるのは見えている行だけ。
 ///
+/// ■ 行は値の写し(SidePanelLibraryTreeModel)から描く
+/// CollectionStore は購読しない(CLAUDE.md。モデルの型コメント)。開く・Finder で表示などはそのとき行をストアから引き直す。
+///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// 文字とアイコンの行なので`.panelOutlinedContent()`、今開いている本の行の強調は
 /// フォルダブラウザの行と同じ`.panelOutlinedAccent(in:)`。
 struct SidePanelLibraryTreeSection: View {
     @EnvironmentObject private var preferences: AppPreferences
-    @EnvironmentObject private var collectionStore: CollectionStore
+    /// カバーの下に出す文字の設定(本の行の名前。SidePanelLibraryTreeModel の型コメント「名前」、監査 SP-9)。
+    @EnvironmentObject private var appearance: AppearanceSettings
+    /// 規則の中身の印だけを読む(タイトルの作り直しの契機。SidePanelLibraryTreeModel.Inputs.rulesHash)。
+    @Environment(MetadataRulesStore.self) private var rulesStore
+    /// CollectionStore は**購読せずに**持つ(`CollectionAddingContext` の弱い参照。行は `model` の値の写しから描く ――
+    /// 2026-10-04 の監査 §2-4。以前は `@EnvironmentObject` で持ち、表紙の抽出のたびに開いているコレクションの全冊を並べ替えていた)。
+    @Environment(\.collectionAdding) private var collectionAdding
+    @StateObject private var model = SidePanelLibraryTreeModel()
     /// 確かめを待つ間に別の本が開かれたかを見る(`openRequestToken`。2026-10-04 の監査 SP-10)。
     @EnvironmentObject private var appState: AppState
     @Environment(\.locale) private var locale
@@ -47,40 +58,17 @@ struct SidePanelLibraryTreeSection: View {
     var onOpen: (BookOpenRequest) -> Void
     var onOpenInNewWindow: (BookOpenRequest, BookOpenDestination) -> Void
 
-    /// ツリーを平らにした1行。
-    private enum Row: Identifiable {
-        case library(BookLibrary)
-        case collection(BookCollection)
-        case book(CollectionItem)
-        /// 開いたコレクションに本が無い(ほぼ起きない ―― 空のコレクションは作らない方針)。
-        case empty(parentID: UUID)
+    private typealias Row = SidePanelLibraryTreeModel.Row
 
-        var id: String {
-            switch self {
-            case .library(let library): return "library:\(library.id.uuidString)"
-            case .collection(let collection): return "collection:\(collection.id.uuidString)"
-            case .book(let item): return "book:\(item.id.uuidString)"
-            case .empty(let parentID): return "empty:\(parentID.uuidString)"
-            }
-        }
-    }
+    private var collectionStore: CollectionStore? { collectionAdding.collectionStore }
 
-    private var rows: [Row] {
-        var rows: [Row] = []
-        for library in collectionStore.libraries {
-            rows.append(.library(library))
-            guard expandedLibraryIDs.contains(library.id) else { continue }
-            let collections = collectionStore.collections(in: library, sort: collectionSort)
-            if collections.isEmpty { rows.append(.empty(parentID: library.id)) }
-            for collection in collections {
-                rows.append(.collection(collection))
-                guard expandedCollectionIDs.contains(collection.id) else { continue }
-                let items = collectionStore.items(in: collection, sort: itemSort)
-                if items.isEmpty { rows.append(.empty(parentID: collection.id)) }
-                rows.append(contentsOf: items.map(Row.book))
-            }
-        }
-        return rows
+    private var modelInputs: SidePanelLibraryTreeModel.Inputs {
+        SidePanelLibraryTreeModel.Inputs(
+            expandedLibraryIDs: expandedLibraryIDs, expandedCollectionIDs: expandedCollectionIDs,
+            collectionSort: collectionSort, itemSort: itemSort,
+            captionStyle: appearance.collectionCoverCaptionStyle, language: locale,
+            rulesHash: rulesStore.rules.contentHash
+        )
     }
 
     var body: some View {
@@ -100,7 +88,7 @@ struct SidePanelLibraryTreeSection: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows) { row in
+                    ForEach(model.rows) { row in
                         rowView(row)
                     }
                 }
@@ -108,32 +96,32 @@ struct SidePanelLibraryTreeSection: View {
             // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
             .focusable(false)
         }
+        .onAppear { model.attach(to: collectionStore, inputs: modelInputs) }
+        .onChange(of: modelInputs) { _, inputs in model.update(inputs) }
     }
 
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
-        switch row {
-        case .library(let library):
+        switch row.kind {
+        case .library(let isExpanded, let count):
             disclosureRow(
-                id: library.id, depth: 0, expanded: $expandedLibraryIDs,
-                icon: "books.vertical", title: library.displayName(language: locale),
-                count: library.collections.count
+                id: row.objectID, depth: row.depth, isExpanded: isExpanded, expanded: $expandedLibraryIDs,
+                icon: "books.vertical", title: row.title, count: count
             )
-        case .collection(let collection):
+        case .collection(let isExpanded, let count):
             disclosureRow(
-                id: collection.id, depth: 1, expanded: $expandedCollectionIDs,
-                icon: "rectangle.stack", title: collection.name, count: collection.items.count
+                id: row.objectID, depth: row.depth, isExpanded: isExpanded, expanded: $expandedCollectionIDs,
+                icon: "rectangle.stack", title: row.title, count: count
             )
-        case .book(let item):
-            bookRow(item)
-        case .empty(let parentID):
+        case .book(let bookID, _, let exists):
+            bookRow(row, bookID: bookID, exists: exists)
+        case .empty:
             // 親の深さに合わせて字下げする(ライブラリの下なら1段、コレクションの下なら2段)。
-            let depth = expandedLibraryIDs.contains(parentID) ? 1 : 2
             Text("(Empty)")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
-                .padding(.leading, Self.leadingInset(depth: depth) + Self.chevronWidth + 6)
+                .padding(.leading, Self.leadingInset(depth: row.depth) + Self.chevronWidth + 6)
                 .padding(.vertical, 4)
         }
     }
@@ -143,10 +131,9 @@ struct SidePanelLibraryTreeSection: View {
 
     /// 開閉できる行(ライブラリ・コレクション)。
     private func disclosureRow(
-        id: UUID, depth: Int, expanded: Binding<Set<UUID>>, icon: String, title: String, count: Int
+        id: UUID, depth: Int, isExpanded: Bool, expanded: Binding<Set<UUID>>, icon: String, title: String, count: Int
     ) -> some View {
-        let isExpanded = expanded.wrappedValue.contains(id)
-        return HStack(spacing: 6) {
+        HStack(spacing: 6) {
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -178,29 +165,29 @@ struct SidePanelLibraryTreeSection: View {
         }
     }
 
-    private func bookRow(_ item: CollectionItem) -> some View {
-        let isCurrent = item.bookID == currentBookPath
-        let exists = collectionStore.cachedFileExists(for: item)
+    private func bookRow(_ row: Row, bookID: String, exists: Bool) -> some View {
+        let isCurrent = bookID == currentBookPath
+        let itemID = row.objectID
         return HStack(spacing: 6) {
             // 開閉の三角ぶんの幅を空けて、同じ深さの行と名前の開始位置を揃える。
             Color.clear.frame(width: Self.chevronWidth, height: 1)
-            Image(systemName: Self.iconName(forBookID: item.bookID))
+            Image(systemName: Self.iconName(forBookID: bookID))
                 .frame(width: 16)
                 .selectionEmphasisForeground(isCurrent, otherwise: .secondary)
-            Text(item.title)
+            Text(row.title)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
             // 開く前の確かめが長引いている本(眠っている共有など)。以前はツリーに何も出ず、押しても何も起きないように見えた
             // (2026-10-04 の監査 SP-10。ホームのコレクションのカバーと同じ回転表示。出すのは CollectionItemOpenTracker が
             // 250ms 待ってから)。小さな部品で地を持たないが、輪郭は下の panelOutlinedContent が文字と一緒に付ける。
-            if openTracker.resolvingItemID == item.id {
+            if openTracker.resolvingItemID == itemID {
                 ProgressView()
                     .controlSize(.mini)
             }
         }
         .panelOutlinedContent()
-        .padding(.leading, Self.leadingInset(depth: 2))
+        .padding(.leading, Self.leadingInset(depth: row.depth))
         .padding(.trailing, 8)
         .padding(.vertical, 4)
         // 実体が見つからない本は、ウェルカム画面のカバーと同じく淡く描く(開こうとすると鳴るだけ)。
@@ -208,26 +195,29 @@ struct SidePanelLibraryTreeSection: View {
         .contentShape(Rectangle())
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
-        .help(item.bookID)
-        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { open(item) }
-        .sidePanelContextHighlight(rowID: "libraryTreeBook:\(item.id.uuidString)")
+        .help(bookID)
+        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { open(itemID) }
+        .sidePanelContextHighlight(rowID: "libraryTreeBook:\(itemID.uuidString)")
         .contextMenu {
             // 履歴モードの行と同じ並び(ユーザー指定)。ブックマークの解決は選ばれた時点で行う
             // (行を描くたびに解決すると、一覧全体でディスクを触ることになる)。
             BookOpenContextMenuItems(
-                onOpen: { open(item) },
+                onOpen: { open(itemID) },
                 onOpenIn: { destination in
+                    guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
                     let makeRequest = requestMaker(opening: item)
                     withResolvedURL(item) { url in onOpenInNewWindow(makeRequest(url), destination) }
                 }
             )
             Divider()
             Button("Show in Finder") {
+                guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
                 withResolvedURL(item) { url in FinderReveal.reveal(url) }
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
+                    guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
                     withResolvedURL(item) { url in
                         // 確かめを待つ間に機能が OFF になっていたら何もしない(await の後は確かめ直す)。
                         guard revealInFileBrowser.isFeatureEnabled else { return }
@@ -238,7 +228,9 @@ struct SidePanelLibraryTreeSection: View {
         }
     }
 
-    private func open(_ item: CollectionItem) {
+    /// 行の本を開く。行は値の写しなので、押した時点の行(モデル)をストアから引き直す ―― 写しの後に外された本は鳴らすだけ。
+    private func open(_ itemID: UUID) {
+        guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
         let makeRequest = requestMaker(opening: item)
         // 確かめを待つ間(最長 45 秒)に別の入口で本を開いていたら、後から置き換えない(2026-10-04 の監査 SP-10)。
         let appState = appState
@@ -249,7 +241,9 @@ struct SidePanelLibraryTreeSection: View {
     /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求を作る。
     /// 並びは押した時点で写し取る(確かめを待った後にモデルを読まない ―― その間に消えていることがある)。
     private func requestMaker(opening item: CollectionItem) -> (URL) -> BookOpenRequest {
-        let items = item.collection.map { collectionStore.items(in: $0, sort: itemSort) } ?? []
+        let items = item.collection.flatMap { collection in
+            collectionStore?.leadingItems(in: collection, sort: itemSort, limit: .max)
+        } ?? []
         let sequence = BookSequence.collection(items, opening: item)
         return { url in BookOpenRequest(url, sequence: sequence) }
     }

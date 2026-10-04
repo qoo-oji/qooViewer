@@ -594,10 +594,11 @@ struct CollectionGridView: View {
                 ForEach(others, id: \.id) { target in
                     let canMove = targets.allSatisfy { collectionStore.canMove($0, to: target) }
                     Button {
-                        collectionStore.move(targets, to: target)
-                        // 移した先は今見えていないので、選択に残さない
-                        // (見えていないものをゴミ箱が消さないための決まり)。
-                        state.clearSelection()
+                        guard collectionStore.move(targets, to: target) else { return }
+                        // 移したものは今見えていないので選択から外す(見えていないものをゴミ箱が消さないための決まり)。
+                        // 選択の外のタイルを右クリックして移したときは、関係ない選択を残す(2026-10-04 の監査 H-13。以前は
+                        // 選択を丸ごと捨てていた。ホーム ▸ 別のライブラリへ移動と共通の WelcomeLibraryState.collectionsMovedAway)。
+                        state.collectionsMovedAway(Set(targets.map(\.id)))
                     } label: {
                         if canMove {
                             Text(target.displayName(language: locale))

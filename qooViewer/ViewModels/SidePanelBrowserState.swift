@@ -326,9 +326,11 @@ final class SidePanelBrowserState: ObservableObject {
                 if let directory {
                     switch FileBrowserLoadError.classify(error, folder: directory) {
                     case .notFound, .volumeUnavailable:
-                        let ancestor = await Task.detached(priority: .utility) {
+                        // ブロッキングする探索は FileIO の上で(ファイルブラウザの同じ探索と同じ。2026-10-04 の監査 §2-4 ――
+                        // 以前は Task.detached で、応答しない共有で協調スレッドを塞いだ)。
+                        let ancestor = await FileIO.perform(qos: .utility) {
                             FileBrowserListing.nearestExistingAncestor(of: directory)
-                        }.value
+                        }
                         guard !Task.isCancelled, self.currentDirectory == directory else { return }
                         self.currentDirectory = ancestor
                         self.highlightedURL = nil

@@ -391,7 +391,7 @@ struct ExportWindowContent<Options: View>: View {
             .toggleStyle(.button)
             .labelStyle(.titleAndIcon)
             .help("Select All / Deselect All")
-            .disabled(viewModel.shownRows.isEmpty || viewModel.isExporting)
+            .disabled(viewModel.shownRows.isEmpty || viewModel.isBusy)
         }
 
         // 対象一覧の絞り込み(ユーザー要望)。位置は「すべて選択」と「書き出しオプション…」の
@@ -420,7 +420,7 @@ struct ExportWindowContent<Options: View>: View {
             }
             .labelStyle(.titleAndIcon)
             .help("Filter Options…")
-            .disabled(viewModel.isExporting)
+            .disabled(viewModel.isBusy)
             // arrowEdgeが.bottomである理由は、下の「書き出しオプション…」のコメント参照。
             .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
                 // 下の書き出しオプションと違い、幅の下限(minWidth)は与えない。項目名が
@@ -443,7 +443,7 @@ struct ExportWindowContent<Options: View>: View {
                 Label("Export Options…", systemImage: "gearshape")
             }
             .labelStyle(.titleAndIcon)
-            .disabled(viewModel.isExporting)
+            .disabled(viewModel.isBusy)
             // arrowEdgeは「アンカーのどちら側へポップオーバーを出すか」。下部のボタン行に
             // あった頃は上へ出す.topが正しかったが、ツールバーへ移した今は下へ出す.bottomに
             // する(.topのままだとウインドウの外、タイトルバーの上に浮いて出る)。
@@ -506,7 +506,7 @@ struct ExportWindowContent<Options: View>: View {
             ) {
                 startExportButtonTapped()
             }
-            .disabled(viewModel.selectedBookIDs.isEmpty || viewModel.isExporting)
+            .disabled(viewModel.selectedBookIDs.isEmpty || viewModel.isBusy)
             .keyboardShortcut(.defaultAction)
         }
         .padding()
@@ -564,18 +564,19 @@ struct ExportWindowContent<Options: View>: View {
 
     private func startExport(to destination: URL, isSecurityScoped: Bool, locale: Locale) {
         let didAccess = isSecurityScoped && destination.startAccessingSecurityScopedResource()
-
-        guard viewModel.hasSufficientDiskSpace(at: destination) else {
-            if didAccess { destination.stopAccessingSecurityScopedResource() }
-            insufficientSpaceMessage = String(
-                localized: "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.",
-                language: locale
-            )
-            return
-        }
+        let viewModel = viewModel
 
         Task {
             defer { if didAccess { destination.stopAccessingSecurityScopedResource() } }
+            // 空き容量の確かめはメインの外で(BookExportViewModel.hasSufficientDiskSpace。2026-10-04 の監査 TW-21 ―― 以前はメインで
+            // 元の本を走査し、その間ウインドウが固まった)。
+            guard await viewModel.hasSufficientDiskSpace(at: destination) else {
+                insufficientSpaceMessage = String(
+                    localized: "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.",
+                    language: locale
+                )
+                return
+            }
             await viewModel.startExport(destinationFolder: destination)
         }
     }

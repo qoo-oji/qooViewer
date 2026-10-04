@@ -140,6 +140,26 @@ struct CollectionStoreTests {
         #expect(second.sortOrder == 2)
     }
 
+    @Test("作成は末尾の番号の次、削除の取り消しは元の位置へ差し込んで振り直す ―― 番号が重ならない(2026-10-04 の監査 H-14)")
+    func libraryOrderNumbersNeverCollide() throws {
+        let library = try InMemoryLibrary(label: "collections-library-order")
+        defer { library.close() }
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "Second"))
+        let third = try #require(library.collections.createLibrary(name: "Third"))
+        // 真ん中を消す(取り消せる形)。この後で作ったライブラリは、以前は数(2)を番号にして残りの「Third」(2)と重なった。
+        let record = try #require(library.collections.deleteRecording(second))
+        let fourth = try #require(library.collections.createLibrary(name: "Fourth"))
+        #expect(Set(library.collections.libraries.map(\.sortOrder)).count == 3)
+        #expect(library.collections.libraries.map(\.id) == [first.id, third.id, fourth.id])
+
+        // 取り消すと元の位置(2 番目)へ戻り、番号は 0 から振り直される。
+        #expect(library.collections.restore(record))
+        let order = library.collections.libraries
+        #expect(order.map(\.name) == [first.name, "Second", "Third", "Fourth"])
+        #expect(order.map(\.sortOrder) == [0, 1, 2, 3])
+    }
+
     @Test("数が合わない並びは黙って捨てる(別のウインドウが同時に増減させていた場合)")
     func apartialOrderIsIgnored() throws {
         let library = try InMemoryLibrary(label: "collections-reorder-partial")
@@ -835,6 +855,33 @@ struct CollectionStoreTests {
         // 残っている本を巻き込まない(数え直さず、idで引けたものだけを消す)。
         library.collections.applyMissingBookSweep(sweep)
         #expect(collection.items.map(\.title) == ["alive"])
+    }
+
+    @Test("シートで名指ししていないコレクションは、実行までに空になっても消さない(2026-10-04 の監査 H-12)")
+    func theSweepDeletesOnlyTheCollectionsItNamed() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep-named")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep-named")
+        let target = try #require(library.collections.libraries.first)
+        let gone = try makeBookFolder(temporary, named: "gone")
+        let alive = try makeBookFolder(temporary, named: "alive")
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([gone, alive])
+        ))
+        try FileManager.default.removeItem(at: gone)
+        library.collections.scheduleExistenceRefresh()
+        await library.collections.settleExistenceRefresh()
+        let sweep = library.collections.missingBookSweep()
+        // 1 冊残るので、シートは「コレクションも消える」とは言っていない。
+        #expect(sweep.emptiedCollectionNames.isEmpty)
+
+        // 確認シートを開いている間に、残りの本が別のウインドウで外された。
+        let aliveItem = try #require(collection.items.first { $0.title == "alive" })
+        library.collections.remove(aliveItem)
+
+        library.collections.applyMissingBookSweep(sweep)
+        #expect(collection.items.isEmpty)
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name) == ["Series"])
     }
 
     // MARK: - 並び順

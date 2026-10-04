@@ -53,10 +53,13 @@ nonisolated enum ShelfFolderResolver {
     }
 
     /// `resolvedBookURL(for:order:)`をメインスレッド外で行う版(本を開く経路が使う)。
+    ///
+    /// 走らせるのは `FileIO` の上(2026-10-04 の監査 §2-4。以前は Task.detached で、棚を何段も列挙する間 ―― 応答しない共有なら
+    /// 30 秒 ―― 協調スレッドを 1 本塞いだ。サイドパネル・ホームのすべての「開く」がここを通る)。
     static func resolvedBookURLAsync(for url: URL, order: SiblingBookOrder) async -> URL {
-        await Task.detached(priority: .userInitiated) {
+        await FileIO.perform {
             resolvedBookURL(for: url, order: order)
-        }.value
+        }
     }
 
     /// このフォルダが**それ自体で1冊**かどうか(型コメントの規則1・2)。

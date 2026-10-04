@@ -368,6 +368,52 @@ struct FileBrowserStateTests {
         #expect(state.selection == [fixture.id(fixture.aFolder)])
     }
 
+    @Test("今いるフォルダへ移動し直すと、読み直すだけで選択は残り、戻るの履歴にも積まない(2026-10-04 の監査 FBU-7)")
+    func navigatingToTheCurrentFolderKeepsTheSelection() async throws {
+        let fixture = try Fixture("fb-same-place")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        state.navigate(to: fixture.aFolder)
+        state.goBack()
+        await state.settle()
+        #expect(state.canGoForward)
+        state.selection = [fixture.id(fixture.aFolder)]
+        // 外で足した項目は、読み直しで一覧に出る(再読み込みとしても効く)。
+        try Data(repeating: 1, count: 5).write(to: fixture.root.appendingPathComponent("d.txt"))
+
+        state.navigate(to: fixture.root)
+        await state.settle()
+        #expect(state.selection == [fixture.id(fixture.aFolder)])
+        #expect(fixture.names().contains("d.txt"))
+        // 移動ではないので、進むの履歴も捨てない。
+        #expect(state.canGoForward)
+    }
+
+    @Test("一覧の位置の控えは、控えた後の依頼・選択の変化を見て戻り方を決める(2026-10-04 の監査 FBU-8)")
+    func theSavedScrollOriginYieldsToLaterRequestsAndSelections() async throws {
+        let fixture = try Fixture("fb-scroll-restore")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let origin = CGPoint(x: 0, y: 120)
+
+        // 何も変わっていなければ控えた位置へ。控えは一度使ったら捨てる。
+        state.saveScrollOrigin(origin, for: .list, folder: fixture.root)
+        #expect(state.takeSavedScrollRestoration(for: .list) == .origin(origin))
+        #expect(state.takeSavedScrollRestoration(for: .list) == nil)
+
+        // もう一方の表示でクリックして選び直した → 選んだ項目を見せる。
+        state.saveScrollOrigin(origin, for: .list, folder: fixture.root)
+        state.selection = [fixture.id(fixture.bFolder)]
+        #expect(state.takeSavedScrollRestoration(for: .list) == .reveal(id: fixture.id(fixture.bFolder)))
+
+        // もう一方の表示でスクロールの依頼が出た(矢印キー・reveal)→ 控えは使わず、依頼のほうを拾わせる。
+        state.saveScrollOrigin(origin, for: .icons, folder: fixture.root)
+        state.reveal(fixture.root.appendingPathComponent("c.txt"))
+        await state.settle()
+        #expect(state.takeSavedScrollRestoration(for: .icons) == nil)
+    }
+
     @Test("矢印キーは列数に沿って1件を選び直す。起点は置いた項目")
     func arrowKeysMoveTheSelection() async throws {
         let fixture = try Fixture("fb-arrows")

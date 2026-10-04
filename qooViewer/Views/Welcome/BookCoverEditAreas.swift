@@ -315,8 +315,10 @@ struct FileBrowserCoverArea: View {
         // `.id(controller.revision)` と同じ手)。`@State`(絵・ページを選ぶ画面)はこのビュー自身が持つので消えない。
         .id(controller.revision)
         // 表紙の左に出す(CollectionCoverEditArea と同じ理由)。
+        // 「切り取るときに残す位置」もコレクションの本と同じく出す(2026-10-04 の監査 SL-10。以前はコレクションの本だけで、ファイル
+        // ブラウザ・スマートライブラリの本の吹き出しには無かった。CLAUDE.md「設定する所はどこも同じ 4 択」)。
         .popover(isPresented: $isPickingPage, arrowEdge: .leading) {
-            ExportCoverPickerContent(bookID: bookID, controller: controller)
+            ExportCoverPickerContent(bookID: bookID, controller: controller, showsCropAnchor: true)
         }
         .accessibilityLabel(Text("Collection Cover"))
     }

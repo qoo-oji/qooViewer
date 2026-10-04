@@ -476,6 +476,21 @@ struct FileBrowserIntegrationTests {
         #expect(!menuEnabled(.deleteImmediately, rootRow))
         #expect(menuEnabled(.compress, rootRow))
         #expect(menuEnabled(.makeAlias, rootRow))
+        #expect(menuEnabled(.compressHere, rootRow))
+        // ただしホームの行は、行き先の親(/Users)へ書けないので「ここに圧縮」とエイリアスだけ淡色(2026-10-04 の監査 FBA-10)。
+        // 保存先を選ぶ圧縮はできる。ファイルには触らない(パスの文字列だけで決める)。
+        let home = FileBrowserEntry(
+            url: FileBrowserListing.realHomeDirectory(), displayName: "home", isDirectory: true, isPackage: false,
+            isSymbolicLink: false, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        let homeRow = FileBrowserTreeEditTarget(entry: home, isRoot: true)
+        #expect(!menuEnabled(.compressHere, homeRow))
+        #expect(!menuEnabled(.makeAlias, homeRow))
+        #expect(menuEnabled(.compressTo, homeRow))
+        // 同じフォルダでも根でない(右ペインの行)なら、この判定には掛からない。
+        #expect(!FileBrowserActions.isHomeTreeRoot(
+            FileBrowserMenuContext(kind: .tree, entries: [home], folder: home.url, isTreeRoot: false)
+        ))
         // 右ペインへ出して行う項目も根の行では淡色。
         #expect(menuEnabled(.rename, row))
         #expect(menuEnabled(.quickLook, row))

@@ -111,6 +111,15 @@ nonisolated struct GridSelection<ID: Hashable & Sendable>: Equatable, Sendable {
     }
 
     /// 並びが変わった(絞り込み・束の出入り・集め直し)。並びから消えたものを外す。
+    /// 指定したものだけを外す(起点・位置も、外したものを指していれば下ろす)。残りは並びに関係なくそのまま
+    /// (別のライブラリへ移した棚だけを外す。2026-10-04 の監査 H-13)。
+    mutating func remove(_ removed: Set<ID>) {
+        guard !removed.isEmpty else { return }
+        ids.subtract(removed)
+        if let anchor, removed.contains(anchor) { self.anchor = nil }
+        if let cursor, removed.contains(cursor) { self.cursor = nil }
+    }
+
     mutating func prune(to order: [ID]) {
         guard !ids.isEmpty || anchor != nil || cursor != nil else { return }
         let present = Set(order)

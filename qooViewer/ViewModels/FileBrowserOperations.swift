@@ -363,12 +363,13 @@ final class FileBrowserOperations: ObservableObject {
             guard !commands.isEmpty else { return }
             let urls = movers + duplicates + copiers
             let count = urls.count
-            // 「コピー」を選んで移動がコピーに変わったものがあれば、題は「コピー」。
-            let isMove = duplicates.isEmpty && copiers.isEmpty
+            // 題は、移すものと写すものの両方があれば「移動とコピー」(2026-10-04 の監査 FBA-12。以前は 1 つでも写すものがあれば
+            // 「コピー」で、移動が混ざっていても取り消しの題・進捗の題が「コピー」になった。取り消しの中身は正しかった)。
+            let kind = TransferKind(moves: !movers.isEmpty, copies: !duplicates.isEmpty || !copiers.isEmpty)
             let command: any FileCommand = commands.count == 1
                 ? commands[0]
-                : CompositeFileCommand(displayName: Self.transferName(count: count, isMove: isMove), children: commands)
-            let title = Self.activityTitle(count: count, isMove: isMove)
+                : CompositeFileCommand(displayName: Self.transferName(count: count, kind: kind), children: commands)
+            let title = Self.activityTitle(count: count, kind: kind)
             // ここから先は運ぶ(途中で中止しても、運び終えたぶんはもう移っている)。
             releasingCut?.clipboard.clear(ifHolding: releasingCut?.paths ?? [])
             await self.run(command, title: title, cancellation: cancellation, affected: [folder] + urls.map { $0.deletingLastPathComponent() }) { result in
@@ -940,18 +941,37 @@ final class FileBrowserOperations: ObservableObject {
         Set(urls.map { MountTable.normalized($0.standardizedFileURL.path) })
     }
 
-    private static func transferName(count: Int, isMove: Bool) -> String {
-        let locale = AppLanguage.currentLocale
-        return isMove
-            ? String(format: String(localized: "Move of %lld Items", language: locale), count)
-            : String(format: String(localized: "Copy of %lld Items", language: locale), count)
+    /// ドロップ・ペーストで運ぶものの内訳(題を決める。監査 FBA-12)。
+    enum TransferKind: Equatable {
+        case move, copy, moveAndCopy
+
+        init(moves: Bool, copies: Bool) {
+            switch (moves, copies) {
+            case (true, true): self = .moveAndCopy
+            case (true, false): self = .move
+            default: self = .copy
+            }
+        }
     }
 
-    private static func activityTitle(count: Int, isMove: Bool) -> String {
-        let locale = AppLanguage.currentLocale
-        return isMove
-            ? String(format: String(localized: "Moving %lld items…", language: locale), count)
-            : String(format: String(localized: "Copying %lld items…", language: locale), count)
+    /// 取り消しの題(「%lld 項目の移動」など)。
+    static func transferName(count: Int, kind: TransferKind, locale: Locale = AppLanguage.currentLocale) -> String {
+        let format = switch kind {
+        case .move: String(localized: "Move of %lld Items", language: locale)
+        case .copy: String(localized: "Copy of %lld Items", language: locale)
+        case .moveAndCopy: String(localized: "Move and Copy of %lld Items", language: locale)
+        }
+        return String(format: format, count)
+    }
+
+    /// 進捗の帯の題。
+    static func activityTitle(count: Int, kind: TransferKind, locale: Locale = AppLanguage.currentLocale) -> String {
+        let format = switch kind {
+        case .move: String(localized: "Moving %lld items…", language: locale)
+        case .copy: String(localized: "Copying %lld items…", language: locale)
+        case .moveAndCopy: String(localized: "Moving and copying %lld items…", language: locale)
+        }
+        return String(format: format, count)
     }
 }
 

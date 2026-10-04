@@ -103,12 +103,13 @@ struct FileBrowserIconView: NSViewRepresentable {
         coordinator.collection = collection
         coordinator.layout = layout
         // 前の一覧のスクロール位置へ戻す(リスト表示の makeNSView と同じ。FileBrowserState.savedScrollOrigins)。
-        let savedOrigin = state.takeSavedScrollOrigin(for: .icons)
-        if savedOrigin != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        let restoration = state.takeSavedScrollRestoration(for: .icons)
+        if restoration != nil { coordinator.markScrollRequestApplied(state.scrollRequest) }
+        if case .reveal(let id) = restoration { coordinator.revealAfterRestoring(id: id) }
         coordinator.appliedFocusRequest = state.focusRequest
         coordinator.appliedQuickLookRequest = state.quickLookRequest
         coordinator.update(from: self)
-        if let savedOrigin { scroll.restoreScrollOrigin(savedOrigin) }
+        if case .origin(let savedOrigin) = restoration { scroll.restoreScrollOrigin(savedOrigin) }
         return scroll
     }
 
@@ -309,6 +310,14 @@ struct FileBrowserIconView: NSViewRepresentable {
             appliedScroll = request
         }
 
+        /// 作り直した一覧で見せる項目(`FileBrowserState.SavedScrollRestoration.reveal`。監査 FBU-8)。スクロールの依頼と同じ所
+        /// (`update(from:)` の、一覧を取り込んだ後)で 1 度だけ使う。
+        private var pendingRevealID: String?
+
+        func revealAfterRestoring(id: String) {
+            pendingRevealID = id
+        }
+
         /// 捨てる一覧のスクロール位置を状態へ控える(リスト表示と同じ)。
         func saveScrollOrigin(of scroll: HomeWheelScrollView) {
             state?.saveScrollOrigin(scroll.scrollOriginForSaving, for: .icons, folder: displayedFolder)
@@ -421,6 +430,10 @@ struct FileBrowserIconView: NSViewRepresentable {
             if let request = state.scrollRequest, request != appliedScroll {
                 appliedScroll = request
                 if let index = entries.firstIndex(where: { $0.id == request.id }) { scrollToItem(index) }
+            }
+            if let id = pendingRevealID {
+                pendingRevealID = nil
+                if let index = entries.firstIndex(where: { $0.id == id }) { scrollToItem(index) }
             }
             if let request = state.renameRequest, request != appliedRename,
                let index = entries.firstIndex(where: { $0.id == request.id }) {
@@ -1249,7 +1262,8 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         // 出どころの鍵(`sourceKey`)で頼み直すかを決める。提供役の `revision` は表紙が 1 冊できるたびに進むので鍵にしない
         // (`FileBrowserThumbnailProvider.sourceKey` のコメント)。
         // 記号リンク・エイリアスは一覧を読み直すたびに頼み直す(先が入れ替わってもリンク自身の更新日時は変わらない。提供役は先を
-        // 解き直し、変わっていなければメモリの絵を返すだけ ―― レビュー 2026-09-29)。
+        // 解き直し、変わっていなければメモリの絵を返すだけ ―― レビュー 2026-09-29)。下のメモリの近道はリンクでは「描くだけ」で、
+        // 頼みは続ける(近道で return すると解き直しに届かなかった。2026-10-04 の監査 FBU-3)。
         let contentKey = "\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(sourceKey)|\(kind)"
             + (kind == .alias ? "|listing\(listingRevision)" : "")
         let tier = FileBrowserThumbnailProvider.pixelTier(
@@ -1263,14 +1277,18 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         // 戻るたびに絵が一斉に「アイコン → 絵」と瞬いていた。メモリを覗くだけで、ディスク・ネットワークには触れない
         // (`FileBrowserThumbnailProvider.cachedThumbnail`)。
         if let buffer = provider.cachedThumbnail(for: entry, kind: kind, pixelSize: tier), let image = buffer.makeImage() {
-            thumbnailTask?.cancel()
-            thumbnailTask = nil
-            requestedKey = ""
             cell.thumbnailKind = kind == .alias ? provider.aliasTargetKind(for: entry) : kind
             cell.thumbnail = image
-            loadedContentKey = contentKey
-            loadedTier = tier
-            return
+            // リンクのメモリの絵は前回解いた先(提供役の `aliasTargets`)のもので、先が消えた・入れ替わったかはまだ分からない
+            // (監査 FBU-3)。絵は先に出しておき、解き直す頼みへ進む(先が同じなら提供役はメモリの絵を返すだけ)。
+            guard kind == .alias else {
+                thumbnailTask?.cancel()
+                thumbnailTask = nil
+                requestedKey = ""
+                loadedContentKey = contentKey
+                loadedTier = tier
+                return
+            }
         }
         requestedKey = request
         thumbnailTask?.cancel()

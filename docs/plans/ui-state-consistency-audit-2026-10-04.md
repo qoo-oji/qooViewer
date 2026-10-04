@@ -2074,3 +2074,92 @@ ViewerView の body には modifier を足していない(V-11 はパネルの�
 docs: 04(EPUB を飛ばす範囲・次の本が開けないとき)、05(高解像度ソース)、06(編集ウインドウの窓・越えた本・通り抜けの回送)、07(着地の補正・
 「+」・次のブックマーク)、09(フォルダブラウザの印・強調・ダブルクリック・規則 2)、14(クリック 1 回・チップの右クリック・インスペクタの表紙)、
 plans/home-interaction-design.md、CLAUDE.md、MANUAL.md(決定 2・6 の箇所だけ)。
+
+### 段 8(前半)(2026-10-04)
+
+§8 の 8「残りの低と文書」のうち、SP・FBU・FBA・H・SL・TW の低と §2-4 のテーマ外の気づき。§3 の決定 5・9・18 のとおり。CLAUDE.md には
+サイドパネルのライブラリのツリーが値の写し(`SidePanelLibraryTreeModel`)から描くことだけを足した(決定 18 の「メインで同期にしない」は既にある)。
+
+**サイドパネル**
+
+- **SP-9**(直した): ツリーの本の行の名前を、ホームのカバーの下の文字の設定に揃えた(タイトルなら `BookTitleResolver`、ファイル名ならファイル名。
+  「表示しない」(既定)のときは並び順に合わせる ―― 既定でも「タイトル」順の並びと名前が食い違わないように)。下の §2-4 の値の写しが名前を決める。
+  テスト `SidePanelLibraryTreeModelTests.bookNamesFollowTheCaptionSetting`。docs/14。
+- **SP-11**(直した): ブックマーク行・履歴行・ページ行の地とサムネイルの枠・右クリックの枠に `.panelOutlinedAccent` を付けた(ページ行の地は地の
+  形にだけ、サムネイルの枠と右クリックの枠は同じ形の内側に重なる ―― ホームの右クリックの枠と同じ描き方)。View なのでテストは足せない(実機)。
+- **SP-12**(直した): `ResourceAnomalyDetector.evaluate(advancingStreaks:_:)` を足し、走査の後の判定は持続回数を進めずに今の回数で見る(1 秒の拍だけが
+  進める)。テスト `ResourceAnomalyDetectorTests.evaluationsOutsideTheTickDoNotAdvanceTheStreak`。docs/05。
+
+**ファイルブラウザ**
+
+- **FBU-3**(直した): アイコン表示のメモリの近道はリンク(`.alias`)では絵を描くだけにし、頼みは続ける(提供役が解き直す)。§5 の
+  FileBrowserIconView のコメントも成り立つようになった。セルの中の流れなのでテストは足していない(提供役の解き直しは既存のテストが見る)。docs/15。
+- **FBU-7**(直した): `navigate(to:)` は今いる場所なら読み直し(と監視の張り直し)だけで、選択・ペーストした項目を選ぶ依頼・戻る/進むの履歴を残す。
+  テスト `FileBrowserStateTests.navigatingToTheCurrentFolderKeepsTheSelection`。docs/15。
+- **FBU-8**(直した): 位置の控えにスクロールの依頼の通し番号と選択の版を入れ、`takeSavedScrollRestoration` が「控えた位置へ / 新しい依頼を拾う
+  (控えを使わない)/ 選んだ最初の項目を見せる」を返す。リスト・アイコンの makeNSView が受ける。テスト
+  `FileBrowserStateTests.theSavedScrollOriginYieldsToLaterRequestsAndSelections`。docs/15。
+- **FBA-8**(直した): `refreshPasteboardState` は changeCount が変わったときカットの記憶も `validate` する(カットを書いた直後の呼び出しでは下ろさない)。
+  テスト `FileSystemChangeTests.refreshingThePasteboardStateAlsoForgetsAStaleCut`。docs/15。
+- **FBA-10**(直した): ツリーのホームの行(`FileBrowserActions.isHomeTreeRoot`。パスの文字列だけ)では「ここに圧縮」「エイリアスを作成」を淡色に。
+  「保存先を選んで圧縮…」とよく使う項目の根は今のまま。テストは `FileBrowserIntegrationTests` の根の行のメニューの確かめに足した。docs/15。
+- **FBA-12**(直した): `FileBrowserOperations.TransferKind`(移動・コピー・移動とコピー)で題を決め、混ざったら「N 項目の移動とコピー」「N 項目を
+  移動・コピーしています…」。テスト `FileBrowserOperationsTests.mixedTransfersHaveANeutralTitle`。docs/15。
+
+**ホーム(ライブラリ)**
+
+- **H-5**(直した): 掴んだチップがマウスのボタンを見張り(`.task(id:)` で 100ms ごと)、離れたら 300ms 待って淡色と落とし先の強調を戻す(受け口が
+  先に戻していれば何もしない)。AppKit のドラッグ元へ替える案は、運ぶ型と `.dropDestination(for: String.self)` の組み合わせが変わり、並べ替えそのものを
+  実機で確かめ直す必要があるので採らなかった(文字の欄へ落とすと入力されうる件は未確認のまま)。View なのでテストは足せない(実機)。docs/14。
+- **H-12**(直した): `MissingBookSweep.emptiedCollectionIDs` を持ち、実行時に消すのは名指ししたコレクションのうち実際に空になるものだけ。テスト
+  `CollectionStoreTests.theSweepDeletesOnlyTheCollectionsItNamed`。docs/14。
+- **H-13**(直した): (1) チップとホーム ▸ ライブラリを `WelcomeLibraryState.showLibrary(_:currentLibraryID:)` に寄せた(見ているライブラリなら一覧へ戻って
+  出てきた棚を選ぶ)。(2) 右クリックとホーム ▸ 別のライブラリへ移動を `collectionsMovedAway(_:)`(移したものだけを選択から外す。`GridSelection.remove`)
+  に寄せた。(3) は §6 で棄却済み。テスト `WelcomeLibraryStateTests.showingTheCurrentLibraryLeavesTheCollection`・`movingCollectionsAwayKeepsTheRestOfTheSelection`。
+- **H-14**(直した): 作成は「最大 + 1」、削除の取り消しは元の位置へ差し込んで 0 から振り直す。並べるときは同じ番号どうしを作った順・id で決める
+  (`CollectionStore.orderedLibraries`。既に重なっている保存データのため)。テスト `CollectionStoreTests.libraryOrderNumbersNeverCollide`。docs/14。
+
+**スマートライブラリ・インスペクタ**
+
+- **SL-3**(直した、決定 5 の (b)): `SmartLibraryViewState.bookKeptWhileEditing`。インスペクタのメタデータの欄に焦点が入ると(スマートライブラリの
+  ときだけ)その本を残させ、`recompute` は絞り込み・開いた束から外れても並びに足す(ブラウザの冊数には足さない)。焦点が離れた・欄が消えたら戻して
+  組み直す(残させた id は欄が控え、付け替えの後でも戻せる)。テスト `SmartLibraryTests.theBookBeingEditedStaysUntilTheFieldLosesFocus`。docs/14。
+- **SL-5**(直した): 見出しの戻るボタンの `.keyboardShortcut(.cancelAction)` を外し、グリッドの `handleKey`(`.escape`)とリストの keyDown(keyCode 53)
+  で、一覧に焦点があるときだけ束から出る。キーの経路なのでテストは足せない(実機)。docs/14。
+- **SL-7**(直した): `performDrop` の時点で表紙の受け取り方を掴む(`HomeInspectorCoverDrop.receiverForDrop`)。ドロップの経路なのでテストは足せない。
+- **SL-8**(直した): スマートライブラリの本は、写しを出したうえで選んだ 1 冊だけ `FileIO` の上で期限つきに stat し直す(ネットワーク越しは読まない。
+  ENOENT/ENOTDIR と繋がっていないボリュームだけ「見つかりません」、読めないだけなら写しのまま)。View の `.task` なのでテストは足していない。docs/14。
+- **SL-9**(直した): 環境設定の吹き出しを「ホームのインスペクタで表紙を右クリック、またはメタデータの編集ウインドウで表紙をクリック」に直し
+  (xcstrings のキーも替えた)、§5 の SmartLibrarySettingsView.swift:46-47 のコメントも直した。
+- **SL-10**(直した): ファイルブラウザ・スマートライブラリの本の表紙(`BookCoverEditAreas` の 2 つ目)の「この本のページから選ぶ…」の吹き出しにも
+  `showsCropAnchor: true`。View なのでテストは足せない。docs/14。
+
+**補助ウインドウ**
+
+- **TW-18**(直した、決定 9 の (a)): コレクション表紙の読み込み(`ShelfCoverImportViewModel.apply`)を `RunningWorkRegistry` に数える。docs/09 の列挙に足した。
+  共有の数え先はテストで nil なのでテストは足していない。
+- **TW-19**(直した): 取り込みの最中は行の選び直し・「すべて選択」を淡色にし、VM も受けない。終わったら取り込めた行だけ選択を外す。二重押しも断る。
+  テスト `ShelfCoverImportTests.onlyImportedRowsAreDeselected`。同じ関数の zip の読み出しも `Task.detached` から `FileIO.perform` へ移した(決定 18 と同じ根)。
+- **TW-21**(直した、決定 18): 空き容量の確かめ(`BookExportViewModel.hasSufficientDiskSpace`)を async にし、手がかりはメインで
+  `StoredBookLocator.Material` へ写し、解決・列挙・空き容量の問い合わせは `FileIO` の上で期限(30 秒)つき。期限切れは確かめずに続ける。
+  確かめの間は `isBusy` で書き出しの操作を淡色に。テスト `BookExportViewModelTests.theSourceSizeIsSummedFromMaterials`。
+
+**§2-4 のテーマ外の気づき**
+
+- **サイドパネルのライブラリのツリー**(直した): `SidePanelLibraryTreeModel`(ツリーごと)を足し、ツリーは CollectionStore を購読しない
+  (`\.collectionAdding` の弱い参照で持つ)。モデルがストアの知らせ(`revision`・`libraries`・存在・日付)とメタデータの知らせを受けて 1 ランループ後に
+  開いている行だけを値で作り直し、前と違うときだけ publish する。並べ替えは `leadingItems(…limit: .max)` の控えを通す。開く・Finder で表示などは
+  押した時点で行をストアから引き直す。テスト `SidePanelLibraryTreeModelTests.theTreeIsAValueCopyThatIgnoresCoverChanges`。docs/14、CLAUDE.md。
+- **`moveAndShowImages` の `directlyContainsImageFile`**(直した): `FileIO` の上で調べ、待った後にまだそのフォルダにいるか・その本が表示中でないかを
+  確かめ直す。DirectoryBrowser のコメントも直した。View なのでテストは足していない。
+- **履歴の `resolveForOpening`**(直した): 解決と存在の確かめを `FileIO` の上で期限つき(`CollectionItemOpenProbe.limit`)にし、期限切れは `.timedOut`
+  (行は残す、「応答しませんでした」と知らせる)。4 つの入口は開けたら呼ぶ閉包を渡す形(`resolveForOpening(_:reportingTo:then:)` /
+  `(_:locale:report:stillWanted:then:)`)にし、待つ間にその窓で別の本を開き始めていたら開かない(`openRequestToken`)。履歴の吹き出しは先に閉じる。
+  テスト `RecentFilesAndAccessTests.resolvingForOpeningReportsWhyItFailed` を async に直した。docs/06。
+- **`SidePanelBrowserState` の祖先探し・`ShelfFolderResolver.resolvedBookURLAsync`・`StorageUsageScanner`**(直した): どれも `Task.detached` から
+  `FileIO.perform` へ。走査の打ち切りは `Cancellation.isRequestedInCurrentScope` で読む(FileIO の上では `Task.isCancelled` が常に false)。
+  O-7 の下調べは段 6(前半)で既に `FileIO` へ移っていた。
+
+docs: 05(異常判定の持続回数)、06(履歴の解決をメインの外へ)、09(`RunningWorkRegistry` の列挙)、14(サイドパネルのツリー・束の Esc・直している本を
+残す・残す位置の入口・インスペクタの情報とドロップ・見つからない本の掃除・チップのドラッグと並び番号)、15(今いる場所への移動・一覧の位置の控え・
+リンクの絵・カットの淡色・ホームの行・混ざったドロップの題)、CLAUDE.md。

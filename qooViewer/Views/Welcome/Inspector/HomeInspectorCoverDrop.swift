@@ -59,8 +59,13 @@ final class HomeInspectorCoverDrop {
         if isTargeted != targeted { isTargeted = targeted }
     }
 
-    func deliver(_ url: URL) {
-        receive?(url)
+    /// 落とした時点で登録されている表紙の受け取り方(`performDrop` が掴み、URL を取り出し終えてから呼ぶ)。
+    ///
+    /// URL の取り出しを待つ間に選択が変わって別の本の表紙が登録し直されても、**落とした時点の本**へ届ける(2026-10-04 の監査 SL-7。
+    /// 以前は取り出し終えた時点の `receive` を読んだ。ファイルの URL の取り出しは即時でファイルプロミスも受けないので事実上は届かない
+    /// 経路だが、落とした先と違う本の表紙を書き換えうる形を残さない)。
+    func receiverForDrop() -> ((URL) -> Void)? {
+        receive
     }
 }
 
@@ -107,13 +112,14 @@ struct HomeInspectorDropDelegate: DropDelegate {
         setWindowTargeted(false)
         let providers = info.itemProviders(for: [.fileURL])
         guard !providers.isEmpty else { return false }
-        let coverDrop = coverDrop
+        // 表紙の受け取り方は落とした時点で掴む(`receiverForDrop` のコメント。監査 SL-7)。
+        let receive = onCover ? coverDrop.receiverForDrop() : nil
         let appState = appState
         Task { @MainActor in
             let urls = await loadDroppedFileURLs(from: providers)
             if onCover {
                 // 表紙へは画像 1 枚だけ(以前のシートの表紙と同じ)。画像が無ければ何もしない。
-                if let image = urls.first(where: { isImageFile($0.lastPathComponent) }) { coverDrop.deliver(image) }
+                if let image = urls.first(where: { isImageFile($0.lastPathComponent) }) { receive?(image) }
             } else {
                 appState.openDroppedFiles(urls)
             }

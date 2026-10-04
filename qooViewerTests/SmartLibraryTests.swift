@@ -447,6 +447,42 @@ struct SmartLibraryTests {
         #expect(state.selection.ids == ["series|月の庭"])
     }
 
+    @Test("インスペクタで直している本は、絞り込み・開いた束から外れても欄に焦点がある間は残り、離れたら絞られる(2026-10-04、監査 SL-3)")
+    func theBookBeingEditedStaysUntilTheFieldLosesFocus() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.grouping = .series
+        state.update(books: [
+            book("/b/a.zip", genre: "海", series: "月の庭", volume: "1"),
+            book("/b/b.zip", genre: "海", series: "月の庭", volume: "2"),
+        ], shelves: [])
+        state.openedGroup = "月の庭"
+        state.searchText = "海"
+        state.recompute(now: now)
+        state.setSelection(["book|/b/a.zip"], cursor: "book|/b/a.zip")
+
+        // 欄に焦点が入り、ジャンルとシリーズを直した(集め直しで届いた新しい値では、検索にも束にも当たらない)。
+        state.keepWhileEditing("/b/a.zip")
+        state.update(books: [
+            book("/b/a.zip", genre: "山", series: "別の庭", volume: "1"),
+            book("/b/b.zip", genre: "海", series: "月の庭", volume: "2"),
+        ], shelves: [])
+        #expect(Set(state.gridItems.map(\.id)) == ["book|/b/a.zip", "book|/b/b.zip"])
+        #expect(state.selection.ids == ["book|/b/a.zip"])
+
+        // 別の本の欄の後始末は、この本を外さない。
+        state.stopKeepingWhileEditing("/b/b.zip")
+        #expect(state.bookKeptWhileEditing == "/b/a.zip")
+
+        // 焦点が離れたら、ふつうに絞る(次のコマで組み直す)。
+        state.stopKeepingWhileEditing("/b/a.zip")
+        state.recompute(now: now)
+        #expect(state.gridItems.map(\.id) == ["book|/b/b.zip"])
+        #expect(state.selection.ids.isEmpty)
+    }
+
     @Test("本と束をまとめて選ぶと、メニューバーの「1 冊だけ」にはならない(2026-10-04、監査 SL-11)")
     func aBookAndAGroupAreNotASingleBook() {
         let suite = TestDefaultsPool.checkout()

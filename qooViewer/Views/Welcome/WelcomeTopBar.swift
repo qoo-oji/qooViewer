@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、そのすぐ右にライブラリを増やす「＋」
@@ -418,19 +419,8 @@ struct WelcomeTopBar: View {
             // ファイルブラウザの間にチップを押したら本棚へ戻る。見ていたライブラリのチップなら、
             // 開いていたコレクションもそのまま(離れたときの棚へ戻る)。
             // スマートライブラリの間も同じ(本棚へ戻る)。
-            if state.mode != .shelf {
-                state.mode = .shelf
-                if library.id == selectedLibraryID { return }
-            }
-            guard !isSelected else {
-                // 同じライブラリの一覧へ戻る(出てきたコレクションを選んだ状態に ―― 見出しの ‹ と同じ)。
-                state.leaveCollection()
-                return
-            }
-            state.selectedLibraryID = library.id
-            // 別のライブラリへ移ったら、開いていたコレクションからは出る(そのコレクションは
-            // 今のライブラリには無いため)。
-            state.openedCollectionID = nil
+            // 決まりはホーム ▸ ライブラリの項目と共通(WelcomeLibraryState.showLibrary。監査 H-13)。
+            state.showLibrary(library.id, currentLibraryID: selectedLibraryID)
         } label: {
             Text(library.displayName(language: locale))
                 .lineLimit(1)
@@ -549,6 +539,24 @@ private struct LibraryChipReorder: ViewModifier {
                 } else if dropTargetLibraryID == library.id {
                     dropTargetLibraryID = nil
                 }
+            }
+            // チップ以外で離した・Esc で取りやめたときにも淡色を戻す(2026-10-04 の監査 H-5)。`draggingLibraryID` を戻すのは
+            // チップの受け口だけだったので、帯の外で離すとそのチップが 0.35 の薄さのまま残った。`.onDrag` にはドラッグの終わりを
+            // 知る口が無いので、掴んでいるチップだけがマウスのボタンを見張り、離れたら戻す(ドラッグは非同期のセッションなので
+            // その間もメインは回る)。受け口のほうが先に戻していれば、この見張りは id が変わって取り消される。
+            // AppKit のドラッグ元(終わりを受けられる)へ替える案は、運ぶ型と受け口(`.dropDestination(for: String.self)`)の
+            // 組み合わせが変わり、並べ替えそのものを実機で確かめ直す必要があるので採らなかった。
+            .task(id: draggingLibraryID == library.id) {
+                guard draggingLibraryID == library.id else { return }
+                while !Task.isCancelled, NSEvent.pressedMouseButtons & 1 != 0 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                // 受け口の `performDrop` はボタンを離した少し後に届く。それを先に通す(戻すのが早すぎても見た目だけの話だが、
+                // 落とした先の強調を受け口より先に消さない)。
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, draggingLibraryID == library.id else { return }
+                draggingLibraryID = nil
+                dropTargetLibraryID = nil
             }
     }
 }

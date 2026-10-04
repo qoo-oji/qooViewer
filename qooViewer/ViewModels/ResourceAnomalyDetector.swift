@@ -93,8 +93,15 @@ final class ResourceAnomalyDetector {
 
     /// 1秒ごとに呼ぶ(持続回数の単位が呼び出し回数なので、呼ぶ間隔を変えたら
     /// `persistenceThreshold`の意味も変わることに注意)。
-    func evaluate(_ input: Input) -> [ResourceAnomaly] {
+    ///
+    /// - Parameter advancingStreaks: false なら持続回数を進めずに今の回数で判定する。1 秒ごとの拍以外(ディスクの走査が
+    ///   終わったとき・「今すぐ更新」)から呼ぶときに渡す ―― 以前はそれらも回数を進め、3 秒続く前に上限の超過を異常と出した
+    ///   (2026-10-04 の監査 SP-12)。
+    func evaluate(advancingStreaks: Bool = true, _ input: Input) -> [ResourceAnomaly] {
         var found: [ResourceAnomaly] = []
+        let persists: (ResourceAnomaly, Bool) -> Bool = { anomaly, condition in
+            advancingStreaks ? self.persists(anomaly, condition) : self.hasPersisted(anomaly, condition)
+        }
 
         if let book = input.bookSnapshot {
             if persists(.pageImageCacheOverLimit, book.pageImages.usedBytes > book.pageImages.limitBytes) {
@@ -140,6 +147,12 @@ final class ResourceAnomalyDetector {
         }
 
         return found
+    }
+
+    /// `persists`の、回数を動かさない版(`evaluate(advancingStreaks: false, _:)`)。今が超過していて、これまでの拍で
+    /// 既に`persistenceThreshold`回続いていれば true。
+    private func hasPersisted(_ anomaly: ResourceAnomaly, _ condition: Bool) -> Bool {
+        condition && (overLimitStreaks[anomaly] ?? 0) >= Self.persistenceThreshold
     }
 
     /// `condition`が`persistenceThreshold`回連続でtrueならtrue。falseが来たらリセット。

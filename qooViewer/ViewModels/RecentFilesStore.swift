@@ -258,24 +258,51 @@ final class RecentFilesStore: ObservableObject {
     /// 開けなかったときは**理由を返す**(2026-10-04 の監査 SP-7 = M-4・H-6)。以前は nil だけを返し、4 つの入口(サイドパネルの履歴・
     /// ホームの履歴の吹き出し・旧ウェルカム画面・ファイル ▸ 最近使った項目)がどれも `guard let … else { return }` で黙っていた ――
     /// 外したボリュームの本は何度押しても何も起きず、消えた本は行が黙って一覧から消えた。知らせは入口ごとに書かず、
-    /// `resolveForOpening(_:reportingTo:)` が 1 か所で出す。
-    func resolveForOpening(_ entry: Entry) -> Result<URL, OpenFailure> {
+    /// `resolveForOpening(_:reportingTo:then:)` が 1 か所で出す。
+    ///
+    /// **解決と存在の確かめは `FileIO` の上で、期限つき**(2026-10-04 の監査 §2-4・決定 18「ブロッキング I/O をメインで同期にしない」)。
+    /// 段 6 で理由を返す形にした後も、ここはメインで同期に解決していたので、眠っている共有の本を履歴から開くとその間アプリごと止まった。
+    /// 期限(`CollectionItemOpenProbe.limit`。利用者が自分で開いた本なので、眠っていた共有へ繋ぎに行く時間は待つ)を過ぎたら、
+    /// 行は残して `.timedOut`(無いとは言い切れない)。
+    func resolveForOpening(_ entry: Entry) async -> Result<URL, OpenFailure> {
         if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path, isDirectory: false)) {
             return .failure(.volumeNotConnected)
         }
-        guard let url = Self.resolvedURL(from: entry.bookmark) else {
-            remove(entry)
-            return .failure(.missing)
+        let bookmark = entry.bookmark
+        let probe: OpeningProbe
+        do {
+            probe = try await FileIO.withDeadline(CollectionItemOpenProbe.limit) {
+                await FileIO.perform { Self.probeForOpening(bookmark) }
+            }
+        } catch {
+            return .failure(.timedOut)
         }
-        if BookLocationResolver.isInTrash(url) {
+        switch probe {
+        case .found(let url):
+            return .success(url)
+        case .inTrash:
             remove(entry)
             return .failure(.inTrash)
-        }
-        guard Self.fileExists(at: url) else {
+        case .missing:
             remove(entry)
             return .failure(.missing)
         }
-        return .success(url)
+    }
+
+    /// `probeForOpening` の答え。
+    private enum OpeningProbe: Sendable {
+        case found(URL)
+        case inTrash
+        /// 解決できない・実体が無い。
+        case missing
+    }
+
+    /// **ブロッキングする**(ブックマークの解決とボリュームへの問い合わせ)。FileIO の上で呼ぶ。
+    nonisolated private static func probeForOpening(_ bookmark: Data) -> OpeningProbe {
+        guard let url = resolvedURL(from: bookmark) else { return .missing }
+        if BookLocationResolver.isInTrash(url) { return .inTrash }
+        guard fileExists(at: url) else { return .missing }
+        return .found(url)
     }
 
     /// 履歴の項目を開けなかった理由(`resolveForOpening(_:)`)。
@@ -287,6 +314,8 @@ final class RecentFilesStore: ObservableObject {
         /// 解決できない・実体が無い。移動と削除は区別できないので、どちらとも言わない(コレクションの「本が見つかりません」と同じ)。
         /// 行は取り除いた。
         case missing
+        /// 期限までに確かめが返ってこなかった(応答しない共有)。無いとは言い切れないので行は残す。
+        case timedOut
 
         /// 知らせの文。`name` は履歴に出ていた名前(`Entry.displayName`)。行を取り除いたものは、そう書く ―― 一覧から黙って消えると
         /// 「押したら消えた」としか見えない。
@@ -305,39 +334,61 @@ final class RecentFilesStore: ObservableObject {
                     localized: "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history.",
                     language: locale
                 ), name)
+            case .timedOut:
+                String(format: String(
+                    localized: "The location of “%@” didn’t respond. Try again later.", language: locale
+                ), name)
             }
         }
     }
 
     /// 履歴の項目を開くための解決と、開けなかったときの知らせ(SP-7)。4 つの入口はすべてこれ(か下の `reportingTo:` 版)を通す。
+    /// 解決はメインの外(`resolveForOpening(_:)`)なので、開けたら `body` を呼ぶ形(2026-10-04 の監査 §2-4)。
     ///
     /// - Parameter report: 知らせの文を受け取る口。ふつうはその窓のビューア・ホームの下のトースト(`AppState.postViewerNotice`。
     ///   ドロップで開かなかったものと同じ口)。nil(知らせる先の窓が無い ―― メニューバーの「最近使った項目」で本の窓が 1 枚も無い)
     ///   ならアラートにする。鳴らすだけでは理由が分からない。
-    func resolveForOpening(_ entry: Entry, locale: Locale, report: ((String) -> Void)?) -> URL? {
-        switch resolveForOpening(entry) {
-        case .success(let url):
-            return url
-        case .failure(let failure):
-            let message = failure.message(name: entry.displayName, locale: locale)
-            if let report {
-                report(message)
-            } else {
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
-                alert.informativeText = message
-                Task { _ = await WindowSheet.run(alert) }
+    /// - Parameter stillWanted: 待った後に確かめ直すこと(その間に同じ窓で別の本を開き始めていたら開かない。false なら知らせもしない)。
+    /// - Returns: 解決の Task(テストのための口)。
+    @discardableResult
+    func resolveForOpening(
+        _ entry: Entry, locale: Locale, report: ((String) -> Void)?,
+        stillWanted: @escaping @MainActor () -> Bool = { true },
+        then body: @escaping @MainActor (URL) -> Void
+    ) -> Task<Void, Never> {
+        Task { @MainActor [self] in
+            let result = await resolveForOpening(entry)
+            guard stillWanted() else { return }
+            switch result {
+            case .success(let url):
+                body(url)
+            case .failure(let failure):
+                let message = failure.message(name: entry.displayName, locale: locale)
+                if let report {
+                    report(message)
+                } else {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+                    alert.informativeText = message
+                    _ = await WindowSheet.run(alert)
+                }
             }
-            return nil
         }
     }
 
-    /// `resolveForOpening(_:locale:report:)` の、知らせを `appState` の窓へ出す版。
-    func resolveForOpening(_ entry: Entry, reportingTo appState: AppState?) -> URL? {
-        resolveForOpening(
+    /// `resolveForOpening(_:locale:report:stillWanted:then:)` の、知らせを `appState` の窓へ出す版。待つ間にその窓で別の本を開き
+    /// 始めていたら(`AppState.openRequestToken`)開かない(コレクションの本の確かめと同じ。監査 SP-10)。
+    @discardableResult
+    func resolveForOpening(
+        _ entry: Entry, reportingTo appState: AppState?, then body: @escaping @MainActor (URL) -> Void
+    ) -> Task<Void, Never> {
+        let token = appState?.openRequestToken
+        return resolveForOpening(
             entry, locale: appState?.preferences?.effectiveLocale ?? AppLanguage.currentLocale,
-            report: appState.map { appState in { appState.postViewerNotice($0) } }
+            report: appState.map { appState in { appState.postViewerNotice($0) } },
+            stillWanted: { [weak appState] in appState?.openRequestToken == token },
+            then: body
         )
     }
 
@@ -345,7 +396,7 @@ final class RecentFilesStore: ObservableObject {
     /// 呼び出し側(resolveForOpening経由で本を開く側)が改めてstartAccessingSecurityScopedResource()を
     /// 呼ぶが、start/stopは呼び出し回数で釣り合っていればよいため、ここで一時的に開いて閉じても
     /// 問題ない(revalidate(_:)の中で行っているのと同じこと)。
-    private static func fileExists(at url: URL) -> Bool {
+    nonisolated private static func fileExists(at url: URL) -> Bool {
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer {
             if didStartAccessing {

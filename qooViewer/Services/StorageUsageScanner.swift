@@ -80,7 +80,9 @@ nonisolated enum StorageUsageScanner {
     }
 
     /// 呼び出し側のTaskが取り消されたら、途中で打ち切ってnilを返す(ディレクトリの列挙の
-    /// 途中でTask.isCancelledを見る)。「今すぐ更新」の連打で走査が丸ごと並走しないため。
+    /// 途中で`Cancellation.isRequestedInCurrentScope`を見る)。「今すぐ更新」の連打で走査が丸ごと並走しないため。
+    /// 呼び出し側は`FileIO.perform`の上で走らせる(2026-10-04 の監査 §2-4。以前は`Task.detached`で、借りたスレッドの外の
+    /// `Task.isCancelled`を見ていた ―― FileIO の上では`Task.isCancelled`は常に false なので、旗のほうを読む)。
     ///
     /// ■ コンテナは 1 回だけ辿る(2026-09-25 の監査)
     /// 内訳のフォルダはどれもコンテナの中にある。以前はコンテナ全体を辿った後、内訳のフォルダをもう一度 1 つずつ辿っていた
@@ -129,7 +131,7 @@ nonisolated enum StorageUsageScanner {
            ) {
             var total = DirectorySize(bytes: 0, fileCount: 0)
             for case let url as URL in enumerator {
-                if Task.isCancelled { return nil }
+                if Cancellation.isRequestedInCurrentScope { return nil }
                 guard let values = try? url.resourceValues(forKeys: sizeKeys),
                       values.isSymbolicLink != true,
                       values.isRegularFile == true
@@ -160,7 +162,7 @@ nonisolated enum StorageUsageScanner {
             }
             container = total
         }
-        guard !Task.isCancelled else { return nil }
+        guard !Cancellation.isRequestedInCurrentScope else { return nil }
         let coverTotal: Int? = covers == nil && coverSources == nil ? nil : (covers?.bytes ?? 0) + (coverSources?.bytes ?? 0)
         return StorageUsage(
             containerBytes: container.map(\.bytes),
@@ -210,7 +212,7 @@ nonisolated enum StorageUsageScanner {
         var total = 0
         var count = 0
         for case let url as URL in enumerator {
-            if Task.isCancelled { return nil }
+            if Cancellation.isRequestedInCurrentScope { return nil }
             guard let values = try? url.resourceValues(forKeys: sizeKeys),
                   values.isSymbolicLink != true,
                   values.isRegularFile == true

@@ -129,6 +129,14 @@ private struct SidePanelContextHighlightModifier: ViewModifier {
                         highlight.highlightedRowID == rowID ? Color.accentColor : Color.clear,
                         lineWidth: 2
                     )
+                    // アクセント色の枠なので、面をアクセント色で塗られても読めるよう輪郭を付ける(ホームの枠
+                    // HomeContextMenuTargetBorder と同じ。2026-10-04 の監査 SP-11 で付け漏れが分かった)。
+                    // 縁は isEnabled で出し入れする(枠の overlay 自体は置いたまま。縁の出し入れはホームの枠が
+                    // 2026-09-27 から同じ形で行っている)。
+                    .panelOutlinedAccent(
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous),
+                        isEnabled: highlight.highlightedRowID == rowID
+                    )
             )
     }
 }

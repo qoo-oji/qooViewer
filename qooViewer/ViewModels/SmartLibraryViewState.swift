@@ -481,6 +481,26 @@ final class SmartLibraryViewState: ObservableObject {
         coverSize = Self.coverSizeRange.clamping(coverSize * magnification)
     }
 
+    /// インスペクタのメタデータの欄に焦点がある間、絞り込みから外れても並びに残す本(`SmartBook.id`。2026-10-04 の監査 SL-3・決定 5)。
+    ///
+    /// 直した値が今の絞り込み(棚の条件・クイックフィルタ・ブラウザのボタン・検索・開いている束)から外れると、約 0.4 秒後の集め直しで
+    /// 本が並びから消え、選択が外れてインスペクタが「選択されていません」になり、次の欄へ打っていた焦点と続きの打鍵を失った。
+    /// 欄に焦点がある間は残し、焦点が離れたら(`stopKeepingWhileEditing`)ふつうに絞る。ブラウザのボタンの件数には足さない
+    /// (件数は本当に当てはまる冊数のまま)。
+    private(set) var bookKeptWhileEditing: String?
+
+    /// 欄に焦点が入った(`HomeInspectorMetadataSection`)。並びは今のままなので組み直さない。
+    func keepWhileEditing(_ bookID: String) {
+        bookKeptWhileEditing = bookID
+    }
+
+    /// 欄から焦点が離れた・欄が消えた。ほかの本の欄が既に入れ替えていれば何もしない。
+    func stopKeepingWhileEditing(_ bookID: String) {
+        guard bookKeptWhileEditing == bookID else { return }
+        bookKeptWhileEditing = nil
+        setNeedsRecompute()
+    }
+
     /// 利用者が絞り込み・並べ方を変えた(並べ直しと、一覧を先頭へ戻す合図)。
     private func narrowingChanged() {
         pendingScrollReset = true
@@ -546,10 +566,16 @@ final class SmartLibraryViewState: ObservableObject {
             }
             searchHaystacks = haystacks
         }
+        // インスペクタで直している本は、絞り込みから外れても残す(`bookKeptWhileEditing`。監査 SL-3)。
+        let kept = bookKeptWhileEditing
+        if let kept, !current.contains(where: { $0.id == kept }), let book = books.first(where: { $0.id == kept }) {
+            current.append(book)
+        }
         visibleBooks = SmartSort.sorted(current, by: sortKey, ascending: sortAscending)
         if let openedGroup {
             // 束の中は シリーズ → 巻 の順(束の並びと同じ)。絞り込みで 1 冊も残らなければ空のまま(戻れば束の一覧)。
-            gridItems = SmartSort.sorted(visibleBooks.filter { grouping.key(of: $0) == openedGroup },
+            // 直している本は、束の鍵(著者・シリーズ)を書き換えても残す(上と同じ)。
+            gridItems = SmartSort.sorted(visibleBooks.filter { grouping.key(of: $0) == openedGroup || $0.id == kept },
                                          by: .series, ascending: true).map(SmartGridItem.book)
         } else {
             gridItems = grouping.grouped(visibleBooks)

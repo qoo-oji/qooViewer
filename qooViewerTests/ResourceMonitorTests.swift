@@ -120,6 +120,21 @@ struct ResourceAnomalyDetectorTests {
         #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
     }
 
+    @Test("走査の後の判定(拍の外)は持続回数を進めず、今の回数で判定する(監査 SP-12)")
+    func evaluationsOutsideTheTickDoNotAdvanceTheStreak() {
+        let detector = ResourceAnomalyDetector()
+        let over = Factory.snapshot(statistics: Factory.statistics(pageImages: (101, 100, [])))
+        #expect(detector.evaluate(input(book: over)).isEmpty)
+        // 「今すぐ更新」の連打・走査の終わり。何度呼んでも 3 回目の拍の前に異常へ届かない。
+        for _ in 0..<5 {
+            #expect(detector.evaluate(advancingStreaks: false, input(book: over)).isEmpty)
+        }
+        #expect(detector.evaluate(input(book: over)).isEmpty)
+        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        // 成立した後は、拍の外でも続いている限り出す(走査の後に異常の一覧から消えない)。
+        #expect(detector.evaluate(advancingStreaks: false, input(book: over)) == [.pageImageCacheOverLimit])
+    }
+
     @Test("3 種類のキャッシュはそれぞれ別に数える")
     func eachCacheHasItsOwnStreak() {
         let detector = ResourceAnomalyDetector()

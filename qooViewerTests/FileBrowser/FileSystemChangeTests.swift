@@ -253,6 +253,25 @@ struct FileSystemChangeTests {
         #expect(state.cutPaths.isEmpty)
     }
 
+    /// 2026-10-04 の監査 FBA-8。以前はペーストボードの写しを確かめ直す口(ウインドウがキーになったとき)では淡色を見ず、
+    /// アプリの中の文字のコピーの後も淡色が残った。
+    @Test("ペーストボードの写しを確かめ直すときにも、替わっていればカットの淡色を下ろす。カットの直後には下ろさない")
+    func refreshingThePasteboardStateAlsoForgetsAStaleCut() async throws {
+        let fixture = try Fixture("fs-change-cut-refresh")
+        let state = fixture.makeState()
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let target = try #require(state.entries.first { $0.url.lastPathComponent == "a.txt" })
+        state.operations.cut([target])
+        state.refreshPasteboardState()
+        #expect(!state.cutPaths.isEmpty, "カットした直後に下ろした")
+
+        fixture.pasteboard.clearContents()
+        fixture.pasteboard.setString("copied text", forType: .string)
+        state.refreshPasteboardState()
+        #expect(state.cutPaths.isEmpty)
+    }
+
     /// 2026-10-04 の監査 FBA-4。以前は外れた項目だけを記憶から除き、残りは淡色のままなのに ⌘V はペーストボードとの不一致でコピーに
     /// なり、外れた項目の古いパスで全体が断られた。
     @Test("カットした項目の一部をアプリの中で動かしたら、記憶ごと下ろす(残りを淡色のままにしない)")

@@ -99,7 +99,25 @@ final class FileBrowserState: ObservableObject {
     /// 切り替えて戻すたびに**作り直される**。選択はこの状態が持っているので戻るが、スクロールは一覧の `NSScrollView` にしか
     /// 無く、先頭から見せ直していた(2026-09-27、利用者の報告)。一覧が捨てられるときに控え、同じフォルダのまま作り直されたら
     /// そこから見せる(`HomeWheelScrollView.restoreScrollOrigin`)。控えは一度使ったら捨てる。
-    private var savedScrollOrigins: [FileBrowserViewMode: (folder: URL?, origin: CGPoint)] = [:]
+    ///
+    /// 控えには、その時点のスクロールの依頼の通し番号と選択の版も入れる(2026-10-04 の監査 FBU-8)。表示形式を切り替えて
+    /// もう一方で選択を動かしてから戻ると、以前は古い位置へ戻ったうえで新しい依頼を「済んだ」扱いにし、選んだ項目が見えなかった。
+    private var savedScrollOrigins: [FileBrowserViewMode: SavedScrollOrigin] = [:]
+
+    private struct SavedScrollOrigin {
+        let folder: URL?
+        let origin: CGPoint
+        let scrollSerial: Int?
+        let selectionRevision: Int
+    }
+
+    /// 作り直した一覧が、捨てる前の位置へどう戻るか(`takeSavedScrollRestoration(for:)`)。
+    enum SavedScrollRestoration: Equatable {
+        /// 控えた位置へ戻す(残っている古いスクロールの依頼は済んだことにする)。
+        case origin(CGPoint)
+        /// 控えた後に選択だけが変わった(クリック)。古い依頼は済んだことにして、この項目を見える位置へ。
+        case reveal(id: String)
+    }
 
     /// 左のツリーの開き具合と位置の控え(ツリーを作り直しても残す。FileBrowserTreeView の型コメント)。publish しない。
     struct SavedTreeState {
@@ -123,13 +141,25 @@ final class FileBrowserState: ObservableObject {
 
     /// 捨てる一覧のスクロール位置を控える(`dismantleNSView` から)。
     func saveScrollOrigin(_ origin: CGPoint, for mode: FileBrowserViewMode, folder: URL?) {
-        savedScrollOrigins[mode] = (folder, origin)
+        savedScrollOrigins[mode] = SavedScrollOrigin(
+            folder: folder, origin: origin, scrollSerial: scrollRequest?.serial, selectionRevision: selectionRevision
+        )
     }
 
-    /// 作り直した一覧が戻る位置。控えたときと同じフォルダを表示しているときだけ返す(控えはどちらにしても捨てる)。
-    func takeSavedScrollOrigin(for mode: FileBrowserViewMode) -> CGPoint? {
+    /// 作り直した一覧の戻り方(控えはどちらにしても捨てる)。nil なら控えを使わない ―― 一覧は残っている依頼をふつうに拾う。
+    ///
+    /// - 控えたときと違うフォルダ → nil。
+    /// - 控えた後にスクロールの依頼が来た(もう一方の表示での矢印キー・reveal・ペースト)→ nil。その依頼のほうが新しい(監査 FBU-8)。
+    /// - 控えた後に選択だけが変わった(クリック)→ 選んだ最初の項目を見せる(`.reveal`)。選択が空になったなら位置へ戻す。
+    /// - どれでもない → 控えた位置へ(`.origin`)。
+    func takeSavedScrollRestoration(for mode: FileBrowserViewMode) -> SavedScrollRestoration? {
         guard let saved = savedScrollOrigins.removeValue(forKey: mode), saved.folder == currentFolder else { return nil }
-        return saved.origin
+        guard saved.scrollSerial == scrollRequest?.serial else { return nil }
+        if saved.selectionRevision != selectionRevision,
+           let first = entries.first(where: { selection.contains($0.id) }) {
+            return .reveal(id: first.id)
+        }
+        return .origin(saved.origin)
     }
 
     @Published var viewMode: FileBrowserViewMode {
@@ -685,6 +715,11 @@ final class FileBrowserState: ObservableObject {
         let count = operations.pasteboard.changeCount
         guard count != pasteboardChangeCount else { return }
         pasteboardChangeCount = count
+        // ペーストボードが替わっていたら、カットの淡色も確かめ直す(2026-10-04 の監査 FBA-8)。以前はアクティブ化・FSEvents・
+        // ペーストの入口でしか確かめず、アプリの中で文字をコピーしてウインドウを切り替えても淡色(カット済み)が残った ―― ⌘V の判定は
+        // 正しく「コピー」なので、見た目だけが食い違っていた。カットを書いた直後に呼ばれても、記憶はそのときの changeCount を
+        // 持っているので下ろさない(FileCutClipboard.validate)。
+        cutClipboard.validate(against: operations.pasteboard)
         let hasFiles = operations.canPaste
         if hasFiles != pasteboardHasFiles { pasteboardHasFiles = hasFiles }
     }
@@ -745,12 +780,19 @@ final class FileBrowserState: ObservableObject {
     }
 
     /// 場所へ移動する。戻るの履歴に積む。
+    ///
+    /// **今いる場所へ移動し直したときは読み直すだけ**(選択・ペーストした項目を選ぶ依頼は残す。2026-10-04 の監査 FBU-7)。パスバーの
+    /// 末尾・移動メニューの今の場所・「ファイルブラウザで表示」で今のフォルダを指したときに、以前は `move` を通って選択が消えた。
+    /// 読み直しは残す(再読み込みのつもりで押す人がいる)。許可を付けた直後にも通るので、監視も張り直す(`activate` の読み直しと同じ)。
     func navigate(to location: FileBrowserLocation) {
         let target = Self.normalized(location)
-        if target.selectionKey != self.location.selectionKey {
-            pushBack(self.location)
-            forwardStack.removeAll()
+        guard target.selectionKey != self.location.selectionKey else {
+            reload()
+            updateWatcher()
+            return
         }
+        pushBack(self.location)
+        forwardStack.removeAll()
         move(to: target, selecting: nil)
     }
 

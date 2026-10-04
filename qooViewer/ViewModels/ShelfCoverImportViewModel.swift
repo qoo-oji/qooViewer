@@ -190,13 +190,15 @@ final class ShelfCoverImportViewModel: ObservableObject {
     }
 
     func setSelection(_ bookID: String?, for rowID: Row.ID) {
-        guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return }
+        // 取り込みの最中は行き先を変えさせない(画面でも淡色。2026-10-04 の監査 TW-19 ―― 以前は触れたうえ、終わると全行の選択が消えた)。
+        guard !isApplying, let index = rows.firstIndex(where: { $0.id == rowID }) else { return }
         rows[index].selectedBookID = bookID
         rows[index].isFromManifest = false
     }
 
     /// 取り込める行をすべて選ぶ/すべて外す(ツールバーの「すべて選択」)。
     func setAllSelected(_ isSelected: Bool) {
+        guard !isApplying else { return }
         for index in rows.indices {
             if isSelected {
                 // 候補が複数ある行は、どれか1つを勝手に選ばない(型コメント参照)。
@@ -212,10 +214,18 @@ final class ShelfCoverImportViewModel: ObservableObject {
 
     /// 選ばれている行を実際にDBへ書き込む。
     func apply() async {
+        guard !isApplying else { return }
         isApplying = true
-        defer { isApplying = false }
+        // ⌘Q の確認のために数える(RunningWorkRegistry。2026-10-04 の監査 TW-18・決定 9 ―― 書き出しと保存データの読み込みは数えて
+        // いたのに、こちらは数えていなかった。1 枚ずつ保存するので途中で切れても整うが、選んだ表紙の一部しか入らない)。
+        let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
+        defer {
+            isApplying = false
+            if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) }
+        }
         let locale = preferences.effectiveLocale
         var imported = 0
+        var importedRowIDs: Set<Row.ID> = []
         var reencoded = 0
         var failed = 0
         // 行き先がもう「知っている本」でない行は取り込まない(2026-10-04 の監査 TW-22)。行き先は zip を読み込んだ時点の bookID
@@ -244,9 +254,11 @@ final class ShelfCoverImportViewModel: ObservableObject {
             var dataByPath: [String: Data] = [:]
             if let zipURL = loadedZipURL {
                 let didAccess = zipURL.startAccessingSecurityScopedResource()
-                dataByPath = await Task.detached {
-                    (try? ShelfCoverArchive.readEntries(zipAt: zipURL, paths: paths)) ?? [:]
-                }.value
+                // ブロッキングする読み出しは FileIO の上で(CLAUDE.md の FileIO の約束。以前は Task.detached で協調スレッドを塞いだ ――
+                // 決定 18 と同じ根で、監査 TW-18・TW-19 を直したときに一緒に移した)。
+                dataByPath = (try? await FileIO.perform {
+                    try ShelfCoverArchive.readEntries(zipAt: zipURL, paths: paths)
+                }) ?? [:]
                 if didAccess { zipURL.stopAccessingSecurityScopedResource() }
             }
             for row in batch {
@@ -260,6 +272,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
                         forBookID: bookID, sourceURL: resolveURL(forBookID: bookID), data: data
                     )
                     imported += 1
+                    importedRowIDs.insert(row.id)
                     if wasReencoded { reencoded += 1 }
                 } catch {
                     failed += 1
@@ -298,8 +311,9 @@ final class ShelfCoverImportViewModel: ObservableObject {
         }
         didSucceed = failed == 0 && stale == 0 && secret == 0
         resultMessage = message
-        // 取り込んだ行は選択を外す(同じzipを二度当てて同じ絵を書き直さないため)。
-        for index in rows.indices { rows[index].selectedBookID = nil }
+        // 取り込んだ行は選択を外す(同じzipを二度当てて同じ絵を書き直さないため)。**取り込めた行だけ**(監査 TW-19 ―― 以前は全行を
+        // 外し、失敗した行・取り込まなかった行の選び直しまで消えた。失敗した行はそのままもう一度押せる)。
+        for index in rows.indices where importedRowIDs.contains(rows[index].id) { rows[index].selectedBookID = nil }
     }
 
     /// 行を作り直すときの本のURL(BookLayoutSettingsの行がまだ無い本のため)。

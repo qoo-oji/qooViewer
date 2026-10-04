@@ -622,6 +622,37 @@ final class WelcomeLibraryState: ObservableObject {
         openedCollectionID = nil
         collectionSelection.select(opened)
     }
+
+    /// ライブラリを見せる(帯のチップ・ホーム ▸ ライブラリの項目。2026-10-04 の監査 H-13 で入口を 1 つにした ―― 以前メニューは
+    /// 見ているライブラリでも `openedCollectionID = nil` だけで、チップと違い出てきた棚を選ばなかった)。
+    ///
+    /// ほかのモードの間は本棚へ戻る(見ていたライブラリなら、開いていたコレクションもそのまま ―― 離れたときの棚へ戻る)。
+    /// 本棚で見ているライブラリならそのコレクション一覧へ戻り、出てきた棚を選ぶ(`leaveCollection`。検索は残す)。
+    /// 別のライブラリなら移る(開いていたコレクションからは出る ―― 今のライブラリには無い)。
+    ///
+    /// - Parameter currentLibraryID: いま本棚が見せているライブラリ(未選択なら先頭へ落とした後の値。帯・メニューの値)。
+    func showLibrary(_ id: UUID, currentLibraryID: UUID?) {
+        if mode != .shelf {
+            mode = .shelf
+            if id == currentLibraryID { return }
+        }
+        guard id != currentLibraryID else {
+            leaveCollection()
+            return
+        }
+        selectedLibraryID = id
+        openedCollectionID = nil
+    }
+
+    /// コレクションを別のライブラリへ移した後(右クリック・ホーム ▸ 別のライブラリへ移動。監査 H-13 で入口を 1 つにした)。
+    /// 移したものだけを選択から外し(今は見えていない ―― 見えていないものをゴミ箱が消さないための決まり)、開いていたなら一覧へ戻る。
+    /// **関係ない選択は残す** ―― 以前の右クリックは、選択の外のタイルを移しても選択を丸ごと捨てた。
+    func collectionsMovedAway(_ ids: Set<UUID>) {
+        if let opened = openedCollectionID, ids.contains(opened) { openedCollectionID = nil }
+        var remaining = collectionSelection
+        remaining.remove(ids)
+        if remaining != collectionSelection { collectionSelection = remaining }
+    }
 }
 
 private extension ClosedRange where Bound == CGFloat {

@@ -9,7 +9,8 @@ import SwiftUI
 /// ■ 束は疑似的なフォルダ(利用者の指示「まとめるは擬似的にフォルダのように扱えないか」)
 /// 「まとめる」で作った束(シリーズ / 著者)は、**フォルダのアイコンの行**になる。Finder のリスト表示のフォルダと同じく、
 /// - 左の三角(または → / ←)でその場に中の本を開く / 閉じる(開いている束は並び替え・絞り込みの後も開いたまま)
-/// - ダブルクリック・Return・⌘↓ で**束の中へ入る**(グリッドで束を開くのと同じ `openedGroup`。見出しの「<」・Esc・⌘↑ で戻る)
+/// - ダブルクリック・Return・⌘↓ で**束の中へ入る**(グリッドで束を開くのと同じ `openedGroup`。見出しの「<」・Esc・⌘↑ で戻る ―― Esc と ⌘↑ は
+///   一覧に焦点があるときだけ)
 ///
 /// ■ そのほか
 /// - 列: 題(隠せない)・著者・シリーズ・巻・ジャンル・原作・イベント・形式・読んだ割合・読書の状態・追加日・最後に読んだ日・
@@ -715,6 +716,11 @@ final class SmartLibraryOutlineView: FileBrowserOutlineView, NSMenuItemValidatio
         }
         // ⌘↑: 束から出る(出られなければふつうのキーとして渡す)。
         if event.keyCode == 126, flags.contains(.command), onLeaveGroup?() == true {
+            return
+        }
+        // Esc も束から出る(焦点がこの一覧にあるときだけ。2026-10-04 の監査 SL-5 ―― 以前は見出しの戻るボタンのキー等価で受けたので、
+        // インスペクタの欄の Esc でも束から出た。ライブラリのグリッドと同じく、一覧が焦点を持つときだけにした)。
+        if event.keyCode == 53, flags.subtracting([.function]).isEmpty, onLeaveGroup?() == true {
             return
         }
         super.keyDown(with: event)

@@ -44,6 +44,8 @@ struct HomeInspectorMetadataSection: View {
     @ObservedObject var home: WelcomeLibraryState
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    /// スマートライブラリの状態(`appState.smartLibrary`)へ、直している本を絞り込みに残すよう伝える(監査 SL-3)。値は読まない。
+    @EnvironmentObject private var appState: AppState
     @Environment(MetadataRulesStore.self) private var rulesStore
     /// シークレットフォルダ(その中の本はメタデータを書かない。SecretFolderStore)。
     @EnvironmentObject private var secretFolders: SecretFolderStore
@@ -98,6 +100,8 @@ struct HomeInspectorMetadataSection: View {
     /// 付け替えの知らせ(`BookRelocationNotice`)の両方で引き直し、書くときはこちらを使う(`targetBookID`)。
     /// FSEvents でしか分からないアプリの外での改名は、旧 → 新が分からないので追えない(次の付け替えの知らせまで)。
     @State private var movedBookID: String?
+    /// スマートライブラリの絞り込みに残させている本(`updateKeptBook`。監査 SL-3)。
+    @State private var keptBookID: String?
 
     /// 書く・読む相手の bookID(付け替えに付いていく。`movedBookID`)。
     private var targetBookID: String { movedBookID ?? bookID }
@@ -148,6 +152,7 @@ struct HomeInspectorMetadataSection: View {
         // 書くと DB から読み直し、空にした入力欄が詰まる・著者が「、」で分かれるので、移った先の入力欄を書いたあとの並びで
         // 指し直す(`LineAnchor`)。
         .onChange(of: focusedField) { old, new in
+            updateKeptBook(isFocused: new != nil)
             guard old != nil else { return }
             let anchor = lineAnchor(new)
             commit()
@@ -160,6 +165,7 @@ struct HomeInspectorMetadataSection: View {
         .onDisappear {
             isVisible = false
             commit()
+            updateKeptBook(isFocused: false)
         }
         .background(WindowAccessor { window in
             if hostWindow.window !== window { hostWindow.window = window }
@@ -541,6 +547,20 @@ struct HomeInspectorMetadataSection: View {
     /// **数に読めない巻数(並べ替え用)は書かず、ほかの欄は書く。** シートは「保存」を押せなくして何も捨てなかったが、インスペクタは
     /// 欄を離れるたび・消えるたびに書くので、その 1 欄のためにほかの直しまで黙って捨てることになる。読めない文字は欄に残し(赤い案内も
     /// 残る)、直せば次に書く。欄が消えたら捨てる(数でない値はもともと書けない)。
+    /// スマートライブラリで選んでいる本を直している間は、絞り込みから外れても並びに残させる(2026-10-04 の監査 SL-3・決定 5)。
+    /// 焦点が離れたら戻す(書いた値で絞り直されるのは集め直しの後)。ほかの画面(ファイルブラウザ・ライブラリ)の欄では何もしない。
+    /// 残させた本の id は控えておき、戻すときはそれを渡す(その間に本が付け替えられて `targetBookID` が変わっていても戻せるように)。
+    private func updateKeptBook(isFocused: Bool) {
+        guard let smartLibrary = appState.smartLibrary else { return }
+        if isFocused, home.mode == .smart {
+            keptBookID = targetBookID
+            smartLibrary.keepWhileEditing(targetBookID)
+        } else if let kept = keptBookID {
+            keptBookID = nil
+            smartLibrary.stopKeepingWhileEditing(kept)
+        }
+    }
+
     private func commit() {
         // 書く相手は付け替えに付いていく(movedBookID。2026-10-04 の監査 SL-1)。
         let bookID = targetBookID

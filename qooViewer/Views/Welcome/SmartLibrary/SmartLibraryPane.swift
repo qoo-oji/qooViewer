@@ -1012,7 +1012,9 @@ struct SmartLibraryContent: View {
                             .panelIconButtonLabel()
                     }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut(.cancelAction)
+                    // Esc はここ(キー等価)では受けない(2026-10-04 の監査 SL-5)。キー等価は焦点のある欄の keyDown より先に
+                    // 処理されるので、インスペクタの題名欄で Esc を押すと束から出た(実測)。グリッドの `handleKey` とリストの
+                    // keyDown が、一覧に焦点があるときだけ受ける(ライブラリのグリッド ―― HomeGridInteraction ―― と同じ)。
                     .help(String(format: String(localized: "Back to %@", language: locale),
                                  state.selectedShelf?.name ?? String(localized: "All Books", language: locale)))
                     Text(verbatim: series)
@@ -1423,6 +1425,11 @@ struct SmartLibraryContent: View {
             openSelection()
             return .handled
         case .upArrow where command:
+            guard state.openedGroup != nil else { return .ignored }
+            state.openedGroup = nil
+            return .handled
+        case .escape where !command:
+            // 束から出る(焦点がグリッドにあるときだけ。見出しの戻るボタンのコメント、監査 SL-5)。
             guard state.openedGroup != nil else { return .ignored }
             state.openedGroup = nil
             return .handled

@@ -43,12 +43,13 @@ struct SmartLibrarySettingsView: View {
                     }
                 )
                 .disabled(preferences.smartLibraryCoverShape == .matchImage)
-                // ライブラリの「切り取るときに残す位置」を持ち込んだもの(2026-09-23、利用者の要望)。本ごとの指定(メタデータの編集
-                // シートの表紙の右クリック)があればそちらが勝つ。切らない形・余白を付ける間は効かないので押せない。
+                // ライブラリの「切り取るときに残す位置」を持ち込んだもの(2026-09-23、利用者の要望)。本ごとの指定(ホームのインスペクタの
+                // 表紙の右クリック・メタデータの編集ウインドウの表紙の列。2026-09-30 に 1 冊ぶんのシートは無くなった ―― 監査 SL-9)があれば
+                // そちらが勝つ。切らない形・余白を付ける間は効かないので押せない。
                 SettingsPicker(
                     "Keep When Cropping",
                     selection: $preferences.smartLibraryCoverCropAnchor,
-                    help: "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image or Add Margins."
+                    help: "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins."
                 )
                 .disabled(preferences.smartLibraryCoverShape == .matchImage || preferences.smartLibraryCoverFit == .pad)
             } header: {

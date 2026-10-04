@@ -122,8 +122,8 @@ struct SidePanelResourcesSectionView: View {
         evaluateAnomalies()
     }
 
-    private func evaluateAnomalies() {
-        let found = detector.evaluate(.init(
+    private func evaluateAnomalies(advancingStreaks: Bool = true) {
+        let found = detector.evaluate(advancingStreaks: advancingStreaks, .init(
             bookSnapshot: bookSnapshot,
             storage: storage,
             isDiskCacheEnabled: preferences.thumbnailDiskCacheEnabled,
@@ -164,21 +164,17 @@ struct SidePanelResourcesSectionView: View {
             fileBrowserThumbnailCacheDirectory: FileBrowserThumbnailDiskCache.shared.directory,
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
-        // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
-        // タスクも明示的に取り消す。走査はディレクトリの列挙中にTask.isCancelledを見て
-        // 途中で打ち切る(StorageUsageScanner参照)ため、古い走査と新しい走査が丸ごと
-        // 並走することはない。
-        let scanTask = Task.detached(priority: .utility) {
+        // ブロッキングする列挙は FileIO の上で(CLAUDE.md の FileIO の約束。2026-10-04 の監査 §2-4 ―― 以前は Task.detached で、
+        // 協調スレッドプールのスレッドを列挙の間ずっと塞いでいた)。この`.task`が取り消されると FileIO が旗を立て、走査は列挙の
+        // 途中でそれを見て打ち切る(StorageUsageScanner参照)ため、古い走査と新しい走査が丸ごと並走することはない。
+        let result = await FileIO.perform(qos: .utility) {
             StorageUsageScanner.scan(locations)
-        }
-        let result = await withTaskCancellationHandler {
-            await scanTask.value
-        } onCancel: {
-            scanTask.cancel()
         }
         guard !Task.isCancelled, let result else { return }
         storage = result
-        evaluateAnomalies()
+        // 走査の後の判定は持続回数を進めない(監査 SP-12)。持続回数は「1 秒ごとに 1 回」を単位にしているので
+        // (ResourceAnomalyDetector.evaluate)、15 秒ごとの走査と「今すぐ更新」のたびに進めると、上限の超過が 3 秒続く前に異常と出た。
+        evaluateAnomalies(advancingStreaks: false)
     }
 }
 

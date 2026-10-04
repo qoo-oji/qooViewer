@@ -1033,11 +1033,13 @@ struct QooViewerApp: App {
                             ) {
                                 // 開けなければ、開く先になるはずだった窓に理由を知らせる(窓が無ければアラート。2026-10-04 の
                                 // 監査 SP-7 = M-4。以前は黙って何もしなかった)。
-                                guard let url = recentFiles.resolveForOpening(
+                                // 解決はメインの外で(RecentFilesStore.resolveForOpening。2026-10-04 の監査 §2-4)。
+                                recentFiles.resolveForOpening(
                                     entry, reportingTo: focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
-                                ) else { return }
-                                SecurityScopedHandoff.begin(url)
-                                openRecentAccordingToPreference(url)
+                                ) { url in
+                                    SecurityScopedHandoff.begin(url)
+                                    openRecentAccordingToPreference(url)
+                                }
                             }
                         }
                     }

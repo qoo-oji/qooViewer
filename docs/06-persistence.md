@@ -338,6 +338,9 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   ホームの履歴の吹き出し・旧ウェルカム画面・ファイル ▸ 最近使った項目)は `resolveForOpening(_:reportingTo:)` か
   `(_:locale:report:)` を通して同じ文を出す(窓のトースト。メニューバーで本の窓が無ければアラート)。以前はどの入口も黙って何もせず、
   外したボリュームの本は何度押しても何も起きず、消えた本は行が黙って消えた。新しい入口もこれを通すこと。
+- **開く前の解決はメインの外**(2026-10-04 の監査 §2-4・決定 18)。解決と存在の確かめは `FileIO` の上で期限つき
+  (`CollectionItemOpenProbe.limit`)。入口は開けたら呼ぶ閉包を渡し(`resolveForOpening(_:reportingTo:then:)`)、待つ間にその窓で別の本を
+  開き始めていたら開かない(`AppState.openRequestToken`)。期限切れは `.timedOut` で、行は残す(無いとは言い切れない)。
 
 ### FolderAccessStore
 

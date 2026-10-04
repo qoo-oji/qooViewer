@@ -321,6 +321,39 @@ struct ShelfCoverImportTests {
         #expect(viewModel.rows.isEmpty)
     }
 
+    @Test("取り込んだ後に選択を外すのは取り込めた行だけ。取り込めなかった行の選びはそのまま残る(2026-10-04 の監査 TW-19)")
+    func onlyImportedRowsAreDeselected() async throws {
+        let library = try InMemoryLibrary(label: "cover-import-deselect")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-import-deselect")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-import-deselect")
+        for (bookID, title) in [("/books/第1巻.cbz", "第1巻"), ("/books/第2巻.cbz", "第2巻")] {
+            _ = library.metadata.upsert(bookID: bookID, author: "", title: title, series: "", seriesIndex: "")
+        }
+        var builder = ZipFixtureBuilder()
+        builder.add("第1巻.jpg", PageImageFactory.jpeg(number: 1))
+        builder.add("第2巻.jpg", PageImageFactory.jpeg(number: 2))
+        let zipURL = temporary.file("deselect.zip")
+        try builder.write(to: zipURL)
+
+        let viewModel = ShelfCoverImportViewModel(
+            sources: library.knownBookSources, preferences: suite.makePreferences()
+        )
+        await viewModel.load(zipAt: zipURL)
+        #expect(viewModel.importableCount == 2)
+        // 2 冊目は読み込んだ後で動いた(取り込まれない)。
+        library.metadata.delete(forBookID: "/books/第2巻.cbz")
+        _ = library.metadata.upsert(bookID: "/moved/第2巻.cbz", author: "", title: "第2巻", series: "", seriesIndex: "")
+
+        await viewModel.apply()
+        #expect(viewModel.isApplying == false)
+        let first = try #require(viewModel.rows.first { $0.entryName == "第1巻.jpg" })
+        let second = try #require(viewModel.rows.first { $0.entryName == "第2巻.jpg" })
+        #expect(first.selectedBookID == nil)
+        #expect(second.selectedBookID == "/books/第2巻.cbz")
+    }
+
     /// シークレットフォルダの一覧の箱(閉包が捕まえた後で中身を差し替える)。
     @MainActor
     private final class SecretFolders {

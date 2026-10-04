@@ -184,4 +184,47 @@ struct WelcomeLibraryStateTests {
         #expect(state.selectedCollectionIDs.isEmpty)
         #expect(state.targetCollectionIDs.isEmpty)
     }
+
+    @Test("チップとホーム ▸ ライブラリは同じ決まり: 見ているライブラリなら一覧へ戻って出てきた棚を選ぶ(2026-10-04 の監査 H-13)")
+    func showingTheCurrentLibraryLeavesTheCollection() {
+        let (state, suite) = makeState("welcome-show-library")
+        defer { withExtendedLifetime(suite) {} }
+        let (current, other) = (UUID(), UUID())
+        let opened = UUID()
+        state.selectedLibraryID = current
+        state.showCollections([opened])
+        state.openCollection(opened, keepingSearch: true)
+
+        state.showLibrary(current, currentLibraryID: current)
+        #expect(state.openedCollectionID == nil)
+        #expect(state.selectedCollectionIDs == [opened])
+
+        // 別のライブラリへは移る(開いていたコレクションからは出る)。
+        state.openCollection(opened, keepingSearch: true)
+        state.showLibrary(other, currentLibraryID: current)
+        #expect(state.selectedLibraryID == other)
+        #expect(state.openedCollectionID == nil)
+    }
+
+    @Test("別のライブラリへ移したコレクションだけを選択から外し、関係ない選択は残す(監査 H-13)")
+    func movingCollectionsAwayKeepsTheRestOfTheSelection() {
+        let (state, suite) = makeState("welcome-moved-away")
+        defer { withExtendedLifetime(suite) {} }
+        let (first, second, third) = (UUID(), UUID(), UUID())
+        state.showCollections([first, second, third])
+        state.toggleCollectionSelection(first)
+        state.toggleCollectionSelection(second)
+
+        // 選択の外のタイル(third)を右クリックして移した。
+        state.collectionsMovedAway([third])
+        #expect(state.selectedCollectionIDs == [first, second])
+
+        state.collectionsMovedAway([first])
+        #expect(state.selectedCollectionIDs == [second])
+
+        // 開いていたコレクションを移したら一覧へ戻る。
+        state.openCollection(second, keepingSearch: true)
+        state.collectionsMovedAway([second])
+        #expect(state.openedCollectionID == nil)
+    }
 }

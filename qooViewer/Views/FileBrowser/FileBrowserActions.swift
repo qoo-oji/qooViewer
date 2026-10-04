@@ -713,6 +713,15 @@ enum FileBrowserMenuKind {
     }
 }
 
+extension FileBrowserActions {
+    /// ツリーのホームの行か(根の行で、項目が実際のホーム)。パスの文字列だけで決める(ファイルに触らない)。
+    static func isHomeTreeRoot(_ context: FileBrowserMenuContext) -> Bool {
+        guard context.isTreeRoot, context.entries.count == 1, let entry = context.entries.first else { return false }
+        return MountTable.normalized(entry.url.path)
+            == MountTable.normalized(FileBrowserListing.realHomeDirectory().path)
+    }
+}
+
 /// 右クリックメニューの対象。
 struct FileBrowserMenuContext {
     let kind: FileBrowserMenuKind
@@ -953,7 +962,12 @@ enum FileBrowserMenuCommand {
             return FileBrowserActions.canRevealTreeRowInList(context) && actions.allowsSaving && actions.canUseAsSingleBook(entries)
         case .exportBook:
             return actions.canUseAsSingleBook(entries) && actions.state?.bookSheet == nil
-        case .compress, .compressHere, .compressTo:
+        case .compressHere:
+            // ツリーのホームの行は、行き先(親の /Users)へ書けない(2026-10-04 の監査 FBA-10)。押せるのに必ず失敗を報告していた。
+            // 「保存先を選んで圧縮…」は動くので淡色にしない。よく使う項目の根は親へ書ける許可があれば成功するので、パスだけで
+            // 決まるホームの行だけを淡色にする(書けるかを確かめに行くのは、ネットワーク上の根でメインを止めうるのでしない)。
+            return !FileBrowserActions.isHomeTreeRoot(context) && actions.canCompress(entries)
+        case .compress, .compressTo:
             return actions.canCompress(entries)
         case .extract, .extractHere, .extractToFolder, .extractTo:
             return actions.canExtract(entries)
@@ -985,7 +999,8 @@ enum FileBrowserMenuCommand {
         case .quickLook:
             return FileBrowserActions.canRevealTreeRowInList(context) && !entries.isEmpty
         case .makeAlias:
-            return actions.canMakeAlias(entries)
+            // エイリアスもその項目の隣(親)に作る。ホームの行は「ここに圧縮」と同じく淡色(監査 FBA-10)。
+            return !FileBrowserActions.isHomeTreeRoot(context) && actions.canMakeAlias(entries)
         case .secretFolder:
             return actions.canToggleSecretFolder(entries)
         }

@@ -113,12 +113,14 @@ struct RecentBooksPopover: View {
             BookOpenContextMenuItems(
                 onOpen: { open(entry) },
                 onOpenIn: { destination in
-                    guard let url = resolve(entry) else { return }
                     dismiss()
-                    BookWindowOpener.open(
-                        BookOpenRequest(url), to: destination, from: appState,
-                        launchCoordinator: launchCoordinator, openWindow: openWindow
-                    )
+                    let (appState, launchCoordinator, openWindow) = (appState, launchCoordinator, openWindow)
+                    recentFiles.resolveForOpening(entry, reportingTo: appState) { url in
+                        BookWindowOpener.open(
+                            BookOpenRequest(url), to: destination, from: appState,
+                            launchCoordinator: launchCoordinator, openWindow: openWindow
+                        )
+                    }
                 }
             )
             Divider()
@@ -132,19 +134,12 @@ struct RecentBooksPopover: View {
         }
     }
 
+    /// 開く直前の解決。開けなければ理由をホームの下に知らせる(2026-10-04 の監査 SP-7 = H-6。以前は黙って何もせず、吹き出しも
+    /// 開いたままだった)。解決はメインの外なので(監査 §2-4)、**吹き出しは先に閉じる** ―― 知らせが吹き出しの陰ではなく見える所に
+    /// 出るように、また待つ間に同じ行を何度も押させないように。
     private func open(_ entry: RecentFilesStore.Entry) {
-        guard let url = resolve(entry) else { return }
         dismiss()
-        appState.open(url: url)
-    }
-
-    /// 開く直前の解決。開けなければ吹き出しを閉じ、理由をホームの下に知らせて nil(2026-10-04 の監査 SP-7 = H-6。以前は黙って
-    /// 何もせず、吹き出しも開いたままだった)。閉じるのは、知らせが吹き出しの陰ではなく見える所に出るように。
-    private func resolve(_ entry: RecentFilesStore.Entry) -> URL? {
-        guard let url = recentFiles.resolveForOpening(entry, reportingTo: appState) else {
-            dismiss()
-            return nil
-        }
-        return url
+        let appState = appState
+        recentFiles.resolveForOpening(entry, reportingTo: appState) { url in appState.open(url: url) }
     }
 }
