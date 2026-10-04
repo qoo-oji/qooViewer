@@ -135,7 +135,18 @@ final class MetadataEditorModel {
     /// コレクションの表紙の指定(改善要望5 §5.4。一覧の「コレクションの表紙」の列)。
     let coverController: CoverOverrideController
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
-    @ObservationIgnored private var existenceTask: Task<Void, Never>?
+    /// 走っている実在の確かめ(通し番号 → 仕事)。全冊の確かめと `close` は、**全部**を取り消す(2026-10-04 のレビューの R4-4 ――
+    /// 以前は最後の 1 つだけを持ち、一部の確かめが全冊の確かめを待つ間にそれと入れ替わったので、後の全冊の確かめ・閉じたときの
+    /// 取り消しが前の全冊の確かめに届かず、閉じた後も付け替えまで進み、新しい確かめより後に終わると古い灰色で上書きした)。
+    @ObservationIgnored private var existenceTasks: [Int: Task<Void, Never>] = [:]
+    /// 最後に始めた確かめ(一部の確かめは、その後に並ぶ)。
+    @ObservationIgnored private var lastExistenceTask: Task<Void, Never>?
+    @ObservationIgnored private var existenceSerial = 0
+    /// アプリの中の変更の知らせの出どころ(テストは自分の箱を渡す ―― FileSystemChangeCenter の型コメント)。
+    @ObservationIgnored private let fileSystemChanges: FileSystemChangeCenter
+    /// 規則の窓へ一覧の名前を渡す置き場(`publishNamesForRules`。既定はアプリで 1 つの `shared`。テストは自分のものを渡す ――
+    /// 共有の状態に触れない)。
+    @ObservationIgnored private let rulesPicked: MetadataRulesPicked
     /// アプリの外で名前を変えた本の保存データの付け替え役(AppStores に 1 つ。`relocateMovedBooks`)。
     @ObservationIgnored private let relocator: BookRecordRelocator?
     /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
@@ -155,7 +166,10 @@ final class MetadataEditorModel {
     }
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
-         preferences: AppPreferences, relocator: BookRecordRelocator?, resolveURL: @escaping (String) -> URL?) {
+         preferences: AppPreferences, relocator: BookRecordRelocator?, fileSystemChanges: FileSystemChangeCenter = .shared,
+         rulesPicked: MetadataRulesPicked? = nil, resolveURL: @escaping (String) -> URL?) {
+        self.fileSystemChanges = fileSystemChanges
+        self.rulesPicked = rulesPicked ?? .shared
         self.resolveURL = resolveURL
         self.relocator = relocator
         self.metadataStore = metadataStore
@@ -191,7 +205,7 @@ final class MetadataEditorModel {
     /// 変わるたび(`MetadataWorkspace.booksRevision`。ルールセットの切り替え・自動の選択の変更を含む)に呼ぶ。中身が同じなら
     /// 受け手が何もしない。
     func publishNamesForRules(of workspace: MetadataWorkspace) {
-        MetadataRulesPicked.shared.set(workspace.books.map { ($0.fileName, workspace.presetName(for: $0.id)) })
+        rulesPicked.set(workspace.books.map { ($0.fileName, workspace.presetName(for: $0.id)) })
     }
 
     /// 以前の版の欄で登録した本の、空の欄だけをファイル名から埋める(登録した値はそのまま。ロックも掛けたまま)。
@@ -255,15 +269,20 @@ final class MetadataEditorModel {
     /// **確かめられなかった本(アクセス権が無い・ボリュームが繋がっていない)は「無い」にしない** ―― 灰色で出して
     /// 削除を促すのは、確かに無いと分かった本だけ。
     ///
-    /// - Parameter only: 確かめ直す本(窓を開いた後のファイルの変化。MD-3)。nil なら一覧の全冊(開いたとき・ボリュームの着脱)。
-    private func checkExistence(of workspace: MetadataWorkspace, only: Set<String>? = nil) {
+    /// - Parameters:
+    ///   - only: 確かめ直す本(窓を開いた後のファイルの変化。MD-3)。nil なら一覧の全冊(開いたとき・ボリュームの着脱)。
+    ///   - change: 一部の確かめの契機になったアプリの中の変更(`handleFileSystemChange`)。
+    private func checkExistence(of workspace: MetadataWorkspace, only: Set<String>? = nil, after change: FileSystemChange? = nil) {
         let bookIDs = only.map { ids in workspace.bookIDs.filter(ids.contains) } ?? workspace.bookIDs
         guard !bookIDs.isEmpty else { return }
-        // 全冊の確かめは、走っている確かめを取り消して始め直す。一部の確かめは、走っている全冊の確かめの後に並べる(取り消すと、
-        // 全冊ぶんの答えが届かなくなる)。
-        let previous = only == nil ? nil : existenceTask
-        if only == nil { existenceTask?.cancel() }
-        existenceTask = Task { [weak self, weak workspace] in
+        // 全冊の確かめは、走っている確かめを**すべて**取り消して始め直す(R4-4)。一部の確かめは、最後に始めた確かめの後に並べる
+        // (取り消すと、全冊ぶんの答えが届かなくなる)。
+        if only == nil { cancelExistenceChecks() }
+        let previous = lastExistenceTask
+        existenceSerial &+= 1
+        let serial = existenceSerial
+        let task = Task { [weak self, weak workspace] in
+            defer { self?.existenceTasks[serial] = nil }
             await previous?.value
             // 確かめの材料(本ごとに 5 つのストアのブックマークとアクセス権の判定)は、この Task の中で作る(表示の切り替えの
             // 監査の 17、2026-09-27)。以前は open の中でメインのまま全冊ぶん作ってから返っていたので、組み上がった一覧を
@@ -274,6 +293,20 @@ final class MetadataEditorModel {
                 probes.map { ($0.bookID, $0.locateAtRecordedPath()) }
             }
             guard !Task.isCancelled, let self else { return }
+            if let change {
+                // アプリの中の変更が契機の確かめは、**保存データを付け替えない**(2026-10-04 のレビューの R4-3)。旧 → 新は分かっていて、
+                // 付け替えは `AppStores` が起きた順に当てる(`BookRecordRelocator`)。以前はここでもブックマークが指す先を「外での移動」
+                // (同時の写し)として改めて当てていたので、調べている間に次のアプリの中の操作(⌘Z で戻す・入れ替え)の付け替えが先に
+                // 並ぶと、古い写しが後から当たり、元のパスへ戻った保存データを実在しない先へ ―― 入れ替えでは別の本へ ―― 移した。
+                // 灰色だけを合わせる。この変更で移った本は灰色にしない(行は付け替えの知らせで新しいパスへ移る ―― 灰色にすると、
+                // 移した先の行まで灰色で運ばれる)。アプリの外で動いていた本は灰色のまま残る(窓を開き直したときの全冊の確かめが付け替える)。
+                let missing = Set(located.filter { bookID, location in
+                    location.result == .missing && change.relocatedPath(for: bookID) == nil
+                }.map(\.0))
+                guard let workspace else { return }
+                workspace.setMissing(missing.filter(workspace.contains), among: Set(bookIDs))
+                return
+            }
             // 登録済みの本のうち、アプリの外で名前を変えた本は付け替える(existingOrRegistered と同じ)。一覧の行は付け替えの知らせで
             // 新しいパスへ移る(2026-10-04 の監査 MD-2。以前はここで中身を作り直し、選択・絞り込み・打ちかけのセルが消えた)。
             let relocated = await self.relocateMovedBooks(located)
@@ -281,7 +314,26 @@ final class MetadataEditorModel {
             let missing = Set(located.filter { $0.1.result == .missing && !relocated.contains($0.0) }.map(\.0))
             workspace?.setMissing(missing, among: Set(bookIDs))
         }
+        existenceTasks[serial] = task
+        lastExistenceTask = task
     }
+
+    /// 走っている実在の確かめをすべて取り消す(全冊の確かめを始め直すとき・閉じるとき。R4-4)。
+    private func cancelExistenceChecks() {
+        for task in existenceTasks.values { task.cancel() }
+        existenceTasks = [:]
+        lastExistenceTask = nil
+    }
+
+    /// 走っている実在の確かめがすべて終わるまで待つ(テスト用)。
+    func waitForExistenceChecks() async {
+        while let task = existenceTasks.values.first {
+            await task.value
+        }
+    }
+
+    /// 走っている実在の確かめ(テスト用: 閉じた後も待てるように控える)。
+    var runningExistenceChecks: [Task<Void, Never>] { Array(existenceTasks.values) }
 
     /// 窓を開いた後にアプリの中で本が消えた・戻った・動いた(2026-10-04 の監査 MD-3。`FileSystemChangeCenter`)。関わる本だけを
     /// 確かめ直す。以前は確かめるのが開いたときだけで、一覧にある本をファイルブラウザでゴミ箱へ入れても灰色にならず、「本が見つからない」
@@ -294,7 +346,7 @@ final class MetadataEditorModel {
         // 本そのもの、または本の入ったフォルダが変わった本(本の中の項目の変化は、あるかどうかに関わらない)。
         let affected = workspace.bookIDs.filter { MountTable.path(MountTable.normalized($0), isAtOrUnderAnyOf: touched) }
         guard !affected.isEmpty else { return }
-        checkExistence(of: workspace, only: Set(affected))
+        checkExistence(of: workspace, only: Set(affected), after: change)
     }
 
     /// この窓の外で DB が変わったら(1 冊ぶんのシート・保存データの読み込み・ビューアの取り込み)、その本を合わせる。
@@ -317,7 +369,7 @@ final class MetadataEditorModel {
             }
         })
         // 窓を開いた後のファイルの変化(MD-3): アプリの中の変化は関わる本だけ、ボリュームの着脱は全冊を確かめ直す。
-        fileSystemChangeSubscription = FileSystemChangeCenter.shared.changes.sink { [weak self] change in
+        fileSystemChangeSubscription = fileSystemChanges.changes.sink { [weak self] change in
             MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
         }
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
@@ -394,7 +446,7 @@ final class MetadataEditorModel {
         workspaceObservers.removeAll()
         fileSystemChangeSubscription = nil
         goneAwaitingRelocation = []
-        existenceTask?.cancel()
+        cancelExistenceChecks()
         if MetadataEditorUndoRouter.shared.workspace === workspace { MetadataEditorUndoRouter.shared.workspace = nil }
         workspace = nil
     }

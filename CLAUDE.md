@@ -175,7 +175,9 @@ notifications that concern particular books carry their IDs (`BookRelocationPlan
 `ViewerViewModel.notificationConcerns`). **UI that holds bookIDs follows relocations through `BookRelocationNotice`**
 (`.booksDidRelocate`, 2026-10-04): `BookRecordRelocator.apply` (in-app moves and moves found outside the app alike) and the open-time
 reconcile post the `FileSystemChange` right after the stores are rewritten, and the holder rewrites its IDs with `newBookID(for:)` —
-new windows/sheets/undo snapshots that keep bookIDs must subscribe (docs/06「移動・リネームへの追従」). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
+new windows/sheets/undo snapshots that keep bookIDs must subscribe (docs/06「移動・リネームへの追従」). Move a *write target* only on this
+notice, never on `FileSystemChangeCenter` (it arrives before the stores are rewritten; writes before the notice go to the old row, which the
+relocator carries — rows added while it plans included; review R4-1). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
 `BookPageListCache.Entry.sourceProbe` — never by setting `didImportSourceMetadata`, which would change `isParsedOnly`.
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is

@@ -89,7 +89,19 @@ struct BulkRenameBookmarksSheet: View {
         }
         .frame(minWidth: 420, minHeight: 480)
         .onAppear { initializeDefaultsIfNeeded() }
-        .task(id: bookID) { coverPageKey = await resolveCoverPageKey() }
+        .task(id: bookID) {
+            // 求めている間に本が付け替えられたら、求めた鍵は捨てて移った先で求め直す(2026-10-04 のレビューの R4-5。以前は元の bookID で
+            // 求めた鍵を、付け替えの知らせ(下)で移した後の `coverPageKey` へ上書きしえた ―― フォルダの本では古いパスの鍵になる)。
+            while !Task.isCancelled {
+                let target = currentBookID
+                let key = await resolveCoverPageKey(for: target)
+                guard !Task.isCancelled else { return }
+                if target == currentBookID {
+                    coverPageKey = key
+                    return
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .booksDidRelocate)) { note in
             guard let new = BookRelocationNotice(note)?.newBookID(for: currentBookID) else { return }
             // フォルダの本は表紙のページの鍵も絶対パス(PageKeyRelocation)。
@@ -102,7 +114,7 @@ struct BulkRenameBookmarksSheet: View {
 
     /// 実質的な先頭ページ(実効順の1ページ目)の鍵を、本体を読み込まずにキャッシュから求める
     /// (coverPageKeyのコメント参照)。
-    private func resolveCoverPageKey() async -> String? {
+    private func resolveCoverPageKey(for bookID: String) async -> String? {
         guard let cached = await BookPageListCache.shared.pageList(forBookID: bookID),
               !cached.pages.isEmpty else { return nil }
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)

@@ -2258,3 +2258,36 @@ MD-15 は段 4 に「触っていない」とだけあった)だけで、足し�
   `FileSystemChangeTests.cutMemoryMatchesThePrivateSpelling`(書き方の違いだけを、ディスクに触らず再現する)。
 - 実機確認の範囲: 使い捨てボリュームに合成名の本を置き、Debug の保存データを退避して確かめ、終了後に元へ戻して差分 0 を確かめた。
   FBU-1(Finder で作ったエイリアス)は Finder の AppleScript が応答しなかったため実機では確かめていない(テストのみ)。
+
+### レビュー指摘の修正 段 A(2026-10-04)
+
+修正のコードレビュー(指摘 ID は `R<段>-<番号>`)のうち、保存データの付け替えと許可の分。
+
+- **R4-1**(直した・高): インスペクタのメタデータの欄は、書く相手を `.booksDidRelocate`(ストアを書き換え終えた後)でだけ移し、
+  `FileSystemChangeCenter` の購読をやめた(あの知らせはストアの付け替えより先に届き、その間に欄が消えると行の無い新しいパスへ書いて、続く付け替えが
+  古い行を取り残した)。移したときに打ちかけが無ければ移った先の行で見せ直す。知らせより前の書き込みは古い bookID へ行くので、`BookRecordRelocator.apply`
+  は計画をメインの外で作っている間に増えた行も拾う(当てる直前に行を数え直し、移る本の行が増えていれば計画を足して繰り返す ――
+  `BookRelocationPlan.merging`)。テスト `BookRecordRelocatorTests.rowsWrittenWhilePlanningAreCarried`(計画の後に古い bookID へ行の無かった本の行を
+  書く `afterPlanningForTesting` で再現。直しを外すと落ちることを確かめた)。View の側の順序は実機。
+- **R4-2**(直した): `MetadataWorkspace.writeID` ―― 付け替えの知らせから組み直すまでの間、DB へ書くとき(`commit`・`deleteBooks`)は新しい bookID の行へ
+  向ける(古い bookID に行が残っていれば ―― 移った先に行があって動かなかった ―― 古いほう)。待っている鍵(`pendingLockIDs`)も `carryRelocations` で
+  移し、鍵を掛ける・外した後に絞る待ちの道は、待ち終えてから `currentID` で引き直す(待つ間に組み直されると押した鍵が黙って掛からなかった)。テスト
+  `MetadataWorkspaceTests.writesBeforeTheListCatchesUpGoToTheNewBookID`(直し・取り消し・ロック。どちらの直しを外しても落ちることを確かめた)。
+- **R4-3**(直した): アプリの中の変更が契機の一部の確かめは `relocateMovedBooks` を呼ばず、灰色だけを合わせる。その変更で移った本は灰色にしない
+  (行は付け替えの知らせで移るので、灰色にすると移した先の行まで灰色で運ばれる)。アプリの外で動いていた本は灰色のまま(窓を開き直したときの
+  全冊の確かめが付け替える)。テスト `MetadataEditorModelTests.partialChecksAfterAnInAppChangeDoNotRelocate`(直す前は落ちる)。テストのために
+  `MetadataEditorModel` に知らせの箱と `MetadataRulesPicked` を渡せるようにした(既定は従来どおり `shared`)。
+- **R4-4**(直した): 走っている確かめを通し番号つきですべて控え(`existenceTasks`)、全冊の確かめと `close` はすべてを取り消す。一部の確かめは
+  最後に始めた確かめの後に並ぶ(従来どおり)。テスト `MetadataEditorModelTests.closingCancelsEveryExistenceCheck`(直す前は落ちる)。
+- **R4-5**(直した): (a) 一括リネームのシートの表紙のページの鍵は、求めている間に付け替えが届いたら捨てて移った先で求め直す(View なので実機)。
+  (b) 書き出しの `directSourceURLs` は値の URL も移った先のパスにした(記録と合わせた。開いたときのスコープは付かないが、古いパスにはもう何も無い)。
+  (c) 種の書き込み(`seedTitleAndAuthor`)は値が変わるときだけ `@Published` の辞書を書く(テストは足していない ―― 結果は同じで、知らせの回数だけが
+  違う)。(d) テスト `relocatingPostsTheOldToNewNotice` は知らせが届いたその時点でストアを引いて確かめる形に、`rekeyingKeepsWhatIsAlreadyAtTheDestination`
+  に「2 つが同じ先へ移ったら名前順で先のほう」を足した(どちらも直す前から通る ―― 見張り)。
+- **R8a-FA**(直した): `FolderAccessStore.add(url:)` の不要な許可の照合は、開いている許可なら `resolvedPathByBookmark`(開いた今の場所)、まだ開いて
+  いない許可は記録したパスで比べる(解決はしない ―― 決定 18)。テスト `RecentFilesAndAccessTests.addingTheOldParentOfAMovedGrantKeepsIt`(直す前は落ちる)。
+  まだ解決の済んでいないネットワークの上の許可は、記録したパスで比べるので同じことが起こりうる(解決が済めば起きない)。
+- **R8a-5**(直した): インスペクタの `updateKeptBook` を `commit()` の doc コメントの前へ移した。
+
+docs: 06(付け替えの知らせで初めて書き先を移す・許可の照合)、07(メタデータの編集の組み直すまでの書き込み・一部の確かめ)、14(インスペクタの打ちかけ)、
+CLAUDE.md(書き先は付け替えの知らせでだけ移す)。段 4 の記録の「インスペクタだけは両方を受ける」は、R4-1 で付け替えの知らせだけになった。

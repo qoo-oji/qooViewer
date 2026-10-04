@@ -357,7 +357,12 @@ class BookExportViewModel: ObservableObject {
         authorOverrides = notice.rekeyed(authorOverrides)
         seededTitles = notice.rekeyed(seededTitles)
         seededAuthors = notice.rekeyed(seededAuthors)
-        directSourceURLs = notice.rekeyed(directSourceURLs)
+        // 直に渡された URL は鍵だけでなく値も移った先のパスにする(2026-10-04 のレビューの R4-5。以前は鍵だけ移り、値は古いパスの
+        // ままで、`resolveURL(forBookID:)` が無い場所を返した ―― 開いている本は移動を断るので今は起きにくいが、記録と合わせる)。
+        // 開いたときのセキュリティスコープは移った先の URL には付かないが、古いパスにはもう何も無い。
+        directSourceURLs = notice.rekeyed(directSourceURLs).mapValues { url in
+            notice.newBookID(for: url.path).map { URL(fileURLWithPath: $0) } ?? url
+        }
         if isExporting { relocationsDuringExport.append(notice) }
         if rows.contains(where: { notice.newBookID(for: $0.bookID) != nil }) {
             var seen = Set<String>()
@@ -547,14 +552,18 @@ class BookExportViewModel: ObservableObject {
     private func seedTitleAndAuthor(for row: Row) {
         let seed = titleAndAuthorSeed(for: row)
         let bookID = row.bookID
-        if titleOverrides[bookID] == nil || titleOverrides[bookID] == seededTitles[bookID] {
+        // 値が変わるときだけ書く(2026-10-04 のレビューの R4-5)。`@Published` の辞書は書くたびに知らせが飛び、写しが作られるので、
+        // 種のままの欄まで読み直しのたびに書き直すと、行の数だけ辞書の写しと知らせが重なった(読み直しごとに冊数の 2 乗)。
+        let title = titleOverrides[bookID]
+        if title == nil || title == seededTitles[bookID], title != seed.title {
             titleOverrides[bookID] = seed.title
         }
-        if authorOverrides[bookID] == nil || authorOverrides[bookID] == seededAuthors[bookID] {
+        let author = authorOverrides[bookID]
+        if author == nil || author == seededAuthors[bookID], author != seed.author {
             authorOverrides[bookID] = seed.author
         }
-        seededTitles[bookID] = seed.title
-        seededAuthors[bookID] = seed.author
+        if seededTitles[bookID] != seed.title { seededTitles[bookID] = seed.title }
+        if seededAuthors[bookID] != seed.author { seededAuthors[bookID] = seed.author }
     }
 
     /// 種の値。メタデータDBに行があればその題と先頭の著者(題が空ならファイル名)、行が無ければファイル名を qooMeta で読んだ値。

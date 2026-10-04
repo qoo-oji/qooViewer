@@ -175,14 +175,18 @@ struct BookRecordRelocatorTests {
     // MARK: - 付け替えの知らせ(2026-10-04 の監査 §1-7。BookRelocationNotice)
 
     /// 届いた付け替えの知らせを控える(並んで走るほかのテストの知らせも届くので、受け手は自分のパスで引く)。
+    /// `onNotice` は知らせが**届いたその時点で**呼ぶ(受け手がそこでストアを引けるか ―― 順序を確かめる)。
     private final class NoticeRecorder {
         private(set) var notices: [BookRelocationNotice] = []
         private var token: NSObjectProtocol?
 
-        init() {
+        init(onNotice: (@MainActor (BookRelocationNotice) -> Void)? = nil) {
             token = NotificationCenter.default.addObserver(forName: .booksDidRelocate, object: nil, queue: nil) { [weak self] note in
                 guard let notice = BookRelocationNotice(note) else { return }
-                MainActor.assumeIsolated { self?.notices.append(notice) }
+                MainActor.assumeIsolated {
+                    self?.notices.append(notice)
+                    onNotice?(notice)
+                }
             }
         }
 
@@ -202,16 +206,21 @@ struct BookRecordRelocatorTests {
         let book = shelf.appendingPathComponent("book-a", isDirectory: true)
         try makeBookFolder(at: book)
         _ = try register(book, in: library)
-        let recorder = NoticeRecorder()
-
         let renamedShelf = temporary.file("shelf-renamed")
+        let newPath = renamedShelf.appendingPathComponent("book-a").path
+        // 知らせはストアを書き換え終えた後に届く(受け手が新しい bookID でストアを引ける)。届いたその時点で引いて確かめる
+        // (2026-10-04 のレビューの R4-5: 以前は apply を待ち終えてから引いていたので、届いた時点の順序を見ていなかった)。
+        let bookmarksSeenAtNotice = RelocatorTestBox<[Int]>([])
+        let recorder = NoticeRecorder { notice in
+            guard let new = notice.newBookID(for: book.path) else { return }
+            bookmarksSeenAtNotice.value.append(library.bookmarks.bookmarks(forBookID: new).count)
+        }
+
         try FileManager.default.moveItem(at: shelf, to: renamedShelf)
         await makeRelocator(library).apply(FileSystemChange(relocations: [.init(from: shelf, to: renamedShelf)])).value
 
-        let newPath = renamedShelf.appendingPathComponent("book-a").path
         #expect(recorder.newBookID(for: book.path) == newPath)
-        // 知らせはストアを書き換え終えた後に届く(受け手が新しい bookID でストアを引ける)。
-        #expect(library.bookmarks.bookmarks(forBookID: newPath).count == 1)
+        #expect(bookmarksSeenAtNotice.value == [1], "知らせが届いた時点で、移った先にブックマークが無かった")
         // 行の無い本(インスペクタで初めて打っている本)も、同じ知らせで引き直せる。
         let unknown = shelf.appendingPathComponent("not-registered.cbz").path
         #expect(recorder.newBookID(for: unknown) == renamedShelf.appendingPathComponent("not-registered.cbz").path)
@@ -227,5 +236,62 @@ struct BookRecordRelocatorTests {
         #expect(notice.rekeyed(["/架空/a": 1, "/架空/b": 2]) == ["/架空/b": 2])
         #expect(notice.rekeyed(Set(["/架空/a/1.jpg", "/架空/c"])) == Set(["/架空/b/1.jpg", "/架空/c"]))
         #expect(notice.current("/架空/c") == "/架空/c")
+        // 2 つが同じ先へ移ったら、古い bookID の名前順で先のほう(2026-10-04 のレビューの R4-5: 名前にあるのに確かめていなかった)。
+        let merged = BookRelocationNotice(change: FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/架空/y"), to: URL(fileURLWithPath: "/架空/z")),
+            .init(from: URL(fileURLWithPath: "/架空/x"), to: URL(fileURLWithPath: "/架空/z")),
+        ]))
+        #expect(merged.rekeyed(["/架空/y": 2, "/架空/x": 1]) == ["/架空/z": 1])
     }
+
+    // MARK: - 計画を作っている間の書き込み(2026-10-04 のレビューの R4-1)
+
+    @Test("付け替えの計画を作っている間に古い bookID へ書かれた行も運ぶ(知らせの前にインスペクタの欄が消えて書いた行。R4-1)")
+    func rowsWrittenWhilePlanningAreCarried() async throws {
+        let library = try InMemoryLibrary(label: "relocator-while-planning")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("relocator-while-planning")
+        let shelf = try temporary.directory("shelf")
+        // ほかの本の行(どのストアにも行が無いと、計画を作らずに終わる ―― 待つ間も無い)。
+        let other = shelf.appendingPathComponent("other-book", isDirectory: true)
+        try makeBookFolder(at: other)
+        _ = try register(other, in: library)
+        // インスペクタで初めて打っている、行の無い本。
+        let book = shelf.appendingPathComponent("book-a.cbz")
+        try Data("a".utf8).write(to: book)
+        let renamed = shelf.appendingPathComponent("book-b.cbz")
+        try FileManager.default.moveItem(at: book, to: renamed)
+
+        let relocator = makeRelocator(library)
+        // アプリでの順: アプリの中の変更の知らせで一覧が選択を書き換え、欄が消えて古い bookID へ書く ―― それが、付け替え役が計画を
+        // メインの外で作っている間に起きた。
+        let wroteWhilePlanning = RelocatorTestBox(false)
+        relocator.afterPlanningForTesting = {
+            guard !wroteWhilePlanning.value else { return }
+            wroteWhilePlanning.value = true
+            library.metadata.upsertAll([BookMetadataStore.BatchEntry(
+                bookID: book.path, values: BookMetadataValues(title: "打ちかけの題"), sourceURL: nil,
+                state: BookMetadataRowState(isLocked: false))])
+        }
+        let rowSeenAtNotice = RelocatorTestBox<String?>(nil)
+        let recorder = NoticeRecorder { notice in
+            guard let new = notice.newBookID(for: book.path) else { return }
+            rowSeenAtNotice.value = library.metadata.metadata(forBookID: new)?.title
+        }
+
+        await relocator.apply(FileSystemChange(relocations: [.init(from: book, to: renamed)])).value
+
+        #expect(wroteWhilePlanning.value)
+        #expect(library.metadata.metadata(forBookID: book.path) == nil, "古い bookID の行が実在しないパスに取り残された")
+        #expect(library.metadata.metadata(forBookID: renamed.path)?.title == "打ちかけの題")
+        #expect(recorder.newBookID(for: book.path) == renamed.path)
+        #expect(rowSeenAtNotice.value == "打ちかけの題", "知らせが届いた時点で、移った先に行が無かった")
+    }
+}
+
+/// 閉包から書き換える値の箱。
+@MainActor
+private final class RelocatorTestBox<Value> {
+    var value: Value
+    init(_ value: Value) { self.value = value }
 }

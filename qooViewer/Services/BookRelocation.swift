@@ -90,6 +90,16 @@ nonisolated struct BookRelocationPlan: Sendable {
         return BookRelocationPlan(bookIDs: bookIDs, locators: locators, directoryBookIDs: directories)
     }
 
+    /// 2 つの計画を合わせる(`BookRecordRelocator.apply` が、計画を作っている間に増えた行のぶんを足す。2026-10-04 のレビューの R4-1)。
+    /// 同じ古い bookID が両方にあれば、こちらのものを残す(同じ変更から作るので行き先は同じ)。
+    func merging(_ other: BookRelocationPlan) -> BookRelocationPlan {
+        BookRelocationPlan(
+            bookIDs: bookIDs.merging(other.bookIDs) { mine, _ in mine },
+            locators: locators.merging(other.locators) { mine, _ in mine },
+            directoryBookIDs: directoryBookIDs.union(other.directoryBookIDs)
+        )
+    }
+
     /// 本のファイル名から決まる題(`BookLoader` が `MangaBook.title` に入れるのと同じ: フォルダは名前そのまま、ファイルは拡張子を除く)。
     static func derivedTitle(forBookID bookID: String, isDirectory: Bool) -> String {
         let url = URL(fileURLWithPath: bookID)

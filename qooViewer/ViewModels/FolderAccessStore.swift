@@ -211,13 +211,17 @@ final class FolderAccessStore: ObservableObject {
             relativeTo: nil
         ) else { return false }
 
-        // 同じパス、または新しく許可するフォルダの配下(子孫)にあたる既存の許可を取り除く。**照合は記録したパスで**(2026-10-04 の
+        // 同じパス、または新しく許可するフォルダの配下(子孫)にあたる既存の許可を取り除く。**照合は解決し直さずに**(2026-10-04 の
         // 監査 ST-16。以前は全部のブックマークをメインで解決して比べたので、応答しない共有の許可が 1 つあると、追加のたびに止まりえた)。
         // 取り除いた許可で開いていたフォルダも、その配下なので閉じる(新しい許可が覆う)。
+        // 開いている(解決済みの)許可は、記録したパスではなく**開いた今の場所**で比べる(2026-10-04 のレビューの R8a-FA)。このストアは
+        // 古くなったブックマークを書き直さないので、記録したパスは作ったときのまま ―― 許可したフォルダを動かした後で元の親を許可すると、
+        // 動いた先を開いている許可が「配下で不要」と判定され、データごと消えて動いた先も閉じられた(元の場所へ同じ名前のフォルダを
+        // 作り直して許可したときも同じ)。解決はしない(決定 18: メインで解決しない)。まだ開いていない許可は記録したパスのまま。
         var bookmarks = rawBookmarks()
         let redundant = bookmarks.filter { data in
-            guard let recorded = Self.recordedPath(of: data) else { return false }
-            return isAncestor(url, of: URL(fileURLWithPath: recorded, isDirectory: true))
+            guard let path = resolvedPathByBookmark[data] ?? Self.recordedPath(of: data) else { return false }
+            return isAncestor(url, of: URL(fileURLWithPath: path, isDirectory: true))
         }
         bookmarks.removeAll { redundant.contains($0) }
         bookmarks.append(newData)

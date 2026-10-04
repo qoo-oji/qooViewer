@@ -60,11 +60,22 @@ final class BookRecordRelocator {
             // 型コメント。2026-10-04 の監査 §1-7)。行の無い本にも出す ―― インスペクタで初めて打っている本も付いていく。
             let planned = ordered
             defer { BookRelocationNotice.post(planned) }
-            let known = self.knownBookIDs()
+            var known = self.knownBookIDs()
             guard !known.isEmpty else { return }
-            let plan = await Task.detached(priority: .utility) {
-                BookRelocationPlan.make(knownBookIDs: known, change: planned)
-            }.value
+            var plan = await Self.makePlan(knownBookIDs: known, change: planned)
+            await self.afterPlanningForTesting?()
+            // 計画を作っている間(メインの外で待つ間)に、移った本の**古い bookID へ**行が書かれていたら、それも運ぶ(2026-10-04 の
+            // レビューの R4-1)。インスペクタは付け替えの知らせ(下の defer)が届くまで古い bookID へ書く ―― 打ちかけの欄が消えた
+            // (一覧が選択を新しいパスへ書き換えた)ときの書き込みが、行の無かった本の行を古い bookID に作ることがある。拾わないと、
+            // その行は実在しないパスに取り残された。足した行のぶんだけ計画を足し、待つ間にまた増えたら繰り返す(当てる直前の確かめ
+            // からストアへ当てるまでは同じメインアクターの番の中なので、その間には書かれない)。
+            while true {
+                let added = self.knownBookIDs().subtracting(known)
+                known.formUnion(added)
+                let moving = added.filter { planned.relocatedPath(for: $0) != nil }
+                guard !moving.isEmpty else { break }
+                plan = plan.merging(await Self.makePlan(knownBookIDs: moving, change: planned))
+            }
             guard !plan.isEmpty else { return }
             self.favoritesStore?.applyBookRelocation(plan)
             self.bookmarkStore?.applyBookRelocation(plan)
@@ -78,6 +89,17 @@ final class BookRecordRelocator {
         tail = task
         return task
     }
+
+    /// 付け替えの計画を作る(手がかりの取り直しはファイルに触るので、メインアクターの外で)。
+    private static func makePlan(knownBookIDs: Set<String>, change: FileSystemChange) async -> BookRelocationPlan {
+        await Task.detached(priority: .utility) {
+            BookRelocationPlan.make(knownBookIDs: knownBookIDs, change: change)
+        }.value
+    }
+
+    /// テスト用: 計画を作り終えた直後(ストアへ当てる前)に呼ぶ。計画を作っている間にほかの画面が古い bookID へ書いた、を
+    /// 起こすため(`BookRecordRelocatorTests`)。アプリでは nil。
+    var afterPlanningForTesting: (@MainActor () async -> Void)?
 
     private func eraseReplaced(_ replaced: [URL]) {
         guard !replaced.isEmpty, let favoritesStore, let collectionStore, let bookmarkStore, let layoutStore, let metadataStore

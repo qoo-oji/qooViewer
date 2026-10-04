@@ -106,7 +106,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | `LayoutAutoCalculatorTests` / `PageLayoutStateTests` | 自動レイアウトのパリティ計算、EPUB の見開き配置との相互変換 |
 | `BookOpenRequestTests` | 「開く対象」の分類と正規化(重複除去・自然順・上限) |
 | `ComicInfoXMLTests` / `ComicInfoResolverTests` | ComicInfo.xml の生成・解析・往復・XXE の遮断、探し方 |
-| `MetadataWorkspaceTests` / `MetadataRulesStoreTests` / `MetadataRegistrationTests` / `MetadataDraftStoreTests` | メタデータの編集ウインドウの中身(並べた本の登録・直した欄の書き込み・ロック・再生成・削除・ルールセットの切り替え・取り消し)、画面を持たない登録(本を開いたとき・ファイルの書誌情報の取り込み・規則を変えたときの読み直し)、以前の下書きの引き継ぎ、規則の保存と以前の規則の引き継ぎ・除外フォルダ(qooMeta。2026-09-21、登録の作り直しは 2026-09-22)、段の書き換えの確定先・消したルールセットの扱い・規則の窓へ渡す名前の写し・ホームの検索の値(2026-10-04 の MD-9・MD-13・MD-5・MD-15) |
+| `MetadataWorkspaceTests` / `MetadataEditorModelTests` / `MetadataRulesStoreTests` / `MetadataRegistrationTests` / `MetadataDraftStoreTests` | メタデータの編集ウインドウの中身(並べた本の登録・直した欄の書き込み・ロック・再生成・削除・ルールセットの切り替え・取り消し)、画面を持たない登録(本を開いたとき・ファイルの書誌情報の取り込み・規則を変えたときの読み直し)、以前の下書きの引き継ぎ、規則の保存と以前の規則の引き継ぎ・除外フォルダ(qooMeta。2026-09-21、登録の作り直しは 2026-09-22)、段の書き換えの確定先・消したルールセットの扱い・規則の窓へ渡す名前の写し・ホームの検索の値(2026-10-04 の MD-9・MD-13・MD-5・MD-15)、付け替えから組み直すまでの書き込みの行き先と、窓を開いた後の実在の確かめ(付け替えない・閉じたら止まる。同日のレビューの R4-2〜R4-4) |
 | `SmartLibraryTests` | スマートライブラリの条件・絞り込み・ブラウザ・並べ替え・束ね方・保存・フォルダの探し方・qooMeta の差分の読み・保存した一覧・ON/OFF(2026-09-21/22)・開く前の確かめの理由 |
 | `SecretFolderTests` | シークレットフォルダの判定(中とサブフォルダ)・保存と付け替え・取り込みは足すだけ・保存データの JSON の往復・記録の残らない本になること(2026-10-03) |
 | `PagePixelCacheTests` | 厳密な LRU、`peek` が昇格しないこと、上限を瞬間的にも超えないこと |

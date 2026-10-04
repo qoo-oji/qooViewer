@@ -525,7 +525,11 @@ final class MetadataWorkspace {
         let defersLocators = sorted.count > Self.inlineLocatorLimit
         var deferred: [String] = []
         let entries = sorted.compactMap { id -> BookMetadataStore.BatchEntry? in
-            guard let state = states[id], let values = lockValues[id] ?? store.record(forBookID: id)?.values ?? row(id)?.values
+            // 付け替え済みでまだ組み直していない本は、新しい bookID の行へ書く(`writeID`。2026-10-04 のレビューの R4-2)。
+            // 行の形・見えている値はこの一覧の id(古い bookID)のまま引く。
+            let target = writeID(id)
+            guard let state = states[id],
+                  let values = lockValues[id] ?? store.record(forBookID: target)?.values ?? row(id)?.values
             else { return nil }
             // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
             // 無いと、アプリの外で名前を変えたときに行が古いパスに取り残される(開いたときの追従は識別子、起動後の追従は
@@ -533,15 +537,15 @@ final class MetadataWorkspace {
             // 本には触らない(メインで stat するため)。
             var sourceURL: URL?
             if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
-                let url = URL(fileURLWithPath: id)
+                let url = URL(fileURLWithPath: target)
                 if mounts == nil { mounts = MountTable.current() }
                 if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
             }
-            if defersLocators, sourceURL != nil, store.metadata(forBookID: id).map(Self.needsLocator) ?? true {
-                deferred.append(id)
+            if defersLocators, sourceURL != nil, store.metadata(forBookID: target).map(Self.needsLocator) ?? true {
+                deferred.append(target)
                 sourceURL = nil
             }
-            return BookMetadataStore.BatchEntry(bookID: id, values: values, sourceURL: sourceURL, state: state)
+            return BookMetadataStore.BatchEntry(bookID: target, values: values, sourceURL: sourceURL, state: state)
         }
         guard !entries.isEmpty else { return }
         isWritingBack = true
@@ -645,6 +649,7 @@ final class MetadataWorkspace {
         carriedRelocations.merge(ready) { _, new in new }
         func current(_ id: String) -> String { ready[id] ?? id }
         missing = Set(missing.map(current))
+        pendingLockIDs = Set(pendingLockIDs.map(current))
         undoSteps = undoSteps.map { $0.rekeyed(current) }
         redoSteps = redoSteps.map { $0.rekeyed(current) }
         if let line = lineSelection, let new = ready[line.id] {
@@ -660,6 +665,18 @@ final class MetadataWorkspace {
     /// 書き込みの相手の bookID。付け替えで移し終えた古い bookID なら新しいほう(セルの書き換えは始めたときの bookID で確定する)。
     private func currentID(_ id: String) -> String {
         positionByID[id] == nil ? (carriedRelocations[id] ?? id) : id
+    }
+
+    /// 一覧の id(`currentID` で引き直した後)の本を、**DB のどの bookID へ書くか**(2026-10-04 のレビューの R4-2)。
+    ///
+    /// 付け替えの知らせ(`followRelocation`)から、メタデータ生成の次の回が新しい bookID の行を並べる(`carryRelocations`)までの間
+    /// (300ms の待ち + 生成 1 回 + 組み直し)は、一覧に古い bookID の行が残る。その間の書き込み(セルの確定・ツールバーの操作・
+    /// 取り消し)を古い bookID へ書くと、付け替えで空いた実在しないパスに行を作り直し、次の回では古い ID も並ぶので
+    /// `carryRelocations` の条件が外れて、直した値は孤児の行に残った。DB の行はもう新しい bookID にあるので、そちらへ書く。
+    /// 古い bookID に行が残っている(移った先に行があって付け替えが動かさなかった)なら、古いほうのまま ―― その行が一覧の行。
+    private func writeID(_ id: String) -> String {
+        guard let new = pendingRelocations[id], store.metadata(forBookID: id) == nil else { return id }
+        return new
     }
 
     /// 流している変更(DB への書き込みとメタデータ生成の読み直し)がすべて終わるまで待つ(テストと、書き出す前の確かめ用)。
@@ -1064,8 +1081,11 @@ final class MetadataWorkspace {
         tail = Task { [generator] in
             await previous?.value
             await generator.update()
-            let wanted = targets.filter { self.pendingLockIDs.contains($0) && self.states[$0] != nil }
-            self.pendingLockIDs.subtract(targets)
+            // 待つ間に付け替えで行が移っていたら、移った先の行へ掛ける(`currentID`。2026-10-04 のレビューの R4-2 ―― 待っている鍵も
+            // `carryRelocations` が移す)。以前は古い bookID の行が無くなって、押した鍵が黙って掛からなかった。
+            let lockTargets = Set(targets.map(self.currentID))
+            let wanted = lockTargets.filter { self.pendingLockIDs.contains($0) && self.states[$0] != nil }
+            self.pendingLockIDs.subtract(lockTargets)
             var values: [String: BookMetadataValues] = [:]
             for id in wanted {
                 self.states[id] = BookMetadataRowState(isLocked: true, ruleSet: self.states[id]?.ruleSet)
@@ -1103,8 +1123,10 @@ final class MetadataWorkspace {
         tail = Task { [generator] in
             await previous?.value
             await generator.settle()
-            let changes = full.keys.sorted().compactMap { id -> BookChange? in
-                guard var input = generator.input(for: id), self.states[id]?.edits == full[id] else { return nil }
+            // 待つ間に付け替えで行が移っていたら、移った先の行を絞る(`currentID`。R4-2)。
+            let shownFull = Dictionary(full.map { (self.currentID($0.key), $0.value) }, uniquingKeysWith: { a, _ in a })
+            let changes = shownFull.keys.sorted().compactMap { id -> BookChange? in
+                guard var input = generator.input(for: id), self.states[id]?.edits == shownFull[id] else { return nil }
                 input.confirmation = .none
                 return .upsert(input)
             }
@@ -1115,11 +1137,11 @@ final class MetadataWorkspace {
             var narrowed: [String] = []
             for case .upsert(let input) in changes {
                 let id = input.id
-                guard delta != nil, let state = self.states[id], !state.isLocked, state.edits == full[id],
+                guard delta != nil, let state = self.states[id], !state.isLocked, state.edits == shownFull[id],
                       let row = self.row(id) else { continue }
                 let shown = row.values.trimmed
                 let edits = MetadataParsing.edits(from: proposed[id]?.trimmed ?? shown, to: shown)
-                guard edits != full[id] else { continue }
+                guard edits != shownFull[id] else { continue }
                 self.states[id]?.edits = edits
                 narrowed.append(id)
             }
@@ -1149,7 +1171,8 @@ final class MetadataWorkspace {
         let targets = ids.filter { positionByID[$0] != nil }
         guard !targets.isEmpty else { return }
         isWritingBack = true
-        store.upsertAll(targets.sorted().map { BookMetadataStore.BatchEntry(bookID: $0, values: nil) })
+        // 付け替え済みでまだ組み直していない本は、新しい bookID の行を消す(`writeID`。R4-2)。
+        store.upsertAll(targets.sorted().map { BookMetadataStore.BatchEntry(bookID: writeID($0), values: nil) })
         isWritingBack = false
         removeBooks(targets)
         refreshFromGenerator()

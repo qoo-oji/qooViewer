@@ -255,6 +255,27 @@ struct RecentFilesAndAccessTests {
         #expect(store.grants.count == 2)
     }
 
+    @Test("許可したフォルダを動かした後で元の親を許可しても、動いた先の許可は残る(開いた今の場所で比べる。2026-10-04 のレビューの R8a-FA)")
+    func addingTheOldParentOfAMovedGrantKeepsIt() async throws {
+        let suite = PreferencesSuite(label: "access-moved")
+        let temporary = try TemporaryDirectory("access-moved")
+        let oldParent = try temporary.directory("old-parent")
+        let newParent = try temporary.directory("new-parent")
+        let folder = try temporary.directory("old-parent/granted")
+        let store = FolderAccessStore(defaults: suite.defaults)
+        #expect(store.add(url: folder))
+        let moved = newParent.appendingPathComponent("granted", isDirectory: true)
+        try FileManager.default.moveItem(at: folder, to: moved)
+        // アプリの中で移した(ブックマークは移動を追うので、開き直した許可は動いた先を開く。記録したパスは元のまま)。
+        store.handleFileSystemChange(FileSystemChange(relocations: [.init(from: folder, to: moved)]))
+        #expect(store.isPathCovered(moved.appendingPathComponent("book.cbz")))
+
+        #expect(store.add(url: oldParent))
+        #expect(store.isPathCovered(moved.appendingPathComponent("book.cbz")), "動いた先の許可が「元の親の配下」として消えた")
+        #expect(store.grants.count == 2)
+        #expect(FolderAccessStore(defaults: suite.defaults).grants.count == 2)
+    }
+
     @Test("既に許可済みのフォルダの配下は、重ねて許可しない")
     func aDescendantOfAGrantedFolderIsNotAddedAgain() throws {
         let suite = PreferencesSuite(label: "access")

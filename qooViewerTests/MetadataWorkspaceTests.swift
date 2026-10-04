@@ -525,6 +525,42 @@ extension MetadataWorkspaceTests {
         #expect(library.metadata.record(forBookID: moved)?.values.info != "架空の付記")
     }
 
+    @Test("付け替えの知らせから組み直すまでの間の書き込み(直し・取り消し・ロック)は、新しい bookID の行へ行く(2026-10-04 のレビューの R4-2)")
+    func writesBeforeTheListCatchesUpGoToTheNewBookID() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let generator = library.makeMetadataGenerator(books: [first, second])
+        generator.start()
+        let workspace = await MetadataWorkspace.open(generator: generator, store: library.metadata)
+        workspace.set(.info, to: ["架空の付記"], for: [first])
+        await workspace.settle()
+        let moved = "/書庫/移した先/[架空工房] 月の庭 1.zip"
+        let change = FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: first), to: URL(fileURLWithPath: moved)),
+        ])
+        library.metadata.applyBookRelocation(BookRelocationPlan(bookIDs: [first: moved], locators: [:], directoryBookIDs: []))
+        generator.relocate(using: change)
+        workspace.followRelocation(BookRelocationNotice(change: change))
+
+        // まだ組み直していない(一覧には古い bookID の行が残る)間に、セルを確定する。
+        #expect(workspace.row(first) != nil)
+        #expect(workspace.setLine(.genre, of: first, at: 0, to: "架空の分類"))
+        #expect(library.metadata.metadata(forBookID: first) == nil, "付け替えで空いた古いパスに行を作り直した")
+        #expect(library.metadata.record(forBookID: moved)?.edits.fields[.genre] == ["架空の分類"])
+        // 取り消しも同じ(古い bookID の行のまま歩みを戻す)。
+        workspace.undo()
+        #expect(library.metadata.metadata(forBookID: first) == nil)
+        #expect(library.metadata.record(forBookID: moved)?.edits.fields[.genre] == nil)
+        // ロックも。
+        workspace.setLocked([first], true)
+        await workspace.settle()
+        #expect(library.metadata.metadata(forBookID: first) == nil)
+        #expect(library.metadata.record(forBookID: moved)?.isLocked == true)
+        #expect(workspace.row(first) == nil)
+        #expect(workspace.row(moved)?.isLocked == true)
+        #expect(library.metadata.record(forBookID: moved)?.values.info == "架空の付記")
+    }
+
     @Test("一部の本だけ確かめ直したときは、確かめなかった本の「見つからない」を残す(MD-3)")
     func partialExistenceChecksKeepTheOthers() async throws {
         let library = try InMemoryLibrary()

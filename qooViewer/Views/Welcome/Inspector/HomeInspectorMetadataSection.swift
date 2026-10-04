@@ -94,10 +94,17 @@ struct HomeInspectorMetadataSection: View {
     @State private var hostWindow = WeakWindowBox()
     /// 欄が出ている間に本が付け替えられた先の bookID(2026-10-04 の監査 SL-1)。
     ///
-    /// 欄は作ったときの `bookID` で書く。打ちかけの間に本が改名・移動されると、欄が消えるときの書き込みが古いパスへ行き、実在しない
-    /// 本の行ができた。別のウインドウで改名する経路は、窓がキーでなくなった時点で焦点が外れて先に書く(実測)ので起きないが、窓を移らずに
-    /// 本が動く経路 ―― 自動リネーム、アプリの外での移動を見つけた付け替え ―― が残っていた。アプリの中の変更(`FileSystemChangeCenter`)と
-    /// 付け替えの知らせ(`BookRelocationNotice`)の両方で引き直し、書くときはこちらを使う(`targetBookID`)。
+    /// 欄は作ったときの `bookID` で書く。打ちかけの間に本が改名・移動されると、付け替えの**後**に欄が消えたときの書き込みが古いパスへ
+    /// 行き、実在しない本の行ができた。別のウインドウで改名する経路は、窓がキーでなくなった時点で焦点が外れて先に書く(実測)ので起きないが、
+    /// 窓を移らずに本が動く経路 ―― 自動リネーム、アプリの外での移動を見つけた付け替え ―― が残っていた。付け替えの知らせ
+    /// (`BookRelocationNotice`)で引き直し、書くときはこちらを使う(`targetBookID`)。
+    ///
+    /// **引き直すのは付け替えの知らせだけ**(2026-10-04 のレビューの R4-1)。最初の直し(SL-1)はアプリの中の変更(`FileSystemChangeCenter`)
+    /// でも引き直していたが、その知らせはストアの付け替え(`BookRecordRelocator.apply` ―― 計画をメインの外で作ってから当てる)より**先**に
+    /// 届く。その間に欄が消える(一覧が選択を新しいパスへ書き換え、`.id(bookID)` で作り直される)と、行の無い新しいパスへ今打った欄だけを
+    /// 直した欄とする行を作り、続く付け替えは「移った先に読みだけでない行がある」で古い行(ロック・直した欄・ルールセット)を動かさず、
+    /// 実在しないパスに取り残した。付け替えの知らせはストアを書き換え終えた後に届くので、それまでの書き込みは古い bookID の行へ行き、
+    /// 付け替えがその行ごと運ぶ(行の無い本で古い bookID に作った行も ―― `BookRecordRelocator.apply` は計画を作っている間に増えた行も拾う)。
     /// FSEvents でしか分からないアプリの外での改名は、旧 → 新が分からないので追えない(次の付け替えの知らせまで)。
     @State private var movedBookID: String?
     /// スマートライブラリの絞り込みに残させている本(`updateKeptBook`。監査 SL-3)。
@@ -177,11 +184,9 @@ struct HomeInspectorMetadataSection: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             commit()
         }
-        // 本が付け替えられたら、書く相手を新しい bookID へ移す(movedBookID のコメント)。アプリの中の変更は、一覧が選択を
-        // 付け替えてこの欄が作り直される(消えるときに書く)より先に、同じ知らせの中で受ける。
-        .onReceive(FileSystemChangeCenter.defaultForState().changes) { change in
-            followMove(to: change.relocatedPath(for: targetBookID))
-        }
+        // 本の保存データが付け替えられたら、書く相手を新しい bookID へ移す(movedBookID のコメント)。アプリの中の変更の知らせ
+        // (`FileSystemChangeCenter`)では移さない ―― ストアの付け替えより先に届くので、その間の書き込みが新しいパスへ行き、
+        // 古い行を取り残した(2026-10-04 のレビューの R4-1)。
         .onReceive(NotificationCenter.default.publisher(for: .booksDidRelocate)) { note in
             followMove(to: BookRelocationNotice(note)?.newBookID(for: targetBookID))
         }
@@ -190,6 +195,9 @@ struct HomeInspectorMetadataSection: View {
     private func followMove(to newBookID: String?) {
         guard let newBookID, newBookID != targetBookID else { return }
         movedBookID = newBookID
+        // 打ちかけが無ければ、移った先の行で見せ直す(付け替えで DB の revision も進むが、その `onChange` が引き直しより先に
+        // 古い bookID で引くと、行が無いとして提案を出したままになる)。打ちかけは残す(書くときに移った先の行へ書く)。
+        if didLoad, !isDirty, LoadedRow(metadataStore.metadata(forBookID: targetBookID)) != loadedRow { load() }
     }
 
     // MARK: - 見出し
@@ -537,16 +545,6 @@ struct HomeInspectorMetadataSection: View {
         commit()
     }
 
-    /// 欄を DB へ書く。**変えた欄だけを「直した欄」にする**(ほかの欄はファイル名の読みに付いていく。メタデータの編集
-    /// ウインドウで直したときと同じ。利用者の指示 2026-09-22)。行が無ければロックせずに作る。
-    /// 鍵: 掛けたら欄の値をすべて確定してロックする。外したら、ファイル名の読みと違う欄だけを直した欄にする(ウインドウの
-    /// `MetadataWorkspace.unlock` と同じ考え)。
-    /// すべての欄が空のまま書くと、既存仕様どおり行そのものを消す。
-    /// 1 冊ぶんのシート(`BookMetadataSheet.register`、2026-09-30 に廃止)の規則そのまま。
-    ///
-    /// **数に読めない巻数(並べ替え用)は書かず、ほかの欄は書く。** シートは「保存」を押せなくして何も捨てなかったが、インスペクタは
-    /// 欄を離れるたび・消えるたびに書くので、その 1 欄のためにほかの直しまで黙って捨てることになる。読めない文字は欄に残し(赤い案内も
-    /// 残る)、直せば次に書く。欄が消えたら捨てる(数でない値はもともと書けない)。
     /// スマートライブラリで選んでいる本を直している間は、絞り込みから外れても並びに残させる(2026-10-04 の監査 SL-3・決定 5)。
     /// 焦点が離れたら戻す(書いた値で絞り直されるのは集め直しの後)。ほかの画面(ファイルブラウザ・ライブラリ)の欄では何もしない。
     /// 残させた本の id は控えておき、戻すときはそれを渡す(その間に本が付け替えられて `targetBookID` が変わっていても戻せるように)。
@@ -561,6 +559,16 @@ struct HomeInspectorMetadataSection: View {
         }
     }
 
+    /// 欄を DB へ書く。**変えた欄だけを「直した欄」にする**(ほかの欄はファイル名の読みに付いていく。メタデータの編集
+    /// ウインドウで直したときと同じ。利用者の指示 2026-09-22)。行が無ければロックせずに作る。
+    /// 鍵: 掛けたら欄の値をすべて確定してロックする。外したら、ファイル名の読みと違う欄だけを直した欄にする(ウインドウの
+    /// `MetadataWorkspace.unlock` と同じ考え)。
+    /// すべての欄が空のまま書くと、既存仕様どおり行そのものを消す。
+    /// 1 冊ぶんのシート(`BookMetadataSheet.register`、2026-09-30 に廃止)の規則そのまま。
+    ///
+    /// **数に読めない巻数(並べ替え用)は書かず、ほかの欄は書く。** シートは「保存」を押せなくして何も捨てなかったが、インスペクタは
+    /// 欄を離れるたび・消えるたびに書くので、その 1 欄のためにほかの直しまで黙って捨てることになる。読めない文字は欄に残し(赤い案内も
+    /// 残る)、直せば次に書く。欄が消えたら捨てる(数でない値はもともと書けない)。
     private func commit() {
         // 書く相手は付け替えに付いていく(movedBookID。2026-10-04 の監査 SL-1)。
         let bookID = targetBookID
