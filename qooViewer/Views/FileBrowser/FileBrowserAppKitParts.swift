@@ -445,7 +445,7 @@ class FileBrowserOutlineView: NSOutlineView {
     }
 }
 
-/// ファイルブラウザの左のツリーの `NSOutlineView`。編集メニューのコピー・カット・ペースト(⌘C / ⌘X / ⌘V)を受ける
+/// ファイルブラウザの左のツリーの `NSOutlineView`。編集メニューのコピー・カット・ペースト(⌘C / ⌘X / ⌘V)と ⌘⌫ / ⌥⌘⌫ を受ける
 /// (2026-10-04、ユーザー報告 ―― それまではツリーに焦点があると受け手が無く、⌘V が鳴るだけだった。右ペインへ焦点を移すと貼れた)。
 /// 相手は選ばれている行(`FileBrowserActions.canPerformInTree`)。
 ///
@@ -459,6 +459,23 @@ final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValida
     @objc func copy(_ sender: Any?) { performEdit(.copy) }
     @objc func cut(_ sender: Any?) { performEdit(.cut) }
     @objc func paste(_ sender: Any?) { performEdit(.paste) }
+
+    /// ⌘⌫「ゴミ箱に入れる」・⌥⌘⌫「すぐに削除…」(2026-10-04、利用者の要望。根の行は除く ―― `canPerformInTree`)。この 2 つは
+    /// ファイルメニューの項目のキーで、項目は右ペインの選択に効き、焦点がツリーにあるキーでは何もしない(`HomeMenuKeyRouting`)。
+    /// メニューより先にキーウインドウのビューへ届く `performKeyEquivalent` で、焦点がこのツリーにあるときだけ引き受ける。できない行
+    /// (根・開いている本など)では鳴らす(メニューへ流すと、右ペインの選択次第で黙って何も起きない)。
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, let command = FileBrowserEditCommand.forKey(event),
+           command == .moveToTrash || command == .deleteImmediately, canPerformEdit != nil {
+            if canPerformEdit?(command) == true {
+                onEdit?(command)
+            } else {
+                NSSound.beep()
+            }
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     private func performEdit(_ command: FileBrowserEditCommand) {
         guard canPerformEdit?(command) == true else { return }

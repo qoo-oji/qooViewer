@@ -599,17 +599,18 @@ struct FileBrowserTreeEditTarget {
     let isRoot: Bool
 }
 
-/// ツリーのキー(⌘C / ⌘X / ⌘V)。対象は**ツリーで選ばれている行**で、右ペインの選択ではない。
+/// ツリーのキー(⌘C / ⌘X / ⌘V / ⌘⌫ / ⌥⌘⌫)。対象は**ツリーで選ばれている行**で、右ペインの選択ではない。
 /// - コピー: 根の行(ボリューム・ホーム・よく使う項目)でもよい。判定は右ペインと同じ `canModify` なので、ボリュームの行だけは淡色。
-/// - カット: 根の行はしない(ユーザー決定 2026-10-04 ―― 根を移すとツリーの根そのものが動く。ドラッグで掴ませないのと同じ。
-///   FileBrowserTreeView の型コメント「ドラッグ&ドロップ」)。ほかは右ペインと同じ `canChange`。
+/// - カット・ゴミ箱に入れる・すぐに削除: 根の行はしない(ユーザー決定 2026-10-04 ―― 根を移すとツリーの根そのものが動く。ドラッグで
+///   掴ませないのと同じ。FileBrowserTreeView の型コメント「ドラッグ&ドロップ」。ホームをゴミ箱に入れられる状態にしない)。ほかは右ペインと
+///   同じ `canChange`。
 /// - ペースト: その行のフォルダへ(根でもよい。右クリックの「ペースト」と同じ行き先)。
 extension FileBrowserActions {
     func canPerformInTree(_ command: FileBrowserEditCommand, on target: FileBrowserTreeEditTarget?) -> Bool {
         guard state != nil, let target else { return false }
         switch command {
         case .copy: return canModify([target.entry])
-        case .cut: return !target.isRoot && canChange([target.entry])
+        case .cut, .moveToTrash, .deleteImmediately: return !target.isRoot && canChange([target.entry])
         case .paste: return canPaste(into: target.entry.url)
         default: return false
         }
@@ -621,7 +622,38 @@ extension FileBrowserActions {
         case .copy: copy([target.entry])
         case .cut: cut([target.entry])
         case .paste: paste(into: target.entry.url)
+        case .moveToTrash: moveToTrash([target.entry])
+        case .deleteImmediately: deleteImmediately([target.entry])
         default: break
+        }
+    }
+
+    /// ツリーの行の右クリックの「名前を変更」「クイックルック」「メタデータの編集…」(2026-10-04、利用者の決定)。3 つとも**右ペインの一覧の
+    /// 選択**を相手にする仕組み(名前の欄は一覧の行にだけある・クイックルックのパネルは一覧が受ける・インスペクタは一覧の選択を見せる)なので、
+    /// 右ペインをその行の親フォルダへ移してその行を選び(`FileBrowserState.reveal`。「戻る」で元のフォルダへ戻れる)、読み終えてから一覧の
+    /// 項目で行う。ツリーの中で完結させる案(ツリーの行に名前の欄・パネルの受け手を作る)は、名前の編集の安全策
+    /// (`FileBrowserNameEditing`)をツリーにも作り直すことになるので採らなかった。根の行は淡色(親フォルダを読む許可が無いことがある)。
+    ///
+    /// 読み終える前に別のフォルダへ移った・一覧にその項目が無い(絞り込み・消えた)ときは鳴らして何もしない。
+    /// - Returns: 移って行うまでの Task(**テストのための口**)。
+    @discardableResult
+    func performOnTreeRowInList(_ command: FileBrowserMenuCommand, _ entry: FileBrowserEntry) -> Task<Void, Never>? {
+        guard let state, let parent = FileBrowserState.parent(of: entry.url) else { return nil }
+        let parentKey = FileBrowserState.location(of: parent).selectionKey
+        state.reveal(entry.url)
+        return Task { [weak self, weak state] in
+            await state?.settle()
+            guard let self, let state, self.state === state else { return }
+            guard state.location.selectionKey == parentKey, let listed = state.entry(withID: entry.id) else {
+                NSSound.beep()
+                return
+            }
+            switch command {
+            case .rename: self.beginRename([listed])
+            case .quickLook: self.quickLook([listed])
+            case .editMetadata: await self.editMetadata([listed])?.value
+            default: break
+            }
         }
     }
 }
@@ -648,7 +680,8 @@ struct FileBrowserMenuContext {
     let entries: [FileBrowserEntry]
     /// 「ペースト」「新規フォルダ」の行き先。一覧では表示中のフォルダ、ツリーではその行のフォルダ。
     let folder: URL?
-    /// ツリーの根(ボリューム・ホーム・よく使う項目)の行か。根は「カット」だけ淡色(ツリーのキーと同じ。`canPerformInTree`)。
+    /// ツリーの根(ボリューム・ホーム・よく使う項目)の行か。根は「カット」「ゴミ箱に入れる」「すぐに削除…」「名前を変更」「クイックルック」
+    /// 「メタデータの編集…」が淡色(キーと同じ。`canPerformInTree`、`performOnTreeRowInList`)。
     var isTreeRoot = false
 }
 
@@ -753,11 +786,19 @@ enum FileBrowserMenuCommand {
              [.createCollection, .addToCollection],
              [.editMetadata, .exportBook]]
         case .tree:
-            // コピー・カットは 2026-10-04 から(ツリーのキー ⌘C / ⌘X と揃えた。根の行のカットは淡色 ―― isTreeRoot)。
+            // 同じフォルダなら右ペインのフォルダと同じメニューにする(2026-10-04、ユーザー要望)。コピー・カットはツリーのキー ⌘C / ⌘X と
+            // 揃えた。根の行はカット・ゴミ箱に入れる(⌥ ですぐに削除)・名前を変更・クイックルック・メタデータの編集を淡色にする(isTreeRoot)。
+            // 圧縮・エイリアス・コレクション・書き出しは項目の URL だけで済むので同じに出す(できたものは行のフォルダの親に置かれる)。
+            // 名前を変更・クイックルック・メタデータの編集は一覧の選択を使うので、右ペインを親フォルダへ移して選んでから行う
+            // (`FileBrowserActions.performOnTreeRowInList`)。表示中のフォルダをゴミ箱に入れたら、右ペインは残っている祖先へ移る
+            // (FileBrowserState の読み込みの notFound)。
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow, .openWith],
-             [.getInfo],
+             [.moveToTrash],
+             [.getInfo, .rename, .compress, .makeAlias, .quickLook],
              [.copy, .cut, .paste, .newFolder],
              [.showInFinder, .addToFavoriteLocations],
+             [.createCollection, .addToCollection],
+             [.editMetadata, .exportBook],
              [.addToSmartLibrary, .autoRename],
              [.secretFolder]]
         case .background:
@@ -869,7 +910,8 @@ enum FileBrowserMenuCommand {
         case .copyPathname:
             return actions.canCopyPathnames(entries)
         case .editMetadata:
-            return actions.allowsSaving && actions.canUseAsSingleBook(entries)
+            // ツリーの根の行は右ペインへ出せないことがある(`performOnTreeRowInList`)。
+            return !context.isTreeRoot && actions.allowsSaving && actions.canUseAsSingleBook(entries)
         case .exportBook:
             return actions.canUseAsSingleBook(entries) && actions.state?.bookSheet == nil
         case .compress, .compressHere, .compressTo:
@@ -878,8 +920,9 @@ enum FileBrowserMenuCommand {
             return actions.canExtract(entries)
         // 読み取り専用モードの間は、ファイルを変える項目を淡色にする(消さない ―― 項目の数を変えない。段階 8.5)。
         case .rename, .cut, .moveToTrash, .deleteImmediately:
-            // ツリーの根は移さない(`canPerformInTree` と同じ。根を移すとツリーの根そのものが動く)。
-            if self == .cut, context.isTreeRoot { return false }
+            // ツリーの根(ボリューム・ホーム・よく使う項目)は移さない・消さない・名前を変えない(`canPerformInTree` と同じ。根を移すと
+            // ツリーの根そのものが動く。ホームをゴミ箱に入れる項目を押せる状態にしない。名前の変更は右ペインへ出せないことがある)。
+            if context.isTreeRoot { return false }
             return actions.canChange(entries)
         case .copy:
             return actions.canModify(entries)
@@ -894,8 +937,10 @@ enum FileBrowserMenuCommand {
         case .autoRename:
             // 親はフォルダ 1 つ・保存できるウインドウなら開ける。中の項目は autoRenameMenuNodes が 1 つずつ決める(2026-09-19)。
             return actions.canShowAutoRenameMenu(entries)
-        case .showInFinder, .getInfo, .quickLook:
+        case .showInFinder, .getInfo:
             return !entries.isEmpty
+        case .quickLook:
+            return !context.isTreeRoot && !entries.isEmpty
         case .makeAlias:
             return actions.canMakeAlias(entries)
         case .secretFolder:
@@ -912,7 +957,12 @@ enum FileBrowserMenuCommand {
         case .openInNewNormalWindow: entries.first.map { actions.open($0, in: .newNormalWindow) }
         case .openInNewPrivateWindow: entries.first.map { actions.open($0, in: .newPrivateWindow) }
         case .createCollection: actions.createCollection(from: entries)
-        case .editMetadata: actions.editMetadata(entries)
+        case .editMetadata:
+            if context.kind == .tree, let entry = entries.first {
+                actions.performOnTreeRowInList(self, entry)
+            } else {
+                actions.editMetadata(entries)
+            }
         // サブメニューを持つ項目(中身は submenu / dynamicChildren)。
         case .addToCollection, .openWith, .alwaysOpenWith, .compress, .extract, .exportBook, .autoRename: break
         case .compressHere: actions.compress(entries, choosingDestination: false)
@@ -920,7 +970,12 @@ enum FileBrowserMenuCommand {
         case .extractHere: actions.extract(entries, placement: .contents, choosingDestination: false)
         case .extractToFolder: actions.extract(entries, placement: .ownFolder, choosingDestination: false)
         case .extractTo: actions.extract(entries, placement: .contents, choosingDestination: true)
-        case .rename: actions.beginRename(entries)
+        case .rename:
+            if context.kind == .tree, let entry = entries.first {
+                actions.performOnTreeRowInList(self, entry)
+            } else {
+                actions.beginRename(entries)
+            }
         case .copy: actions.copy(entries)
         case .copyPathname: actions.copyPathnames(entries)
         case .cut: actions.cut(entries)
@@ -933,7 +988,12 @@ enum FileBrowserMenuCommand {
         case .secretFolder: actions.toggleSecretFolder(entries)
         case .showInFinder: actions.showInFinder(entries)
         case .getInfo: actions.showInfo(entries)
-        case .quickLook: actions.quickLook(entries)
+        case .quickLook:
+            if context.kind == .tree, let entry = entries.first {
+                actions.performOnTreeRowInList(self, entry)
+            } else {
+                actions.quickLook(entries)
+            }
         case .makeAlias: actions.makeAliases(entries)
         }
     }

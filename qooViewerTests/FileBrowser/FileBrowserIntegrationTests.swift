@@ -404,7 +404,7 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.deleteImmediately))
     }
 
-    @Test("ツリーの ⌘C / ⌘X / ⌘V は選ばれている行へ効く。根の行はカットしないが、コピーとペーストはできる(ボリュームはコピーもしない。2026-10-04)")
+    @Test("ツリーの ⌘C / ⌘X / ⌘V と右クリックは選ばれている行へ効く。根の行はカット・ゴミ箱に入れるができないが、コピー・ペースト・圧縮はできる(ボリュームはコピーもしない。2026-10-04)")
     func treeEditCommandsActOnSelectedRow() throws {
         let fixture = try Fixture("fb-tree-edit")
         defer { fixture.close() }
@@ -432,7 +432,8 @@ struct FileBrowserIntegrationTests {
         )
         #expect(!actions.canPerformInTree(.copy, on: FileBrowserTreeEditTarget(entry: volume, isRoot: true)))
         // ほかの操作は受けない(右ペインの選択へ効く口とは別)。
-        #expect(!actions.canPerformInTree(.moveToTrash, on: row))
+        #expect(!actions.canPerformInTree(.goUp, on: row))
+        #expect(!actions.canPerformInTree(.moveItemHere, on: row))
 
         #expect(actions.canPerformInTree(.copy, on: row))
         actions.performInTree(.copy, on: row)
@@ -464,12 +465,66 @@ struct FileBrowserIntegrationTests {
         #expect(menuEnabled(.copy, rootRow))
         #expect(!menuEnabled(.cut, rootRow))
         #expect(menuEnabled(.paste, rootRow))
+        // ゴミ箱に入れる・すぐに削除も根の行では淡色。圧縮・エイリアスは根でもできる(元を変えない)。
+        for command in [FileBrowserMenuCommand.moveToTrash, .deleteImmediately, .compress, .makeAlias] {
+            #expect(menuEnabled(command, row), "\(command)")
+        }
+        #expect(!menuEnabled(.moveToTrash, rootRow))
+        #expect(!menuEnabled(.deleteImmediately, rootRow))
+        #expect(menuEnabled(.compress, rootRow))
+        #expect(menuEnabled(.makeAlias, rootRow))
+        // 右ペインへ出して行う項目も根の行では淡色。
+        #expect(menuEnabled(.rename, row))
+        #expect(menuEnabled(.quickLook, row))
+        for command in [FileBrowserMenuCommand.rename, .quickLook, .editMetadata] {
+            #expect(!menuEnabled(command, rootRow), "\(command)")
+        }
+        // キーのゴミ箱(⌘⌫ / ⌥⌘⌫)も根の行ではしない。
+        #expect(actions.canPerformInTree(.moveToTrash, on: row))
+        #expect(actions.canPerformInTree(.deleteImmediately, on: row))
+        #expect(!actions.canPerformInTree(.moveToTrash, on: rootRow))
+        #expect(!actions.canPerformInTree(.deleteImmediately, on: rootRow))
 
         // 読み取り専用モードではカット・ペーストは淡色、コピーは使える(右ペインと同じ)。
         fixture.preferences.fileBrowserReadOnly = true
         #expect(actions.canPerformInTree(.copy, on: row))
         #expect(!actions.canPerformInTree(.cut, on: row))
         #expect(!actions.canPerformInTree(.paste, on: rootRow))
+    }
+
+    @Test("ツリーの行の「名前を変更」「クイックルック」「メタデータの編集…」は、右ペインを親フォルダへ移してその行を選んでから行う(2026-10-04)")
+    func treeRowSelectionActionsRevealInList() async throws {
+        let fixture = try Fixture("fb-tree-reveal")
+        defer { fixture.close() }
+        let shelf = try fixture.temporary.directory("shelf")
+        let folder = fixture.entry(try fixture.temporary.directory("shelf/folder"))
+        let pictures = fixture.entry(try fixture.imageFolder("shelf/pictures"))
+        func perform(_ command: FileBrowserMenuCommand, on entry: FileBrowserEntry) async {
+            // ツリーではふつう、右ペインは行のフォルダ自身を表示している。
+            fixture.state.navigate(to: entry.url)
+            await fixture.state.settle()
+            let context = FileBrowserMenuContext(kind: .tree, entries: [entry], folder: entry.url)
+            #expect(command.isEnabled(in: context, actions: fixture.actions), "\(command)")
+            // 右クリックの項目はこれを呼ぶ(FileBrowserMenuCommand.perform)。
+            await fixture.actions.performOnTreeRowInList(command, entry)?.value
+        }
+        let shelfKey = FileBrowserState.location(of: shelf).selectionKey
+
+        await perform(.rename, on: folder)
+        #expect(fixture.state.location.selectionKey == shelfKey)
+        #expect(fixture.state.selection == [folder.id])
+        #expect(fixture.state.renameRequest?.id == folder.id)
+
+        let before = fixture.state.quickLookRequest
+        await perform(.quickLook, on: folder)
+        #expect(fixture.state.location.selectionKey == shelfKey)
+        #expect(fixture.state.selection == [folder.id])
+        #expect(fixture.state.quickLookRequest != nil && fixture.state.quickLookRequest != before)
+
+        await perform(.editMetadata, on: pictures)
+        #expect(fixture.state.location.selectionKey == shelfKey)
+        #expect(fixture.state.selection == [pictures.id])
+        #expect(fixture.welcome.inspectorFocusRequest?.bookID == pictures.url.path)
     }
 
     @Test("「開く」は開いて何かが起きるときだけ押せる: 1 件なら何でも、複数ならフォルダ・リンクを含まないときだけ(2026-09-19)")
@@ -711,7 +766,9 @@ struct FileBrowserIntegrationTests {
                 #expect(flags[first...].allSatisfy { $0 }, "\(kind)")
             }
         }
-        // Finder と同じく、情報を見る・名前を変更・圧縮・エイリアスを作成・クイックルックは 1 つの群に並ぶ。
+        // ツリーの行は右ペインのフォルダと同じ項目・同じ並び(2026-10-04、ユーザー要望)。
+        #expect(FileBrowserMenuCommand.groups(for: .tree) == FileBrowserMenuCommand.groups(for: .folder))
+                // Finder と同じく、情報を見る・名前を変更・圧縮・エイリアスを作成・クイックルックは 1 つの群に並ぶ。
         #expect(FileBrowserMenuCommand.groups(for: .file).contains([.getInfo, .rename, .compress, .extract, .makeAlias, .quickLook]))
         #expect(FileBrowserMenuCommand.groups(for: .folder).contains([.getInfo, .rename, .compress, .makeAlias, .quickLook]))
     }
@@ -760,7 +817,7 @@ struct FileBrowserIntegrationTests {
         #expect(!FileBrowserMenuCommand.secretFolder.isEnabled(in: privateContext, actions: privateFixture.actions))
     }
 
-    @Test("右クリックの「クイックルック」は一覧(ファイル・フォルダ)だけに出る。押すと右クリックした項目を選んで一覧へ頼む")
+    @Test("右クリックの「クイックルック」はファイル・フォルダ・ツリーの行に出る(空きスペースには出ない)。押すと右クリックした項目を選んで一覧へ頼む")
     func quickLookMenuItem() throws {
         let fixture = try Fixture("fb-menu-quick-look")
         defer { fixture.close() }
@@ -769,8 +826,8 @@ struct FileBrowserIntegrationTests {
         let english = Locale(identifier: "en")
         #expect(FileBrowserMenuCommand.groups(for: .file).joined().contains(.quickLook))
         #expect(FileBrowserMenuCommand.groups(for: .folder).joined().contains(.quickLook))
-        // ツリーはパネルの受け手にならない。空きスペースには対象が無い。
-        #expect(!FileBrowserMenuCommand.groups(for: .tree).joined().contains(.quickLook))
+        // ツリーの行は右ペインへ出してから頼む(2026-10-04。treeRowSelectionActionsRevealInList)。空きスペースには対象が無い。
+        #expect(FileBrowserMenuCommand.groups(for: .tree).joined().contains(.quickLook))
         #expect(!FileBrowserMenuCommand.groups(for: .background).joined().contains(.quickLook))
 
         // 項目の target は弱い参照なので、組む側を生かしておく。
@@ -813,7 +870,8 @@ struct FileBrowserIntegrationTests {
         let elsewhere = fixture.entry(try fixture.archive("sub/other.cbz"))
         #expect(FileBrowserMenuCommand.groups(for: .file).joined().contains(.makeAlias))
         #expect(FileBrowserMenuCommand.groups(for: .folder).joined().contains(.makeAlias))
-        #expect(!FileBrowserMenuCommand.groups(for: .tree).joined().contains(.makeAlias))
+        // ツリーの行にも出す(右ペインのフォルダと揃える。2026-10-04)。
+        #expect(FileBrowserMenuCommand.groups(for: .tree).joined().contains(.makeAlias))
         #expect(!FileBrowserMenuCommand.groups(for: .background).joined().contains(.makeAlias))
 
         func enabled(_ entries: [FileBrowserEntry]) -> Bool {
@@ -861,8 +919,8 @@ struct FileBrowserIntegrationTests {
         let both = ["Copy": "Copy as Pathname", "Open With": "Always Open With", "Move to Trash": "Delete Immediately…"]
         #expect(alternates(.file) == both)
         #expect(alternates(.folder) == both)
-        // ツリーはゴミ箱を出さない(コピーは 2026-10-04 から)。
-        #expect(alternates(.tree) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
+        // ツリーも右ペインのフォルダと同じ(コピー・ゴミ箱は 2026-10-04 から)。
+        #expect(alternates(.tree) == both)
         #expect(alternates(.background).isEmpty)
 
         // 入れ替わる側もサブメニューを持ち、末尾は「その他…」。

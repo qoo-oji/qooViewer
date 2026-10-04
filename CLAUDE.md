@@ -255,6 +255,10 @@ is a `FileBrowserState.requestQuickLook` that the list/icon coordinator picks up
 (collections, metadata/export, smart library, auto rename) in groups at the end, never mixed in one group — not slavishly Finder's exact order,
 just sensible groups (`FileBrowserMenuCommand.groups(for:)`, pinned by `appSpecificItemsComeAfterFinderItems`; docs/15「右クリック」). New items
 are placed by this rule.
+**A tree row gets the same menu as that folder in the right pane** (2026-10-04, user decision; `groups(for: .tree) == groups(for: .folder)`):
+root rows (volumes, Home, Favorite Locations — `FileBrowserMenuContext.isTreeRoot`) dim cut/trash/rename/Quick Look/Edit Metadata, and the three items
+that work on the list's selection (rename, Quick Look, Edit Metadata) first reveal the row in the right pane (`FileBrowserActions.performOnTreeRowInList`).
+With the tree focused, ⌘C/⌘X/⌘V and ⌘⌫/⌥⌘⌫ act on the selected row (`FileBrowserTreeOutlineView`, `canPerformInTree`); ⌘I/⌃⌘A/⌘Y stay on the list.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
 started under tests, pauses in read-only mode, never touches a target until its current contents are confirmed, waits for writes to settle
