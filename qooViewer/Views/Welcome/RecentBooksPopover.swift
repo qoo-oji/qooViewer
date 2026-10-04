@@ -113,7 +113,7 @@ struct RecentBooksPopover: View {
             BookOpenContextMenuItems(
                 onOpen: { open(entry) },
                 onOpenIn: { destination in
-                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                    guard let url = resolve(entry) else { return }
                     dismiss()
                     BookWindowOpener.open(
                         BookOpenRequest(url), to: destination, from: appState,
@@ -133,8 +133,18 @@ struct RecentBooksPopover: View {
     }
 
     private func open(_ entry: RecentFilesStore.Entry) {
-        guard let url = recentFiles.resolveForOpening(entry) else { return }
+        guard let url = resolve(entry) else { return }
         dismiss()
         appState.open(url: url)
+    }
+
+    /// 開く直前の解決。開けなければ吹き出しを閉じ、理由をホームの下に知らせて nil(2026-10-04 の監査 SP-7 = H-6。以前は黙って
+    /// 何もせず、吹き出しも開いたままだった)。閉じるのは、知らせが吹き出しの陰ではなく見える所に出るように。
+    private func resolve(_ entry: RecentFilesStore.Entry) -> URL? {
+        guard let url = recentFiles.resolveForOpening(entry, reportingTo: appState) else {
+            dismiss()
+            return nil
+        }
+        return url
     }
 }

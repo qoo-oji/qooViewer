@@ -1031,7 +1031,11 @@ struct QooViewerApp: App {
                             Button(
                                 FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.path)
                             ) {
-                                guard let url = recentFiles.resolveForOpening(entry) else { return }
+                                // 開けなければ、開く先になるはずだった窓に理由を知らせる(窓が無ければアラート。2026-10-04 の
+                                // 監査 SP-7 = M-4。以前は黙って何もしなかった)。
+                                guard let url = recentFiles.resolveForOpening(
+                                    entry, reportingTo: focusedAppState ?? launchCoordinator.frontmostContentAppState()
+                                ) else { return }
                                 SecurityScopedHandoff.begin(url)
                                 openRecentAccordingToPreference(url)
                             }
@@ -1292,9 +1296,11 @@ struct QooViewerApp: App {
                     // 中身は ViewerView.performZoomStep。拡大鏡の表示中は、ピンチと同じく拡大を拡大鏡に任せる。
                     let isLoupeActive = menuCheckmarkState?.isLoupeActive ?? false
                     let isPinchZoomed = menuCheckmarkState?.isPinchZoomed ?? false
+                    // 上限(環境設定の最大倍率)に達したら淡色(2026-10-04 の監査 V-19。以前は押せて何も起きなかった)。
+                    let isPinchZoomedToMax = menuCheckmarkState?.isPinchZoomedToMax ?? false
                     Button("Zoom In") { [weak focusedAppState] in focusedAppState?.performViewerZoom?(.zoomIn) }
                         .keyboardShortcut("+", modifiers: .command)
-                        .disabled(!hasBook || isLoupeActive)
+                        .disabled(!hasBook || isLoupeActive || isPinchZoomedToMax)
                     Button("Zoom Out") { [weak focusedAppState] in focusedAppState?.performViewerZoom?(.zoomOut) }
                         .keyboardShortcut("-", modifiers: .command)
                         .disabled(!hasBook || isLoupeActive || !isPinchZoomed)
@@ -2131,14 +2137,35 @@ struct QooViewerApp: App {
             localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
             locale: locale
         )
-        guard panel.runModal() == .OK,
-              let request = BookOpenRequest(openingCandidates: panel.urls) else { return }
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         // 複数の本を選んだら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。DroppedBooks)。
+        //
+        // 下調べは Dock・Finder からの「開く」と同じ `ExternalOpenPreparation.prepare`(2026-10-04 の監査 O-6)。以前は
+        // `BookOpenRequest.sequenced` が本を 1 冊も見つけない(1 件だけ選んだ・本でないものだけ)と下調べ前の要求のまま新しい窓を
+        // 開き、本でないもの(空のフォルダ・対応しないファイル)だと**窓を 1 枚作ってからエラーを出していた**。⌘O・ドロップ・Finder は
+        // 開かずに知らせる。開けるものが無ければ窓を作らず、手前の窓(無ければアラート)に知らせる。
+        // 本でないので並びに入れなかった数は、従来どおり知らせない(開く先の窓が後から決まる。docs/04)。
         let urls = panel.urls
         let order = preferences.siblingBookOrder
         Task { @MainActor in
-            let sequenced = await BookOpenRequest.sequenced(from: urls, order: order)
-            openInNewWindow(sequenced ?? request, asTab: false, tabTarget: nil)
+            let prepared = await FileIO.perform { ExternalOpenPreparation.prepare(urls, order: order) }
+            guard let request = prepared.request else {
+                let message = urls.count == 1
+                    ? String(format: String(localized: "“%@” can’t be opened as a book.", language: locale),
+                             urls[0].lastPathComponent)
+                    : String(localized: "None of the items can be opened as a book.", language: locale)
+                if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+                    target.postViewerNotice(message)
+                } else {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+                    alert.informativeText = message
+                    _ = await WindowSheet.run(alert)
+                }
+                return
+            }
+            openInNewWindow(request, asTab: false, tabTarget: nil)
         }
     }
 

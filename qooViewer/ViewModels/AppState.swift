@@ -703,6 +703,9 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoupeActive = false
     /// ピンチ拡大中か(表示メニューの「縮小」「拡大を解除」の淡色)。isLoupeActiveと同じ仕組み。
     @Published private(set) var isPinchZoomed = false
+    /// ピンチ拡大が上限(環境設定の最大倍率)に達しているか(表示メニューの「拡大」の淡色。2026-10-04 の監査 V-19 ―― 以前は上限でも
+    /// 押せて、押しても何も変わらなかった)。isPinchZoomedと同じ仕組み。
+    @Published private(set) var isPinchZoomedToMax = false
     /// メニューバーの「見開き」の左にチェックマークを表示するための、現在見開き表示かどうか。
     @Published private(set) var isSpreadMode = false
     /// メニューバーの「右から左へ」の左にチェックマークを表示するための、
@@ -783,6 +786,7 @@ final class AppState: ObservableObject {
         isSlideshowActive: Bool,
         isLoupeActive: Bool,
         isPinchZoomed: Bool,
+        isPinchZoomedToMax: Bool,
         displayMode: DisplayMode,
         readingDirection: ReadingDirection,
         scalingMode: ScalingMode,
@@ -816,6 +820,7 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.isSlideshowActive, isSlideshowActive)
             self.setIfChanged(&self.isLoupeActive, isLoupeActive)
             self.setIfChanged(&self.isPinchZoomed, isPinchZoomed)
+            self.setIfChanged(&self.isPinchZoomedToMax, isPinchZoomedToMax)
             self.setIfChanged(&self.isSpreadMode, displayMode == .spread)
             self.setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
             self.setIfChanged(&self.currentScalingMode, scalingMode)
@@ -878,6 +883,7 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.isSlideshowActive, false)
             self.setIfChanged(&self.isLoupeActive, false)
             self.setIfChanged(&self.isPinchZoomed, false)
+            self.setIfChanged(&self.isPinchZoomedToMax, false)
             self.setIfChanged(&self.isSpreadMode, false)
             self.setIfChanged(&self.isRightToLeft, false)
             self.setIfChanged(&self.currentScalingMode, .fitToScreen)
@@ -2104,6 +2110,8 @@ struct MenuCheckmarkState: Equatable {
     var isSlideshowActive = false
     var isLoupeActive = false
     var isPinchZoomed = false
+    /// ピンチ拡大が上限に達しているか(「拡大」の淡色。AppState.isPinchZoomedToMax)。
+    var isPinchZoomedToMax = false
     var isSpreadMode = false
     var isRightToLeft = false
     var scalingMode: ScalingMode = .fitToScreen

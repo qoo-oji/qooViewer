@@ -1460,7 +1460,43 @@ struct FileBrowserOperationsTests {
         #expect(FileBrowserMenuCommand.extractToFolder.title(in: context, locale: Locale(identifier: "en")) == "Extract to “book”")
     }
 
+    /// 2026-10-04 の監査 FBA-3(「最近の項目」で別々のフォルダの項目を選ぶと「N 項目の名前を変更…」が押せるのに何も起きなかった)。
+    @Test("メニューの判定: 名前の変更は、複数なら同じフォルダの項目だけ(一括リネームが断る条件と同じ)")
+    func renameMenuAvailability() throws {
+        let fixture = try Fixture("fbops-rename-menu")
+        let actions = FileBrowserActions()
+        actions.state = fixture.state
+        let text = fixture.entry(fixture.root.appendingPathComponent("a.txt"))
+        let sub = fixture.entry(fixture.sub)
+        let elsewhere = fixture.entry(fixture.other)
+        #expect(actions.canRename([text]))
+        #expect(actions.canRename([elsewhere]))
+        #expect(actions.canRename([text, sub]))
+        #expect(!actions.canRename([text, elsewhere]))
+        let mixed = FileBrowserMenuContext(kind: .file, entries: [text, elsewhere], folder: fixture.root)
+        #expect(!FileBrowserMenuCommand.rename.isEnabled(in: mixed, actions: actions))
+        let together = FileBrowserMenuContext(kind: .file, entries: [text, sub], folder: fixture.root)
+        #expect(FileBrowserMenuCommand.rename.isEnabled(in: together, actions: actions))
+    }
+
     // MARK: - 進捗・報告
+
+    /// 2026-10-04 の監査 FBA-6。以前は中止なら失敗を全部捨て、止める前の本当の失敗も報告しなかった(やり直しの中止は見せていた)。
+    @Test("中止で止めた操作も、止める前の本当の失敗は報告する。手を付けなかった項目だけは並べない")
+    func cancelledRunStillReportsRealFailures() {
+        let failed = FailedItem(url: URL(fileURLWithPath: "/tmp/failed.txt"), reason: "Permission denied.")
+        let untouched = FailedItem(url: URL(fileURLWithPath: "/tmp/untouched.txt"), reason: FileCommandStack.notProcessedReason)
+        let cancelled = FileCommandResult.partial(succeeded: 1, failures: [failed, untouched], wasCancelled: true)
+        let problem = FileBrowserProblem.afterRun(cancelled, operationName: "Copy")
+        #expect(problem != nil)
+        #expect(problem?.message.contains("failed.txt") == true)
+        #expect(problem?.message.contains("untouched.txt") == false)
+        let onlyUntouched = FileCommandResult.partial(succeeded: 1, failures: [untouched], wasCancelled: true)
+        #expect(FileBrowserProblem.afterRun(onlyUntouched, operationName: "Copy") == nil)
+        let notCancelled = FileCommandResult.partial(succeeded: 1, failures: [failed, untouched], wasCancelled: false)
+        #expect(FileBrowserProblem.afterRun(notCancelled, operationName: "Copy")?.message.contains("untouched.txt") == true)
+        #expect(FileBrowserProblem.afterRun(.success, operationName: "Copy") == nil)
+    }
 
     @Test("残り時間は動き始めて1秒未満・総量不明なら出さない")
     func remainingTimeEstimate() {

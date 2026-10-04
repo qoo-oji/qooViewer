@@ -178,6 +178,22 @@ struct HomeInteractionTests {
         #expect(single.request?.sequence == nil)
     }
 
+    /// 2026-10-04 の監査 O-6。「新規ウインドウで開く…」は以前、本が 1 冊も見つからないと下調べ前の要求のまま窓を作ってエラーを出した。
+    /// 今は Dock・Finder と同じ下調べを通し、要求が無ければ窓を作らない。
+    @Test("「新規ウインドウで開く…」の下調べ: 空のフォルダ 1 つ・本でないものだけなら要求を作らない(窓を作らずに知らせる)")
+    func newWindowOpenRefusesNonBooksBeforeMakingAWindow() throws {
+        let temporary = try TemporaryDirectory("new-window-open")
+        let empty = try temporary.directory("empty")
+        let note = temporary.file("readme.txt")
+        try Data("memo".utf8).write(to: note)
+
+        let emptyOnly = ExternalOpenPreparation.prepare([empty], order: .byName)
+        #expect(emptyOnly.request == nil)
+        let nonBooks = ExternalOpenPreparation.prepare([empty, note], order: .byName)
+        #expect(nonBooks.request == nil)
+        #expect(nonBooks.skipped == 2)
+    }
+
     @Test("まとめ直しの回は、先の回でシークレットウインドウへ回した本を入れない。全部が回した本なら何も開かず、数えもしない(O-9)")
     func externalOpenPreparationLeavesOutBooksRoutedPrivately() throws {
         let temporary = try TemporaryDirectory("external-open-routed")

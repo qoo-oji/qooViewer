@@ -303,6 +303,12 @@ struct SmartLibrarySidebar: View {
                 }
             )
             if result?.added.isEmpty ?? true { NSSound.beep() }
+            // シークレットフォルダは足さない。黙って捨てると「落としたのに並ばない」になるので知らせる(X-7)。
+            if let refused = result?.refusedSecret, !refused.isEmpty, let appState {
+                appState.postViewerNotice(SmartLibraryTargetAdding.secretRefusedMessage(
+                    refused, locale: appState.preferences?.effectiveLocale ?? AppLanguage.currentLocale
+                ))
+            }
         }
     }
 
@@ -315,12 +321,17 @@ struct SmartLibrarySidebar: View {
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(localized: "Choose folders whose books appear in the smart library.", language: locale)
         // このウインドウのシート(2026-09-27。WindowSheet)。その間にスマートライブラリ機能が切られていたら足さない(上のドロップと同じ)。
+        let locale = locale
         WindowSheet.begin(panel) { [weak appState] response in
             guard response == .OK, appState?.preferences?.smartLibraryFeatureEnabled ?? false else { return }
-            for url in panel.urls {
+            // シークレットフォルダそのもの・その中は足さずに知らせる(2026-10-04 の監査 X-7。以前は足して、一冊も並ばなかった)。
+            let refused = panel.urls.filter(SmartLibraryTargetAdding.isRefusedAsSecret)
+            for url in panel.urls where !SmartLibraryTargetAdding.isRefusedAsSecret(url) {
                 folderAccess.add(url: url)
                 store.addFolder(url)
             }
+            // 知らせはホームの下(AppState.postViewerNotice)。
+            if !refused.isEmpty { appState?.postViewerNotice(SmartLibraryTargetAdding.secretRefusedMessage(refused, locale: locale)) }
         }
     }
 
@@ -851,6 +862,8 @@ struct SmartLibraryContent: View {
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 開く前の確かめで、起動直後のフォルダの許可の裏の解決を待つ(withResolvedURL。O-5)。
+    @EnvironmentObject private var folderAccess: FolderAccessStore
     /// 右クリックの「コレクションを作成」「コレクションに登録」(2026-09-23、利用者の指示。ファイルブラウザの右クリックと同じ)。
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
@@ -874,7 +887,27 @@ struct SmartLibraryContent: View {
     /// 右クリックの相手の枠(HomeContextMenuTargetBorder)。
     @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
 
-    @State private var missingBook: String?
+    /// 「本が見つかりません」の相手と理由(2026-10-04 の監査 O-5。以前はパスだけで、理由を書き分けなかった)。
+    @State private var missingBook: MissingBook?
+
+    private struct MissingBook {
+        let path: String
+        let presence: SmartBookOpenProbe.Presence
+    }
+
+    /// 「本が見つかりません」の本文。理由ごとに書き分ける(コレクションの同じアラートと同じ考え ―― 外しているだけなら
+    /// 「消えた」と読ませない)。最後にパスを添える。
+    private func missingBookMessage(_ missing: MissingBook) -> String {
+        let reason = switch missing.presence {
+        case .volumeNotConnected:
+            String(localized: "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost.", language: locale)
+        case .unreadable:
+            String(localized: "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now.", language: locale)
+        case .missing, .present:
+            String(localized: "The file or folder could not be found. It may have been moved or deleted.", language: locale)
+        }
+        return reason + "\n\n" + missing.path
+    }
     /// グリッドのスクロール位置。選んだ枠を見える位置へ動かすときは、行の位置を実測から割り出して pt で渡す
     /// (`PanelListScrollTracker` の型コメント: Lazy コンテナの `scrollTo(id:anchor:)` は遠い行へ届かない)。
     @State private var scrollPosition = ScrollPosition()
@@ -941,7 +974,7 @@ struct SmartLibraryContent: View {
         ) {
             Button("OK", role: .cancel) { missingBook = nil }
         } message: {
-            Text(verbatim: missingBook ?? "")
+            Text(verbatim: missingBook.map(missingBookMessage) ?? "")
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
@@ -1804,11 +1837,11 @@ struct SmartLibraryContent: View {
     }
 
     /// 本の実体の URL(パスそのもの。FolderAccessStore が許可した対象フォルダの中)を確かめてから `body` を呼ぶ。
-    /// 見つからなければ「本が見つかりません」。
+    /// 見つからなければ理由を添えて「本が見つかりません」(SmartBookOpenProbe)。
     ///
     /// **在るかの確かめは FileIO の上で**(2026-09-22 の監査で指摘)。一覧は保存した前回のものを先に出すので、対象フォルダが
     /// 眠っている・切れているネットワークのボリュームでも表紙は並ぶ。そこで main から `fileExists` を呼ぶと、クリック 1 回で
-    /// SMB のタイムアウト(30 秒)までアプリ全体が固まった。
+    /// SMB のタイムアウト(30 秒)までアプリ全体が固まった。返ってこなければ期限で鳴らしてやめる(2026-10-04 の監査 O-5)。
     ///
     /// 待った後は、スマートライブラリ機能が ON のままか(と、`stillWanted` があればそれ)を確かめる(2026-10-04 の監査 O-8 = SP-10。
     /// 以前は何も見ず、待つ間に別の本を開いても、確かめ終わった本がそれを置き換えた)。
@@ -1818,27 +1851,40 @@ struct SmartLibraryContent: View {
         let url = URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder)
         let path = url.path
         let preferences = preferences
+        let access = folderAccess
         Task { @MainActor in
-            let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
+            let presence = await SmartBookOpenProbe.check(paths: [path], firstAwaiting: {
+                await access.waitForPendingResolutions(covering: url)
+            })?.first
             guard preferences.smartLibraryFeatureEnabled, stillWanted?() ?? true else { return }
-            if exists {
-                body(url)
-            } else {
-                missingBook = book.id
+            switch presence {
+            case .present: body(url)
+            case .some(let presence): missingBook = MissingBook(path: book.id, presence: presence)
+            case nil: NSSound.beep()
             }
         }
     }
 
     /// 何冊か(右クリックの相手)の URL を確かめてから `body` を呼ぶ。見つかった本だけを渡し、1 冊も見つからなければ
-    /// 「本が見つかりません」。確かめは FileIO の上で(`withResolvedURL` と同じ理由)。
+    /// 「本が見つかりません」(先頭の本の理由)。確かめは FileIO の上で、期限つき(`withResolvedURL` と同じ理由)。
     private func withResolvedURLs(for books: [SmartBook], _ body: @escaping @MainActor ([URL]) -> Void) {
         let urls = books.map { URL(fileURLWithPath: $0.id, isDirectory: $0.kind == .folder) }
         let paths = urls.map(\.path)
+        let preferences = preferences
+        let access = folderAccess
         Task { @MainActor in
-            let exists = await FileIO.perform { paths.map { FileManager.default.fileExists(atPath: $0) } }
-            let found = zip(urls, exists).filter(\.1).map(\.0)
+            guard let presences = await SmartBookOpenProbe.check(paths: paths, firstAwaiting: {
+                await access.waitForPendingResolutions()
+            }) else {
+                NSSound.beep()
+                return
+            }
+            guard preferences.smartLibraryFeatureEnabled else { return }
+            let found = zip(urls, presences).filter { $0.1 == .present }.map(\.0)
             if found.isEmpty {
-                missingBook = books.first?.id
+                if let first = books.first, let presence = presences.first {
+                    missingBook = MissingBook(path: first.id, presence: presence)
+                }
             } else {
                 body(found)
             }

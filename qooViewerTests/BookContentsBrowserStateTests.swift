@@ -54,4 +54,28 @@ struct BookContentsBrowserStateTests {
         let nestedKept = try #require(nestedBrowser.entries.first { $0.matchKey == "ch01.cbz/003.png" })
         #expect(nestedBrowser.resolveImageClick(on: nestedKept, bookPages: nestedShown) == .jumpToPage(1))
     }
+
+    /// 2026-10-04 の監査 SP-6。以前は踏み込みの失敗も一覧の代わりに出すエラー文にしていて、階層は動いていないのに一覧が消え、
+    /// ルートでは戻る手段が無かった。
+    @Test("踏み込めない行(読めない EPUB)を押しても、一覧はそのまま残り、知らせだけが出る")
+    func aFailedStepInKeepsTheListing() async throws {
+        let temporary = try TemporaryDirectory("contents-step-in-failure")
+        let root = try FixtureFolder.make(at: temporary.file("book"), pages: [.init("001.png", number: 1)])
+        var builder = EpubFixtureBuilder.pages(2)
+        builder.omitContainer = true
+        try builder.write(to: root.appendingPathComponent("broken.epub"))
+        let book = try await FixtureBook.load(root)
+        let browser = try #require(BookContentsBrowserState(book: book))
+        defer { browser.releaseResources() }
+        await browser.waitUntilListed()
+        let broken = try #require(browser.entries.first { $0.displayName == "broken.epub" && $0.navigateTarget != nil })
+        let listed = browser.entries.map(\.displayName)
+
+        browser.navigate(broken)
+        await browser.waitUntilListed()
+        #expect(browser.stepInFailure != nil, "失敗を知らせていない")
+        #expect(browser.navigationErrorMessage == nil, "一覧をエラー文に置き換えた")
+        #expect(browser.entries.map(\.displayName) == listed)
+        #expect(!browser.canGoBack)
+    }
 }

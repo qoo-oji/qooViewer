@@ -156,7 +156,11 @@ extension FileBrowserActions {
         guard isSmartLibraryFeatureEnabled, allowsSaving, let smartLibraryStore, !entries.isEmpty,
               entries.allSatisfy({ let entry = effective($0); return entry.isNavigableFolder && !entry.isVolume })
         else { return false }
-        return entries.contains { !smartLibraryStore.containsFolder(effective($0).url) }
+        // シークレットフォルダそのもの・その中だけなら淡色(2026-10-04 の監査 X-7。SmartLibraryTargetAdding.isRefusedAsSecret)。
+        return entries.contains {
+            let url = effective($0).url
+            return !smartLibraryStore.containsFolder(url) && !SmartLibraryTargetAdding.isRefusedAsSecret(url)
+        }
     }
 
     /// 選んだフォルダをスマートライブラリの対象フォルダに足す。1 冊の本になるフォルダ(画像フォルダ・章のフォルダ)は足さない ――
@@ -182,10 +186,19 @@ extension FileBrowserActions {
                 }
             ), let self else { return }
             guard !result.added.isEmpty else {
-                self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(names: names, locale: locale))
+                if result.refusedBooks.isEmpty, !result.refusedSecret.isEmpty {
+                    self.state?.showToast(SmartLibraryTargetAdding.secretRefusedMessage(result.refusedSecret, locale: locale))
+                } else {
+                    self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(names: names, locale: locale))
+                }
                 return
             }
-            self.state?.showToast(SmartLibraryTargetAdding.addedMessage(result.added, locale: locale))
+            // 一緒に選んだシークレットフォルダは足していない。そう添える(X-7)。
+            var message = SmartLibraryTargetAdding.addedMessage(result.added, locale: locale)
+            if !result.refusedSecret.isEmpty {
+                message += "\n" + SmartLibraryTargetAdding.secretRefusedMessage(result.refusedSecret, locale: locale)
+            }
+            self.state?.showToast(message)
         }
     }
 

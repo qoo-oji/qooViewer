@@ -269,7 +269,7 @@ are placed by this rule.
 root rows (volumes, Home, Favorite Locations — `FileBrowserMenuContext.isTreeRoot`) dim cut/trash/rename/Quick Look/Edit Metadata, and the three items
 that work on the list's selection (rename, Quick Look, Edit Metadata) first reveal the row in the right pane (`FileBrowserActions.performOnTreeRowInList`;
 dimmed on rows with no parent folder, e.g. mount points under /Volumes — `canRevealTreeRowInList`).
-With the tree focused, ⌘C/⌘X/⌘V and ⌘⌫/⌥⌘⌫ act on the selected row (`FileBrowserTreeOutlineView`, `canPerformInTree`); ⌘I/⌃⌘A/⌘Y stay on the list.
+With the tree focused, ⌘C/⌘X/⌘V, ⌥⌘V and ⌘⌫/⌥⌘⌫ act on the selected row (`FileBrowserTreeOutlineView`, `canPerformInTree`); ⌘I/⌃⌘A/⌘Y stay on the list.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
 started under tests, pauses in read-only mode, never touches a target until its current contents are confirmed, waits for writes to settle
@@ -602,6 +602,10 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   `willClose` of every window under it (`CloseWatch`) — several close paths (single-tab red button, Close Window over background tabs, the
   slideshow's Close Tab) call `close()` without checking for sheets.
   Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
+- **An entry point that refuses or fails says so** (2026-10-04 audit, group 1-6): at least a beep, normally a toast
+  (`AppState.postViewerNotice`) or an alert with the reason; an enabled-looking item that silently returns is a bug (dim it with the
+  action's own predicate instead). History entries are opened only through `RecentFilesStore.resolveForOpening(_:reportingTo:)` /
+  `(_:locale:report:)`, which names why (volume not connected / in the Trash / missing) the same way at every entrance.
 - **Deleting saved data the user made is undoable** (2026-09-27): bookmarks, history, collections/libraries and removal from a
   collection go through `DataUndoStack` (per book window, `\.dataUndoStack`; tool windows use `ownsDataUndoStack()`), which snapshots
   the values before deleting and re-creates identical rows on ⌘Z. New user-facing deletions of saved data should do the same; files

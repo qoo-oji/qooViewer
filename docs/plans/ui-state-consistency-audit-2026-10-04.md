@@ -1930,3 +1930,70 @@ docs: 09(メニューバーの写しの決まり・取り消しの振り分け�
 docs: 04(下調べの後の確かめ直し・外からの「開く」のまとめ直しとシークレット)、05(通過ページのコマ)、06(履歴の件数)、07(差し替え中の読み直し・
 記録を残さない本のトグル・メタデータの編集のロックと数の欄)、08(書き出しの取り消し・ホームの書き出しと閉じる・保存データの実行中)、09(自前のシート・
 ボタン 1 つの `.alert`)、14(帯のシートと機能スイッチ)、15(フォルダへ移動・リストの名前の確定・一括リネームのシート・移動の提案)、02(テスト表)、CLAUDE.md。
+
+### 段 6(後半)(2026-10-04)
+
+§1-6 の群(黙った失敗)。決まりを 1 つ足し、CLAUDE.md に書いた: 断る・失敗する入口は最低でも鳴らし、ふつうは理由をトースト
+(`AppState.postViewerNotice`)かアラートで出す。履歴の項目は `RecentFilesStore.resolveForOpening(_:reportingTo:)` /
+`(_:locale:report:)` だけを通して開く。
+
+**開けない本の知らせ**
+
+- **SP-7(= M-4・H-6)**(直した): `resolveForOpening` が `Result<URL, OpenFailure>`(繋がっていないボリューム ―― 行は残す / ゴミ箱 /
+  見つからない ―― 行は削除)を返し、知らせは `resolveForOpening(_:reportingTo:)` と `(_:locale:report:)` が 1 か所で出す。4 入口
+  (サイドパネルの履歴は `SidePanelView.onHistoryOpenFailure` 経由のトースト、ホームの履歴の吹き出しは閉じてからホームの下、旧ウェルカム画面は
+  下、ファイル ▸ 最近使った項目は開く先になる窓、窓が無ければアラート)がこれを通す。テスト `RecentFilesAndAccessTests.resolvingForOpeningReportsWhyItFailed`。
+  解決そのものはメインで同期のまま(§3 の 18 の「メインで同期に触らない」は段 8 の §2-4 で扱う)。
+- **O-5**(直した): `SmartBookOpenProbe`(新規)が パスだけで「繋がっていないボリューム / 無い(ENOENT・ENOTDIR)/ 読めない」を見分け、
+  `CollectionItemOpenProbe.limit`(45 秒)の期限で包む(フォルダの許可の裏の解決も同じ期限の中で待つ)。期限切れは鳴らす。アラートは理由の文と
+  パス。`withResolvedURLs` も同じ。テスト `SmartLibraryTests.openProbeTellsWhyABookIsMissing`。待つ間の回転表示は付けていない(コレクションの
+  表紙のような置き場が無い。実機で長さを見て決める)。
+- **O-6**(直した): 「新規ウインドウで開く…」(本の窓に焦点が無いときの ⌘O も)が Dock・Finder と同じ `ExternalOpenPreparation.prepare` を
+  `FileIO` の上で通し、要求が無ければ窓を作らずに手前の窓(無ければアラート)へ知らせる。使われなくなった `BookOpenRequest.sequenced` は外した。
+  テスト `HomeInteractionTests.newWindowOpenRefusesNonBooksBeforeMakingAWindow`(パネルと窓の配線は実機)。docs/04 のあいまいさ(§5)も直した。
+
+**そのほかの黙った失敗**
+
+- **FBU-1**(直した): ツリーの `validateDrop` が行を探す前に `dropDecision(for:into: nil)` を見て、「ビューアで開く」なら行・行の間・
+  空き領域・見出しのどこでもツリー全体を受け口にする。`acceptDrop` は item が Node でなければ同じ判定で開く。AppKit のドラッグなので
+  テストは足せない(実機)。
+- **SP-5**(残り無し): 段 5 の淡色(起点のページに既にあれば淡色)で入口は揃っている。断る条件(`addBookmark(atIndex:)` の重複・
+  `skipsPersistence`)と淡色の条件(`isCurrentPageBookmarked`・`allowsEditing`)の食い違いは見つからなかった。
+- **SP-6**(直した): `BookContentsBrowserState.navigate` の失敗は `stepInFailure`(一時的な知らせ)に入れ、一覧と `navigationErrorMessage` には
+  触らない。パネルは下にトーストを 2 秒出して鳴らす。テスト `BookContentsBrowserStateTests.aFailedStepInKeepsTheListing`(読めない EPUB)。
+- **SP-8**(直した): `SidePanelBrowserState.listingErrorMessage` を足し、`.other` はその文を出し、「アクセスを許可…」は `.needsAccess` だけ。
+  権限でも「無い」でもない一覧の失敗をテストで決まって起こせないので、テストは足していない。§5 のコメントとの食い違いもこれで解けた。
+- **H-7**(直した、待ち行列の側): `AddBooksPanel` は足している間に落とされた URL を `queuedURLs` に積み、今の回が終わったら続けて足す
+  (ライブラリ機能が切られていれば捨てる)。View の状態なのでテストは足せない(実機)。
+- **FBA-3**(直した): `FileBrowserActions.canRename`(`canChange` + 複数なら同じ親)を足し、右クリック・メニューバー(`enabled(.rename)` と
+  `refusingUnless`)・`beginRename` が使う。テスト `FileBrowserOperationsTests.renameMenuAvailability`。
+- **FBA-4**(直した): `FileCutClipboard.forget(displacedBy:)` は 1 件でも外れたら記憶ごと下ろす(ペーストボードは書き直さない)。
+  テスト `FileSystemChangeTests.partlyDisplacedCutIsForgottenAsAWhole`。docs/15 に書いた。
+- **FBA-6**(直した): `run` の報告を `FileBrowserProblem.afterRun` へ移し、中止でも `notProcessedReason` 以外の失敗は見せる(やり直しと同じ絞り込み)。
+  テスト `FileBrowserOperationsTests.cancelledRunStillReportsRealFailures`。
+- **FBA-7**(直した、受ける側): ツリーの `performKeyEquivalent` が ⌥⌘V も引き受け、`canPerformInTree` / `performInTree` に `.moveItemHere`
+  (選ばれている行のフォルダへ `paste(into:forceMove: true)`)を足した。できない行では鳴らす。テストは `FileBrowserIntegrationTests.treeEditCommandsActOnSelectedRow`
+  に足した(キーの配線は実機)。
+- **TW-14**(直した): `CoverOverrideController.setCoverFile` が失敗を `Bool` で返し、`WindowSheet` のアラートで知らせる(5 つの入口は
+  そのまま。テストの中ではアラートを出さない)。テスト `LayoutStoreTests.choosingAFileThatIsNotAnImageReportsFailure`。
+- **MD-6**(直した): 規則の窓の `StatusBar` に `storageIssueText` を赤い帯で出す(「閉じる」で `dismissStorageIssue`)。View なのでテストは足せない。
+- **BE-9**(直した): 空の画面のボタンを外し、案内文だけにした。View なのでテストは足せない。
+- **BE-10(= SP-14)**(直した): `BookmarkStore.rename(bookmarkID:to:)`(保存の時点で id から引き直す。無ければ false)を足し、編集ウインドウの
+  シートとサイドパネルのアラートが使う。無ければ閉じて知らせる(編集ウインドウはシートが下りてからの SwiftUI のアラート、サイドパネルは
+  トースト)。テスト `DataUndoTests.renamingFollowsTheBookmarkByID`(消した後は false、取り消した後は戻った行へ届く)。
+- **V-19**(直した): `MenuCheckmarkState.isPinchZoomedToMax`(`pinchZoomFactor >= maxPinchZoomFactor`)で「拡大」を淡色にし、メニューに届かない
+  ⌘= のモニタは上限で鳴らす。メニューの写しの配線なのでテストは足していない。MANUAL:412 の淡色の条件(§5)は MANUAL を触らない約束なので残した。
+- **X-7**(直した): `SmartLibraryTargetAdding.isRefusedAsSecret`(シークレットフォルダそのもの・その中)で、`add` は足さずに `refusedSecret` へ。
+  ファイルブラウザ・サイドパネルの右クリックは淡色、「フォルダを追加…」とドロップは足さずにホームの下へ知らせる。アプリの一覧の写し
+  (`SecretFolderStore.appWideMatcher`)はテストから書けないので、テストは足していない。
+- **X-10**(直した): 割り当てたキー・マウスの書き込み操作(自動レイアウト・ブックマーク 2 つ・お気に入り 2 つ)が断るときにトーストで理由を出す
+  (`ViewerView.noteNothingIsRecorded`。シークレットウインドウ / シークレットフォルダの本 / この本)。View なのでテストは足せない。
+- **ST-7**(直した): `overlappingAssignment` が相手を `resolvedAction`(基本へのフォールバックを含む)で探し、`.none` は相手にしない。基本の
+  割り当てが相手のときは文言で「基本の設定」と添える。解決の順は変えていない。View なのでテストは足せない。
+- **ST-8(= X-6)**(直した): 確認の冊数から開いている本を外し、外した冊数を「閉じてから」と添える。ゴミ箱を押した時点と、ブックマーク・
+  レイアウト・メタデータ・コレクション(表紙の結果を除く)の知らせで数え直す。View なのでテストは足せない。
+
+docs: 02(テスト表)、04(新規ウインドウで開く…)、06(履歴の理由・シークレットフォルダの削除の冊数・キーの書き込みの知らせ)、07(ブックマークの
+名前の変更・空の画面・規則の保存の問題)、09(サイドパネルの一覧の失敗と踏み込みの失敗・拡大の淡色・マウスの重なり・⌘O)、14(スマートライブラリの
+開く前の確かめ・対象フォルダとシークレット・本を追加・表紙のファイル)、15(ツリーのドロップ・カットの記憶・中止の報告・一括リネームの淡色・⌥⌘V)、
+CLAUDE.md。

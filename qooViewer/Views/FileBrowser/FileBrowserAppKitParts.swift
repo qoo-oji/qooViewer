@@ -464,9 +464,12 @@ final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValida
     /// ファイルメニューの項目のキーで、項目は右ペインの選択に効き、焦点がツリーにあるキーでは何もしない(`HomeMenuKeyRouting`)。
     /// メニューより先にキーウインドウのビューへ届く `performKeyEquivalent` で、焦点がこのツリーにあるときだけ引き受ける。できない行
     /// (根・開いている本など)では鳴らす(メニューへ流すと、右ペインの選択次第で黙って何も起きない)。
+    ///
+    /// ⌥⌘V「ここに項目を移動」も同じ形で引き受け、選ばれている行のフォルダへ移す(⌘V がその行へ貼るのと揃える。2026-10-04 の監査 FBA-7 ――
+    /// 以前は編集メニューの項目が有効の見た目のまま、キーが `HomeMenuKeyRouting` で黙って捨てられた)。
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, let command = FileBrowserEditCommand.forKey(event),
-           command == .moveToTrash || command == .deleteImmediately, canPerformEdit != nil {
+           command == .moveToTrash || command == .deleteImmediately || command == .moveItemHere, canPerformEdit != nil {
             if canPerformEdit?(command) == true {
                 onEdit?(command)
             } else {

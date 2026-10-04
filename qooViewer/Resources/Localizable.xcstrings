@@ -69,6 +69,280 @@
         }
       }
     },
+    "The volume that holds “%@” isn’t connected. Connect it and try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds “%@” isn’t connected. Connect it and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」があるボリュームが接続されていません。接続してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "“%@” is in the Trash. It was removed from the history." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is in the Trash. It was removed from the history."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はゴミ箱の中にあります。履歴から削除しました。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」が見つかりませんでした。移動または削除された可能性があるため、履歴から削除しました。"
+          }
+        }
+      }
+    },
+    "The Book Couldn’t Be Opened" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Book Couldn’t Be Opened"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開けませんでした"
+          }
+        }
+      }
+    },
+    "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
+          }
+        }
+      }
+    },
+    "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本の場所を読めませんでした。フォルダへのアクセス権が外れている(環境設定 ▸ フォルダのアクセス権)か、今はその場所を読めない状態です。"
+          }
+        }
+      }
+    },
+    "The file or folder could not be found. It may have been moved or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file or folder could not be found. It may have been moved or deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be used as the cover." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be used as the cover."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をカバーにできませんでした。"
+          }
+        }
+      }
+    },
+    "The bookmark was deleted before the new name was saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The bookmark was deleted before the new name was saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を保存する前に、そのブックマークは削除されていました。"
+          }
+        }
+      }
+    },
+    "“%@” is in a secret folder, so it wasn’t added to the smart library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is in a secret folder, so it wasn’t added to the smart library."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
+          }
+        }
+      }
+    },
+    "%lld folders are in secret folders, so they weren’t added to the smart library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld folders are in secret folders, so they weren’t added to the smart library."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 個のフォルダはシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
+          }
+        }
+      }
+    },
+    "Nothing is saved in a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved in a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウでは何も保存しません。"
+          }
+        }
+      }
+    },
+    "Nothing is saved for books in secret folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved for books in secret folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本については何も保存しません。"
+          }
+        }
+      }
+    },
+    "Nothing is saved for this book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved for this book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本については何も保存しません。"
+          }
+        }
+      }
+    },
+    "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」に割り当てられています(この表示モードでも使われる基本の設定)。両方が当てはまるときは、画面の左右を指定した方が優先されます。"
+          }
+        }
+      }
+    },
+    "1 book is open in a viewer, so its saved data is kept. Close it first to delete it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 book is open in a viewer, so its saved data is kept. Close it first to delete it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
+          }
+        }
+      }
+    },
+    "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
+          }
+        }
+      }
+    },
     "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it." : {
       "localizations" : {
         "en" : {

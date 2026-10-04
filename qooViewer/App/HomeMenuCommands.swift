@@ -388,7 +388,7 @@ struct FileBrowserFileMenuItems: View {
         .disabled(selection?.canShowInFinder != true)
 
         Button(renameTitle) { [weak appState] in
-            Self.perform(appState, refusingUnless: { $0.canChange($1) }) { actions, entries in actions.beginRename(entries) }
+            Self.perform(appState, refusingUnless: { $0.canRename($1) }) { actions, entries in actions.beginRename(entries) }
         }
         .disabled(selection?.canRename != true)
 

@@ -705,7 +705,12 @@ struct ViewerView: View {
                 // (ホームの HomeZoomInEqualsKeyMonitor と同じ理由。JIS 配列の ⇧⌘- も "=" なので Shift は問わない)。
                 if event.modifierFlags.intersection([.command, .option, .control]) == .command,
                    event.charactersIgnoringModifiers == "=" {
-                    performZoomStep(.zoomIn)
+                    // 上限では、淡色のメニュー項目のキーと同じく鳴らす(2026-10-04 の監査 V-19)。
+                    if !viewModel.isLoupeActive, viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor {
+                        NSSound.beep()
+                    } else {
+                        performZoomStep(.zoomIn)
+                    }
                     return nil
                 }
                 // ESCキー(keyCode 53)は、RemappableKey/keyBindingStoreによる
@@ -1616,6 +1621,8 @@ struct ViewerView: View {
         .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
         // 拡大しているかどうかが変わったときだけ(ピンチの途中の倍率の変化では呼ばない)。
         .onChange(of: viewModel.pinchZoomFactor > 1) { _, _ in syncMenuCheckmarkState() }
+        // 上限に達した・離れた(「拡大」の淡色。V-19)。上限そのもの(環境設定)が変わったときも。
+        .onChange(of: viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.isContrastCorrectionEnabled) { _, _ in syncMenuCheckmarkState() }
@@ -4188,6 +4195,7 @@ struct ViewerView: View {
             isSlideshowActive: viewModel.isSlideshowActive,
             isLoupeActive: viewModel.isLoupeActive,
             isPinchZoomed: viewModel.pinchZoomFactor > 1,
+            isPinchZoomedToMax: viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor,
             displayMode: viewModel.displayMode,
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
@@ -4272,9 +4280,9 @@ struct ViewerView: View {
         case .autoLayoutFromCurrentView:
             // ツールバーのボタン・メニューバー「Edit」のレイアウトのグループの項目と
             // 同じ経路(3.1節)。
-            // DBへ書かない本ではレイアウトを保存できないので何もしない(以下の
-            // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため)。
-            guard !viewModel.skipsPersistence else { return }
+            // DBへ書かない本ではレイアウトを保存できないので、何もせずに理由を知らせる(以下の
+            // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため。知らせは X-10、noteNothingIsRecorded)。
+            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)
@@ -4283,14 +4291,14 @@ struct ViewerView: View {
         case .returnToWelcome:
             returnToWelcome()
         case .toggleBookmark:
-            guard !viewModel.skipsPersistence else { return }
+            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             toggleCurrentPageBookmark()
         case .nextBookmark:
             viewModel.jumpToNextBookmark()
         case .previousBookmark:
             viewModel.jumpToPreviousBookmark()
         case .showBookmarkList:
-            guard !viewModel.skipsPersistence else { return }
+            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             showBookmarkEditor()
         case .showThumbnailGrid:
             // トグル。開いたときと同じキー/マウス操作でそのまま閉じられるようにするため
@@ -4310,14 +4318,14 @@ struct ViewerView: View {
         // 押されても何も起きないようにここで受け止める(FavoritesFeature参照)。
         case .toggleFavorite:
             guard FavoritesFeature.isEnabled else { return }
-            guard !viewModel.skipsPersistence else { return }
+            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
             guard FavoritesFeature.isEnabled else { return }
             showFavoritesListMenu()
         case .showFavoritesOrganizer:
             guard FavoritesFeature.isEnabled else { return }
-            guard !viewModel.skipsPersistence else { return }
+            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             openWindow(id: "favoritesOrganizer")
         // ウインドウを閉じる: 赤い閉じるボタン・メニューバーの「ウインドウを閉じる」と
         // **同じ経路**を通す(複数タブの確認ダイアログもそちらの設定に従って出る)。
@@ -4545,6 +4553,25 @@ struct ViewerView: View {
     /// 一時的に表示する(ユーザー要望)。表示中に別の操作が行われた場合は、古い自動非表示
     /// タイマーをキャンセルしてから改めて表示時間を数え直す(短時間に連続して操作しても、
     /// 最後の1件が表示され続けている間に途中で消えてしまわないようにするため)。
+    /// キー・マウスに割り当てた書き込み操作(ブックマーク・自動レイアウト・お気に入り)を、記録を残さない窓・本で断ったときの知らせ
+    /// (2026-10-04 の監査 X-10)。以前は黙って何もしなかった ―― 外観は既定でノーマルのままなので、シークレットフォルダの本を
+    /// ノーマルの窓で読んでいると、開いたときの 1 回の知らせを見落とせば、キーが効かないようにしか見えなかった。理由で文言を分ける。
+    private func noteNothingIsRecorded() {
+        showToast(Self.nothingIsRecordedNotice(
+            isPrivateWindow: appState.isPrivateWindow, book: viewModel.book, locale: preferences.effectiveLocale
+        ))
+    }
+
+    static func nothingIsRecordedNotice(isPrivateWindow: Bool, book: MangaBook, locale: Locale) -> String {
+        if isPrivateWindow {
+            return String(localized: "Nothing is saved in a private window.", language: locale)
+        }
+        if book.isInSecretFolder {
+            return String(localized: "Nothing is saved for books in secret folders.", language: locale)
+        }
+        return String(localized: "Nothing is saved for this book.", language: locale)
+    }
+
     private func showToast(_ message: String) {
         toastDismissTask?.cancel()
         toastMessage = message

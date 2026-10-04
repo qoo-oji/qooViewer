@@ -291,6 +291,27 @@ struct DataUndoTests {
 
     // MARK: - ブックマーク
 
+    /// 2026-10-04 の監査 BE-10 = SP-14(実測: 改名のアラートを出したまま別の窓で消すと、保存は落ちずに黙って失われた)。
+    @Test("名前の変更は保存の時点で id から引き直す: 消されていれば何もせず false、削除を取り消した後なら戻った行へ届く")
+    func renamingFollowsTheBookmarkByID() throws {
+        let library = try InMemoryLibrary(label: "undo-bookmark-rename")
+        defer { library.close() }
+        let store = library.bookmarks
+        let bookID = "/tmp/undo-bookmark-rename-book"
+        store.addBookmark(bookID: bookID, pageIndex: 3, pageKey: "p3", name: "三")
+        let held = try #require(store.bookmarks(forBookID: bookID).first)
+        let id = held.id
+        let stack = DataUndoStack()
+
+        DataUndoStack.deleteBookmarks([held], in: store, recordingOn: stack)
+        #expect(!store.rename(bookmarkID: id, to: "消えた後"))
+        #expect(store.bookmarks(forBookID: bookID).isEmpty)
+
+        stack.undo()
+        #expect(store.rename(bookmarkID: id, to: "戻った後"))
+        #expect(store.bookmarks(forBookID: bookID).map(\.name) == ["戻った後"])
+    }
+
     @Test("ブックマークの削除を取り消すと、同じ id・作成日で戻る。同じページに足されていたら戻さない")
     func undoingABookmarkDeletionRestoresIt() throws {
         let library = try InMemoryLibrary(label: "undo-bookmark")

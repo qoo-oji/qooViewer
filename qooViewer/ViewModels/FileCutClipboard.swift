@@ -50,11 +50,15 @@ final class FileCutClipboard: ObservableObject {
         clear()
     }
 
-    /// アプリ自身が動かした・消した項目を記憶から外す(`FileSystemChange`)。
+    /// アプリ自身が動かした・消した項目があれば、記憶ごと下ろす(`FileSystemChange`)。
+    ///
+    /// **一部だけでも外れたら全体を下ろす**(2026-10-04 の監査 FBA-4)。以前は外れた項目だけを記憶から除き、残りを淡色(カット済み)の
+    /// ままにしていた。ところがペーストボードには外れた項目の古いパスも残っているので、⌘V の「移動か」の判定(ペーストボードの中身と
+    /// 記憶の一致。`FileBrowserOperations.paste`)は外れてコピーになり、そのうえ古いパスが無いことで事前の検査が全体を断った ――
+    /// 淡色は「移動する」と言うのに、残りも運ばれず「見つかりません」になった。下ろせば淡色も消え、⌘V は「ペーストボードの中身の
+    /// コピー」として古いパスで断る(Finder と同じ)。ペーストボードを書き直す案は、アプリが勝手に利用者のペーストボードを変えるので採らない。
     func forget(displacedBy change: FileSystemChange) {
-        guard !paths.isEmpty else { return }
-        let kept = paths.filter { !change.displaces($0) }
-        if kept.count != paths.count { paths = kept }
-        if kept.isEmpty { changeCount = nil }
+        guard !paths.isEmpty, paths.contains(where: { change.displaces($0) }) else { return }
+        clear()
     }
 }

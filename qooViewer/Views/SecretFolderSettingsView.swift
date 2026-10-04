@@ -91,6 +91,16 @@ struct SecretFolderSettingsView: View {
         }
         .onAppear { recount() }
         .onChange(of: secretFolders.folders) { _, _ in recount() }
+        // ほかのウインドウで保存データが消えた・増えたら数え直す(2026-10-04 の監査 ST-8。以前は表示したとき・一覧の変化・自分の削除の
+        // 後だけで、別の窓で消しても冊数とゴミ箱の淡色が古いままだった)。
+        .onReceive(NotificationCenter.default.publisher(for: .bookmarksDidChange)) { _ in recount() }
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in recount() }
+        .onReceive(NotificationCenter.default.publisher(for: .bookMetadataDidChange)) { _ in recount() }
+        .onReceive(NotificationCenter.default.publisher(for: .collectionsDidChange)) { note in
+            // 表紙の抽出・実在の確かめの知らせは保存データの増減ではない(CollectionStore を購読しないのと同じ理由で数え直さない)。
+            if note.userInfo?[Notification.Name.collectionsDidChangeIsCoverResultKey] as? Bool == true { return }
+            recount()
+        }
         // 履歴は数え直さずに描くたびに見る(件数は環境設定の保持件数まで)。
         .alert(
             "Delete the saved data and history of the books in this folder?",
@@ -106,10 +116,24 @@ struct SecretFolderSettingsView: View {
         }
     }
 
+    /// 確認の文。**開いている本は消さない**(deleteData)ので、消す冊数からは外し、外した冊数を添えて「閉じてから」と言う
+    /// (2026-10-04 の監査 ST-8。以前は開いている本も数えた冊数を出し、実際にはそれより少なく消して何も言わなかった)。
     private var deletionMessage: String {
-        let found = deleting.map { counts(in: $0) } ?? (saved: 0, history: 0)
-        return "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone."
-            .ui(found.saved, found.history)
+        guard let deleting else { return "" }
+        let open = openSavedBookCount(in: deleting)
+        let found = counts(in: deleting)
+        let message = "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone."
+            .ui(found.saved - open, found.history)
+        guard open > 0 else { return message }
+        return message + "\n\n" + (open == 1
+            ? "1 book is open in a viewer, so its saved data is kept. Close it first to delete it.".ui
+            : "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it.".ui(open))
+    }
+
+    /// 保存データのある本のうち、いまビューアで開いている冊数(deleteData が見送る本)。
+    private func openSavedBookCount(in folder: String) -> Int {
+        let openBookIDs = ViewerViewModel.openBookIDs
+        return (savedBookIDsByFolder[folder] ?? []).filter { openBookIDs.contains($0) }.count
     }
 
     private func row(for path: String) -> some View {
@@ -131,6 +155,8 @@ struct SecretFolderSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
+                // 確認の冊数は押した時点の値で(ST-8)。
+                recount()
                 deleting = path
             } label: {
                 Image(systemName: "trash")

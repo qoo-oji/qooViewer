@@ -635,6 +635,7 @@ struct ContentView: View {
                 isSlideshowActive: appState.isSlideshowActive,
                 isLoupeActive: appState.isLoupeActive,
                 isPinchZoomed: appState.isPinchZoomed,
+                isPinchZoomedToMax: appState.isPinchZoomedToMax,
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
                 scalingMode: appState.currentScalingMode,
@@ -955,7 +956,8 @@ struct ContentView: View {
             renamingBookmark: $renamingBookmark,
             renameText: $sidePanelRenameText,
             folderPendingDeletion: $favoriteFolderPendingDeletion,
-            bookPendingDeletion: $favoriteBookPendingDeletion
+            bookPendingDeletion: $favoriteBookPendingDeletion,
+            onNotice: { message in appState.postViewerNotice(message) }
         )
         // 起動時の「見つからなくなった本をコレクションから外しますか」(既定OFFの設定)。
         // 主ウインドウでしか出ない ―― 数えるのも尋ねるのも起動時の1回だけ
@@ -1607,6 +1609,7 @@ struct ContentView: View {
                 let openedHere = appState.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
                 if openedHere, dismissesOnAction { appState.isSidePanelRevealed = false }
             },
+            onHistoryOpenFailure: { message in appState.postViewerNotice(message) },
             onBrowseToFolder: { url in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。
@@ -2158,6 +2161,7 @@ struct ContentView: View {
 /// 削除の確認は**お気に入りだけ**。ブックマークは確認せずその場で消える(それぞれの編集
 /// ウインドウでの流儀に合わせてある。SidePanelView側のコメント参照)。
 private struct SidePanelEditingDialogs: ViewModifier {
+    @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @Binding var renamingFolder: FavoriteFolder?
@@ -2167,6 +2171,8 @@ private struct SidePanelEditingDialogs: ViewModifier {
     @Binding var renameText: String
     @Binding var folderPendingDeletion: FavoriteFolder?
     @Binding var bookPendingDeletion: FavoriteBook?
+    /// 名前を変えようとしたブックマークがもう無かったときの知らせ(AppState.postViewerNotice。BE-10)。
+    var onNotice: (String) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2211,8 +2217,10 @@ private struct SidePanelEditingDialogs: ViewModifier {
         ) {
             TextField("Name", text: $renameText)
             Button("Save") {
-                if let bookmark = renamingBookmark {
-                    bookmarkStore.rename(bookmark, to: renameText)
+                // 保存の時点で id から引き直す。アラートを出している間に別のウインドウで消されていれば、書かずに知らせる
+                // (2026-10-04 の監査 BE-10 = SP-14。BookmarkStore.rename(bookmarkID:to:))。
+                if let bookmark = renamingBookmark, !bookmarkStore.rename(bookmarkID: bookmark.id, to: renameText) {
+                    onNotice(BookmarkStore.renamedBookmarkGoneMessage(locale: preferences.effectiveLocale))
                 }
                 renamingBookmark = nil
             }
@@ -2306,7 +2314,8 @@ private extension View {
         renamingBookmark: Binding<Bookmark?>,
         renameText: Binding<String>,
         folderPendingDeletion: Binding<FavoriteFolder?>,
-        bookPendingDeletion: Binding<FavoriteBook?>
+        bookPendingDeletion: Binding<FavoriteBook?>,
+        onNotice: @escaping (String) -> Void
     ) -> some View {
         modifier(SidePanelEditingDialogs(
             renamingFolder: renamingFolder,
@@ -2314,7 +2323,8 @@ private extension View {
             renamingBookmark: renamingBookmark,
             renameText: renameText,
             folderPendingDeletion: folderPendingDeletion,
-            bookPendingDeletion: bookPendingDeletion
+            bookPendingDeletion: bookPendingDeletion,
+            onNotice: onNotice
         ))
     }
 }

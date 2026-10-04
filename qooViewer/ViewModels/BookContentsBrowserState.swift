@@ -22,7 +22,12 @@ import CoreGraphics
 @MainActor
 final class BookContentsBrowserState: ObservableObject {
     @Published private(set) var entries: [BookInternalBrowsing.Entry] = []
+    /// 今の階層の一覧が作れなかったときの文(一覧の代わりに出す)。
     @Published private(set) var navigationErrorMessage: String?
+    /// 踏み込み(`navigate`)に失敗したときの一時的な知らせ(2026-10-04 の監査 SP-6)。一覧はそのまま残し、パネルが下に短く出す。
+    /// 以前は踏み込みの失敗も `navigationErrorMessage` に入れていたので、階層は動いていないのに一覧がエラー文に置き換わったまま
+    /// 戻る手段が無かった(ルートでは「戻る」が淡色、深い階層では 1 つ余分に戻る。ページ送りでも消えない)。
+    @Published private(set) var stepInFailure: ViewerNotice?
     /// 今ビューアに表示されているページのmatchKey(revealCurrentPage参照)。一覧の該当行の
     /// ハイライト、および自動スクロールに使う。
     @Published private(set) var highlightedMatchKeys: Set<String> = []
@@ -333,7 +338,10 @@ final class BookContentsBrowserState: ObservableObject {
             currentLocator = next.1
             reload()
         } catch {
-            navigationErrorMessage = localizedErrorMessage(for: error, fallback: "This item could not be opened.")
+            // 階層は動いていないので、一覧(と navigationErrorMessage)には触らない(SP-6。stepInFailure のコメント)。
+            stepInFailure = ViewerNotice(
+                message: localizedErrorMessage(for: error, fallback: "This item could not be opened.")
+            )
         }
     }
 

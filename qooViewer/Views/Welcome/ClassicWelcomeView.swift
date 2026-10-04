@@ -62,7 +62,8 @@ struct ClassicWelcomeView: View {
                         title: entry.displayName,
                         bookID: entry.path,
                         action: {
-                            guard let url = recentFiles.resolveForOpening(entry) else { return }
+                            // 開けなければ理由を下に知らせる(2026-10-04 の監査 SP-7)。
+                            guard let url = recentFiles.resolveForOpening(entry, reportingTo: appState) else { return }
                             appState.open(url: url)
                         },
                         // ユーザー要望: 履歴から1件だけ消せるようにする。

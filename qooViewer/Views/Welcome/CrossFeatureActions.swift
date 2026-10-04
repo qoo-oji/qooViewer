@@ -131,6 +131,24 @@ enum SmartLibraryTargetAdding {
         let added: [URL]
         /// 1 冊の本になるフォルダだったので足さなかったもの。
         let refusedBooks: [URL]
+        /// シークレットフォルダそのもの・その中だったので足さなかったもの(`isRefusedAsSecret`)。
+        var refusedSecret: [URL] = []
+    }
+
+    /// シークレットフォルダそのもの・その中のフォルダは対象にしない(2026-10-04 の監査 X-7)。足してもカタログが中の本を全部外す
+    /// (SmartLibraryCatalog。シークレットフォルダの本は記録しない)ので、以前は「追加しました」と出るのに一冊も並ばなかった。
+    /// 親フォルダを足して中のシークレットフォルダの本だけが外れるのは決定 9 どおりなので、ここでは断らない。判定はパスだけ。
+    static func isRefusedAsSecret(_ folder: URL) -> Bool {
+        SecretFolderStore.isSecretAppWide(folder)
+    }
+
+    /// シークレットフォルダなので足さなかったときの知らせの文。
+    static func secretRefusedMessage(_ refused: [URL], locale: Locale) -> String {
+        refused.count == 1
+            ? String(format: String(localized: "“%@” is in a secret folder, so it wasn’t added to the smart library.", language: locale),
+                     FileManager.default.displayName(atPath: refused[0].path))
+            : String(format: String(localized: "%lld folders are in secret folders, so they weren’t added to the smart library.",
+                                    language: locale), refused.count)
     }
 
     /// 本(画像フォルダ・章のフォルダ)でないフォルダだけを対象フォルダに足す。本かどうかは `FileIO` の上で調べる
@@ -140,7 +158,9 @@ enum SmartLibraryTargetAdding {
         _ folders: [URL], store: SmartLibraryStore, folderAccess: FolderAccessStore?,
         isFeatureEnabled: @escaping @MainActor () -> Bool
     ) async -> Result? {
-        let candidates = folders.filter { !store.containsFolder($0) }
+        let unlisted = folders.filter { !store.containsFolder($0) }
+        let refusedSecret = unlisted.filter(isRefusedAsSecret)
+        let candidates = unlisted.filter { !isRefusedAsSecret($0) }
         let isBook = await FileIO.perform { candidates.map { ShelfFolderResolver.isSingleBookFolder($0) } }
         guard isFeatureEnabled() else { return nil }
         var added: [URL] = []
@@ -154,7 +174,7 @@ enum SmartLibraryTargetAdding {
                 added.append(url)
             }
         }
-        return Result(added: added, refusedBooks: refused)
+        return Result(added: added, refusedBooks: refused, refusedSecret: refusedSecret)
     }
 
     /// 足したときの知らせの文。

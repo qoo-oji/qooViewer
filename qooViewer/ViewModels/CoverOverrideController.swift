@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -443,25 +444,45 @@ final class CoverOverrideController: ObservableObject {
     /// 本を読み込まずに呼べる(メタデータ編集シートへの画像のドロップ)。行がまだ無い本のために
     /// 元ファイルのURLを一緒に渡すが、解決できなくても指定自体は成立する
     /// (LayoutStore.existingOrNewSettings(forBookID:sourceURL:)参照)。
-    func setCoverFile(forBookID bookID: String, fileURL: URL) async {
-        guard allowsCoverChanges(forBookID: bookID) else { return }
-        switch target {
-        case .coverImage:
-            guard (try? layoutStore.setExternalCover(
-                forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
-            )) != nil else { return }
-            resolvedCoverNames[bookID] = fileURL.lastPathComponent
-        case .collectionCover:
-            // 表紙は画像をアプリの中へ複製する(元ファイルが消えても壊れないようにするため。
-            // CollectionCoverSourceStoreの型コメント参照)。画像として読めなければ何もしない。
-            guard (try? await layoutStore.setShelfCoverImage(
-                forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
-            )) != nil else { return }
-            resolvedCoverNames[bookID] = String(
-                localized: "Selected Image", language: preferences.effectiveLocale
-            )
+    ///
+    /// **失敗したら知らせる**(2026-10-04 の監査 TW-14)。以前は `try?` で捨て、パネルで選んだ・落とした画像がカバーにならなくても
+    /// 何も出なかった。知らせは操作したウインドウのシートのアラート(`WindowSheet`。表紙を選ぶ画面のポップオーバーからならアプリモーダル)。
+    /// 入口は 5 つ(書き出しのカバー列・インスペクタの表紙 2 種の右クリックとドロップ)あるので、ここで 1 度だけ出す。
+    @discardableResult
+    func setCoverFile(forBookID bookID: String, fileURL: URL) async -> Bool {
+        guard allowsCoverChanges(forBookID: bookID) else { return false }
+        do {
+            switch target {
+            case .coverImage:
+                try layoutStore.setExternalCover(forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL)
+                resolvedCoverNames[bookID] = fileURL.lastPathComponent
+            case .collectionCover:
+                // 表紙は画像をアプリの中へ複製する(元ファイルが消えても壊れないようにするため。
+                // CollectionCoverSourceStoreの型コメント参照)。画像として読めなければ失敗。
+                try await layoutStore.setShelfCoverImage(forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL)
+                resolvedCoverNames[bookID] = String(
+                    localized: "Selected Image", language: preferences.effectiveLocale
+                )
+            }
+        } catch {
+            reportCoverFileFailure(fileURL, error: error)
+            return false
         }
         noteCoverDidChange()
+        return true
+    }
+
+    /// 画像をカバーにできなかったことの知らせ(setCoverFile)。テストの中では出さない(アラートは誰も閉じない)。
+    private func reportCoverFileFailure(_ fileURL: URL, error: Error) {
+        guard !RuntimeEnvironment.isRunningTests else { return }
+        let locale = preferences.effectiveLocale
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            format: String(localized: "“%@” couldn’t be used as the cover.", language: locale), fileURL.lastPathComponent
+        )
+        alert.informativeText = error.localizedDescription
+        WindowSheet.begin(alert) { _ in }
     }
 
     /// カバーの上書きを解除し、既定(先頭ページ)に戻す。

@@ -893,6 +893,22 @@ struct SmartLibraryTests {
         #expect(catalog.books.isEmpty)
         #expect(!catalog.hasLoaded)
     }
+
+    /// 2026-10-04 の監査 O-5。以前は在るかどうかだけを見て、外したボリュームも消えた本も同じ「本が見つかりません」だった。
+    @Test("開く前の確かめ: 在る・無い・繋がっていないボリュームを見分ける(繋がっていないボリュームは触らずに綴りで)")
+    func openProbeTellsWhyABookIsMissing() async throws {
+        let temporary = try TemporaryDirectory("smart-open-probe")
+        let present = temporary.file("present.cbz")
+        try Data().write(to: present)
+        let gone = temporary.file("gone.cbz")
+        let offline = "/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)/book.cbz"
+
+        #expect(SmartBookOpenProbe.presence(atPath: present.path) == .present)
+        #expect(SmartBookOpenProbe.presence(atPath: gone.path) == .missing)
+        #expect(SmartBookOpenProbe.presence(atPath: offline) == .volumeNotConnected)
+        let checked = await SmartBookOpenProbe.check(paths: [present.path, gone.path, offline])
+        #expect(checked == [.present, .missing, .volumeNotConnected])
+    }
 }
 
 /// 閉包から書き換える値の箱(`$books` の購読で出た冊数を控える)。

@@ -241,7 +241,7 @@ final class RecentFilesStore: ObservableObject {
     /// 履歴の項目を実際に開くためのURLを解決する。**ここでだけ**セキュリティスコープ付き
     /// ブックマークの解決(重いディスクI/O)を行う。一覧の表示からは絶対に呼ばないこと。
     ///
-    /// 実体が失われている場合は、その項目を履歴から取り除いてnilを返す。以前はメニューを
+    /// 実体が失われている場合は、その項目を履歴から取り除いて失敗(理由つき)を返す。以前はメニューを
     /// 開くたびに全件の存在確認を行っていたが、その確認こそがメニュー描画を止める原因だった
     /// ため、「実際に開こうとして初めて分かる」形に変えている。ここで確認するのは選ばれた
     /// 1件だけなので、メニュー描画を止めることはない。
@@ -254,13 +254,91 @@ final class RecentFilesStore: ObservableObject {
     ///
     /// 繋がっていないボリュームの本は取り除かない(開けないだけで、繋げばまた開ける。2026-09-22 の監査)。ゴミ箱の中まで追った
     /// ものは「無い」として取り除く(BookLocationResolver.isInTrash と同じ決まり)。
-    func resolveForOpening(_ entry: Entry) -> URL? {
-        if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path, isDirectory: false)) { return nil }
-        guard let url = Self.resolvedURL(from: entry.bookmark), !BookLocationResolver.isInTrash(url), Self.fileExists(at: url) else {
+    ///
+    /// 開けなかったときは**理由を返す**(2026-10-04 の監査 SP-7 = M-4・H-6)。以前は nil だけを返し、4 つの入口(サイドパネルの履歴・
+    /// ホームの履歴の吹き出し・旧ウェルカム画面・ファイル ▸ 最近使った項目)がどれも `guard let … else { return }` で黙っていた ――
+    /// 外したボリュームの本は何度押しても何も起きず、消えた本は行が黙って一覧から消えた。知らせは入口ごとに書かず、
+    /// `resolveForOpening(_:reportingTo:)` が 1 か所で出す。
+    func resolveForOpening(_ entry: Entry) -> Result<URL, OpenFailure> {
+        if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path, isDirectory: false)) {
+            return .failure(.volumeNotConnected)
+        }
+        guard let url = Self.resolvedURL(from: entry.bookmark) else {
             remove(entry)
+            return .failure(.missing)
+        }
+        if BookLocationResolver.isInTrash(url) {
+            remove(entry)
+            return .failure(.inTrash)
+        }
+        guard Self.fileExists(at: url) else {
+            remove(entry)
+            return .failure(.missing)
+        }
+        return .success(url)
+    }
+
+    /// 履歴の項目を開けなかった理由(`resolveForOpening(_:)`)。
+    enum OpenFailure: Error, Equatable {
+        /// その本があったボリュームが繋がっていない。行は残す(繋げばまた開ける)。
+        case volumeNotConnected
+        /// ゴミ箱の中まで追った(`BookLocationResolver.isInTrash`)。行は取り除いた。
+        case inTrash
+        /// 解決できない・実体が無い。移動と削除は区別できないので、どちらとも言わない(コレクションの「本が見つかりません」と同じ)。
+        /// 行は取り除いた。
+        case missing
+
+        /// 知らせの文。`name` は履歴に出ていた名前(`Entry.displayName`)。行を取り除いたものは、そう書く ―― 一覧から黙って消えると
+        /// 「押したら消えた」としか見えない。
+        func message(name: String, locale: Locale) -> String {
+            switch self {
+            case .volumeNotConnected:
+                String(format: String(
+                    localized: "The volume that holds “%@” isn’t connected. Connect it and try again.", language: locale
+                ), name)
+            case .inTrash:
+                String(format: String(
+                    localized: "“%@” is in the Trash. It was removed from the history.", language: locale
+                ), name)
+            case .missing:
+                String(format: String(
+                    localized: "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history.",
+                    language: locale
+                ), name)
+            }
+        }
+    }
+
+    /// 履歴の項目を開くための解決と、開けなかったときの知らせ(SP-7)。4 つの入口はすべてこれ(か下の `reportingTo:` 版)を通す。
+    ///
+    /// - Parameter report: 知らせの文を受け取る口。ふつうはその窓のビューア・ホームの下のトースト(`AppState.postViewerNotice`。
+    ///   ドロップで開かなかったものと同じ口)。nil(知らせる先の窓が無い ―― メニューバーの「最近使った項目」で本の窓が 1 枚も無い)
+    ///   ならアラートにする。鳴らすだけでは理由が分からない。
+    func resolveForOpening(_ entry: Entry, locale: Locale, report: ((String) -> Void)?) -> URL? {
+        switch resolveForOpening(entry) {
+        case .success(let url):
+            return url
+        case .failure(let failure):
+            let message = failure.message(name: entry.displayName, locale: locale)
+            if let report {
+                report(message)
+            } else {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+                alert.informativeText = message
+                Task { _ = await WindowSheet.run(alert) }
+            }
             return nil
         }
-        return url
+    }
+
+    /// `resolveForOpening(_:locale:report:)` の、知らせを `appState` の窓へ出す版。
+    func resolveForOpening(_ entry: Entry, reportingTo appState: AppState?) -> URL? {
+        resolveForOpening(
+            entry, locale: appState?.preferences?.effectiveLocale ?? AppLanguage.currentLocale,
+            report: appState.map { appState in { appState.postViewerNotice($0) } }
+        )
     }
 
     /// セキュリティスコープを開いたうえで実体の有無を確認する。

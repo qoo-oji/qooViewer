@@ -317,6 +317,28 @@ struct LayoutStoreTests {
         #expect(settings(library, source.book)?.externalCoverFileName == "cover.jpg")
     }
 
+    /// 2026-10-04 の監査 TW-14。以前は `try?` で捨て、画像として読めないファイルを選んでも何も起きず、何も知らせなかった。
+    /// 知らせ(アラート)はテストの中では出さないので、ここでは結果だけを見る。
+    @Test("カバーを選ぶ画面の「ファイルを選ぶ…」: 画像として読めないファイルは失敗を返して何も書かない。読める画像は表紙になる")
+    func choosingAFileThatIsNotAnImageReportsFailure() async throws {
+        let library = try InMemoryLibrary(label: "layout-cover-file-failure")
+        defer { library.close() }
+        let source = try await makeSource("layout-cover-file-failure")
+        let notAnImage = source.temporary.file("notes.jpg")
+        try Data("not really a jpeg".utf8).write(to: notAnImage)
+        let bookURL = source.book.sourceURL
+        let controller = CoverOverrideController(
+            target: .collectionCover, layoutStore: library.layouts, preferences: library.preferences, resolveURL: { _ in bookURL }
+        )
+
+        #expect(await controller.setCoverFile(forBookID: source.book.id, fileURL: notAnImage) == false)
+        #expect(settings(library, source.book)?.shelfCoverImageFileName == nil)
+
+        let image = source.temporary.file("book/001.jpg")
+        #expect(await controller.setCoverFile(forBookID: source.book.id, fileURL: image))
+        #expect(settings(library, source.book)?.shelfCoverImageFileName != nil)
+    }
+
     /// 切り出し位置は「どの画像か」ではなく「その画像のどこを見せるか」なので、
     /// カバーを既定へ戻しても残る(LayoutStore.setCoverCropAnchor のコメント)。
     @Test("「カバーを既定に戻す」は、カバーの切り出し位置の指定まで消さない")

@@ -112,7 +112,8 @@ struct MouseBindingRow: View {
         /// もう一方は、位置指定と「全体」が重なった(追加はしたが、優先順位を知らせる)。
         enum Kind {
             case conflict(existing: ViewerAction)
-            case overlap(other: MouseTrigger, otherAction: ViewerAction)
+            /// `fromBase`: 重なった相手が、この表示モードの上書きではなく基本の割り当て(表示モード別の画面のときだけ true)。
+            case overlap(other: MouseTrigger, otherAction: ViewerAction, fromBase: Bool)
         }
         var id: String { trigger.id }
         let trigger: MouseTrigger
@@ -145,7 +146,11 @@ struct MouseBindingRow: View {
     /// 位置指定(画面の左側/右側)は「全体」より優先されるため、両方に別々の操作を
     /// 割り当てても破綻はしない(KeyBindingStore.resolvedClickAction参照)。拒否するのは
     /// やりすぎなので、追加は通したうえで、そうなっていることだけ知らせる。
-    private func overlappingAssignment(with trigger: MouseTrigger) -> (MouseTrigger, ViewerAction)? {
+    ///
+    /// 相手は**実際に効く割り当て**(`resolvedAction`。表示モード別の画面では、上書きが無ければ基本の割り当て)で探す
+    /// (2026-10-04 の監査 ST-7)。以前はこの画面の表の中(`assignedAction`)だけを見ていたので、表示モード別に「クリック(どこでも)」を
+    /// 割り当てても、基本の「画面の左側/右側」に負けることを知らせなかった(解決の順「位置指定 > 全体」「モード別 > 基本」は仕様のまま)。
+    private func overlappingAssignment(with trigger: MouseTrigger) -> (MouseTrigger, ViewerAction, fromBase: Bool)? {
         guard case .click(let button, let zone) = trigger.input else { return nil }
         let counterparts: [MouseTrigger.Zone] =
             zone == .anywhere ? [.leftHalf, .rightHalf] : [.anywhere]
@@ -153,8 +158,9 @@ struct MouseBindingRow: View {
             let candidate = MouseTrigger(
                 input: .click(button, counterpart), modifiers: trigger.modifiers
             )
-            if let existing = store.assignedAction(for: candidate, in: mode), existing != action {
-                return (candidate, existing)
+            // 「割り当てなし」(.none)の上書きは何も隠さない(KeyBindingStore.resolvedClickAction と同じ扱い)。
+            if let existing = store.resolvedAction(for: candidate, in: mode), existing != action, existing != .none {
+                return (candidate, existing, store.assignedAction(for: candidate, in: mode) == nil)
             }
         }
         return nil
@@ -166,9 +172,9 @@ struct MouseBindingRow: View {
             return
         }
         store.addMouseBinding(action, for: trigger, in: mode)
-        if let (other, otherAction) = overlappingAssignment(with: trigger) {
+        if let (other, otherAction, fromBase) = overlappingAssignment(with: trigger) {
             alert = TriggerAlert(
-                trigger: trigger, kind: .overlap(other: other, otherAction: otherAction)
+                trigger: trigger, kind: .overlap(other: other, otherAction: otherAction, fromBase: fromBase)
             )
         }
     }
@@ -234,12 +240,14 @@ struct MouseBindingRow: View {
                         + Text("”."),
                     dismissButton: .default(Text("OK"))
                 )
-            case .overlap(let other, let otherAction):
+            case .overlap(let other, let otherAction, let fromBase):
                 return Alert(
                     title: Text("Trigger Overlaps Another"),
                     message: Text("“") + other.label + Text("” is assigned to “")
                         + Text(otherAction.titleKey)
-                        + Text("”. When both apply, the one that names a side of the screen wins."),
+                        + (fromBase
+                            ? Text("” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins.")
+                            : Text("”. When both apply, the one that names a side of the screen wins.")),
                     dismissButton: .default(Text("OK"))
                 )
             }

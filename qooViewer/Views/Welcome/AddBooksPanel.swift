@@ -38,6 +38,9 @@ struct AddBooksPanel: View {
     @State private var isDropTargeted = false
     /// 追加の判定(フォルダの列挙を伴う)が走っている間。二重に走らせない。
     @State private var isAdding = false
+    /// 振り分けている間に落とされた分(2026-10-04 の監査 H-7)。今の回が終わったら続けて足す。以前は受け口が強調して受け取った
+    /// うえで `add` の `!isAdding` で黙って捨てていた(NAS 上の大きなフォルダを落とした直後にもう 1 つ落とすと、2 つ目が消えた)。
+    @State private var queuedURLs: [URL] = []
     /// 最後の追加で入れなかったもの(本でない・既に入っていた)の知らせ。無ければ nil(2026-09-27。以前は黙っていた)。
     @State private var notice: String?
 
@@ -199,15 +202,30 @@ struct AddBooksPanel: View {
         }
     }
 
+    /// 1 回ぶんを足し終えたら、その間に積まれた分を続けて足す(H-7)。待つ間にライブラリ機能が切られていたら足さずに捨てる
+    /// (パネルを出したままでも、切った後に登録しない ―― 選ぶパネルの戻りと同じ確かめ)。
+    private func finishAdding() {
+        isAdding = false
+        let next = queuedURLs
+        queuedURLs = []
+        guard !next.isEmpty, preferences.libraryFeatureEnabled else { return }
+        add(next)
+    }
+
     /// 落とされた/選ばれたURLから本だけを拾って登録する。棚(本の並んだフォルダ)は中の本へ
     /// 展開する(CollectionDropClassifier.booksToAdd参照)。
     private func add(_ urls: [URL]) {
-        guard !urls.isEmpty, !isAdding else { return }
+        guard !urls.isEmpty else { return }
+        // 足している最中なら積んでおき、終わってから足す(queuedURLs のコメント)。
+        guard !isAdding else {
+            queuedURLs.append(contentsOf: urls)
+            return
+        }
         isAdding = true
         let order = preferences.siblingBookOrder
         let locale = locale
         Task {
-            defer { isAdding = false }
+            defer { finishAdding() }
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             let books = CollectionDropClassifier.booksToAdd(from: classified)
             let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count

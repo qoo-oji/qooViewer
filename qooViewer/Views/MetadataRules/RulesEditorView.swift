@@ -473,6 +473,17 @@ struct StatusBar: View {
                     Button("Close") { editing.errors = [] }.controlSize(.small)
                 }
             }
+            // 設定ファイルの読み書きの問題(2026-10-04 の監査 MD-6)。以前はメタデータの編集ウインドウのアラートにしか出ず、規則の窓だけを
+            // 開いて変えると、保存に失敗しても「N か所を変更」と出たまま何も言わなかった(次の起動で変更が消えている)。起動時に読めず
+            // 写しも残せなかった(以後は保存しない)ときも同じ。消すと、編集ウインドウのアラートも下りる(同じストアの値)。
+            if let issue = editing.settings.storageIssueText {
+                HStack(alignment: .top) {
+                    Label(issue, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                        .font(.caption).textSelection(.enabled)
+                    Spacer()
+                    Button("Close") { editing.settings.dismissStorageIssue() }.controlSize(.small)
+                }
+            }
             if !editing.settings.ruleIssues.isEmpty {
                 Label(editing.settings.ruleIssues.joined(separator: "\n"), systemImage: "exclamationmark.circle")
                     .font(.caption).foregroundStyle(.orange)

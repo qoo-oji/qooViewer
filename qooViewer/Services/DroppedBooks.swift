@@ -80,25 +80,10 @@ nonisolated enum DroppedBooks {
     }
 }
 
-extension BookOpenRequest {
-    /// 複数の本(全部が画像のときを除く)を渡されたとき、先頭の本を開き残りを「次の本・前の本」でたどる要求
-    /// (DroppedBooks.multiple。Dock・Finder から渡されたとき、「新規ウインドウで開く…」で複数を選んだとき)。1 件だけ・全部が画像・
-    /// 本が 1 冊も無いときは nil(呼び出し側は従来どおり `init(openingCandidates:)` の要求を使う)。
-    static func sequenced(from candidates: [URL], order: SiblingBookOrder) async -> BookOpenRequest? {
-        guard Set(candidates.map(\.path)).count > 1,
-              !candidates.allSatisfy({ isImageFile($0.lastPathComponent) })
-        else { return nil }
-        // 下調べはファイルを読むので FileIO の上で(2026-10-04 の監査 O-7 の付記。`Task.detached` は応答しない共有でプールを止める)。
-        let found = await FileIO.perform { DroppedBooks.multiple(candidates, order: order) }
-        guard let first = found.books.first else { return nil }
-        let sequence = found.books.count > 1
-            ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
-        return BookOpenRequest(first, sequence: sequence)
-    }
-}
-
 /// Dock・Finder から渡されたものの下調べ(AppDelegate.application(_:open:)。2026-09-27)。ウインドウへのドロップと同じ規則
 /// (DroppedBooks)で、開く要求と、本でないので開かなかった数を返す。全部が画像なら従来どおり 1 冊にまとめる。
+/// 「新規ウインドウで開く…」もこれを通す(2026-10-04 の監査 O-6。以前は `BookOpenRequest.sequenced` という複数のときだけの
+/// 下調べで、本が 1 冊も無いと下調べ前の要求のまま窓を作ってエラーを出していた ―― それで使われなくなったので外した)。
 nonisolated enum ExternalOpenPreparation {
     struct Prepared: Sendable {
         /// 開く要求。本が 1 つも無ければ nil。

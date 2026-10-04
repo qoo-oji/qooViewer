@@ -93,6 +93,9 @@ struct SidePanelView: View {
     /// 「履歴」モードの行をクリックして開く。`onOpen` と違い、環境設定「本を開く」の「履歴から」に従って新しいタブ/ウインドウに
     /// 開くことがある(2026-09-28。`AppState.openFromHistory`)。パネルを閉じるかどうかは呼び出し側が結果で決める。
     var onOpenFromHistory: (URL) -> Void
+    /// 「履歴」モードの行が開けなかった(繋がっていないボリューム・消えた・ゴミ箱)ときの知らせを出す(2026-10-04 の監査 SP-7。
+    /// 呼び出し側は `AppState.postViewerNotice` へ渡す。以前は黙って何もしなかった)。
+    var onHistoryOpenFailure: (String) -> Void
     /// フォルダブラウザの移動でたどり着いたフォルダの画像を表示する(moveAndShowImages)。
     /// `onOpen`と違い**履歴に残さない** ―― 目的の本を探して通り抜けただけのフォルダで履歴が
     /// 埋まらないようにするため(BookOpenRequest.recordsInHistory参照)。
@@ -308,7 +311,8 @@ struct SidePanelView: View {
                         recentFiles: recentFiles,
                         currentBookPath: currentBookPath,
                         onOpen: onOpenFromHistory,
-                        onOpenInNewWindow: onOpenInNewWindow
+                        onOpenInNewWindow: onOpenInNewWindow,
+                        onOpenFailure: onHistoryOpenFailure
                     )
                 }
             case .pages:
@@ -613,6 +617,16 @@ struct SidePanelView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let message = folderState.listingErrorMessage {
+                // 権限以外の理由で読めなかった(2026-10-04 の監査 SP-8)。許可しても直らないので「アクセスを許可…」は出さない。
+                VStack {
+                    Text(message)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .panelOutlinedContent()
+                        .padding()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 let entries = filteredFolderEntries
                 if entries.isEmpty && !folderState.entries.isEmpty {
@@ -812,8 +826,10 @@ struct SidePanelView: View {
             )
         } else if !isBook, preferences.smartLibraryFeatureEnabled {
             Divider()
+            // シークレットフォルダそのもの・その中は淡色(2026-10-04 の監査 X-7。足しても一冊も並ばない)。
             Button("Add to Smart Library Targets") { addToSmartLibrary(entry) }
-                .disabled(isPrivateWindow || smartLibraryStore.containsFolder(entry.url))
+                .disabled(isPrivateWindow || smartLibraryStore.containsFolder(entry.url)
+                          || secretFolderStore.contains(path: entry.url.path))
         }
         if entry.isDirectory {
             Divider()
@@ -847,7 +863,9 @@ struct SidePanelView: View {
                 [entry.url], store: smartLibraryStore, folderAccess: folderAccess,
                 isFeatureEnabled: { [weak preferences] in (preferences?.smartLibraryFeatureEnabled ?? false) && !isPrivateWindow }
             ) else { return }
-            if result.added.isEmpty {
+            if result.added.isEmpty, !result.refusedSecret.isEmpty {
+                windowNotice(SmartLibraryTargetAdding.secretRefusedMessage(result.refusedSecret, locale: locale))
+            } else if result.added.isEmpty {
                 windowNotice(FileBrowserActions.bookFolderCannotBeSmartTarget(names: [name], locale: locale).title)
             } else {
                 windowNotice(SmartLibraryTargetAdding.addedMessage(result.added, locale: locale))
@@ -994,6 +1012,9 @@ private struct BookContentsSectionView: View {
     /// (PanelListScrollTracker。3つの一覧で共有。行間・余白ゼロの詰めた一覧)。
     @State private var scrollPosition = ScrollPosition()
     @State private var scrollTracker = PanelListScrollTracker()
+    /// 出している「踏み込めなかった」の知らせ(BookContentsBrowserState.stepInFailure)と、それを下ろす待ち。
+    @State private var stepInFailureMessage: String?
+    @State private var stepInFailureDismissTask: Task<Void, Never>?
 
     /// 絞り込みを適用した一覧。
     private var filteredEntries: [BookInternalBrowsing.Entry] {
@@ -1096,6 +1117,32 @@ private struct BookContentsSectionView: View {
                 }
             }
         }
+        // 踏み込みに失敗した知らせ(2026-10-04 の監査 SP-6。BookContentsBrowserState.stepInFailure)。一覧はそのまま残し、下に短く
+        // 浮かべる(クリックは一覧へ通す)。見た目はビューアのトーストと共通(OverlayToast。文字の輪郭もそちらで掛ける)。
+        .overlay(alignment: .bottom) {
+            ZStack {
+                if let stepInFailureMessage {
+                    OverlayToast(message: stepInFailureMessage)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 12)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.2), value: stepInFailureMessage)
+        }
+        .onChange(of: state.stepInFailure) { _, failure in
+            guard let failure else { return }
+            NSSound.beep()
+            stepInFailureMessage = failure.message
+            stepInFailureDismissTask?.cancel()
+            stepInFailureDismissTask = Task { @MainActor in
+                try? await Task.sleep(for: FileBrowserState.toastDuration)
+                guard !Task.isCancelled else { return }
+                stepInFailureMessage = nil
+            }
+        }
+        .onDisappear { stepInFailureDismissTask?.cancel() }
     }
 
     /// 今表示しているページの行(見開きで2ページとも表示中なら、その2行)が画面から外れて
@@ -1716,6 +1763,8 @@ private struct SidePanelHistorySectionView: View {
     var onOpen: (URL) -> Void
     /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenInNewWindow)。
     var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
+    /// 開けなかった理由の知らせ(SidePanelView.onHistoryOpenFailure)。
+    var onOpenFailure: (String) -> Void
 
     @State private var filterText = ""
     /// 「履歴をすべて消去」の確認アラートの表示状態。取り消せない操作なので必ず1枚挟む
@@ -1796,6 +1845,11 @@ private struct SidePanelHistorySectionView: View {
         }
     }
 
+    /// 開く直前の解決。開けなければ理由を知らせて nil(2026-10-04 の監査 SP-7。RecentFilesStore.resolveForOpening(_:locale:report:))。
+    private func resolve(_ entry: RecentFilesStore.Entry) -> URL? {
+        recentFiles.resolveForOpening(entry, locale: preferences.effectiveLocale, report: onOpenFailure)
+    }
+
     private func row(for entry: RecentFilesStore.Entry) -> some View {
         // 今開いている本(MangaBook.id = パス)と同じ行を強調する。ハイライト判定を
         // URL同士の==ではなくパス文字列で行う理由は、SidePanelView.folderRowと同じ
@@ -1824,23 +1878,23 @@ private struct SidePanelHistorySectionView: View {
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
         .help(entry.path)
-        // 開く直前に初めてブックマークを解決する(解決できなければ履歴から取り除かれる)。
+        // 開く直前に初めてブックマークを解決する(消えた本は履歴から取り除かれ、開けない理由は知らせる ―― resolve(_:))。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) {
-            guard let url = recentFiles.resolveForOpening(entry) else { return }
+            guard let url = resolve(entry) else { return }
             onOpen(url)
         }
         .sidePanelContextHighlight(rowID: "history:\(entry.id)")
         .contextMenu {
             // 「開く」も「新規◯◯で開く」も、選ばれた時点で初めてブックマークを解決する
-            // (解決できなければ履歴から取り除かれ、何も開かない)。行を描くたびに解決すると
+            // (消えた本は履歴から取り除かれ、何も開かずに理由を知らせる)。行を描くたびに解決すると
             // 一覧全体でディスクを触ることになるため、必ずクロージャの中で行うこと。
             BookOpenContextMenuItems(
                 onOpen: {
-                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                    guard let url = resolve(entry) else { return }
                     onOpen(url)
                 },
                 onOpenIn: { destination in
-                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                    guard let url = resolve(entry) else { return }
                     onOpenInNewWindow(url, destination)
                 }
             )

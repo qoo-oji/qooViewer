@@ -196,6 +196,8 @@ struct BookmarkEditorView: View {
     /// その購読を張ったウインドウ(同じウインドウに二重に張らないため)。
     @State private var closeObservedWindowBox = WeakWindowBox()
     @State private var renamingBookmark: Bookmark?
+    /// 名前を変えようとしたブックマークが、保存の時点でもう無かった(BE-10)。
+    @State private var isShowingRenamedBookmarkGone = false
     @State private var renameText = ""
 
     @State private var bookFilter: EditorBookFilter = .all
@@ -472,15 +474,13 @@ struct BookmarkEditorView: View {
     var body: some View {
         if mergedRows.isEmpty {
             // ブックマーク・レイアウトいずれのデータも1件も無い場合の案内画面。
+            //
+            // 案内文だけにする(2026-10-04 の監査 BE-9)。以前は「このページをブックマークに追加」のボタンを置いていたが、記録できる本を
+            // 読んでいれば左の一覧にその本の行が必ず入る(mergedRows)のでこの画面にはならず、ボタンはいつも淡色で押せなかった。
             ContentUnavailableView {
                 Label("No Bookmarks Yet", systemImage: "bookmark.slash")
             } description: {
                 Text("Bookmarks you add to any book will appear here.")
-            } actions: {
-                Button("Add This Page to Bookmarks") {
-                    launchCoordinator.activeRecordableBookAppState?.addBookmarkAction?()
-                }
-                .disabled(launchCoordinator.activeRecordableBookAppState?.currentBook == nil)
             }
             .frame(minWidth: 640, minHeight: 420)
         } else {
@@ -856,15 +856,24 @@ struct BookmarkEditorView: View {
                 BookmarkRenameSheet(
                     text: $renameText,
                     onSave: {
-                        if let bookmark = renamingBookmark {
-                            bookmarkStore.rename(bookmark, to: renameText)
-                        }
+                        // 保存の時点で id から引き直す。シートを出している間に別のウインドウで消されていれば、書かずに閉じて知らせる
+                        // (2026-10-04 の監査 BE-10。BookmarkStore.rename(bookmarkID:to:))。
+                        // 知らせはシートが下りてから出す SwiftUI のアラート(閉じかけのシートの上に AppKit のシートを重ねると、
+                        // シートが閉じたときに WindowSheet がそれもキャンセルで下ろす)。
+                        let gone = renamingBookmark.map { !bookmarkStore.rename(bookmarkID: $0.id, to: renameText) } ?? false
                         renamingBookmark = nil
+                        if gone { isShowingRenamedBookmarkGone = true }
                     },
                     onCancel: {
                         renamingBookmark = nil
                     }
                 )
+            }
+            .alert(
+                BookmarkStore.renamedBookmarkGoneMessage(locale: preferences.effectiveLocale),
+                isPresented: $isShowingRenamedBookmarkGone
+            ) {
+                Button("OK", role: .cancel) {}
             }
             // 4.4節「ブックマークを全削除」の確認。
             .alert(

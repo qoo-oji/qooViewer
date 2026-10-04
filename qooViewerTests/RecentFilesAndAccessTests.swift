@@ -105,6 +105,50 @@ struct RecentFilesAndAccessTests {
         #expect(store.entries.map(\.path) == [offline])
     }
 
+    /// 2026-10-04 の監査 SP-7 = M-4・H-6。以前は nil だけを返し、4 つの入口がどれも黙っていた。
+    @Test("履歴の項目を開けないときは理由を返す: 繋がっていないボリュームは行を残し、消えた本は行を取り除く")
+    func resolvingForOpeningReportsWhyItFailed() throws {
+        let suite = PreferencesSuite(label: "recent-open-failure")
+        let temporary = try TemporaryDirectory("recent-open-failure")
+        let present = temporary.file("present.cbz")
+        let gone = temporary.file("gone.cbz")
+        try Data().write(to: present)
+        try Data().write(to: gone)
+        let goneBookmark = try gone.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        try FileManager.default.removeItem(at: gone)
+        let offline = "/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)/book.cbz"
+        struct Stored: Codable { let bookmark: Data; let path: String; let isDirectory: Bool }
+        let stored = [Stored(bookmark: Data([0x01]), path: offline, isDirectory: false),
+                      Stored(bookmark: goneBookmark, path: gone.path, isDirectory: false)]
+        suite.defaults.set(try JSONEncoder().encode(stored), forKey: "recentBookEntries")
+        let store = RecentFilesStore(defaults: suite.defaults)
+        store.record(url: present)
+        try #require(store.entries.contains { $0.path == offline })
+
+        let offlineEntry = try #require(store.entries.first { $0.path == offline })
+        #expect(store.resolveForOpening(offlineEntry) == .failure(.volumeNotConnected))
+        #expect(store.entries.contains { $0.path == offline }, "繋がっていないボリュームの行を消した")
+
+        let goneEntry = RecentFilesStore.Entry(path: gone.path, isDirectory: false, bookmark: goneBookmark)
+        #expect(store.resolveForOpening(goneEntry) == .failure(.missing))
+        #expect(!store.entries.contains { $0.path == gone.path })
+
+        let presentEntry = try #require(store.entries.first { $0.path == present.path })
+        let resolved = try store.resolveForOpening(presentEntry).get()
+        #expect(resolved.standardizedFileURL.path == present.standardizedFileURL.path)
+
+        // 知らせは理由ごとの文で、名前を含む。
+        let reported = OpenFailureReports()
+        #expect(store.resolveForOpening(offlineEntry, locale: Locale(identifier: "en"), report: { reported.messages.append($0) }) == nil)
+        #expect(reported.messages.count == 1)
+        #expect(reported.messages.first?.contains(offlineEntry.displayName) == true)
+    }
+
+    @MainActor
+    private final class OpenFailureReports {
+        var messages: [String] = []
+    }
+
     @Test("1件だけの削除は、保存済みのデータからも消える")
     func removingOneEntryClearsItFromStorage() throws {
         let suite = PreferencesSuite(label: "recent")

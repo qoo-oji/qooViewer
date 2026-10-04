@@ -698,6 +698,24 @@ final class BookmarkStore: ObservableObject {
 
     /// ブックマークをリネームする。本が今開いているかどうかに関わらず直接SwiftDataを操作し、
     /// bookmarksDidChangeを投げてViewerViewModel側(その本が今開いていれば)にも反映させる。
+    /// 名前の変更を、**保存する時点で id から引き直して**行う(2026-10-04 の監査 BE-10 = SP-14)。
+    ///
+    /// 名前の変更のシート・アラートは開いた時点の `Bookmark` を持ったまま待つ。その間に別のウインドウで消されると、消えた行へ書いて
+    /// 名前の変更が黙って失われ(実測。落ちはしなかった)、⌘Z で戻した後なら戻ったのは別のインスタンスなので新しい名前が届かなかった。
+    /// id は削除の取り消しでも同じ値で作り直される(DataUndoStack)ので、引き直せば戻った行へ届く。
+    /// - Returns: 名前を変えたか。false(もう無い)なら、呼び出し側が閉じて知らせる。
+    @discardableResult
+    func rename(bookmarkID: UUID, to newName: String) -> Bool {
+        guard let current = allBookmarks().first(where: { $0.id == bookmarkID && !$0.isDeleted }) else { return false }
+        rename(current, to: newName)
+        return true
+    }
+
+    /// 名前を変えようとしたブックマークがもう無かったときの知らせ(`rename(bookmarkID:to:)` が false)。
+    static func renamedBookmarkGoneMessage(locale: Locale) -> String {
+        String(localized: "The bookmark was deleted before the new name was saved.", language: locale)
+    }
+
     func rename(_ bookmark: Bookmark, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

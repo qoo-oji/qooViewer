@@ -404,7 +404,7 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.deleteImmediately))
     }
 
-    @Test("ツリーの ⌘C / ⌘X / ⌘V と右クリックは選ばれている行へ効く。根の行はカット・ゴミ箱に入れるができないが、コピー・ペースト・圧縮はできる(ボリュームはコピーもしない。2026-10-04)")
+    @Test("ツリーの ⌘C / ⌘X / ⌘V / ⌥⌘V と右クリックは選ばれている行へ効く。根の行はカット・ゴミ箱に入れるができないが、コピー・ペースト・圧縮はできる(ボリュームはコピーもしない。2026-10-04)")
     func treeEditCommandsActOnSelectedRow() throws {
         let fixture = try Fixture("fb-tree-edit")
         defer { fixture.close() }
@@ -433,6 +433,7 @@ struct FileBrowserIntegrationTests {
         #expect(!actions.canPerformInTree(.copy, on: FileBrowserTreeEditTarget(entry: volume, isRoot: true)))
         // ほかの操作は受けない(右ペインの選択へ効く口とは別)。
         #expect(!actions.canPerformInTree(.goUp, on: row))
+        // ⌥⌘V「ここに項目を移動」はペーストと同じ条件(2026-10-04 の監査 FBA-7)。ペーストボードが空なので淡色。
         #expect(!actions.canPerformInTree(.moveItemHere, on: row))
 
         #expect(actions.canPerformInTree(.copy, on: row))
@@ -443,6 +444,8 @@ struct FileBrowserIntegrationTests {
         // 根へもふつうのフォルダへも貼れる。
         #expect(actions.canPerformInTree(.paste, on: rootRow))
         #expect(actions.canPerformInTree(.paste, on: row))
+        #expect(actions.canPerformInTree(.moveItemHere, on: rootRow))
+        #expect(actions.canPerformInTree(.moveItemHere, on: row))
 
         #expect(actions.canPerformInTree(.cut, on: row))
         actions.performInTree(.cut, on: row)

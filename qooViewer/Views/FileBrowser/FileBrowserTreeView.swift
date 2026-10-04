@@ -1187,6 +1187,14 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 return .move
             }
             guard let actions else { return [] }
+            // 「ビューアで開く」の設定(外から来たもの)は、どの行・行の間・空き領域の上でも同じく開くので、行を探す前に判定して
+            // ツリー全体を受け口にする(2026-10-04 の監査 FBU-1。以前は行の上だけ受け入れの表示を出し、行の間・空き領域・グループの
+            // 見出しでは断っていた ―― ツリーは登録済みの受け口なので、ウインドウ全体の「本を開く」受け口へも落ちなかった)。
+            let (wholeTreeDecision, _) = actions.dropDecision(for: info, into: nil)
+            if case .openInViewer = wholeTreeDecision {
+                outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
+                return wholeTreeDecision.dragOperation(sourceMask: info.draggingSourceOperationMask)
+            }
             var target = item as? Node
             if index != NSOutlineViewDropOnItemIndex {
                 // 行の間 → カーソルの真下の行の上へ(型コメント)。提案された item は境目の「親」なので使わない。
@@ -1196,10 +1204,6 @@ struct FileBrowserTreeView: NSViewRepresentable {
             }
             guard let node = target, !node.isGroup, let url = node.url else { return [] }
             let (decision, _) = actions.dropDecision(for: info, into: url)
-            // 「ビューアで開く」の設定では、その行のフォルダへは入れない(開く)ので行を強調しない(2026-09-27。一覧と同じ)。
-            if case .openInViewer = decision {
-                outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
-            }
             return decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
         }
 
@@ -1212,7 +1216,18 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 actions?.moveFavoriteLocation(id: id, to: index)
                 return true
             }
-            guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return false }
+            guard let actions else { return false }
+            // 「ビューアで開く」は行を強調しない(validateDrop で受け口を nil にした)ので、ここへ来る item は nil。SDK
+            // (NSOutlineView.h)の約束どおり、acceptDrop の item は validateDrop で最後に置いた値。以前は item が Node でなければ
+            // false を返していたので、受け入れの表示を出したのに落としても何も起きなかった(2026-10-04 の監査 FBU-1、実測)。
+            // 受け口が無いときは、validateDrop と同じくまずツリー全体への判定(開く)を見る。
+            guard let node = item as? Node else {
+                let (decision, urls) = actions.dropDecision(for: info, into: nil)
+                guard case .openInViewer = decision else { return false }
+                actions.performDrop(decision, urls: urls)
+                return true
+            }
+            guard !node.isGroup, let url = node.url else { return false }
             let (decision, urls) = actions.dropDecision(for: info, into: url)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted

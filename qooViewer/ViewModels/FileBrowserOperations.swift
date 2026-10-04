@@ -765,9 +765,7 @@ final class FileBrowserOperations: ObservableObject {
         var result: FileCommandResult?
         do {
             result = try await stack.run(command)
-            if case let .partial(_, failures, wasCancelled)? = result, !failures.isEmpty, !wasCancelled {
-                problem = FileBrowserProblem.partialFailure(operationName: command.displayName, failures: failures)
-            }
+            problem = result.flatMap { FileBrowserProblem.afterRun($0, operationName: command.displayName) }
         } catch let rollback as CompositeRollbackError {
             problem = FileBrowserProblem(title: rollback.localizedDescription, message: FileBrowserProblem.listing(rollback.failures))
         } catch {
@@ -1038,6 +1036,17 @@ struct FileBrowserProblem: Equatable {
             ),
             message: listing(failures, locale: locale)
         )
+    }
+
+    /// 操作を走らせた後に見せる報告(`FileBrowserOperations.run`)。
+    ///
+    /// 中止で止めても、止める前に起きた本当の失敗(と展開で捨てた危険なエントリ)は見せる。手を付けなかった項目
+    /// (`FileCommandStack.notProcessedReason`)だけを外す ―― やり直し(`FileCommandStack.redo`)の中止と同じ絞り込み
+    /// (2026-10-04 の監査 FBA-6。以前は中止なら失敗を全部捨てていて、入口によって見せるものが違った)。
+    static func afterRun(_ result: FileCommandResult, operationName: String) -> FileBrowserProblem? {
+        guard case let .partial(_, failures, wasCancelled) = result else { return nil }
+        let shown = wasCancelled ? failures.filter { $0.reason != FileCommandStack.notProcessedReason } : failures
+        return shown.isEmpty ? nil : partialFailure(operationName: operationName, failures: shown)
     }
 
     static func undo(_ outcome: FileUndoOutcome, isRedo: Bool) -> FileBrowserProblem? {

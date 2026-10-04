@@ -350,9 +350,18 @@ final class FileBrowserActions {
         )
     }
 
+    /// 名前を変えられるか。`canChange` に加えて、**複数なら同じフォルダの項目だけ**(一括リネームは 1 つのフォルダの中で名前を
+    /// 振り直す ―― `FileBrowserOperations.bulkRename` が断る条件)。2026-10-04 の監査 FBA-3: 以前は淡色の判定がこの条件を見ず、
+    /// 「最近の項目」で別々のフォルダの項目を選ぶと「N 項目の名前を変更…」が押せるのに何も起きなかった(圧縮・展開・エイリアスは
+    /// `canCompress` の同じ条件で淡色にしていた)。
+    func canRename(_ entries: [FileBrowserEntry]) -> Bool {
+        guard canChange(entries) else { return false }
+        return entries.count <= 1 || canCompress(entries)
+    }
+
     /// 右クリックの「名前を変更」。1 件なら一覧に名前の編集を始めてもらい、複数なら一括リネームのシートを出す(段階 5。Finder と同じ)。
     func beginRename(_ entries: [FileBrowserEntry]) {
-        guard canChange(entries) else { return }
+        guard canRename(entries) else { return }
         if entries.count == 1, let entry = entries.first {
             state?.requestRename(entry.id)
         } else {
@@ -618,14 +627,15 @@ struct FileBrowserTreeEditTarget {
 /// - カット・ゴミ箱に入れる・すぐに削除: 根の行はしない(ユーザー決定 2026-10-04 ―― 根を移すとツリーの根そのものが動く。ドラッグで
 ///   掴ませないのと同じ。FileBrowserTreeView の型コメント「ドラッグ&ドロップ」。ホームをゴミ箱に入れられる状態にしない)。ほかは右ペインと
 ///   同じ `canChange`。
-/// - ペースト: その行のフォルダへ(根でもよい。右クリックの「ペースト」と同じ行き先)。
+/// - ペースト: その行のフォルダへ(根でもよい。右クリックの「ペースト」と同じ行き先)。⌥⌘V「ここに項目を移動」も同じ行き先へ移す
+///   (2026-10-04 の監査 FBA-7)。
 extension FileBrowserActions {
     func canPerformInTree(_ command: FileBrowserEditCommand, on target: FileBrowserTreeEditTarget?) -> Bool {
         guard state != nil, let target else { return false }
         switch command {
         case .copy: return canModify([target.entry])
         case .cut, .moveToTrash, .deleteImmediately: return !target.isRoot && canChange([target.entry])
-        case .paste: return canPaste(into: target.entry.url)
+        case .paste, .moveItemHere: return canPaste(into: target.entry.url)
         default: return false
         }
     }
@@ -636,6 +646,7 @@ extension FileBrowserActions {
         case .copy: copy([target.entry])
         case .cut: cut([target.entry])
         case .paste: paste(into: target.entry.url)
+        case .moveItemHere: paste(into: target.entry.url, forceMove: true)
         case .moveToTrash: moveToTrash([target.entry])
         case .deleteImmediately: deleteImmediately([target.entry])
         default: break
@@ -951,7 +962,10 @@ enum FileBrowserMenuCommand {
             // ツリーの根(ボリューム・ホーム・よく使う項目)は移さない・消さない・名前を変えない(`canPerformInTree` と同じ。根を移すと
             // ツリーの根そのものが動く。ホームをゴミ箱に入れる項目を押せる状態にしない。名前の変更は右ペインへ出せないことがある)。
             if context.isTreeRoot { return false }
-            if self == .rename, !FileBrowserActions.canRevealTreeRowInList(context) { return false }
+            if self == .rename {
+                guard FileBrowserActions.canRevealTreeRowInList(context) else { return false }
+                return actions.canRename(entries)
+            }
             return actions.canChange(entries)
         case .copy:
             return actions.canModify(entries)

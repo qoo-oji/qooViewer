@@ -28,6 +28,10 @@ final class SidePanelBrowserState: ObservableObject {
     /// entries(in:)が権限エラーを投げた場合にtrue。空フォルダと区別し、パネル側で
     /// その場からアクセスを許可するボタンを出す判定に使う。
     @Published private(set) var needsFolderAccessGrant = false
+    /// 権限以外の理由で一覧を読めなかったときの文(`FileBrowserLoadError.other`。パネルは一覧の代わりにこれを出す)。
+    /// 2026-10-04 の監査 SP-8: 以前は権限以外の失敗も `needsFolderAccessGrant` に落とし、許可しても直らない「アクセスを許可…」を
+    /// 出していた(右のファイルブラウザは `.other` の文をそのまま出す ―― FileBrowserPane.loadErrorMessage)。
+    @Published private(set) var listingErrorMessage: String?
     /// 今表示中のフォルダの直下に画像ファイルがあるかどうか。
     ///
     /// この一覧は画像ファイルを行として出さない(DirectoryBrowser.makeEntry。一覧の目的は
@@ -277,13 +281,15 @@ final class SidePanelBrowserState: ObservableObject {
                 self.currentDirectoryHasImages = hasImages
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = false
+                self.listingErrorMessage = nil
                 // 読み込んでいる間に並べ替え設定が変わっていた場合の取りこぼしを拾う
                 // (変わっていなければ何もしない)。
                 self.applySortSettings()
             } catch {
                 guard !Task.isCancelled else { return }
                 // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)なら、残っている祖先へ移る(型コメント)。
-                // 「アクセスを許可…」を出すのは、読む権限が無いときだけ。
+                // 「アクセスを許可…」を出すのは、読む権限が無いときだけ。それ以外の失敗は文を出す(SP-8。listingErrorMessage)。
+                var otherFailure: String?
                 if let directory {
                     switch FileBrowserLoadError.classify(error, folder: directory) {
                     case .notFound, .volumeUnavailable:
@@ -295,14 +301,17 @@ final class SidePanelBrowserState: ObservableObject {
                         self.highlightedURL = nil
                         self.reload()
                         return
-                    case .needsAccess, .other:
+                    case .needsAccess:
                         break
+                    case .other(let message):
+                        otherFailure = message
                     }
                 }
                 self.entries = []
                 self.currentDirectoryHasImages = false
                 self.appliedSort = sort
-                self.needsFolderAccessGrant = true
+                self.needsFolderAccessGrant = otherFailure == nil
+                self.listingErrorMessage = otherFailure
             }
         }
     }

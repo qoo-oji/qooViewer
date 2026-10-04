@@ -253,6 +253,25 @@ struct FileSystemChangeTests {
         #expect(state.cutPaths.isEmpty)
     }
 
+    /// 2026-10-04 の監査 FBA-4。以前は外れた項目だけを記憶から除き、残りは淡色のままなのに ⌘V はペーストボードとの不一致でコピーに
+    /// なり、外れた項目の古いパスで全体が断られた。
+    @Test("カットした項目の一部をアプリの中で動かしたら、記憶ごと下ろす(残りを淡色のままにしない)")
+    func partlyDisplacedCutIsForgottenAsAWhole() async throws {
+        let fixture = try Fixture("fs-change-cut-partial")
+        let state = fixture.makeState()
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let text = try #require(state.entries.first { $0.url.lastPathComponent == "a.txt" })
+        let folder = try #require(state.entries.first { $0.url.lastPathComponent == "inner" })
+        state.operations.cut([text, folder])
+        #expect(state.isCut(text) && state.isCut(folder))
+
+        await state.operations.rename(text, to: "b.txt").value
+        await state.settle()
+        #expect(state.cutPaths.isEmpty, "動かしていない項目が淡色のまま残った")
+        #expect(fixture.clipboard.paths.isEmpty)
+    }
+
     // MARK: - 部品
 
     /// 同じ箱と、その箱へ知らせるエンジンを共有する状態を作る。`root/{inner/leaf/x.txt, a.txt}`。
