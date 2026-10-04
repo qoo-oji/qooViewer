@@ -287,10 +287,16 @@ final class AutoRenameService: ObservableObject {
     /// だった。開いた後で別のウインドウから同じ規則に対象を足す(またはボリュームが繋がって既存の対象が使えるようになる)と、
     /// 「名前を変更」が一覧に出ていない対象まで確認済みにし、**見ていない既存の項目を改名した**(実測)。`store.confirm` はその時点の
     /// 規則で印を付けるので、開いた後で規則を変えた場合も、見せたのと違う変更を確認済みにしていた。
+    ///
+    /// **確認済みにするのは、見せた計画に入っていた対象だけ**(2026-10-04 のレビュー R1-1)。`preview.targetIDs` は開いた時点の確認待ちの写しで、
+    /// 使えない(取り出したボリューム・よく使う項目の外・権限が無い)対象や OFF の対象は計画に入らず、一覧にも出ない。以前はその写し全部に
+    /// 印を付けたので、シートを開いた後でボリュームを取り出す → 「名前を変更」(計画が食い違って作り直し)→ もう一度押す、または開く前から
+    /// 使えなかった対象があると、見せていない対象まで確認済みになり、繋ぎ直したときに中の今ある項目を見せないまま改名した。
+    /// 計画から外れた対象は確認待ちのまま残り、使えるようになったら次の確認で見せる。
     @discardableResult
     func confirm(_ preview: ConfirmationPreview) -> Bool {
         guard makePlan(including: preview.targetIDs) == preview.plan else { return false }
-        confirm(targetIDs: preview.targetIDs)
+        confirm(targetIDs: preview.targetIDs.intersection(preview.plan.targets.map(\.id)))
         return true
     }
 
@@ -326,21 +332,30 @@ final class AutoRenameService: ObservableObject {
             // 以前はここだけ素通しだった ―― 開いたまま名前が変わり、フォルダの本ならページのパスが切れた。規則は開いている本との照合の
             // 共通のもの(`FileOperationService.overlaps`)、パスの書き方は自動の改名と同じ `AutoRename.canonicalPath` で揃える。項目ごとに、
             // 戻す直前の一覧で見る(前の項目を戻す間に開かれた本も当たる)。
-            if FileOperationService.overlaps(
-                URL(fileURLWithPath: AutoRename.canonicalPath(current.path)), anyOf: inUsePaths().map(AutoRename.canonicalPath)
-            ) {
-                firstProblem = firstProblem ?? String(
-                    format: String(localized: "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again.", language: currentLocale),
-                    newName
-                )
-                continue
-            }
+            //
+            // 照合は**実体の確かめ(`matches`)の await の後、名前を変える直前**(2026-10-04 のレビュー R3-3。以前は確かめの前に照合していたので、
+            // `FileIO` を待つ間に別のウインドウで開いた本を戻していた)。ここから `fileOps.rename` までは await を挟まない(`rename` の中の
+            // FileIO を待つ間に開かれたぶんは、ファイルブラウザの名前の変更と同じく防げない)。
             let identity = entry.identity
             // 名前を変えた後に同じパスへ別の項目が来ていたら触らない(ファイルブラウザの取り消しと同じ考え方)。
             let matches = await FileIO.perform { FileIdentity.matches(current, identity) }
             guard matches else {
                 firstProblem = firstProblem ?? String(
                     format: String(localized: "“%@” couldn’t be restored because it was moved, renamed or replaced.", language: currentLocale),
+                    newName
+                )
+                continue
+            }
+            // 待つ間に読み取り専用へ切り替わったら、残りは戻さない(上の確かめと同じ答え)。
+            guard !preferences.fileBrowserReadOnly else {
+                return String(localized: "Original names can’t be restored while the file browser is in read-only mode.", language: currentLocale)
+            }
+            if FileOperationService.overlaps(
+                URL(fileURLWithPath: AutoRename.canonicalPath(current.path), isDirectory: false),
+                anyOf: inUsePaths().map(AutoRename.canonicalPath)
+            ) {
+                firstProblem = firstProblem ?? String(
+                    format: String(localized: "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again.", language: currentLocale),
                     newName
                 )
                 continue

@@ -114,6 +114,30 @@ struct AutoRenameServiceTests {
         #expect(plan.ruleIndices(forFolder: "/Volumes/X/A/B/C/D") == [1])
     }
 
+    /// 2026-10-04 のレビュー R3-2。よく使う項目そのもの(ホームも)を対象にできるので、規則がホームの標準のフォルダの名前を変えた。
+    /// 本物の判定(`FileOperationService.isProtectedLocation`)は実際のホームのパスで答えるので、一時フォルダでは差し替えて確かめる
+    /// (本物のホームを走査しない)。
+    @Test("走査は macOS が要るフォルダの名前を変える候補にしない")
+    func scannerLeavesProtectedLocationsAlone() throws {
+        let temporary = try TemporaryDirectory("auto-rename-protected")
+        let home = try temporary.directory("home")
+        try temporary.directory("home/Movies [tag]")
+        try temporary.directory("home/shelf [tag]")
+        let text = AutoRename.RuleText(find: " [tag]", replaceWith: "", includesFolders: true)
+        let plan = AutoRenamePlan(
+            rules: [.init(id: UUID(), name: "1", text: text)],
+            targets: [.init(id: UUID(), ruleIndex: 0, path: AutoRename.canonicalPath(home.path), includesSubfolders: false)]
+        )
+        let protected = AutoRename.canonicalPath(home.appendingPathComponent("Movies [tag]").path)
+        let result = AutoRenameScanner.examine(
+            folder: home.path, recursive: false, plan: plan, takesSnapshots: false, isProtected: { $0 == protected }
+        )
+        #expect(result.candidates.map(\.name) == ["shelf [tag]"])
+        #expect(result.skips.isEmpty)
+        // 本物の判定はホームの標準のフォルダを当てる(文字列だけ)。
+        #expect(FileOperationService.isProtectedLocation(path: FileBrowserListing.realHomeDirectory().path + "/Movies"))
+    }
+
     // MARK: - 名前の変更
 
     @Test("確認済みの対象では、今ある項目の名前をサブフォルダまで変え、実行ログに残す")
@@ -195,6 +219,49 @@ struct AutoRenameServiceTests {
         #expect(harness.exists("later/two [tag].zip"), "プレビューに出ていない対象の項目を変えた")
         let added = try #require(harness.store.rule(withID: rule.id)?.targets.first { $0.path == AutoRename.canonicalPath(later.path) })
         #expect(added.confirmedSignature == nil)
+    }
+
+    /// 2026-10-04 のレビュー R1-1。計画が一致するかは確かめていたが、確認済みにしたのは開いた時点の確認待ちの写し全部だった。
+    @Test("確認のシートを開いた後で使えなくなった対象は、「名前を変更」で確認済みにならず、使えるようになっても見せずに変えない")
+    func confirmingAPreviewSkipsTargetsThatBecameUnavailable() async throws {
+        let harness = try Harness("confirm-unavailable")
+        let shelf = try harness.folder("shelf")
+        let later = try harness.folder("later")
+        try harness.file("shelf/one [tag].zip")
+        try harness.file("later/two [tag].zip")
+        harness.favorites.add(shelf)
+        let laterFavorite = harness.favorites.add(later)
+        let rule = harness.addRule(find: " [tag]", replace: "", target: shelf, confirmed: false)
+        let (volume, bookmark) = AutoRenameService.volumeAndBookmark(for: later.path)
+        harness.store.add(target: AutoRenameTarget(path: later.path, volumeUUID: volume, bookmark: bookmark), toRule: rule.id)
+        let targets = try #require(harness.store.rule(withID: rule.id)?.targets)
+        let shelfID = try #require(targets.first { $0.path == AutoRename.canonicalPath(shelf.path) }?.id)
+        let laterID = try #require(targets.first { $0.path == AutoRename.canonicalPath(later.path) }?.id)
+        harness.service.start()
+        #expect(await eventually { harness.service.targetsAwaitingConfirmation == [shelfID, laterID] })
+
+        // シートを開いた(両方を見せた)後で、later が使えなくなった(取り出したボリューム。ここではよく使う項目から外す)。
+        let opened = await harness.service.previewForConfirmation(targetIDs: [shelfID, laterID])
+        #expect(Set(opened.items.map(\.newName)) == ["one.zip", "two.zip"])
+        harness.favorites.remove(id: laterFavorite.id)
+        harness.service.refreshAvailability()
+        #expect(await eventually { harness.service.availability[laterID] != .available })
+        // 1 回目の「名前を変更」は計画が食い違うので確認しない。シートは同じ写しで一覧を作り直す(later は出ない)。
+        #expect(!harness.service.confirm(opened))
+        let rebuilt = await harness.service.previewForConfirmation(targetIDs: opened.targetIDs)
+        #expect(rebuilt.items.map(\.newName) == ["one.zip"])
+        #expect(harness.service.confirm(rebuilt))
+        #expect(await eventually { harness.exists("shelf/one.zip") })
+        let laterTarget = try #require(harness.store.rule(withID: rule.id)?.targets.first { $0.id == laterID })
+        #expect(laterTarget.confirmedSignature == nil, "見せていない対象を確認済みにした")
+
+        // 使えるようになっても、確認するまで中の今ある項目は変えない。
+        harness.favorites.add(later)
+        harness.service.refreshAvailability()
+        #expect(await eventually { harness.service.availability[laterID] == .available })
+        #expect(await eventually { harness.service.targetsAwaitingConfirmation.contains(laterID) })
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(harness.exists("later/two [tag].zip"), "見せていない対象の項目を変えた")
     }
 
     @Test("取り込んだ規則は、変えるものが無くても確認を待ち、確認するまで後から届いた項目も変えない(2026-09-23 の 3 回目の監査の中 6)")
@@ -391,6 +458,30 @@ struct AutoRenameServiceTests {
         harness.inUse = [shelf.path]
         #expect(await harness.service.restore(entryIDs: [one.id]) != nil)
         #expect(harness.exists("shelf/one.zip"))
+    }
+
+    /// 2026-10-04 のレビュー R3-3。照合が実体の確かめ(FileIO を待つ)より前だったので、待つ間に開いた本を戻していた。
+    @Test("実行ログから元の名前に戻すとき、実体を確かめる間に開かれた本も戻さない")
+    func restoringChecksOpenBooksRightBeforeRenaming() async throws {
+        let harness = try Harness("restore-open-late")
+        let shelf = try harness.folder("shelf")
+        try harness.file("shelf/one [tag].zip")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        harness.service.start()
+        #expect(await eventually { harness.log.entries.filter(\.isRestorable).count == 1 })
+        let one = try #require(harness.log.entries.first { $0.originalName == "one [tag].zip" })
+
+        // `restore` はメインで動き、最初に手放すのは実体の確かめ(FileIO)を待つところ。その前に積んだこの Task は、確かめから戻る前に
+        // メインで走る(メインのキューは積んだ順)―― 別のウインドウで、確かめている間にその本を開いたのと同じ。
+        let opened = shelf.appendingPathComponent("one.zip").path
+        Task { harness.inUse = [opened] }
+        let problem = await harness.service.restore(entryIDs: [one.id])
+        #expect(harness.inUse == [opened])
+        #expect(problem != nil)
+        #expect(harness.exists("shelf/one.zip"), "確かめている間に開いた本の名前を戻した")
+        #expect(harness.log.entries.first { $0.id == one.id }?.isRestorable == true)
+        #expect(harness.store.excludedPaths.isEmpty)
     }
 
     /// 2026-09-21 の監査の L4。「元の名前に戻す」も名前の変更なのに、読み取り専用の間でも戻せていた。

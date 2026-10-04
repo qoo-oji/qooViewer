@@ -246,7 +246,8 @@ moves/renames/deletes user files must go through `FileOperationService`, and new
 each state gets a private center/clipboard and `AppStores` does not subscribe. Operations on a book open in any viewer are refused
 (`FileBrowserOperations.refusesBecauseOpenInViewer`; a conflict's "Replace" skips and reports an open book in the engine,
 `FileOperationOptions.protectedFromReplacing`, so "apply to all" and redo are covered — new transfer paths pass it; auto rename's
-"restore" checks `inUsePaths` too), and a book whose bookmark resolves into the Trash counts as missing
+"restore" checks `inUsePaths` too; matching folds case through `FileOperationService.comparisonKey` — a replace target arrives in the
+source's spelling — and the engine confirms by `FileIdentity`, never raw path strings, 2026-10-04 review R3-1), and a book whose bookmark resolves into the Trash counts as missing
 (`BookLocationResolver.isInTrash`; entry points that open a book from saved data filter with `outsideTrash`, and `AppState.open` never
 relocates saved data to a path in the Trash). Audit and rationale: `docs/plans/fs-ui-consistency-audit.md`, docs/15「アプリ自身の変更の知らせ」.
 Tab / ⇧Tab moves keyboard focus between the tree and the list/icon view through `FileBrowserState.requestFocus`

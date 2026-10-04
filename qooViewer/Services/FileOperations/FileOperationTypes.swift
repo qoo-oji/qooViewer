@@ -98,7 +98,8 @@ nonisolated struct FileOperationOptions: Sendable {
     /// だけで、宛先で置き換えられる側は見ていなかったので、開いている本が退避のうえゴミ箱(ゴミ箱の無い場所では完全削除)へ送られた。
     /// 衝突の確認(`conflictResolver`)で照合するだけでは塞がらない ―― 「すべてに適用」で決まった 2 件目以降と、やり直し(実行時の
     /// Options をそのまま使う)は確認を通らない。だからエンジンが**答えの後・退避の直前に**毎回問い合わせる(その間に別のウインドウで
-    /// 開かれた本も当たる)。nil なら照合しない(テスト・取り消しの `.keepBoth` は置き換えない)。
+    /// 開かれた本も当たる)。nil なら照合しない(テスト・取り消しの `.keepBoth` は置き換えない)。照合は綴りの違い(大文字小文字・NFC/NFD)を
+    /// 畳み、実体で確かめる(`FileOperationService.replacedItemOverlaps`。2026-10-04 のレビュー R3-1)。
     var protectedFromReplacing: (@MainActor @Sendable () -> [String])?
 
     init(

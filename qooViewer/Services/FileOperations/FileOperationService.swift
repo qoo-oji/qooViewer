@@ -689,6 +689,22 @@ actor FileOperationService {
         deletesImmediately ? containsLockedItem(target) : isLocked(target)
     }
 
+    /// 「置き換える」で既存の項目(`target`)を退避してはいけない理由。無ければ nil。**ファイルに触る**(開いている本との照合。FileIO の上で)。
+    /// 何にも触る前に断るので、戻すものも無い。`checkConflict` の `.replace` だけが呼ぶ ―― 「すべてに適用」の 2 件目以降とやり直しも
+    /// 通る唯一の場所。
+    ///
+    /// - macOS が要るフォルダ(`isProtectedLocation`。2026-10-04 のレビュー R3-2)。移動・名前の変更・ゴミ箱・完全削除は断っていたのに、
+    ///   「置き換える」の相手だけは素通しで、`movies` という名前のフォルダをホームへ写して置き換えると `~/Movies` が退避のうえゴミ箱へ
+    ///   送られた(`~/Movies` と `~/Applications` には削除を断る ACL が無い)。宛先は運ぶ元の綴りのまま(`movies`)なので、文字列の
+    ///   照合は綴りの違いを畳んで見る(`isProtectedLocation` のコメント)。
+    /// - ビューアで開いている本(それを含むフォルダ・その中の項目も。2026-10-04 の監査 FBA-1・決定 17(a))。照合は `replacedItemOverlaps`
+    ///   (綴りだけ違う同じ項目も当てる。R3-1)。
+    nonisolated static func replaceRefusal(for target: URL, protectedPaths: [String]) -> FileOperationError? {
+        if isProtectedLocation(target) { return .protectedLocation(target) }
+        if replacedItemOverlaps(target, anyOf: protectedPaths) { return .replacingOpenBook(target) }
+        return nil
+    }
+
     /// 「置き換える」の退避用の隠しフォルダの名前の頭。
     nonisolated static let replaceHolderPrefix = ".qooViewer-replace-"
 
@@ -705,7 +721,9 @@ actor FileOperationService {
         // 同じ場所へ運ぼうとしている(自分のフォルダへのドロップ)。移動なら方針によらず何もしない
         // (「両方残す」で `name 2` へ改名してしまわない)。コピーは「両方残す」なら複製、それ以外は何もしない
         // (「置き換える」で自分自身を退避すると、運ぶ元ごと消える)。
-        if source.standardizedFileURL.path == target.standardizedFileURL.path, isMove || policy != .keepBoth { return .skip }
+        // 綴りだけ違う同じ項目(大文字小文字を区別しないボリュームで、別の綴りで開いたフォルダからのドロップ)も同じ場所として扱う
+        // (2026-10-04 のレビュー R3-1 と同じ根。以前は文字列だけで比べ、「置き換える」で運ぶ元そのものを退避していた)。
+        if Self.isSameEntry(source.standardizedFileURL, target.standardizedFileURL), isMove || policy != .keepBoth { return .skip }
         func keepingBoth() -> ConflictCheck {
             let folder = target.deletingLastPathComponent()
             let isDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
@@ -730,14 +748,12 @@ actor FileOperationService {
             return keepingBoth()
         case .replace:
             // 置き換える相手が、運ぶ項目を中に含んでいる(`a/b/b` を `a` へ置き換えで運ぶ)。退避すると
-            // 運ぶ項目ごと退避されてしまうので断る。
-            if MountTable.path(source.standardizedFileURL.path, isAtOrUnder: target.standardizedFileURL.path) {
+            // 運ぶ項目ごと退避されてしまうので断る。綴りだけ違う同じフォルダ(`A/a` を `a` へ)も実体で見る(R3-1 と同じ根)。
+            if isSameItemOrInside(source.standardizedFileURL, target.standardizedFileURL) {
                 throw FileOperationError.alreadyExists(target)
             }
-            // 置き換える相手がビューアで開いている本(それを含むフォルダ・その中の項目も)なら、退避する前に断る(2026-10-04 の監査 FBA-1・
-            // 決定 17(a))。ここが「すべてに適用」の 2 件目以降とやり直しも通る唯一の場所。何にも触っていないので戻すものも無い。
-            if overlaps(target, anyOf: protectedPaths) {
-                return .refused(.replacingOpenBook(target))
+            if let refusal = replaceRefusal(for: target, protectedPaths: protectedPaths) {
+                return .refused(refusal)
             }
             // **既存を消さずに同じフォルダへ退避してから書く。** 書き込みが失敗・中断したら退避を戻す
             // (壊れたコピーで健康なファイルを書き潰さない。qooLibrary でのユーザー指摘)。同じフォルダ内の
@@ -1208,15 +1224,25 @@ actor FileOperationService {
     /// これらをゴミ箱へ入れない。ツリーでは根の行(ホーム)を淡色にしていたが、`/` や `/Users` を許可して右ペインに出すと同じフォルダが
     /// ふつうの行として並び、ゴミ箱・すぐに削除・名前の変更が効いた。**パスの文字列だけで見る**(ファイルに触らない。画面の淡色にも使う)。
     /// 起動ボリュームのデータ側の書き方(`FileBrowserState.dataVolumePrefix` を頭に付けたもの)も同じものとして扱う。
+    ///
+    /// **綴りの違い(大文字小文字・NFC/NFD)は畳んで比べる**(`comparisonKey`。2026-10-04 のレビュー R3-2)。「置き換える」の宛先は運ぶ元の
+    /// 綴りのまま届き(`movies` を写すと `~/movies`)、移動の打ち込み(「フォルダへ移動」)で開いたフォルダの一覧は打ち込んだ綴りで並ぶ
+    /// (`/users/…/Movies`)。どちらも大文字小文字を区別しないボリューム(APFS の既定)では同じ項目なので、綴りどおりに比べると守りを
+    /// 素通りした。区別するボリュームでは別の項目を断りうるが、ホームの標準のフォルダと同じ綴りの名前に限られ、断る側へ倒れるだけ。
     nonisolated static func isProtectedLocation(_ url: URL) -> Bool {
-        protectedLocationPaths.contains(MountTable.normalized(FileBrowserState.pathOutsideDataVolume(MountTable.normalized(url.path))))
+        isProtectedLocation(path: url.path)
     }
 
-    /// `isProtectedLocation` の一覧(比べる形)。実際のホームから組み立てる(サンドボックスの `homeDirectoryForCurrentUser` はコンテナ)。
-    nonisolated static let protectedLocationPaths: Set<String> = {
+    /// パスの文字列版(`URL(fileURLWithPath:)` は向きを知らないとパスへ stat するので、文字列で持っている所はこちら。自動リネームの走査)。
+    nonisolated static func isProtectedLocation(path: String) -> Bool {
+        protectedLocationKeys.contains(comparisonKey(path))
+    }
+
+    /// `isProtectedLocation` の一覧(`comparisonKey` の形)。実際のホームから組み立てる(サンドボックスの `homeDirectoryForCurrentUser` はコンテナ)。
+    nonisolated static let protectedLocationKeys: Set<String> = {
         let home = MountTable.normalized(FileBrowserListing.realHomeDirectory().path)
         let standard = ["Applications", "Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public"]
-        return Set([home] + standard.map { home + "/" + $0 } + ["/Users", "/Applications", "/Library", "/System"])
+        return Set(([home] + standard.map { home + "/" + $0 } + ["/Users", "/Applications", "/Library", "/System"]).map(comparisonKey))
     }()
 
     // MARK: - ロック(ブロッキング側)
@@ -1258,14 +1284,80 @@ actor FileOperationService {
     }
 
     /// `url` が `paths` のどれかそのもの・その祖先・その中か(ビューアで開いている本との照合。`FileBrowserOperations.openBookConflict` と
-    /// 「置き換える」の守り `FileOperationOptions.protectedFromReplacing` の共通の規則)。パスの文字列だけで見る(ファイルに触らない)。
+    /// 自動リネームの「元の名前に戻す」の共通の規則)。パスの文字列だけで見る(ファイルに触らない。メインから呼ばれる)。
+    ///
+    /// **綴りの違いは畳んで比べる**(`comparisonKey`。2026-10-04 のレビュー R3-1)。以前は綴りどおりの前方一致だったので、「フォルダへ移動」で
+    /// 打ち込んだ綴り(`~/books`)で開いた一覧の項目と、ディスクの綴り(`~/Books/…`)で開いている本が別のものに見え、名前の変更・移動・
+    /// ゴミ箱が開いている本を通した。大文字小文字を区別するボリュームでは別の項目を断りうるが、断る側へ倒れるだけ(メインでは実体を確かめ
+    /// られない)。実体で確かめられる「置き換える」の守りは `replacedItemOverlaps`。
     nonisolated static func overlaps(_ url: URL, anyOf paths: [String]) -> Bool {
         guard !paths.isEmpty else { return false }
-        let path = MountTable.normalized(url.path)
-        return paths.contains { other in
-            let open = MountTable.normalized(other)
-            return MountTable.path(open, isAtOrUnder: path) || MountTable.path(path, isAtOrUnder: open)
+        return overlaps(key: comparisonKey(url.path), anyOfKeys: paths.map(comparisonKey))
+    }
+
+    /// `overlaps` の鍵どうしの版(`comparisonKey` 済み。同じ一覧を何度も比べる所は先に畳んでおく)。
+    nonisolated static func overlaps(key: String, anyOfKeys keys: [String]) -> Bool {
+        keys.contains { MountTable.path($0, isAtOrUnder: key) || MountTable.path(key, isAtOrUnder: $0) }
+    }
+
+    /// パスを照合するときの鍵: 末尾のスラッシュを落とし、起動ボリュームのデータ側の書き方(頭の `FileBrowserState.dataVolumePrefix`)を外し、**大文字小文字を
+    /// 畳む**(2026-10-04 のレビュー R3-1・R3-2)。ファイルに触らない。
+    ///
+    /// NFC/NFD の違いは畳まなくてよい ―― Swift の `String` の `==`・`hasPrefix`・`Set` は正準等価で比べる(2026-10-04 に確かめた。
+    /// `namesDifferOnlyInCaseOrNormalization` のコメントも同じ)。大文字小文字は `folding(.caseInsensitive)` で、`lowercased()` より広く畳む
+    /// (`ß` と `ss` も)。広すぎて当たったぶんは、メインの照合では断る側へ倒れ、ファイルに触れる照合(`replacedItemOverlaps`・
+    /// `isSameEntry`)は実体で確かめ直す。
+    nonisolated static func comparisonKey(_ path: String) -> String {
+        spelledOutsideDataVolume(path).folding(options: .caseInsensitive, locale: nil)
+    }
+
+    /// 末尾のスラッシュとデータ側の頭(`/System/Volumes/Data`)だけを外した形(綴りはそのまま)。
+    private nonisolated static func spelledOutsideDataVolume(_ path: String) -> String {
+        MountTable.normalized(FileBrowserState.pathOutsideDataVolume(MountTable.normalized(path)))
+    }
+
+    /// 「置き換える」の相手 `target` が `paths`(ビューアで開いている本)のどれかそのもの・その祖先・その中か。**ファイルに触る**ので FileIO の
+    /// 上で呼ぶ(`checkConflict`)。
+    ///
+    /// 2026-10-04 のレビュー R3-1。宛先は運ぶ元の綴りのまま(`folder + item.lastPathComponent`)で、衝突は lstat で見るので、大文字小文字を
+    /// 区別しないボリューム(APFS の既定)では `BOOK.zip` を写しても `book.zip` との衝突になる。以前の守りは綴りどおりの文字列の比べ
+    /// (`overlaps` の旧版)だったので、開いている本(ディスクの綴り)と別の項目に見え、開いている本を退避のうえゴミ箱(ゴミ箱の無い場所では
+    /// 完全削除)へ送った ―― FBA-1 で防ぎたかった結果そのもの。綴りが畳んで一致したら実体(`FileIdentity`)で確かめるので、区別する
+    /// ボリュームの別の項目(`a.zip` と `A.zip`)は断らない。
+    nonisolated static func replacedItemOverlaps(_ target: URL, anyOf paths: [String]) -> Bool {
+        paths.contains { other in
+            let open = URL(fileURLWithPath: other, isDirectory: false)
+            return isSameItemOrInside(open, target) || isSameItemOrInside(target, open)
         }
+    }
+
+    /// `inner` が `outer` そのものかその中か。**ファイルに触る**(FileIO の上で)。綴りどおりに当たれば真。綴りの違いを畳んで当たったら
+    /// (`comparisonKey`)、`inner` を `outer` の深さで切ったパスと `outer` が同じ実体かを lstat で確かめる(リンクは辿らない)。
+    /// **確かめられなければ真**(断る側。ここに来るのは綴りが畳んで一致したときだけ)。
+    nonisolated static func isSameItemOrInside(_ inner: URL, _ outer: URL) -> Bool {
+        let innerPath = spelledOutsideDataVolume(inner.path)
+        let outerPath = spelledOutsideDataVolume(outer.path)
+        if MountTable.path(innerPath, isAtOrUnder: outerPath) { return true }
+        guard MountTable.path(comparisonKey(innerPath), isAtOrUnder: comparisonKey(outerPath)) else { return false }
+        // 大文字小文字の畳みは区切りの `/` を変えないので、成分の数で切れる。lstat には元の書き方(データ側の頭が付いていればそれも)を使う
+        // (データ側を外した形は、ファームリンクの無い場所では実在しない)。
+        let depth = outerPath.split(separator: "/").count
+        let cut = "/" + innerPath.split(separator: "/").prefix(depth).joined(separator: "/")
+        func onDisk(_ path: String, like original: URL) -> URL {
+            let hadDataPrefix = MountTable.normalized(original.path).hasPrefix(FileBrowserState.dataVolumePrefix + "/")
+            return URL(fileURLWithPath: hadDataPrefix ? FileBrowserState.dataVolumePrefix + path : path, isDirectory: false)
+        }
+        guard let cutIdentity = FileIdentity.of(onDisk(cut, like: inner)),
+              let outerIdentity = FileIdentity.of(onDisk(outerPath, like: outer))
+        else { return true }
+        return cutIdentity == outerIdentity
+    }
+
+    /// `a` と `b` が同じ項目か(運ぶ元と宛先が同じ場所か)。**ファイルに触る**(FileIO の上で)。綴りどおりに等しければ真。綴りの違いを畳んで
+    /// 等しければ(`comparisonKey`)同じ実体かで決める。**確かめられなければ偽**(同じ場所として何もしないのは、確かなときだけ)。
+    nonisolated static func isSameEntry(_ a: URL, _ b: URL) -> Bool {
+        if spelledOutsideDataVolume(a.path) == spelledOutsideDataVolume(b.path) { return true }
+        return comparisonKey(a.path) == comparisonKey(b.path) && refersToSameEntry(a, b)
     }
 
     /// `item` がマウントポイントそのものか、配下にマウントポイントを含むか(完全削除が断る。`deletePermanently`)。

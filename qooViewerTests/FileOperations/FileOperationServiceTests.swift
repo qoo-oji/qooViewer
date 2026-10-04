@@ -888,6 +888,54 @@ struct FileOperationServiceTests {
         #expect(!FileOperationService.isProtectedLocation(temporary.url))
     }
 
+    /// 2026-10-04 のレビュー R3-2。移動・名前の変更・ゴミ箱は断っていたのに、「置き換える」の相手だけは素通しだった。宛先は運ぶ元の綴りの
+    /// まま届く(`movies` を写すと `~/movies`)ので、綴りの違いも畳んで当てる。**実際のホームには触らない**(判定はパスの文字列だけ ――
+    /// エンジンを本物のホームで走らせて確かめることはしない。直し損ねていたら `~/Movies` を退避してしまう)。
+    @Test("「置き換える」は macOS が要るフォルダを相手にしない。大文字小文字・データ側の書き方の違う綴りで届いても当てる")
+    func replacingAProtectedLocationIsRefused() {
+        let home = FileBrowserListing.realHomeDirectory()
+        let movies = URL(fileURLWithPath: home.path + "/movies", isDirectory: true)
+        #expect(FileOperationService.replaceRefusal(for: movies, protectedPaths: []) == .protectedLocation(movies))
+        #expect(FileOperationService.isProtectedLocation(URL(fileURLWithPath: home.path.uppercased() + "/DOCUMENTS", isDirectory: true)))
+        #expect(FileOperationService.isProtectedLocation(path: "/users"))
+        #expect(FileOperationService.isProtectedLocation(path: "/System/Volumes/Data" + home.path + "/pictures/"))
+        #expect(!FileOperationService.isProtectedLocation(path: home.path + "/movies/架空の棚"))
+        let other = temporary.url.appendingPathComponent("movies")
+        #expect(FileOperationService.replaceRefusal(for: other, protectedPaths: []) == nil)
+    }
+
+    /// 2026-10-04 のレビュー R3-1。照合の鍵は大文字小文字・NFC/NFD・データ側の書き方を畳む(文字列だけ)。実体での確かめは綴りが畳んで一致した
+    /// ときだけ ―― 綴りどおりに当たれば触らずに真、畳んでも当たらなければ触らずに偽。
+    @Test("開いている本との照合は綴りの違いを畳み、「置き換える」の守りは実体で確かめる")
+    func openBookOverlapFoldsSpellingAndChecksTheItem() async throws {
+        let shelf = try temporary.directory("Shelf")
+        let book = shelf.appendingPathComponent("Caf\u{E9}.zip")
+        try Data("b".utf8).write(to: book)
+        let values = try shelf.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+        try #require(values.volumeSupportsCaseSensitiveNames == false)
+        let shelfPath = shelf.path
+        let lower = URL(fileURLWithPath: shelfPath.replacingOccurrences(of: "/Shelf", with: "/shelf"), isDirectory: true)
+
+        #expect(FileOperationService.comparisonKey(shelfPath) == FileOperationService.comparisonKey(lower.path + "/"))
+        #expect(FileOperationService.overlaps(lower, anyOf: [book.path]))
+        #expect(FileOperationService.overlaps(lower.appendingPathComponent("CAFE\u{301}.ZIP"), anyOf: [book.path]))
+        #expect(!FileOperationService.overlaps(lower.appendingPathComponent("other.zip"), anyOf: [book.path]))
+
+        let bookPath = book.path
+        let (folder, same, inside, other) = await FileIO.perform {
+            (
+                FileOperationService.replacedItemOverlaps(lower, anyOf: [bookPath]),
+                FileOperationService.replacedItemOverlaps(lower.appendingPathComponent("CAFE\u{301}.ZIP"), anyOf: [bookPath]),
+                FileOperationService.replacedItemOverlaps(lower.appendingPathComponent("CAFE\u{301}.ZIP/x"), anyOf: [bookPath]),
+                FileOperationService.replacedItemOverlaps(lower.appendingPathComponent("other.zip"), anyOf: [bookPath])
+            )
+        }
+        #expect(folder, "開いている本を含むフォルダの綴り違いを見逃した")
+        #expect(same, "開いている本そのものの綴り違いを見逃した")
+        #expect(inside, "開いている本の中の綴り違いを見逃した")
+        #expect(!other)
+    }
+
     @Test("起動ボリュームにはゴミ箱がある")
     func bootVolumeHasATrash() async {
         let url = temporary.url

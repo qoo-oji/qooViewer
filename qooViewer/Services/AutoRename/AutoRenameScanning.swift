@@ -147,15 +147,18 @@ nonisolated enum AutoRenameScanner {
     /// - Parameters:
     ///   - recursive: 配下へ降りるか(`plan.shouldDescend` が通すフォルダだけ)。false なら `folder` の直下だけ。
     ///   - inUsePaths: ビューアで開いている本のパス。それ自身か、それを中に持つ項目の名前は変えない。
+    ///   - isProtected: macOS が要るフォルダか(`FileOperationService.isProtectedLocation`)。当たる項目の名前は変えない(テストが差し替える ――
+    ///     本物の判定は実際のホームのパスなので、一時フォルダでは当たらない)。
     static func examine(
         folder: String, recursive: Bool, plan: AutoRenamePlan, inUsePaths: [String] = [], takesSnapshots: Bool,
-        isRegistered: @escaping (String) -> Bool = BulkRename.isRegisteredExtension
+        isRegistered: @escaping (String) -> Bool = BulkRename.isRegisteredExtension,
+        isProtected: (String) -> Bool = FileOperationService.isProtectedLocation(path:)
     ) -> Result {
         var result = Result()
         var visited = 0
         visit(
             AutoRename.canonicalPath(folder), recursive: recursive, plan: plan, inUsePaths: inUsePaths.map(AutoRename.canonicalPath),
-            takesSnapshots: takesSnapshots, isRegistered: isRegistered, result: &result, visited: &visited
+            takesSnapshots: takesSnapshots, isRegistered: isRegistered, isProtected: isProtected, result: &result, visited: &visited
         )
         return result
     }
@@ -165,7 +168,7 @@ nonisolated enum AutoRenameScanner {
 
     private static func visit(
         _ folder: String, recursive: Bool, plan: AutoRenamePlan, inUsePaths: [String], takesSnapshots: Bool,
-        isRegistered: @escaping (String) -> Bool, result: inout Result, visited: inout Int
+        isRegistered: @escaping (String) -> Bool, isProtected: (String) -> Bool, result: inout Result, visited: inout Int
     ) {
         guard visited < maxFoldersPerExamination, !Cancellation.isRequestedInCurrentScope,
               let names = try? FileOperationService.directoryEntryNames(atPath: folder)
@@ -196,7 +199,7 @@ nonisolated enum AutoRenameScanner {
             for subfolder in subfolders.sorted() {
                 visit(
                     subfolder, recursive: true, plan: plan, inUsePaths: inUsePaths, takesSnapshots: takesSnapshots,
-                    isRegistered: isRegistered, result: &result, visited: &visited
+                    isRegistered: isRegistered, isProtected: isProtected, result: &result, visited: &visited
                 )
             }
         }
@@ -215,6 +218,10 @@ nonisolated enum AutoRenameScanner {
                 result.skips.append(Skip(folder: folder, name: item.name, reason: reason, ruleNames: applicable.map(\.name)))
             case .rename(let newName):
                 let path = folder + "/" + item.name
+                // macOS が要るフォルダ(ホームを対象にしたときの `Movies` など)は変えない(2026-10-04 のレビュー R3-2。ファイルブラウザの
+                // 名前の変更は FBA-11 から断っていたが、自動の改名は素通りだった ―― よく使う項目そのものも対象にできるので、ホームを
+                // 対象にすると規則がホームの標準のフォルダの名前を変えた)。見送りとしては残さない(規則の誤りではなく、毎回同じ)。
+                if isProtected(path) { continue }
                 if inUsePaths.contains(where: { MountTable.path($0, isAtOrUnder: path) }) {
                     result.foldersWithItemsInUse.insert(folder)
                     continue

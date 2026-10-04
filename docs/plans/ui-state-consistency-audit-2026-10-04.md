@@ -2291,3 +2291,40 @@ MD-15 は段 4 に「触っていない」とだけあった)だけで、足し�
 
 docs: 06(付け替えの知らせで初めて書き先を移す・許可の照合)、07(メタデータの編集の組み直すまでの書き込み・一部の確かめ)、14(インスペクタの打ちかけ)、
 CLAUDE.md(書き先は付け替えの知らせでだけ移す)。段 4 の記録の「インスペクタだけは両方を受ける」は、R4-1 で付け替えの知らせだけになった。
+
+### レビュー指摘の修正 段 B(2026-10-04)
+
+破壊的な操作の守りの分。
+
+- **R3-1**(直した): 開いている本との照合の鍵を `FileOperationService.comparisonKey`(末尾のスラッシュとデータ側の頭を外し、大文字小文字を
+  `folding(.caseInsensitive)` で畳む)にした。「置き換える」の守りはエンジン(FileIO の上)で、畳んで当たったら開いている本のパスを宛先の深さで切って
+  `FileIdentity` を比べる(`replacedItemOverlaps` / `isSameItemOrInside`。確かめられなければ断る側)。入口の `openBookConflict`(メインで呼ばれ、
+  名前の変更・移動・ゴミ箱・淡色・`ExternalMoveSweeper` が使う)も同じ穴があった ―― 「フォルダへ移動」で打ち込んだ綴りで開いた一覧から開いている本を
+  ゴミ箱へ送れた ―― ので畳んだ鍵で比べる(ファイルに触れないので、区別するボリュームでは綴りだけ違う別の項目も断る側へ倒れる)。同じ根で、
+  `checkConflict` の「同じ場所」(`isSameEntry`)と「運ぶ元を含む相手」(`isSameItemOrInside`)も実体で見るようにした(綴りだけ違う自分自身への
+  移動で、運ぶ元を退避していた)。自動リネームの「元の名前に戻す」は `overlaps` 経由で同じ鍵になった。**指摘のうち NFC/NFD の部分は成り立たなかった**:
+  Swift の `String` の `==`・`hasPrefix`・`Set` は正準等価で比べるので、以前の文字列の比べでも当たっていた(手元で確かめ、テストでも直す前から通る)。
+  APFS(大文字小文字を区別しない)は `Straße` と `strasse` も同じ名前と見る(実測)ので、`lowercased()` ではなく `folding` にした。
+  テスト(一時フォルダ・APFS・区別しない既定。前提を `#require`): `FileBrowserOperationsTests` の `replacingAnOpenBookSpelledInAnotherCaseIsRefused`
+  (ファイルそのもの)・`replacingAFolderHoldingAnOpenBookSpelledInAnotherCaseIsRefused`(含むフォルダ。直す前は開いている本がゴミ箱へ行った)・
+  `replacingAnItemInsideAnOpenFolderBookSpelledInAnotherCaseIsRefused`(フォルダの本の中の項目、宛先のフォルダも綴り違い)・
+  `replacingAnOpenBookSpelledInAnotherNormalizationIsRefused`(NFC/NFD。直す前から通る ―― 見張り)・`movingAnItemOntoItselfSpelledInAnotherCaseDoesNothing`・
+  `openBookConflictFoldsSpelling`(ゴミ箱まで)、`FileOperationServiceTests.openBookOverlapFoldsSpellingAndChecksTheItem`。NFC/NFD 以外は直しを外すと落ちることを
+  確かめた。区別するボリュームで「綴りだけ違う別の項目は置き換える」ことは、使い捨てボリュームに区別する APFS が無いのでテストしていない。
+- **R1-1**(直した): `AutoRenameService.confirm(_:)` は `preview.targetIDs ∩ 計画の対象` だけを確認済みにする。テスト
+  `AutoRenameServiceTests.confirmingAPreviewSkipsTargetsThatBecameUnavailable`(開いた後でよく使う項目から外して使えなくし、作り直した一覧で確認 →
+  外した対象に印が付かず、戻しても中の項目を変えない。直す前は落ちる)。
+- **R3-2**(直した): 「置き換える」の相手が macOS が要るフォルダなら、エンジンが退避する前に断る(`FileOperationService.replaceRefusal`。開いている本の
+  守りと同じ場所で、「すべてに適用」の 2 件目以降・やり直しも通る)。`isProtectedLocation` も `comparisonKey` で比べる(宛先は運ぶ元の綴りのまま
+  `~/movies` で届く。淡色・入口・ゴミ箱・完全削除の判定も大文字小文字によらなくなった)。自動リネームの走査は当たる項目を候補にしない
+  (`AutoRenameScanner.examine(isProtected:)`。見送りとしては残さない)。テスト `FileOperationServiceTests.replacingAProtectedLocationIsRefused`
+  (判定は文字列だけ。本物のホームでエンジンを走らせて確かめることはしない ―― 直し損ねていたら `~/Movies` を退避する)・
+  `AutoRenameServiceTests.scannerLeavesProtectedLocationsAlone`(判定を差し替えて一時フォルダで)。どちらも直しを外すと落ちることを確かめた。
+  ホームを対象にしたとき、標準のフォルダの**中**(`~/Library` の下など)へは従来どおり降りて名前を変えうる(FBA-11 が守るのはフォルダそのもの)。
+- **R3-3**(直した): 「元の名前に戻す」の開いている本の照合を、実体の確かめ(`FileIO`)の await の後、名前を変える直前へ移した。同じ場所で
+  読み取り専用も見直す(await の後の再確認漏れ。同じ根)。照合に渡す URL は `isDirectory:` を付けて作る(付けないとメインでパスへ stat する)。テスト
+  `AutoRenameServiceTests.restoringChecksOpenBooksRightBeforeRenaming`(`restore` の前に積んだメインの Task が、確かめを待つ間に本を開く ――
+  メインのキューは積んだ順なので時間任せではない。直す前は落ちる)。
+
+docs: 15(macOS が要るフォルダの「置き換える」と自動リネーム・開いている本の照合の鍵・確認のシートの確認済みの範囲・戻す照合の位置)。
+

@@ -138,11 +138,14 @@ final class FileBrowserOperations: ObservableObject {
     }
 
     /// `urls` のうち、開いている本に当たる最初の項目(`refusesBecauseOpenInViewer` のコメント)。
-    /// 規則は `FileOperationService.overlaps`(衝突の「置き換える」の守りと同じもの。2026-10-04 の監査 FBA-1)。
+    /// 規則は `FileOperationService.overlaps`(綴りの違い ―― 大文字小文字・NFC/NFD・データ側の書き方 ―― を畳んで比べる。2026-10-04 の
+    /// レビュー R3-1: 以前は綴りどおりだったので、「フォルダへ移動」で打ち込んだ綴りで開いた一覧から、開いている本の名前を変え・動かし・
+    /// ゴミ箱へ送れた)。メインで呼ばれるのでファイルには触らない ―― 大文字小文字を区別するボリュームで綴りだけ違う別の項目も断るが、
+    /// 断る側へ倒れるだけ。「置き換える」の宛先の側はエンジンが実体で確かめる(`FileOperationService.replacedItemOverlaps`)。
     nonisolated static func openBookConflict(among urls: [URL], openBookPaths: [String]) -> URL? {
         guard !openBookPaths.isEmpty else { return nil }
-        let open = openBookPaths.map(MountTable.normalized)
-        return urls.first { FileOperationService.overlaps($0, anyOf: open) }
+        let open = openBookPaths.map(FileOperationService.comparisonKey)
+        return urls.first { FileOperationService.overlaps(key: FileOperationService.comparisonKey($0.path), anyOfKeys: open) }
     }
 
     // MARK: - 取り消し・やり直し

@@ -893,6 +893,145 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.problems.count == 1)
     }
 
+    // MARK: - 綴りだけ違う同じ項目(2026-10-04 のレビュー R3-1)
+    //
+    // 一時フォルダは起動ボリューム(APFS、大文字小文字を区別しない既定)の上。宛先は運ぶ元の綴りのまま届き、衝突は lstat で見るので、
+    // 綴りの違う同じ項目が「置き換える」の相手になる。以前の守りは綴りどおりの文字列の比べで、開いている本を退避してゴミ箱へ送った。
+
+    /// 一時フォルダが大文字小文字を区別しないボリュームの上にあること(このテストの前提)。
+    private func requireCaseInsensitiveVolume(_ folder: URL) throws {
+        let values = try folder.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+        try #require(values.volumeSupportsCaseSensitiveNames == false, "一時フォルダが大文字小文字を区別するボリュームにある")
+    }
+
+    @Test("「置き換える」の相手が、大文字小文字だけ違う綴りで届いた開いている本なら、置き換えずに報告する")
+    func replacingAnOpenBookSpelledInAnotherCaseIsRefused() async throws {
+        let fixture = try Fixture("fbops-replace-open-case")
+        try requireCaseInsensitiveVolume(fixture.other)
+        let source = fixture.root.appendingPathComponent("BOOK.zip")
+        try Data("new".utf8).write(to: source)
+        let open = fixture.other.appendingPathComponent("Book.zip")
+        try Data("open".utf8).write(to: open)
+        fixture.state.operations.openBookPaths = { [open.path] }
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+
+        fixture.state.operations.transfer([source], to: fixture.other, isMove: true)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.count == 1)
+        #expect(fixture.names(in: fixture.other) == ["Book.zip"], "開いている本が置き換わった(または退避が残った)")
+        #expect(try String(contentsOf: open, encoding: .utf8) == "open")
+        #expect(fixture.names(in: fixture.trash).isEmpty, "開いている本をゴミ箱へ送った")
+        #expect(fixture.exists(source), "置き換えなかった項目を動かした")
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("「置き換える」の相手が、NFC/NFD だけ違う綴りで届いた開いている本なら、置き換えずに報告する")
+    func replacingAnOpenBookSpelledInAnotherNormalizationIsRefused() async throws {
+        let fixture = try Fixture("fbops-replace-open-nfd")
+        try requireCaseInsensitiveVolume(fixture.other)
+        let nfd = "Cafe\u{301}.zip"
+        let nfc = "Caf\u{E9}.zip"
+        #expect(Array(nfd.utf8) != Array(nfc.utf8))
+        let open = fixture.other.appendingPathComponent(nfd)
+        try Data("open".utf8).write(to: open)
+        let source = fixture.root.appendingPathComponent(nfc)
+        try Data("new".utf8).write(to: source)
+        fixture.state.operations.openBookPaths = { [open.path] }
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+
+        fixture.state.operations.transfer([source], to: fixture.other, isMove: false)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.count == 1)
+        #expect(fixture.names(in: fixture.other).count == 1)
+        #expect(try String(contentsOf: open, encoding: .utf8) == "open", "開いている本が置き換わった")
+        #expect(fixture.names(in: fixture.trash).isEmpty, "開いている本をゴミ箱へ送った")
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("「置き換える」の相手が、開いている本を含むフォルダの綴り違いでも、置き換えずに報告する")
+    func replacingAFolderHoldingAnOpenBookSpelledInAnotherCaseIsRefused() async throws {
+        let fixture = try Fixture("fbops-replace-open-case-folder")
+        try requireCaseInsensitiveVolume(fixture.other)
+        let shelf = try fixture.temporary.directory("other/Shelf")
+        let open = shelf.appendingPathComponent("Book.zip")
+        try Data("open".utf8).write(to: open)
+        let source = try fixture.temporary.directory("root/shelf")
+        try Data("x".utf8).write(to: source.appendingPathComponent("x.txt"))
+        fixture.state.operations.openBookPaths = { [open.path] }
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+
+        fixture.state.operations.transfer([source], to: fixture.other, isMove: false)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.count == 1)
+        #expect(fixture.names(in: fixture.other) == ["Shelf"], "開いている本を含むフォルダが置き換わった")
+        #expect(try String(contentsOf: open, encoding: .utf8) == "open")
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("「置き換える」の相手が、開いているフォルダの本の中の項目なら、宛先のフォルダを綴り違いで指しても置き換えずに報告する")
+    func replacingAnItemInsideAnOpenFolderBookSpelledInAnotherCaseIsRefused() async throws {
+        let fixture = try Fixture("fbops-replace-open-case-inside")
+        try requireCaseInsensitiveVolume(fixture.other)
+        let book = try fixture.temporary.directory("other/Book")
+        let page = book.appendingPathComponent("p1.jpg")
+        try Data("page".utf8).write(to: page)
+        let source = fixture.root.appendingPathComponent("P1.JPG")
+        try Data("new".utf8).write(to: source)
+        fixture.state.operations.openBookPaths = { [book.path] }
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+        // 「フォルダへ移動」で打ち込んだ綴りで開いたフォルダへのドロップ(宛先のフォルダの綴りもディスクと違う)。
+        let typedBook = fixture.other.appendingPathComponent("BOOK", isDirectory: true)
+
+        fixture.state.operations.transfer([source], to: typedBook, isMove: false)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.count == 1)
+        #expect(fixture.names(in: book) == ["p1.jpg"], "開いている本のページが置き換わった")
+        #expect(try String(contentsOf: page, encoding: .utf8) == "page")
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("綴りだけ違う自分自身への移動は、尋ねずに何もしない(運ぶ元を退避しない)")
+    func movingAnItemOntoItselfSpelledInAnotherCaseDoesNothing() async throws {
+        let fixture = try Fixture("fbops-move-self-case")
+        try requireCaseInsensitiveVolume(fixture.root)
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let typedRoot = fixture.temporary.url.appendingPathComponent("ROOT", isDirectory: true)
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+
+        fixture.state.operations.transfer([file], to: typedRoot, isMove: true)
+        await fixture.finish()
+        #expect(fixture.presenter.conflicts.isEmpty, "自分自身との衝突を尋ねた")
+        #expect(fixture.names(in: fixture.root) == ["a.txt", "sub"], "運ぶ元を退避した(または隠しフォルダが残った)")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "a")
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("名前の変更・ゴミ箱も、打ち込んだ綴りのフォルダの一覧から開いている本を当てる(ファイルに触らずに)")
+    func openBookConflictFoldsSpelling() async throws {
+        let fixture = try Fixture("fbops-open-case")
+        try requireCaseInsensitiveVolume(fixture.root)
+        let open = fixture.root.appendingPathComponent("a.txt")
+        let typed = fixture.temporary.url.appendingPathComponent("ROOT/A.TXT")
+        #expect(FileBrowserOperations.openBookConflict(among: [typed], openBookPaths: [open.path]) == typed)
+        // 開いている本を含むフォルダ・その中の項目も、綴りによらず当たる。
+        let typedFolder = fixture.temporary.url.appendingPathComponent("Root", isDirectory: true)
+        #expect(FileBrowserOperations.openBookConflict(among: [typedFolder], openBookPaths: [open.path]) == typedFolder)
+        #expect(FileBrowserOperations.openBookConflict(among: [typed], openBookPaths: [fixture.root.path]) == typed)
+        #expect(FileBrowserOperations.openBookConflict(
+            among: [fixture.root.appendingPathComponent("b.txt")], openBookPaths: [open.path]
+        ) == nil)
+
+        fixture.state.operations.openBookPaths = { [open.path] }
+        fixture.state.operations.moveToTrash([fixture.entry(typed)])
+        await fixture.finish()
+        #expect(fixture.exists(open), "開いている本をゴミ箱へ送った")
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
     @Test("確認を出している間に重ねて頼んだ「すぐに削除…」は、先の操作で消えた項目について尋ねない")
     func queuedDeleteSkipsItemsAlreadyGone() async throws {
         let fixture = try Fixture("fbops-delete-now-queued")
