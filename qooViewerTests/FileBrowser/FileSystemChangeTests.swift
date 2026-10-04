@@ -288,14 +288,30 @@ struct FileSystemChangeTests {
         await state.operations.rename(text, to: "b.txt").value
         await state.settle()
         // 知らせは箱で最大 80ms まとめてから配られ、記憶の写し(`cutPaths`)はその購読の先でもう 1 回メインへ回る。
-        // 手元では settle の間に届くが、CI の macOS 27 では間に合わずに落ちた(2026-10-04)。箱を今すぐ配らせ、
-        // 写しが届くまで少しだけ待つ(期限つき。届かなければ下の #expect が落ちる)。
+        // 箱を今すぐ配らせ、写しが届くまで少しだけ待つ(期限つき。届かなければ下の #expect が落ちる)。
+        // CI で落ちたのは時間ではなく `/var` と `/private/var` の書き方の食い違いだった(下の `cutMemoryMatchesThePrivateSpelling`)。
         fixture.center.flush()
         for _ in 0..<100 where !(state.cutPaths.isEmpty && fixture.clipboard.paths.isEmpty) {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(state.cutPaths.isEmpty, "動かしていない項目が淡色のまま残った")
         #expect(fixture.clipboard.paths.isEmpty)
+    }
+
+    /// カットの記憶は `standardizedFileURL` の書き方(`/var/…`)、知らせは実体の書き方(`/private/var/…`)。書き方が違っても
+    /// 外れた項目として下ろす(2026-10-04。サンドボックス無しで走る CI だけで `partlyDisplacedCutIsForgottenAsAWhole` が落ちた ――
+    /// 手元はコンテナの tmp でリンクを含まない)。
+    @Test("カットの記憶は /private の付いた書き方の知らせでも下ろす")
+    func cutMemoryMatchesThePrivateSpelling() {
+        let clipboard = FileCutClipboard()
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        clipboard.set(["/var/folders/qv/T/root/a.txt", "/var/folders/qv/T/root/inner"], on: pasteboard)
+        let change = FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/private/var/folders/qv/T/root/a.txt"), to: URL(fileURLWithPath: "/private/var/folders/qv/T/root/b.txt"))
+        ])
+        clipboard.forget(displacedBy: change)
+        #expect(clipboard.paths.isEmpty)
     }
 
     // MARK: - 部品

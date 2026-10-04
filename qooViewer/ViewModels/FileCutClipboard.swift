@@ -57,8 +57,18 @@ final class FileCutClipboard: ObservableObject {
     /// 記憶の一致。`FileBrowserOperations.paste`)は外れてコピーになり、そのうえ古いパスが無いことで事前の検査が全体を断った ――
     /// 淡色は「移動する」と言うのに、残りも運ばれず「見つかりません」になった。下ろせば淡色も消え、⌘V は「ペーストボードの中身の
     /// コピー」として古いパスで断る(Finder と同じ)。ペーストボードを書き直す案は、アプリが勝手に利用者のペーストボードを変えるので採らない。
+    ///
+    /// 記憶のパスは `standardizedFileURL` の書き方(カットした時点で実在するので、頭の `/private` が外れて `/var/…`)、知らせのパスは
+    /// 一覧が返す実体の書き方(`/private/var/…`)なので、`/private` の付いた形でも比べる(サンドボックス無しの CI で、一時フォルダの
+    /// 中のリネームが記憶を下ろさなかった。2026-10-04)。
     func forget(displacedBy change: FileSystemChange) {
-        guard !paths.isEmpty, paths.contains(where: { change.displaces($0) }) else { return }
+        guard !paths.isEmpty, paths.contains(where: { path in Self.spellings(of: path).contains { change.displaces($0) } }) else { return }
         clear()
+    }
+
+    /// `path` と、それが `/private` へのリンクの下(`/var`・`/tmp`・`/etc`)なら `/private` を付けた形。
+    private static func spellings(of path: String) -> [String] {
+        let isUnderPrivateLink = ["/var", "/tmp", "/etc"].contains { MountTable.path(path, isAtOrUnder: $0) }
+        return isUnderPrivateLink ? [path, "/private" + path] : [path]
     }
 }

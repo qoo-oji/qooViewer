@@ -1029,6 +1029,8 @@ final class MetadataWorkspace {
     /// ので、掛けると鍵の印だけが付いて何も残らず、開き直すと外れていた。
     func setLocked(_ ids: Set<String>, _ lock: Bool) {
         commitEditingCellIfNeeded()
+        // 外すのは、まだ読みを待っている鍵にも効かせる(待つ間に行の形が上書きされて「もう外れている」に見えても)。
+        if !lock { pendingLockIDs.subtract(ids) }
         let targets = ids.filter { id in
             guard states[id] != nil, isLocked(id) != lock else { return false }
             return !lock || row(id)?.values.isEmpty == false
@@ -1052,13 +1054,21 @@ final class MetadataWorkspace {
         for id in targets { states[id] = BookMetadataRowState(isLocked: true, ruleSet: states[id]?.ruleSet) }
         forgetUndo(for: targets)
         refreshRegistration(targets)
+        // 待っている間に、メタデータ生成の回(行の形を DB から読み直す)や外の変更の知らせ(`applyExternalChanges`)が、まだ DB に
+        // 鍵の無い行の形で `states` を上書きする。以前は読みが届いた後に `isLocked(id)` で確かめ直していたので、書き換え中のセルを
+        // 確定させた直後に鍵を押すと(2026-10-04 の監査 MD-7 の直しで、確定が鍵の直前に入るようになった)、上書きで鍵が外れ、
+        // 押した鍵が黙って掛からなかった(実機で確認)。待っている鍵は別に覚え、利用者が外した(`unlock`)ものだけを除く。
+        pendingLockIDs.formUnion(targets)
         let previous = tail
         working += 1
         tail = Task { [generator] in
             await previous?.value
             await generator.update()
+            let wanted = targets.filter { self.pendingLockIDs.contains($0) && self.states[$0] != nil }
+            self.pendingLockIDs.subtract(targets)
             var values: [String: BookMetadataValues] = [:]
-            for id in targets where self.isLocked(id) {
+            for id in wanted {
+                self.states[id] = BookMetadataRowState(isLocked: true, ruleSet: self.states[id]?.ruleSet)
                 if let row = self.row(id) { values[id] = row.values }
             }
             self.working -= 1
@@ -1067,11 +1077,16 @@ final class MetadataWorkspace {
         }
     }
 
+    /// 鍵を押して、直しの読みが届くのを待っている本(`setLocked` の待つ道)。待っている間に `states` が DB の形で上書きされても
+    /// 鍵を掛け直すために覚える。利用者が外したら(`unlock`)除く。
+    @ObservationIgnored private var pendingLockIDs: Set<String> = []
+
     /// 鍵を外す。**その場で外し**、見えていた値をいったんすべて直した欄にする(外しただけで値が変わらないように。すぐに
     /// 直せるように)。続けて、直した欄を「見えていた値」と「確定を外して読んだ提案」(メタデータ生成の `preview`。ほかの本を
     /// 錨にした読みも含む)の違いだけに絞る ―― 同じ欄は提案のまま(青く出ない。2026-09-22、利用者の報告: 何も変えていないのに
     /// 全部の欄が青く出た)。絞る前に利用者がその本を直していたら(直した欄が外したときのものと違えば)、絞らない。
     private func unlock(_ targets: Set<String>) {
+        pendingLockIDs.subtract(targets)
         var full: [String: Confirmation] = [:]
         for id in targets {
             guard let row = row(id) else { continue }

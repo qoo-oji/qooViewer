@@ -405,6 +405,34 @@ struct MetadataWorkspaceTests {
         #expect(workspace.row(second)?.metadata.title == "外で直した題")
     }
 
+    /// 2026-10-04 の実機確認で見つけた、監査 MD-7 の直しの穴。書き換え中のセルを確定させた直後に鍵を押すと、待っている間に
+    /// メタデータ生成の回が行の形を DB(まだ鍵の無い形)で読み直し、鍵が黙って掛からなかった。
+    /// このテストはメモリ上のストアでは直す前でも通る(読み直しの回が鍵を待つ間に割り込まない)。再現ではなく、編集の直後の鍵という
+    /// 筋道が掛かることを押さえる見張り。
+    @Test("直した直後に鍵を押しても、待っている間に行の形が読み直されても鍵が掛かる")
+    func lockingRightAfterAnEditInThisWindowLocks() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        await workspace.settle()
+
+        // セルの確定と同じ道(この窓の直し)で書き、読みが届く前に鍵を掛ける。
+        workspace.set(.genre, to: ["架空のジャンル"], for: [second])
+        workspace.setLocked([second], true)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: second)?.isLocked == true)
+        #expect(library.metadata.record(forBookID: second)?.values.genre == "架空のジャンル")
+        #expect(workspace.isLocked(second))
+
+        // 待っている間に外したら、鍵は掛からない。
+        workspace.set(.genre, to: ["別の架空のジャンル"], for: [first])
+        workspace.setLocked([first], true)
+        workspace.setLocked([first], false)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.isLocked != true)
+        #expect(!workspace.isLocked(first))
+    }
+
     @Test("ほかの画面が DB を変えたら、その本の行が合う")
     func externalChangesAreApplied() async throws {
         let library = try InMemoryLibrary()
