@@ -393,6 +393,18 @@ struct BookExportViewModelTests {
         #expect(prepared.author == "架空の三")
     }
 
+    @Test("行があるのに題が空の本は、題がファイル名・著者が行の値になる(棚のキャプションと同じ。MD-15(a))")
+    func anEmptyTitleInARowFallsBackToTheFileName() throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        let book = env.book("[架空工房] 架空の題")
+        env.library.metadata.upsert(bookID: book.id, author: "架空の一", title: "", series: "", seriesIndex: "")
+        viewModel.prepareOpenBook(book)
+        #expect(viewModel.titleOverrides[book.id] == BookFileName.displayName(forBookID: book.id))
+        #expect(viewModel.authorOverrides[book.id] == "架空の一")
+    }
+
     @Test("書き出しウインドウのチェックと題・著者の編集は、本が付け替えられたら新しい bookID へ付いていく(TW-5)")
     func checksAndEditsFollowARelocatedBook() throws {
         let env = try Environment()

@@ -160,8 +160,11 @@ struct MetadataBookTable: NSViewRepresentable {
     /// 利用者が直した(確定した)段か。提案のままの値と色で見分ける。
     var isEdited: (Column, MetadataBookRow, Int) -> Bool
     var help: (Column, MetadataBookRow) -> String
-    /// 段を書き換えた(段の番号・書いた文字)。
-    var commit: (Column, Int, String, MetadataBookRow) -> Void
+    /// 段を書き換えた(段の番号・書いた文字・書き換えを始めたときにその段にあった文字)。
+    ///
+    /// 始めたときの文字を渡すのは、値をいくつも持つ欄で、書き換えている間に段の並びが裏で変わったとき(ほかの窓・インスペクタでの
+    /// 直し、メタデータ生成の回)に、別の段を書き換えないため(2026-10-04 の監査 MD-9。`MetadataWorkspace.setLine(…replacing:)`)。
+    var commit: (Column, Int, String, String, MetadataBookRow) -> Void
     /// 段を足した(足した位置・書いた文字)。空の文字では呼ばない。
     var insert: (Column, Int, String, MetadataBookRow) -> Void
     /// 右クリックのメニュー(右クリックした本、または選んだ本すべてについて)。
@@ -909,7 +912,7 @@ struct MetadataBookTable: NSViewRepresentable {
                 if edit.inserting {
                     if !trimmed.isEmpty { parent?.insert(edit.column, edit.line, value, book(row)) }
                 } else if trimmed != edit.original {
-                    parent?.commit(edit.column, edit.line, value, book(row))
+                    parent?.commit(edit.column, edit.line, value, edit.original, book(row))
                 }
             }
             if edit.inserting { endInsertion() }

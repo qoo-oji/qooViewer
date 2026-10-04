@@ -234,3 +234,33 @@ struct KeyBindingStoreTests {
         #expect(watched.map { String(describing: UserDefaults.standard.data(forKey: $0)) } == before)
     }
 }
+
+// MARK: - 2026-10-04、状態と画面の監査の段 8(後半)
+
+extension KeyBindingStoreTests {
+    @Test("隠したお気に入りの ⌥A は重複に数えず、別の操作に割り当てると上書きされる(BE-14 = ST-11)")
+    func hiddenFeatureBindingsDoNotBlockReassignment() throws {
+        try #require(!FavoritesFeature.isEnabled, "お気に入りを戻したら、この確かめは要らない")
+        let suite = PreferencesSuite()
+        let store = makeStore(suite)
+        let optionA = RemappableKey.optionCharacter("a")
+        #expect(store.assignedAction(for: optionA, in: KeyBindingStore.baseMode) == .toggleFavorite)
+        #expect(store.conflictingAction(for: optionA, in: KeyBindingStore.baseMode) == nil)
+        // 見えている操作の割り当ては、これまでどおり重複として断る理由になる。
+        #expect(store.conflictingAction(for: RemappableKey.character("a"), in: KeyBindingStore.baseMode) == .toggleBookmark)
+
+        store.addKeyBinding(.toggleLoupe, for: optionA, in: KeyBindingStore.baseMode)
+        #expect(store.assignedAction(for: optionA, in: KeyBindingStore.baseMode) == .toggleLoupe)
+        #expect(makeStore(suite).assignedAction(for: optionA, in: KeyBindingStore.baseMode) == .toggleLoupe)
+    }
+
+    @Test("1 回のスクロールの移動量は、読むときにスライダーの範囲へ収まる(ST-13)")
+    func scrollStepsAreClampedWhenRead() throws {
+        let suite = PreferencesSuite()
+        let stored: [String: Double] = [ScalingMode.fitWidth.rawValue: 1e30, ScalingMode.noScale.rawValue: -3]
+        suite.defaults.set(try JSONEncoder().encode(stored), forKey: "qooViewer.modeScrollSteps.v1")
+        let store = makeStore(suite)
+        #expect(store.scrollStep(in: .fitWidth) == KeyBindingStore.scrollStepRange.upperBound)
+        #expect(store.scrollStep(in: .noScale) == KeyBindingStore.scrollStepRange.lowerBound)
+    }
+}

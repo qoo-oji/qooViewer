@@ -131,7 +131,7 @@ struct ModeInputSettingsView: View {
                 SettingsSlider(
                     "Distance per Scroll Step",
                     value: bindingForScrollStep,
-                    in: 5...200,
+                    in: KeyBindingStore.scrollStepRange,
                     step: 5
                 ) { value in
                     "\(Int(value)) pt"

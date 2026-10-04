@@ -324,6 +324,12 @@ final class AppPreferences: ObservableObject {
         isPrivateWindow && privateWindowsUseOwnAppearance ? privateAppearance : appearance
     }
 
+    /// どれかの窓でページ一覧のプレビューが出るか(環境設定「キャッシュ」の「表示中のサムネイルの拡大画像を先に用意」の淡色。
+    /// 2026-10-04 の監査 ST-9)。シークレットの揃いを使わない間はノーマルの値だけで決まる。
+    static func showsThumbnailHoverPreview(normal: Bool, privateSet: Bool, privateUsesOwnSet: Bool) -> Bool {
+        normal || (privateUsesOwnSet && privateSet)
+    }
+
     /// アプリの表示言語(既定は「システムに従う」)
     @Published var displayLanguage: AppLanguage {
         didSet {
@@ -390,6 +396,15 @@ final class AppPreferences: ObservableObject {
     /// (LibraryDataPruner参照)。データが際限なく増え続けるのを防ぐための設定(既定500冊)。
     @Published var maxTrackedBooksCount: Double {
         didSet { defaults.set(maxTrackedBooksCount, forKey: Keys.maxTrackedBooksCount) }
+    }
+
+    /// 「データを残す冊数」のスライダーの範囲。ふだんは 50…2000 で、保存値がそれより大きい(手で直したバックアップから取り込んだ)
+    /// ときは上をその値まで広げる(2026-10-04 の監査 ST-13 ―― 以前は 2000 に固定で、つまみが端に貼り付いたまま実際は 5000 冊残り、
+    /// 触っただけで 2000 に下がって読書位置が間引かれた)。目盛り(50)に揃えて切り上げる。
+    static func maxTrackedBooksCountSliderRange(current: Double) -> ClosedRange<Double> {
+        let usual: ClosedRange<Double> = 50...2000
+        guard current.isFinite, current > usual.upperBound else { return usual }
+        return usual.lowerBound...((current / 50).rounded(.up) * 50)
     }
     /// 表示メニューの「ツールバーを隠す」。以前はAppState(ウインドウごとに新規作成される)だけが
     /// 持つ一時的な状態だったため、アプリを終了して再度起動するとOFFに戻ってしまっていた。
@@ -899,10 +914,17 @@ final class AppPreferences: ObservableObject {
         didSet {
             defaults.set(smartLibraryCoverShape.rawValue, forKey: Keys.smartLibraryCoverShape)
             // 正方形では「向きで切り替える」を選べない(CoverFit.byOrientation)ので「切り取って埋める」へ戻す。
-            if let aspect = smartLibraryCoverShape.cropAspect, smartLibraryCoverFit.available(frameAspect: aspect) != smartLibraryCoverFit {
-                smartLibraryCoverFit = smartLibraryCoverFit.available(frameAspect: aspect)
-            }
+            let available = Self.availableSmartLibraryCoverFit(smartLibraryCoverFit, shape: smartLibraryCoverShape)
+            if available != smartLibraryCoverFit { smartLibraryCoverFit = available }
         }
+    }
+
+    /// その形で選べる合わせ方(正方形では「向きで切り替える」を「切り取って埋める」へ)。上の didSet のほか、読み込み(init)と
+    /// 取り込み(`apply`)の後にも通す(2026-10-04 の監査 ST-14 ―― 手で直したバックアップ・defaults の直書きで「正方形 + 向きで切り替える」が
+    /// 入ると、隠れている選択肢が選ばれたまま表示され、実際は切り取っていた。`apply` は形 → 合わせ方の順に代入するので、didSet の直しを
+    /// 合わせ方の代入が上書きしていた)。
+    static func availableSmartLibraryCoverFit(_ fit: CoverFit, shape: SmartLibraryCoverShape) -> CoverFit {
+        shape.cropAspect.map { fit.available(frameAspect: $0) } ?? fit
     }
     /// スマートライブラリで表紙を切るとき、既定でどこを残すか(2026-09-23、利用者の要望。既定は中央 = この設定を足す前の
     /// 見た目)。ライブラリの「切り取るときに残す位置」(`BookLibrary.coverCropAnchor`)に当たり、同じく**本ごとの指定
@@ -1363,6 +1385,8 @@ final class AppPreferences: ObservableObject {
         self.spreadBookmarkTargetBehavior =
             SpreadBookmarkTargetBehavior(rawValue: defaults.string(forKey: Keys.spreadBookmarkTargetBehavior) ?? "")
                 ?? .defaultSide
+        // 上はスライダー(`maxTrackedBooksCountSliderRange`)より広く取ったまま。ここで 2000 に収めると、手で直したバックアップの
+        // 5000 を読んだ人の読書位置が次に本を開いたときに間引かれる ―― スライダーの側を今の値まで広げる(監査 ST-13)。
         self.maxTrackedBooksCount = Self.storedDouble(defaults.object(forKey: Keys.maxTrackedBooksCount), default: 500, range: 50...1_000_000)
         self.hideToolbar = defaults.object(forKey: Keys.hideToolbar) as? Bool ?? false
         self.hideProgressBar = defaults.object(forKey: Keys.hideProgressBar) as? Bool ?? false
@@ -1412,10 +1436,12 @@ final class AppPreferences: ObservableObject {
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
-        // 下げると履歴が消えるので、上は広く取る(中 3)。
+        // スライダーと同じ範囲へ収める(2026-10-04 の監査 ST-13)。以前は「下げると履歴が消える」(2026-09-23 の中 3)ので上を
+        // 1,000,000 まで広く取っていたが、履歴を切り詰める RecentFilesStore.maxCount はもともと 200 で頭打ち ―― 200 を超える値は
+        // 画面に出るだけで効かず、収めても消える履歴は増えない。
         self.recentFilesLimit = Self.storedDouble(
             defaults.object(forKey: Self.recentFilesLimitDefaultsKey), default: Self.defaultRecentFilesLimit,
-            range: Self.recentFilesLimitRange.lowerBound...1_000_000
+            range: Self.recentFilesLimitRange
         )
         self.offersRemovingMissingCollectionBooks =
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
@@ -1424,12 +1450,17 @@ final class AppPreferences: ObservableObject {
         self.smartLibraryFeatureEnabled = Self.storedSmartLibraryFeatureEnabled(in: defaults)
         self.smartLibraryUsesFirstAuthorOnly =
             defaults.object(forKey: Keys.smartLibraryUsesFirstAuthorOnly) as? Bool ?? false
-        self.smartLibraryCoverShape = SmartLibraryCoverShape(
+        let smartLibraryCoverShape = SmartLibraryCoverShape(
             rawValue: defaults.string(forKey: Keys.smartLibraryCoverShape) ?? ""
         ) ?? .matchImage
+        self.smartLibraryCoverShape = smartLibraryCoverShape
         self.smartLibraryCoverCropAnchor =
             CoverCropAnchor.stored(defaults.string(forKey: Keys.smartLibraryCoverCropAnchor)) ?? .center
-        self.smartLibraryCoverFit = CoverFit(rawValue: defaults.string(forKey: Keys.smartLibraryCoverFit) ?? "") ?? .crop
+        // 形と合わない合わせ方は読むときに直す(監査 ST-14。availableSmartLibraryCoverFit)。
+        self.smartLibraryCoverFit = Self.availableSmartLibraryCoverFit(
+            CoverFit(rawValue: defaults.string(forKey: Keys.smartLibraryCoverFit) ?? "") ?? .crop,
+            shape: smartLibraryCoverShape
+        )
         self.secretFolderBooksOpenPrivately = defaults.object(forKey: Keys.secretFolderBooksOpenPrivately) as? Bool ?? false
         self.secretFolderPrivatePlacement = SecretFolderPrivatePlacement(
             rawValue: defaults.string(forKey: Keys.secretFolderPrivatePlacement) ?? ""
@@ -1812,7 +1843,8 @@ extension AppPreferences {
             smartLibraryUsesFirstAuthorOnly = source.smartLibraryUsesFirstAuthorOnly
             smartLibraryCoverShape = source.smartLibraryCoverShape
             smartLibraryCoverCropAnchor = source.smartLibraryCoverCropAnchor
-            smartLibraryCoverFit = source.smartLibraryCoverFit
+            // 形の didSet の直しを上書きしないよう、今の形で選べる値にしてから入れる(監査 ST-14)。
+            smartLibraryCoverFit = Self.availableSmartLibraryCoverFit(source.smartLibraryCoverFit, shape: smartLibraryCoverShape)
         case .secretFolders:
             secretFolderBooksOpenPrivately = source.secretFolderBooksOpenPrivately
             secretFolderPrivatePlacement = source.secretFolderPrivatePlacement

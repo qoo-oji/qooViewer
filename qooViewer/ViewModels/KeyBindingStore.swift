@@ -225,6 +225,9 @@ final class KeyBindingStore: ObservableObject {
     /// 既定の移動量。cooViewerのdefaultKeyArrayMode2/Mode3が持つvalue(20)に合わせている。
     static let defaultScrollStep: Double = 20
 
+    /// 1 回のスクロールの移動量の範囲(環境設定のスライダーと、読むときの収め先。監査 ST-13)。
+    static let scrollStepRange: ClosedRange<Double> = 5...200
+
     static var defaultModeScrollSteps: [ScalingMode: Double] {
         Dictionary(uniqueKeysWithValues: overridableModes.map { ($0, defaultScrollStep) })
     }
@@ -337,8 +340,13 @@ final class KeyBindingStore: ObservableObject {
     }
 
     /// そのモードでの「上/下/左/右へスクロール」1回あたりの移動量(ポイント)。
+    ///
+    /// 読むときに設定画面のスライダーと同じ範囲(`scrollStepRange`)へ収める(2026-10-04 の監査 ST-13 ―― 手で直した値・
+    /// 取り込んだ値がそのまま効いていた。CLAUDE.md「numeric preferences are clamped where they are read」)。
     func scrollStep(in mode: ScalingMode) -> Double {
-        modeScrollSteps[mode] ?? Self.defaultScrollStep
+        AppPreferences.clampedMegabytes(
+            modeScrollSteps[mode] ?? Self.defaultScrollStep, default: Self.defaultScrollStep, range: Self.scrollStepRange
+        )
     }
 
     func setScrollStep(_ step: Double, in mode: ScalingMode) {
@@ -360,6 +368,21 @@ final class KeyBindingStore: ObservableObject {
     /// assignedAction(for:in:)のマウス版。
     func assignedAction(for trigger: MouseTrigger, in mode: ScalingMode) -> ViewerAction? {
         mode == Self.baseMode ? mouseBindings[trigger.id] : modeMouseBindings[mode]?[trigger.id]
+    }
+
+    /// 設定画面でキーを足すとき、断る理由になる「そのモードで既に割り当てられている別の操作」。
+    ///
+    /// 機能を隠しているために設定画面に行の無い操作(`ViewerAction.isHiddenByFeatureSwitch`)は数えない ――
+    /// 数えると、見えない操作を理由に断られ、行が無いので外す手段も無い(2026-10-04 の監査 BE-14 = ST-11。既定の ⌥A / ⌥B)。
+    /// 足すと割り当ては 1 キー 1 操作なので、隠れた操作の割り当ては上書きされて消える(機能を戻しても既定は戻らない ―― 利用者が
+    /// そのキーを別の操作に使うと決めたので、`fillingMissingDefaults` の条件 1 と同じ扱い)。
+    func conflictingAction(for key: RemappableKey, in mode: ScalingMode) -> ViewerAction? {
+        assignedAction(for: key, in: mode).flatMap { $0.isHiddenByFeatureSwitch ? nil : $0 }
+    }
+
+    /// conflictingAction(for:in:)のマウス版。
+    func conflictingAction(for trigger: MouseTrigger, in mode: ScalingMode) -> ViewerAction? {
+        assignedAction(for: trigger, in: mode).flatMap { $0.isHiddenByFeatureSwitch ? nil : $0 }
     }
 
     /// action にそのモードで現在割り当てられているキーの一覧を返す(複数割り当て対応)。

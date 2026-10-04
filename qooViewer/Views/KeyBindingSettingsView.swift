@@ -155,7 +155,8 @@ struct KeyBindingRow: View {
     /// 示す警告アラートを表示するだけにする。同じ操作への割り当てなら(通常この一覧には
     /// 出てこないが念のため)そのままstore.addKeyBindingへ委ねる。
     private func addKeyBindingIfAvailable(_ key: RemappableKey) {
-        if let existingAction = store.assignedAction(for: key, in: mode), existingAction != action {
+        // 隠した機能の操作(お気に入りの ⌥A / ⌥B)は断る理由に数えない(KeyBindingStore.conflictingAction。監査 BE-14)。
+        if let existingAction = store.conflictingAction(for: key, in: mode), existingAction != action {
             conflictingKey = ConflictingKeyAssignment(key: key, existingAction: existingAction)
             return
         }

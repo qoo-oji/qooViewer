@@ -186,6 +186,8 @@ nonisolated enum MetadataValueKey: Hashable, Comparable {
 @MainActor @Observable
 final class MetadataWorkspace {
     private(set) var books: [MetadataBookRow] = []
+    /// `books` が変わるたびに進む番号(規則の窓へ名前とルールセットを渡し直すきっかけ。監査 MD-5)。
+    private(set) var booksRevision = 0
     /// 計算し直している最中か。
     var isWorking: Bool { working > 0 }
     private var working = 0
@@ -491,6 +493,7 @@ final class MetadataWorkspace {
     }
 
     private func booksChanged() {
+        booksRevision &+= 1
         isBatching = true
         rebuildCounts()
         if let g = genreFilter, !genreValues.contains(where: { $0.key == g }) {
@@ -809,19 +812,35 @@ final class MetadataWorkspace {
     /// 欄の 1 段を書き換える(`inserting` なら、その位置に段を足す)。空にした段は消える(下の段が繰り上がる)。
     /// 著者は「、」で区切って書くと、その場で何人かに分かれる(前からの入力の癖)。ほかの欄は区切らない
     /// ―― タイトルや情報には「、」がふつうに入る。
+    ///
+    /// - Parameter original: 書き換えを始めたときにその段にあった文字(セルの書き換えから)。渡されたら、確定の時点の並びで
+    ///   その文字の段を探して書き換える ―― 同じ番号の段がもう同じ文字でなければ、いちばん近い同じ文字の段、見つからなければ
+    ///   何もせず false(2026-10-04 の監査 MD-9 ―― 以前は番号だけで結んだので、書き換えている間にほかの窓・インスペクタ・
+    ///   メタデータ生成の回で段が増減すると、確定が別の段を書き換えた)。空の文字(値の無い欄の空の 1 段)は値を足す。
+    /// - Returns: 書いたか。
+    @discardableResult
     func setLine(_ field: QMBookMetadata.Field, of id: MetadataBookRow.ID, at index: Int, to text: String,
-                 inserting: Bool = false) {
+                 inserting: Bool = false, replacing original: String? = nil) -> Bool {
         // 書き換えている間に本が付け替えられたら、新しい行へ書く(MD-2。currentID)。
         let id = currentID(id)
         let pieces = Self.linePieces(field, text)
         var list = currentValues(field, of: id)
-        let at = min(max(index, 0), list.count)
-        if inserting || at == list.count {
-            list.insert(contentsOf: pieces, at: at)
+        guard let at = Self.lineToReplace(in: list, at: index, original: inserting ? nil : original) else { return false }
+        if inserting || at == list.count || original?.isEmpty == true {
+            list.insert(contentsOf: pieces, at: min(at, list.count))
         } else {
             list.replaceSubrange(at...at, with: pieces)
         }
         set(field, to: list, for: [id])
+        return true
+    }
+
+    /// 書き換える段の位置(`setLine` の `original` の説明)。`original` が nil なら番号のまま(端へ寄せる)、空なら末尾を越えない位置。
+    nonisolated static func lineToReplace(in list: [String], at index: Int, original: String?) -> Int? {
+        let at = min(max(index, 0), list.count)
+        guard let original, !original.isEmpty else { return at }
+        if at < list.count, list[at] == original { return at }
+        return list.indices.filter { list[$0] == original }.min { abs($0 - at) < abs($1 - at) }
     }
 
     /// 1 段に書いた文字を値に分ける(空なら値なし)。
@@ -975,7 +994,13 @@ final class MetadataWorkspace {
     func formats(for id: String) -> FilenameFormats { formats[generator.input(for: id)?.preset] }
 
     /// その本を読んでいるルールセットの名前(割り当てが無ければ既定のもの)。
-    func presetName(for id: String) -> String { generator.input(for: id)?.preset ?? formats.defaultName }
+    ///
+    /// 行が消したルールセットを指したままなら既定の名前(読むのも既定 ―― `FormatPresets` の subscript)。2026-10-04 の監査 MD-13(a) ――
+    /// 以前は消した名前をそのまま返し、右クリックの「ファイル名の解析ルール」でどの項目にも印が付かなかった。
+    func presetName(for id: String) -> String {
+        guard let name = generator.input(for: id)?.preset, formats.presets[name] != nil else { return formats.defaultName }
+        return name
+    }
 
     /// その本のルールセットを利用者が選んだか(自動ではなく)。
     func hasPresetOverride(_ id: String) -> Bool { states[id]?.ruleSet != nil }

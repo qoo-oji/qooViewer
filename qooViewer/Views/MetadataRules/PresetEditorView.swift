@@ -31,7 +31,7 @@ struct FormatsPane: View {
 
     private var isDirty: Bool { draft.preset != saved.preset }
 
-    /// 開いたときに選ぶルールセット: 段 2 で選んだもの(この並びに無ければ既定のもの)。
+    /// 開いたときに選ぶルールセット: メタデータの編集ウインドウで選んでいる本のもの(この並びに無ければ既定のもの)。
     private var wanted: String {
         if let name = picked.ruleSet, catalog.names.contains(name) { return name }
         return catalog.defaultPreset
@@ -73,12 +73,14 @@ struct FormatsPane: View {
                                     .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
                                 // 余った幅はここへ。型の 1 行(番号・型の文字列・釦 4 つ)が切れずに見えるだけの幅が要る。
                                 PresetGroupEditor(draft: $draft, group: group,
+                                                  defaultTitle: catalog.entries.first { $0.id == catalog.defaultPreset }?
+                                                      .preset.displayName ?? catalog.defaultPreset,
                                                   others: catalog.entries.filter { $0.id != entry.id }
                                                       .map { AutoRuleEditor.Other(id: $0.id, title: $0.preset.displayName, rule: $0.preset.auto) })
                                     .frame(minWidth: 420, idealWidth: 620, maxWidth: .infinity)
                             }
                             .frame(minHeight: 220, idealHeight: 380)
-                            PreviewPane(sample: $sample, draft: $draft, saved: saved, isVolume: isVolume)
+                            PreviewPane(presetName: entry.id, sample: $sample, draft: $draft, saved: saved, isVolume: isVolume)
                                 .frame(minHeight: 220, idealHeight: 300)
                         }
                         Divider()
@@ -91,7 +93,7 @@ struct FormatsPane: View {
             .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { if selection == nil { load(wanted) } }
-        // 窓がもう開いているときも、段 2 から開き直されたら選び直す(直している途中なら、いつもどおり確かめてから)。
+        // 窓がもう開いているときも、メタデータの編集ウインドウから開き直されたら選び直す(直している途中なら、いつもどおり確かめてから)。
         .onChange(of: picked.ruleSetToken) { select(wanted) }
         // 保存・初期化のあと、保存してある中身が変わったら下書きを取り直す(直している途中の下書きは、そのまま)。
         .onChange(of: entry?.preset) { _, now in
@@ -127,7 +129,9 @@ struct FormatsPane: View {
                             editing.change { $0.removePreset(entry.id) }
                             if editing.errors.isEmpty { load(catalog.builtInDefaultPreset) }
                         }
-                    } message: { Text("Folders this rule set was assigned to are read with the default one from now on.") }
+                    // qooViewer ではルールセットは本ごとに選ぶ(右クリックの「ファイル名の解析ルール」)。文言は qooMeta 本体の「フォルダに
+                    // 割り当てる」のままだった(2026-10-04 の監査 MD-13)。
+                    } message: { Text("Books this rule set was chosen for are read with the default rule set from now on.") }
             }
             if let first = problems.first { Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red) }
             else if isDirty { Text("There are unsaved changes").font(.caption).foregroundStyle(.secondary) }
@@ -198,7 +202,7 @@ struct PresetDraft {
     var plain = PlainText.none
     /// 題の途中の括弧を読み残しに数えないか(既定は数えない)。
     var ignoresBracketsInsideTitle = true
-    /// 段 2 の「自動」で、このルールセットを選ぶ条件。
+    /// 「自動」で、このルールセットを選ぶ条件(決まらない本は既定のルールセットで読む。MetadataRulesStore.autoPreset)。
     var auto = PresetAutoRule.none
     var rows: [Row] = []
 
@@ -390,6 +394,8 @@ private let helpWidth: CGFloat = 560
 private struct PresetGroupEditor: View {
     @Binding var draft: PresetDraft
     var group: EditorGroup
+    /// 既定のルールセットの見出し(自動で決まらない本を読むもの。監査 MD-12)。
+    var defaultTitle: String
     /// ほかのルールセットの自動の条件(保存してあるもの)。自動の判定の組で、組み合わせた結果を見せるのに使う。
     var others: [AutoRuleEditor.Other]
 
@@ -447,7 +453,8 @@ private struct PresetGroupEditor: View {
     }
 
     @ViewBuilder private var auto: some View {
-        AutoRuleEditor(rule: $draft.auto, id: draft.name, title: draft.preset.displayName, others: others)
+        AutoRuleEditor(rule: $draft.auto, id: draft.name, title: draft.preset.displayName, defaultTitle: defaultTitle,
+                       others: others)
     }
 
     @ViewBuilder private var separators: some View {
@@ -477,12 +484,17 @@ struct AutoRuleEditor: View {
     @Binding var rule: PresetAutoRule
     var id: String
     var title: String
+    /// 既定のルールセットの見出し。qooViewer では自動で決まらない本(どのルールセットも取らない・2 つ以上が取る)は、これで読む
+    /// (`MetadataRulesStore.autoPreset` が nil → `FormatPresets` の既定)。
+    var defaultTitle: String
     var others: [Other]
     @State private var sample = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("In step 2, “Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is not decided — and then “Automatic” cannot be chosen.")
+            // qooMeta 本体の「段 2 で『自動』を選べない」のままだった。qooViewer に段は無く、決まらない本は既定のルールセットで読む
+            // (2026-10-04 の監査 MD-12)。
+            Text("“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”.".ui(defaultTitle))
                 .font(.callout).foregroundStyle(.secondary).frame(maxWidth: helpWidth, alignment: .leading)
 
             GroupBox {
@@ -557,10 +569,10 @@ struct AutoRuleEditor: View {
                                                        rules: [(id, rule)] + others.map { ($0.id, $0.rule) })
                 Group {
                     switch decision {
-                    case .none: Text("With every rule set together: none takes it, so “Automatic” cannot decide it.")
+                    case .none: Text("With every rule set together: none takes it, so it is read with the default rule set, “%@”.".ui(defaultTitle))
                     case .one(let chosen): Text("With every rule set together: “Automatic” reads it with “%@”.".ui(titles[chosen] ?? chosen))
-                    case .many(let all): Text("With every rule set together: %@ all take it, so “Automatic” cannot decide it.".ui(
-                        all.map { "“\(titles[$0] ?? $0)”" }.joined(separator: ", ")))
+                    case .many(let all): Text("With every rule set together: %1$@ all take it, so it is read with the default rule set, “%2$@”.".ui(
+                        all.map { "“\(titles[$0] ?? $0)”" }.joined(separator: ", "), defaultTitle))
                     }
                 }
                 .font(.caption)
@@ -576,8 +588,11 @@ struct AutoRuleEditor: View {
 }
 
 /// 下のプレビュー: **中央ペインと右ペインの幅をまたいで**、直した並びで実際にどう読めるかを見せる。
-/// 上は打った名前 1 つの試し読み、下は段 1 で選んだ本の名前ぜんぶ(2026-09-20、利用者の指示)。
+/// 上は打った名前 1 つの試し読み、下はメタデータの編集ウインドウの本のうち、このルールセットで読む本の名前ぜんぶ
+/// (2026-09-20、利用者の指示。qooMeta 本体では段 1 で選んだ本。監査 MD-5 で絞った)。
 private struct PreviewPane: View {
+    /// 直しているルールセット(名前の読めぐあいは、このルールセットで読む本だけを数える。監査 MD-5)。
+    var presetName: String
     @Binding var sample: String
     @Binding var draft: PresetDraft
     var saved: PresetDraft
@@ -599,7 +614,7 @@ private struct PreviewPane: View {
                 .padding(.horizontal, 12).padding(.vertical, 10)
                 .fixedSize(horizontal: false, vertical: true)
             Divider()
-            NameCheckPane(draft: draft, saved: saved, isVolume: isVolume, exclude: exclude)
+            NameCheckPane(presetName: presetName, draft: draft, saved: saved, isVolume: isVolume, exclude: exclude)
                 .frame(maxHeight: .infinity)
         }
     }

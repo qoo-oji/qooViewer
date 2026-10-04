@@ -267,6 +267,11 @@ final class MetadataRulesStore {
         return parseName(name, rules: rules, preset: autoPreset(forBookID: bookID, name: name, rules: rules))
     }
 
+    /// 1 冊を、決まったルールセットで読む(行で選んだルールセットを使う所。メタデータの編集ウインドウの「空の欄だけ埋める」)。
+    nonisolated static func reading(forBookID bookID: String, rules: CompiledRules, preset: String) -> FormatReading {
+        parseName(parsingName(forBookID: bookID), rules: rules, preset: preset)
+    }
+
     /// 1 冊だけの提案(型で読んだ欄 + その 1 冊から導けるシリーズと巻)。1 冊ぶんのシートの初期値に使う。
     /// 同じ書き手のほかの本と見比べないので、番号の無いシリーズは見つからない(一覧のウインドウなら見つかる)。
     nonisolated static func singleProposal(forBookID bookID: String, rules: CompiledRules) -> QMBookMetadata {

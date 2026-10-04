@@ -70,8 +70,8 @@ final class BookTitleResolver {
 
     /// ウェルカム画面の検索(LibrarySearchQuery)が照合する、この本の文字列(ユーザー要望 2026-09-13)。
     ///
-    /// 中身は**ファイル名/フォルダ名**(拡張子つき)と、**登録済みのメタデータ**(すべての欄。2026-09-21 から
-    /// qooMeta の欄 ―― 2 人目以降の著者・ジャンル・イベント・原作・情報 ―― も)。ファイル名からの推測値は入れない
+    /// 中身は**ファイル名/フォルダ名**(拡張子つき)と、**登録済みのメタデータ**(すべての欄のすべての値。2026-09-21 から
+    /// qooMeta の欄 ―― 2 人目以降の著者・ジャンル・イベント・原作・情報 ―― も、2026-10-04 から原作・情報の 2 つ目からの値も)。ファイル名からの推測値は入れない
     /// ―― 推測はファイル名から取り出した部分文字列なので、ファイル名で既に一致する。
     ///
     /// ■ 覚えておく理由と捨てる契機はtitle(forBookID:)と同じ
@@ -88,8 +88,10 @@ final class BookTitleResolver {
         var fields = [URL(fileURLWithPath: bookID, isDirectory: false).lastPathComponent]
         if let metadata = metadataStore.metadata(forBookID: bookID) {
             let values = metadata.values
-            fields += ([values.title] + values.authors
-                       + [values.genre, values.event, values.source, values.info, values.series, values.volume])
+            // 原作・情報は 2 つ目からの値(`moreValues`)も入れる(2026-10-04 の監査 MD-15(b) ―― 以前は先頭だけで、メタデータの
+            // 編集ウインドウの検索は全部の値を見るのに、ホームの検索は 2 つ目からの値で見つからなかった)。
+            fields += ([values.title] + values.authors + [values.genre, values.event]
+                       + values.allValues("source") + values.allValues("info") + [values.series, values.volume])
                 .filter { !$0.isEmpty }
         }
         let text = LibrarySearchQuery.normalized(fields.joined(separator: "\n"))

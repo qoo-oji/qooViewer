@@ -167,7 +167,8 @@ struct MouseBindingRow: View {
     }
 
     private func addTriggerIfAvailable(_ trigger: MouseTrigger) {
-        if let existing = store.assignedAction(for: trigger, in: mode), existing != action {
+        // 隠した機能の操作は断る理由に数えない(KeyBindingStore.conflictingAction。監査 BE-14)。
+        if let existing = store.conflictingAction(for: trigger, in: mode), existing != action {
             alert = TriggerAlert(trigger: trigger, kind: .conflict(existing: existing))
             return
         }

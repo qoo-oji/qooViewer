@@ -31,11 +31,12 @@ struct GeneralSettingsView: View {
                 // 並びは帯の左からと同じ: ファイルブラウザ・スマートライブラリ・ライブラリ(2026-09-22、利用者の指示。2026-09-27 の
                 // 点検で影響の大きさ順に並べ替える案を出したが、利用者の判断でこのまま)。
                 // ユーザー要望 2026-09-21。3 つとも OFF にすると、ホームは本棚を足す前のウェルカム画面に戻る
-                // (AppPreferences.fileBrowserFeatureEnabled)。
+                // (AppPreferences.fileBrowserFeatureEnabled)。帯に代わりに出るのは「本を開く…」だけ ―― 「履歴から開く」は
+                // 2026-09-28 から機能に関わらず「直前の本へ戻る」の隣の時計のボタンになった(2026-10-04 の監査 ST-15 で吹き出しを直した)。
                 SettingsToggle(
                     "Enable File Browser",
                     isOn: $preferences.fileBrowserFeatureEnabled,
-                    help: "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… and Open from History in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
+                    help: "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
                 )
                 // 2026-09-22、利用者の要望。スマートライブラリの本は自分の対象フォルダの中だけなので、ほかの 2 つとは別に切り替える
                 // (AppPreferences.smartLibraryFeatureEnabled)。
@@ -78,12 +79,14 @@ struct GeneralSettingsView: View {
                 // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
                 SettingsToggle(
                     "Reopen the Book You Were Last Reading",
-                    isOn: $preferences.launchOpensLastBook
+                    isOn: $preferences.launchOpensLastBook,
+                    help: "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen."
                 )
                 // シークレットで起動する設定では、そもそも「前回読んでいた本」が記録されず、
                 // 記録済みのものも意図的に無視する(ContentView.performLaunchActionsIfNeeded
                 // 参照)。効かない設定を触れるままにしておくと「壊れている」と受け取られるため、
-                // ここでグレーアウトして理由を吹き出しに置く。
+                // ここでグレーアウトして理由を吹き出しに置く(吹き出しは 2026-10-04 の監査 ST-15 で足した ―― このコメントだけがあり、
+                // `help:` が無かった)。
                 .disabled(preferences.launchInPrivateMode)
                 SettingsToggle("Start in Full Screen", isOn: $preferences.launchFullScreen)
             } header: {
@@ -146,7 +149,8 @@ struct GeneralSettingsView: View {
                 SettingsSlider(
                     "Books to Keep Data For",
                     value: $preferences.maxTrackedBooksCount,
-                    in: 50...2000,
+                    // 保存値が 2000 を超えていれば上をそこまで広げる(監査 ST-13。つまみを端に貼り付けたまま触ると下がった)。
+                    in: AppPreferences.maxTrackedBooksCountSliderRange(current: preferences.maxTrackedBooksCount),
                     step: 50,
                     // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
                     // ラベルに入れると長すぎるので、ホバーの吹き出しへ。

@@ -1,28 +1,46 @@
 import QooMetaKit
 import SwiftUI
 
-/// 流れの段 1・段 2 で選んだもののうち、**規則の窓が見たいもの**の置き場。窓をまたいで使うので、
-/// 場面(Scene)ではなくここに置く ―― ファイル名解析の窓は一覧の窓とは別の場面で、段で選んだものを直には見られない。
+/// メタデータの編集ウインドウの本と、選んでいる本のルールセットのうち、**規則の窓が見たいもの**の置き場。窓をまたいで使うので、
+/// 場面(Scene)ではなくここに置く ―― ファイル名解析の窓は一覧の窓とは別の場面で、一覧の中身を直には見られない。
 ///
-/// 持つのは本の名前と、選んだルールセットの名前だけ(パスは持たない)。書き出しにも保存にも使わない、画面のための写し。
+/// 持つのは本の名前と、その本を読むルールセットの名前だけ(パスは持たない)。書き出しにも保存にも使わない、画面のための写し。
+/// (qooMeta 本体の「段 1 で本を選び、段 2 でルールセットを選ぶ」流れから来た型。qooViewer では本は一覧の全冊、ルールセットは
+/// 本ごと ―― 自動の選択か、右クリックの「ファイル名の解析ルール」で選んだもの。2026-10-04 の監査 MD-5 でコメントを合わせた。)
 @MainActor @Observable
 final class MetadataRulesPicked {
     static let shared = MetadataRulesPicked()
 
     private(set) var names: [String] = []
+    /// `names` と同じ並びの、その本を読むルールセットの名前(`MetadataWorkspace.presetName(for:)`)。
+    ///
+    /// 名前の読めぐあい(NameCheckPane)は、**直しているルールセットで読む本だけ**を数える(2026-10-04 の監査 MD-5 ―― 以前は名前しか
+    /// 持たず、一覧の全冊を直しているルールセットで読んでいたので、ほかのルールセットで読む本まで「読めない」に数えていた)。
+    private(set) var ruleSets: [String] = []
     /// 中身が入れ替わったかを軽く見分ける印(名前の並びを毎回比べずに済ませる)。
     private(set) var token = 0
-    /// 段 2 で選んだルールセットの名前。
+    /// 規則の窓を開くときに選ぶルールセットの名前(メタデータの編集ウインドウで選んでいる本のもの)。
     private(set) var ruleSet: String?
     /// 規則の窓を開いた回数。**窓がもう開いているときにも選び直させる**ための印。
     ///
-    /// 段 2 で同人誌のルールセットを選んでいるのに、そこから開いた窓では商業誌が選ばれている、という食い違いがあった
+    /// 同人誌のルールセットで読む本を選んでいるのに、そこから開いた窓では商業誌が選ばれている、という食い違いがあった
     /// (2026-09-20、利用者の指摘)。開くたびに、いま選んでいるものへ合わせる。
     private(set) var ruleSetToken = 0
 
-    func set(_ names: [String]) {
+    /// 一覧の本の名前とルールセットを渡す。中身が前と同じなら何もしない(一覧の行が変わるたびに呼ばれ、
+    /// 印が進むと名前の読めぐあいが全冊を読み直すため)。
+    func set(_ books: [(name: String, ruleSet: String)]) {
+        let names = books.map(\.name)
+        let ruleSets = books.map(\.ruleSet)
+        guard names != self.names || ruleSets != self.ruleSets else { return }
         self.names = names
+        self.ruleSets = ruleSets
         token += 1
+    }
+
+    /// ルールセット `name` で読む本の名前。
+    func names(readWith name: String) -> [String] {
+        zip(names, ruleSets).compactMap { $1 == name ? $0 : nil }
     }
 
     /// 規則の窓を開く直前に、いま選んでいるルールセットを渡す。
@@ -158,6 +176,8 @@ final class NameCheck {
 /// (2026-09-21、利用者の指摘)。その 2 つを 1 つの表で兼ねる: 読めぐあいごとの数は「直す前 → いま」で出し、
 /// 行には**問題の場所**を色で示す。
 struct NameCheckPane: View {
+    /// 直しているルールセットの名前。このルールセットで読む本だけを数える(MetadataRulesPicked.ruleSets)。
+    var presetName: String
     var draft: PresetDraft
     var saved: PresetDraft
     var isVolume: VolumeTest
@@ -208,10 +228,18 @@ struct NameCheckPane: View {
             Divider()
             if picked.names.isEmpty {
                 // 外の VStack は左そろえなので、そのままだと知らせが左端に寄る。空いている所の真ん中に置く。
+                // (文言は qooMeta 本体の「段 1 で本を選ぶ」のままだった。qooViewer に段は無い ―― 監査 MD-5。)
                 ContentUnavailableView {
-                    Label("No books chosen yet", systemImage: "books.vertical")
+                    Label("No books yet", systemImage: "books.vertical")
                 } description: {
-                    Text("Choose the books in step 1 and their names appear here, so you can see which ones this rule set fails to read.")
+                    Text("Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read.")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if pickedNames.isEmpty {
+                ContentUnavailableView {
+                    Label("No book is read with this rule set", systemImage: "books.vertical")
+                } description: {
+                    Text("Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu.")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if rows.isEmpty {
@@ -232,8 +260,12 @@ struct NameCheckPane: View {
         .onChange(of: draft.preset) { recompute() }
         .onChange(of: saved.preset) { recompute() }
         .onChange(of: picked.token) { recompute() }
+        .onChange(of: presetName) { recompute() }
         .onAppear { recompute() }
     }
+
+    /// このルールセットで読む本の名前(監査 MD-5)。
+    private var pickedNames: [String] { picked.names(readWith: presetName) }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
@@ -271,8 +303,12 @@ struct NameCheckPane: View {
     }
 
     private func recompute() {
+        // 印にはルールセットの名前も混ぜる(選び直すと数える本が替わる。「直す前」の控えを取り違えない)。
+        var token = Hasher()
+        token.combine(picked.token)
+        token.combine(presetName)
         check.update(now: draft.usable(isVolume: isVolume).formats, before: saved.usable(isVolume: isVolume).formats,
-                     names: picked.names, token: picked.token)
+                     names: pickedNames, token: token.finalize())
     }
 }
 

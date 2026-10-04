@@ -557,10 +557,14 @@ class BookExportViewModel: ObservableObject {
         seededAuthors[bookID] = seed.author
     }
 
-    /// 種の値。メタデータDBに題があればその題と先頭の著者、無ければファイル名を qooMeta で読んだ値。
+    /// 種の値。メタデータDBに行があればその題と先頭の著者(題が空ならファイル名)、行が無ければファイル名を qooMeta で読んだ値。
+    ///
+    /// 行があるのに題が空の本は、棚のキャプション・ビューアの題(`BookTitleResolver`)と同じくファイル名にし、著者は行の値を使う
+    /// (2026-10-04 の監査 MD-15(a) ―― 以前はファイル名を自動のルールセットで読み直した題と著者にして、行の著者も行で選んだ
+    /// ルールセットも見なかった)。
     private func titleAndAuthorSeed(for row: Row) -> (title: String, author: String) {
-        if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
-            return (metadata.title, metadata.author)
+        if let metadata = metadataStore.metadata(forBookID: row.bookID) {
+            return (metadata.title.isEmpty ? row.displayName : metadata.title, metadata.author)
         }
         // ファイル名を qooMeta で読む(メタデータの編集と同じ規則・同じルールセットの選び方。2026-09-21 までは
         // 書き出しだけの別の推測 TitleAuthorFilenameParser を使っていた)。

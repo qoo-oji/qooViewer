@@ -44,8 +44,10 @@ final class SidePanelBrowserState: ObservableObject {
     /// フォルダ移動はするが何も起きない。上段は画像の本のとき1階層上を表示する仕様
     /// (browserAnchor参照)なので、いちばん押したくなる行がまさにこれにあたる。
     ///
-    /// パネル側はこの値を見て「このフォルダの画像を開く」導線を出す(一覧が空なら中央に、
-    /// サブフォルダが並んでいるならその先頭の行として)。
+    /// 今は移動した時点でそのフォルダの画像を表示する(SidePanelView.moveAndShowImages)ので、「このフォルダの画像を開く」導線は
+    /// 出さない。パネル側はこの値を、一覧が空である理由(画像だけのフォルダ)を伝える文を出すのに使う(SidePanelView の
+    /// 「This folder's images are open.」「This folder holds images.」)。以前の「導線を出す(一覧が空なら中央に、サブフォルダが
+    /// 並んでいるならその先頭の行として)」という説明は 2026-10-04 の監査 §5 で今の動きに直した。
     @Published private(set) var currentDirectoryHasImages = false
     /// 表示枠内へスクロール+ハイライトする対象。handlePanelRevealed/goUpが設定する。
     /// 「上へ」で出てきたフォルダの強調はこれ。今の本の行の強調は下の currentBookRowURL で別に持つ(2026-10-04 の監査 SP-13・決定 12)。

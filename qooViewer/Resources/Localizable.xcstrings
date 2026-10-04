@@ -7861,19 +7861,19 @@
         }
       }
     },
-    "Choose the books in step 1 and their names appear here, so you can see which ones this rule set fails to read." : {
+    "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose the books in step 1 and their names appear here, so you can see which ones this rule set fails to read."
+            "value" : "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "段 1 で本を選ぶと、その名前がここに並びます。このルールセットで解析できない名前がひと目で分かります。"
+            "value" : "メタデータの編集ウインドウを開くと、その本の名前がここに並びます。このルールセットで解析できない名前がひと目で分かります。"
           }
         }
       }
@@ -13797,18 +13797,18 @@
         }
       }
     },
-    "Favorites, collections, bookmarks, page layout settings and metadata, as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those." : {
+    "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Favorites, collections, bookmarks, page layout settings and metadata, as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those."
+            "value" : "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "お気に入り・コレクション・ブックマーク・ページレイアウト設定・メタデータを、qooViewerだけが読み戻せるJSONファイル1つにまとめます。コレクション表紙は含まれません ―― そちらは下の項目から出し入れします。"
+            "value" : "コレクション・ブックマーク・ページレイアウト設定・メタデータとその規則・読書位置・スマートライブラリ・ファイルブラウザのよく使う項目と自動リネームの規則・環境設定(シークレットフォルダを含む)を、qooViewerだけが読み戻せるJSONファイル1つにまとめます。コレクション表紙は含まれません ―― そちらは下の項目から出し入れします。"
           }
         }
       }
@@ -14529,19 +14529,19 @@
         }
       }
     },
-    "Folders this rule set was assigned to are read with the default one from now on." : {
+    "Books this rule set was chosen for are read with the default rule set from now on." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Folders this rule set was assigned to are read with the default one from now on."
+            "value" : "Books this rule set was chosen for are read with the default rule set from now on."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このルールセットを割り当てていたフォルダは、デフォルトのルールセットで読まれます。"
+            "value" : "このルールセットを選んでいた本は、これからはデフォルトのルールセットで読まれます。"
           }
         }
       }
@@ -16247,19 +16247,19 @@
         }
       }
     },
-    "In step 2, “Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is not decided — and then “Automatic” cannot be chosen." : {
+    "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In step 2, “Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is not decided — and then “Automatic” cannot be chosen."
+            "value" : "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "段 2 の「自動」は、下の ① と ② を両方満たす本を、このルールセットで読みます。どのルールセットにも当たらない本や、2 つ以上に当たって絞れない本は決まらず、そのときは「自動」を選べません。"
+            "value" : "「自動」は、下の ① と ② を両方満たす本を、このルールセットで読みます。どのルールセットにも当たらない本や、2 つ以上に当たって絞れない本は、デフォルトのルールセット「%@」で読みます。"
           }
         }
       }
@@ -20064,19 +20064,19 @@
         }
       }
     },
-    "No books chosen yet" : {
+    "No books yet" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No books chosen yet"
+            "value" : "No books yet"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本がまだ選ばれていません"
+            "value" : "本がまだありません"
           }
         }
       }
@@ -25686,34 +25686,34 @@
         }
       }
     },
-    "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected." : {
+    "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface, except the two settings under Windows. The other windows’ appearance and other pages are not affected." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected."
+            "value" : "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface, except the two settings under Windows. The other windows’ appearance and other pages are not affected."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "編集しているウインドウの外観について、この画面と各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nもう一方のウインドウの外観と、ほかの画面の設定には影響しません。"
+            "value" : "編集しているウインドウの外観について、「ウインドウ」欄の 2 つを除いて、この画面と各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nもう一方のウインドウの外観と、ほかの画面の設定には影響しません。"
           }
         }
       }
     },
-    "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected." : {
+    "Restores every setting on this page and on every panel’s page, including the color of every frosted surface, except the two settings under Windows. Other pages are not affected." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected."
+            "value" : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface, except the two settings under Windows. Other pages are not affected."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この画面と、各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nほかの画面の設定には影響しません。"
+            "value" : "「ウインドウ」欄の 2 つを除いて、この画面と各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nほかの画面の設定には影響しません。"
           }
         }
       }
@@ -27802,18 +27802,18 @@
         }
       }
     },
-    "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… and Open from History in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books." : {
+    "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… and Open from History in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
+            "value" : "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで表示」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。帯の左端には代わりに「本を開く…」と「履歴から開く」が出ます。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。スマートライブラリとライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
+            "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで表示」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。帯の左端には代わりに「本を開く…」が出ます。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。スマートライブラリとライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
           }
         }
       }
@@ -34038,36 +34038,36 @@
         }
       }
     },
-    "With every rule set together: %@ all take it, so “Automatic” cannot decide it." : {
+    "With every rule set together: %1$@ all take it, so it is read with the default rule set, “%2$@”." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "With every rule set together: %@ all take it, so “Automatic” cannot decide it."
+            "value" : "With every rule set together: %1$@ all take it, so it is read with the default rule set, “%2$@”."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのルールセットで見ると: %@ のどれにも当たるので、「自動」では決まりません。"
+            "value" : "すべてのルールセットで見ると: %1$@ のどれにも当たるので、デフォルトのルールセット「%2$@」で読みます。"
           }
         }
       }
     },
-    "With every rule set together: none takes it, so “Automatic” cannot decide it." : {
+    "With every rule set together: none takes it, so it is read with the default rule set, “%@”." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "With every rule set together: none takes it, so “Automatic” cannot decide it."
+            "value" : "With every rule set together: none takes it, so it is read with the default rule set, “%@”."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのルールセットで見ると: どれにも当たらないので、「自動」では決まりません。"
+            "value" : "すべてのルールセットで見ると: どれにも当たらないので、デフォルトのルールセット「%@」で読みます。"
           }
         }
       }
@@ -35093,6 +35093,71 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(ホームのインスペクタで表紙を右クリック、またはメタデータの編集ウインドウで表紙をクリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
+          }
+        }
+      }
+    },
+    "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「シークレットモードで起動」がオンの間は使えません(何も記録しないので、開き直す前回の本がありません)。"
+          }
+        }
+      }
+    },
+    "No book is read with this rule set" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No book is read with this rule set"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このルールセットで読む本がありません"
+          }
+        }
+      }
+    },
+    "Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the books in Edit Metadata that this rule set reads are counted here. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに数えるのは、メタデータの編集ウインドウの本のうち、このルールセットで読む本だけです。本ごとのルールセットは自動で選ばれるほか、右クリックの「ファイル名の解析ルール」で選べます。"
+          }
+        }
+      }
+    },
+    "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほかの所で設定が変わりました。「現在の設定に戻す」で変わった内容を表示し、「適用」でこの内容に置き換えます。"
           }
         }
       }

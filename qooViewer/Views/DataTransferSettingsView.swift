@@ -43,7 +43,10 @@ struct DataTransferSettingsView: View {
             } header: {
                 Text("Saved Data")
             } footer: {
-                Text("Favorites, collections, bookmarks, page layout settings and metadata, as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those.")
+                // 中身の列挙は書き出しウインドウの種類と同じ(QooLibraryExportFile)。お気に入りは隠した機能なので挙げない
+                // (2026-10-04 の監査 ST-15 ―― 以前は formatVersion 5 までの 5 つだけを挙げ、読書位置・スマートライブラリ・
+                // ファイルブラウザ・環境設定・シークレットフォルダが抜けていた)。
+                Text("Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

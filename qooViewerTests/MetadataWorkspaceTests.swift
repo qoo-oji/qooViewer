@@ -1088,3 +1088,75 @@ extension MetadataWorkspaceTests {
         #expect(workspace.selection == [first])
     }
 }
+
+// MARK: - 2026-10-04、状態と画面の監査の段 8(後半)
+
+extension MetadataWorkspaceTests {
+    @Test("段の書き換えの確定は、始めたときの文字の段を探して書く。裏で段が増えても別の段を書き換えず、消えていれば断る(MD-9)")
+    func committingALineFollowsItsOriginalText() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first])
+        workspace.set(.info, to: ["付記一", "付記二"], for: [first])
+        await workspace.settle()
+
+        // 2 段目(付記二)を書き換えている間に、ほかの所で先頭へ段が足された。
+        workspace.set(.info, to: ["足した付記", "付記一", "付記二"], for: [first])
+        await workspace.settle()
+        #expect(workspace.setLine(.info, of: first, at: 1, to: "直した付記", replacing: "付記二"))
+        await workspace.settle()
+        #expect(workspace.currentValues(.info, of: first) == ["足した付記", "付記一", "直した付記"])
+
+        // 書き換えていた段が裏で消えた → 何も書かない。
+        #expect(!workspace.setLine(.info, of: first, at: 0, to: "別の付記", replacing: "消えた付記"))
+        #expect(workspace.currentValues(.info, of: first) == ["足した付記", "付記一", "直した付記"])
+
+        // 位置の選び方: 同じ文字の段がいくつかあれば、元の番号にいちばん近いもの。空の文字は足す。
+        #expect(MetadataWorkspace.lineToReplace(in: ["甲", "乙", "甲"], at: 2, original: "甲") == 2)
+        #expect(MetadataWorkspace.lineToReplace(in: ["乙", "甲", "丙", "甲"], at: 2, original: "甲") == 1)
+        #expect(MetadataWorkspace.lineToReplace(in: [], at: 0, original: "") == 0)
+        #expect(MetadataWorkspace.lineToReplace(in: ["甲"], at: 0, original: nil) == 0)
+    }
+
+    @Test("消したルールセットを指したままの本は、既定のルールセットの名前で数える(MD-13)")
+    func aDeletedRuleSetCountsAsTheDefault() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first])
+        workspace.setRuleSet([first], to: "架空の消したルールセット")
+        await workspace.settle()
+
+        #expect(workspace.hasPresetOverride(first))
+        #expect(workspace.presetName(for: first) == workspace.formats.defaultName)
+    }
+
+    @Test("規則の窓の名前の読めぐあいへ渡す写しは、ルールセットごとに名前を分け、同じ中身では印を進めない(MD-5)")
+    func pickedNamesAreSplitByRuleSet() {
+        let picked = MetadataRulesPicked()
+        picked.set([(name: "名前一", ruleSet: "甲"), (name: "名前二", ruleSet: "乙"), (name: "名前三", ruleSet: "甲")])
+        #expect(picked.names(readWith: "甲") == ["名前一", "名前三"])
+        #expect(picked.names(readWith: "乙") == ["名前二"])
+        #expect(picked.names(readWith: "丙").isEmpty)
+
+        let token = picked.token
+        picked.set([(name: "名前一", ruleSet: "甲"), (name: "名前二", ruleSet: "乙"), (name: "名前三", ruleSet: "甲")])
+        #expect(picked.token == token, "中身が同じなら読み直させない")
+        picked.set([(name: "名前一", ruleSet: "乙"), (name: "名前二", ruleSet: "乙"), (name: "名前三", ruleSet: "甲")])
+        #expect(picked.token == token + 1)
+        #expect(picked.names(readWith: "乙") == ["名前一", "名前二"])
+    }
+
+    @Test("ホームの検索は、原作・情報の 2 つ目からの値でも見つかる(MD-15(b))")
+    func homeSearchCoversEveryValue() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        var values = BookMetadataValues(title: "架空の題")
+        values.setAllValues("source", to: ["架空の原作一", "架空の原作二"])
+        values.setAllValues("info", to: ["付記一", "付記二"])
+        _ = library.metadata.upsert(bookID: first, values: values)
+
+        let text = library.bookTitles.searchableText(forBookID: first)
+        #expect(text.contains(LibrarySearchQuery.normalized("架空の原作二")))
+        #expect(text.contains(LibrarySearchQuery.normalized("付記二")))
+    }
+}

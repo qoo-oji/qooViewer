@@ -258,7 +258,9 @@ struct ContentView: View {
                 computerTitle: String(localized: "Computer", language: preferences.effectiveLocale),
                 recentsTitle: String(localized: "Recents", language: preferences.effectiveLocale)
             ),
-            libraryName: library?.name,
+            // 既定のライブラリは DB の文字列でなく表示言語の名前(チップ・ホームメニューと同じ `displayName(language:)`。
+            // 2026-10-04 の監査 M-5 = H-10 ―― `name` を直に読んでいて、既定名を作ったときの言語のまま題に出ていた)。
+            libraryName: library?.displayName(language: preferences.effectiveLocale),
             collectionName: collection?.name
         )
     }

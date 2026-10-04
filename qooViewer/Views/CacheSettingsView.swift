@@ -21,8 +21,6 @@ import SwiftUI
 /// そのため「リセット」画面のような重い確認は挟まない(あちらは取り消せない**データ**の削除)。
 struct CacheSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
-    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
-    @EnvironmentObject private var appearance: AppearanceSettings
     /// 環境設定ウインドウが前面にあるか。使用量を測り直すきっかけの1つとして見ている
     /// (usageTaskID参照)。
     @Environment(\.controlActiveState) private var controlActiveState
@@ -84,14 +82,12 @@ struct CacheSettingsView: View {
                 ) { value in
                     "\(Int(value))"
                 }
-                SettingsToggle(
-                    "Preload Previews for Visible Thumbnails",
-                    isOn: $preferences.preloadThumbnailGridPreviews,
-                    help: "In the page list, decodes the preview image of every thumbnail on screen in advance so it appears immediately. Uses more memory and CPU. Has no effect while previews are turned off in Appearance ▸ Page List."
-                )
                 // プレビューを出さない設定のときは、先読みしても何も起きない(その設定は
-                // 「外観」に残っている。理由は吹き出しに書いてある)。
-                .disabled(!appearance.showThumbnailHoverPreview)
+                // 「外観」に残っている。理由は吹き出しに書いてある)。淡色は外観の両方の揃いを見る(PreviewPreloadToggle)。
+                PreviewPreloadToggle(
+                    normal: preferences.appearance, privateSet: preferences.privateAppearance,
+                    privateUsesOwnSet: preferences.privateWindowsUseOwnAppearance
+                )
             } header: {
                 Text("Preloading")
             }
@@ -284,5 +280,31 @@ struct CacheSettingsView: View {
             isDeleting = false
             usageRefreshToken += 1
         }
+    }
+}
+
+/// 「表示中のサムネイルの拡大画像を先に用意」。
+///
+/// 先読みが効くのはページ一覧を出している**窓の揃い**のプレビューの設定(ThumbnailGridView は `appearance` を窓の揃いで読む)なので、
+/// 淡色は「どちらの揃いでもプレビューを出さない」ときだけ(シークレットの揃いを使わない間はノーマルだけ ――
+/// `AppPreferences.showsThumbnailHoverPreview(normal:privateSet:privateUsesOwnSet:)`)。2026-10-04 の監査 ST-9 ―― 環境設定の窓はノーマルの揃いしか
+/// 受けないので、ノーマルで OFF・シークレットで ON のとき、効く設定が淡色で触れなかった。2 つの揃いを `@ObservedObject` で持つのは、
+/// 外観の画面で片方を切り替えたときにも描き直すため(`preferences` は揃いの中の変更を publish しない)。
+private struct PreviewPreloadToggle: View {
+    @ObservedObject var normal: AppearanceSettings
+    @ObservedObject var privateSet: AppearanceSettings
+    let privateUsesOwnSet: Bool
+    @EnvironmentObject private var preferences: AppPreferences
+
+    var body: some View {
+        SettingsToggle(
+            "Preload Previews for Visible Thumbnails",
+            isOn: $preferences.preloadThumbnailGridPreviews,
+            help: "In the page list, decodes the preview image of every thumbnail on screen in advance so it appears immediately. Uses more memory and CPU. Has no effect while previews are turned off in Appearance ▸ Page List."
+        )
+        .disabled(!AppPreferences.showsThumbnailHoverPreview(
+            normal: normal.showThumbnailHoverPreview, privateSet: privateSet.showThumbnailHoverPreview,
+            privateUsesOwnSet: privateUsesOwnSet
+        ))
     }
 }

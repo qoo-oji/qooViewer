@@ -1354,6 +1354,8 @@ struct DiffPane: View {
     /// この窓が受け持つ半分。書き換えても、もう片方の設定には触らない。
     var half: RuleChanges.Half
     @State private var text = ""
+    /// 最後に設定から読んだ文字(`reload`)。`text` がこれと違えば、まだ適用していない打ちかけ・読み込んだ文字がある。
+    @State private var shownText = ""
     @State private var message = ""
 
     var body: some View {
@@ -1368,7 +1370,13 @@ struct DiffPane: View {
                     editing.errors = editing.settings.unreadableRulesDiff != nil
                         ? editing.settings.setRulesDiff(text)
                         : editing.settings.setRulesDiff(text, for: half)
-                    message = editing.errors.isEmpty ? "Applied" : ""
+                    // 適用できたら、設定に入った形(整えた JSON)を出し直す ―― 自分の適用を「ほかで変わった」と取り違えない。
+                    if editing.errors.isEmpty {
+                        reload()
+                        message = "Applied".ui
+                    } else {
+                        message = ""
+                    }
                 }
                 Button("Back to the current settings") { reload() }
                 Text(message).font(.caption).foregroundStyle(.secondary)
@@ -1379,27 +1387,52 @@ struct DiffPane: View {
         }
         .padding(14)
         .onAppear(perform: reload)
-        .onChange(of: editing.settings.rulesDiff) { reload() }
+        .onChange(of: editing.settings.rulesDiff) { settingsDidChange() }
+    }
+
+    /// 設定に入っているこの窓の半分を、欄に出す文字にしたもの。
+    private func currentText() -> String {
+        // 読めない差分は、見えないまま上書きされないように文字のまま出す(MetadataRulesStore.unparsableDiffIssue)。
+        if let unreadable = editing.settings.unreadableRulesDiff { return unreadable }
+        return editing.settings.changes.isEmpty(half) ? ""
+            : String(decoding: editing.settings.changes.data(half), as: UTF8.self)
     }
 
     private func reload() {
-        // 読めない差分は、見えないまま上書きされないように文字のまま出す(MetadataRulesStore.unparsableDiffIssue)。
-        if let unreadable = editing.settings.unreadableRulesDiff {
-            text = unreadable
-        } else {
-            text = editing.settings.changes.isEmpty(half) ? ""
-                : String(decoding: editing.settings.changes.data(half), as: UTF8.self)
-        }
+        text = currentText()
+        shownText = text
         message = ""
+    }
+
+    /// 差分が変わった(どちらの窓の変更でも `rulesDiff` は 1 つの値)。
+    ///
+    /// 読み直すのは**自分の半分が変わり、かつ適用していない文字が無いとき**だけ(2026-10-04 の監査 MD-8 ―― 以前は変わるたびに
+    /// 読み直したので、もう片方の窓で語を 1 つ足しただけで、ここに打ちかけた・読み込んだ文字と「読み込みました」の知らせが黙って消えた)。
+    /// 自分の半分が変わったのに打ちかけがあるときは、文字は残して、変わったことだけを知らせる(「現在の設定に戻す」で見られ、
+    /// 「適用」はこの文字で置き換える)。
+    private func settingsDidChange() {
+        let now = currentText()
+        guard now != shownText else { return }
+        if text == shownText {
+            reload()
+        } else {
+            shownText = now
+            message = "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text.".ui
+        }
     }
 
     private func importFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
-            text = String(decoding: data, as: UTF8.self)
-            message = "Loaded. Press “Apply” to put it to work"
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                text = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+                message = "Loaded. Press “Apply” to put it to work".ui
+            } catch {
+                // 読めないファイルを選んだことを黙っていない(以前は `try?` で何も起きなかった。監査 MD-8)。
+                editing.errors = [error.localizedDescription]
+            }
         }
     }
 

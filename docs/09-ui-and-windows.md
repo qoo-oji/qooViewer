@@ -52,6 +52,12 @@ ViewerView(本1冊)
   `showFavoritesList` は入り口を失ったのでキー設定の一覧に出さない(列挙からは消さない)。
   お気に入りが無効化されている間(`FavoritesFeature.isEnabled == false`)は
   `toggleFavorite` / `showFavoritesOrganizer` も同様に出さない(既定の割り当ては残す)。
+  **行の無い操作(`ViewerAction.isHiddenByFeatureSwitch`)は、設定画面の重複の確かめに数えない**(`KeyBindingStore.conflictingAction`。
+  2026-10-04 の監査 BE-14 = ST-11)。以前は ⌥A / ⌥B を別の操作に割り当てようとすると見えない操作を理由に断られ、行が無いので外す手段も
+  無かった。割り当ては 1 キー 1 操作なので、足せば隠れた割り当ては上書きされる(お気に入りを戻しても、そのキーの既定は戻らない)。
+  割り当てたままのキーをビューアで押しても何も起きない(キーは飲む)のは従来どおり。
+- 1 回のスクロールの移動量(`modeScrollSteps`)は、読むときにスライダーと同じ範囲(`KeyBindingStore.scrollStepRange`、5〜200pt)へ収める
+  (2026-10-04 の監査 ST-13。数値の設定は読む所で収める約束 ―― CLAUDE.md)。
 - `returnToWelcome`(本だけ閉じてホームへ。ウインドウ/タブは残る ―― 閉じるのは
   `closeTab`)は**キー・マウスとも既定の割り当てを持たない**。主な入り口はツールバー左端と
   サイドパネルのモード切替の左にあるボタンで、キー/マウスへ割り当てたい人だけが自分で割り当てる。
@@ -759,7 +765,12 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
     元のウインドウの `appearance` を継ぐ。
   - 環境設定「外観」は、スイッチが ON の間だけ「編集する外観」(`SettingsNavigator.editingAppearanceProfile`、外観の画面を離れると
     ノーマルへ戻る)で編集する揃いを選び、子ページも含めて全部がその揃いを編集する。「初期設定に戻す」は編集中の揃いだけを戻す
-    (`AppearanceSettings.resetToDefaults()`。`AppPreferences.keys(for: .appearance)` は空)。
+    (`AppearanceSettings.resetToDefaults()`。`AppPreferences.keys(for: .appearance)` は空)。「ウインドウ」欄の 2 つ(固有の外観を使うか・
+    シークレットウインドウの目印)は揃いの外の値なので戻さず、吹き出しもそう言う(2026-10-04 の監査 ST-15)。
+  - **環境設定のほかの画面が外観の値で淡色を決めるときは、効く揃いを全部見る**(環境設定の窓はノーマルの揃いしか受けない)。
+    「キャッシュ」の「表示中のサムネイルの拡大画像を先に用意」は、どちらかの揃いでページ一覧のプレビューが出るなら触れる
+    (`AppPreferences.showsThumbnailHoverPreview(normal:privateSet:privateUsesOwnSet:)`。2 つの揃いを `@ObservedObject` で持つ小さな View。
+    2026-10-04 の監査 ST-9 ―― ノーマルで OFF・シークレットで ON のとき、効く設定が淡色で触れなかった)。
 - **シークレットウインドウの目印**(環境設定「外観」→「ウインドウ」、`AppPreferences.privateWindowTitlePrefix`。2026-09-22、ユーザー要望)は
   シークレットウインドウのタイトルの先頭の文字。nil = 既定の「(シークレット)」(表示言語に従う。カタログの `"(Private) %@"`)、
   空 = 何も付けない(タイトルバーの色で見分けられるようになったため)、それ以外はそのまま(絵文字も可。欄の右のボタンは

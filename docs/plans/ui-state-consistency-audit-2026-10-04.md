@@ -2163,3 +2163,84 @@ plans/home-interaction-design.md、CLAUDE.md、MANUAL.md(決定 2・6 の箇所�
 docs: 05(異常判定の持続回数)、06(履歴の解決をメインの外へ)、09(`RunningWorkRegistry` の列挙)、14(サイドパネルのツリー・束の Esc・直している本を
 残す・残す位置の入口・インスペクタの情報とドロップ・見つからない本の掃除・チップのドラッグと並び番号)、15(今いる場所への移動・一覧の位置の控え・
 リンクの絵・カットの淡色・ホームの行・混ざったドロップの題)、CLAUDE.md。
+
+### 段 8(後半)(2026-10-04)
+
+§8 の 8 の残り(M-5・MD・ST・BE-14)と §5「文書・コメントの食い違い」の仕分け、§2 の全 ID と §9 の機械的な照合。CLAUDE.md は変えていない
+(新しい約束になるものが無い)。
+
+**ホーム・キー設定**
+
+- **M-5(= H-10)**(直した): ウインドウの題のライブラリ名を `library?.displayName(language: preferences.effectiveLocale)` にした(チップ・ホームメニューと
+  同じ)。View の計算プロパティなのでテストは足していない(`displayName(language:)` 自体は既存のテストが見る)。docs/15 の題の表。
+- **BE-14(= ST-11)**(直した): `ViewerAction.isHiddenByFeatureSwitch`(お気に入りの 3 つ、`FavoritesFeature.isEnabled == false` の間)と
+  `KeyBindingStore.conflictingAction(for:in:)`(キー・マウス)を足し、キー設定・マウス設定の重複の確かめはこちらを使う。隠れた割り当ては足した
+  割り当てで上書きされる(機能を戻しても既定は戻らない)。ビューアが割り当てたままの ⌥A / ⌥B を飲むのは今のまま(MANUAL:1263 の記述どおり)。
+  テスト `KeyBindingStoreTests.hiddenFeatureBindingsDoNotBlockReassignment`。docs/09「キー」。
+
+**メタデータの編集・命名規則**
+
+- **MD-5**(直した): `MetadataRulesPicked` が名前と本ごとのルールセット(`MetadataWorkspace.presetName(for:)`)を持ち、`NameCheckPane` は
+  直しているルールセット(`presetName`)で読む本だけを数える。渡すのは窓を開いた時と、一覧の行が変わるたび(`MetadataWorkspace.booksRevision`。
+  ルールセットの切り替え・自動の選択の変更を含む)で、中身が同じなら印を進めない。空の文言を qooViewer の流れに直し(「メタデータの編集ウインドウを
+  開くと…」)、このルールセットで読む本が無いときの文言を足した。§5 の「段 1/段 2」のコメント(NameCheckView・PresetEditorView・FileNameRulesView)も
+  直した。テスト `MetadataWorkspaceTests.pickedNamesAreSplitByRuleSet`(窓の配線は実機)。docs/07。
+- **MD-8**(直した): `DiffPane` は最後に設定から読んだ文字(`shownText`)を控え、`rulesDiff` が変わっても自分の半分が変わっていなければ何もしない。
+  変わっていて打ちかけが無ければ読み直し、打ちかけがあれば文字を残して「ほかの所で設定が変わりました…」と知らせる。適用できたら整えた文字を
+  出し直す(自分の適用を外の変更と取り違えない)。読めないファイルはエラーを出す。ついでに「適用しました」「読み込みました…」を `.ui` にした
+  (`Text(String)` で英語のまま出ていた)。View の状態なのでテストは足せない(実機)。docs/07。
+- **MD-9**(直した): 表の `commit` に書き換えを始めたときの文字(`edit.original`)を渡し、`MetadataWorkspace.setLine(…replacing:)` が確定の時点の
+  並びでその文字の段を探す(同じ番号の段が違う文字なら、いちばん近い同じ文字の段。無ければ書かずに鳴らす)。空の文字は値を足す。
+  テスト `MetadataWorkspaceTests.committingALineFollowsItsOriginalText`。docs/07。
+- **MD-10**(直した): 右クリックの「メタデータを再生成」も `TableAlert.regenerate` でツールバーと同じ確かめを出す(確かめの間にロックされた本は外す)。
+  View なのでテストは足せない(実機)。docs/07。
+- **MD-12**(直した): 「自動の選択」の説明と試しを「決まらない本は既定のルールセット「…」で読む」に直した(既定の見出しを `PresetGroupEditor` →
+  `AutoRuleEditor` へ渡す)。文言だけなのでテストは足していない。docs/07。
+- **MD-13**(直した): (a) `presetName(for:)` は消したルールセットを指したままの行で既定の名前を返す(読むのも既定)ので、右クリックの
+  「ファイル名の解析ルール」は既定の項目に印が付く。削除の確かめの文言を「選んでいた本は既定のルールセットで読まれる」に直した。
+  (b) 「空の欄だけ埋める」はその本のルールセットで読む(`MetadataRulesStore.reading(forBookID:rules:preset:)` を足した)。テスト
+  `MetadataWorkspaceTests.aDeletedRuleSetCountsAsTheDefault`((b) は窓の問い合わせの中なので実機)。docs/07。
+- **MD-15**(直した): (a) 書き出しの種は DB に行があれば題が空でも行の値を使い、題はファイル名(`BookTitleResolver` と同じ)、著者は行の値。
+  (b) `BookTitleResolver.searchableText` に原作・情報の 2 つ目からの値を入れ、型コメントを「すべての欄のすべての値」に直した(§5)。テスト
+  `BookExportViewModelTests.anEmptyTitleInARowFallsBackToTheFileName`・`MetadataWorkspaceTests.homeSearchCoversEveryValue`。docs/08・docs/14。
+
+**環境設定**
+
+- **ST-9**(直した): 「表示中のサムネイルの拡大画像を先に用意」の淡色を `AppPreferences.showsThumbnailHoverPreview(normal:privateSet:privateUsesOwnSet:)`
+  (どちらかの揃いでプレビューが出るなら触れる。固有の外観 OFF ならノーマルだけ)にし、2 つの揃いを `@ObservedObject` で持つ小さな View
+  (`PreviewPreloadToggle`)で描く。テスト `AppPreferencesTests.previewPreloadFollowsEitherAppearanceSet`(淡色の描き直しは実機)。docs/09。
+- **ST-13**(直した): (1) 履歴の件数は読むときにスライダーと同じ 10〜200 へ収める(`RecentFilesStore.maxCount` はもともと 200 で頭打ちなので、
+  消える履歴は増えない)。`maxCount` の `min(max(…))` が NaN を素通しして `Int(.nan)` でトラップしえたので `storedDouble` に揃えた。
+  (2) データを残す冊数は下げると読書位置が間引かれるので保存値は広いまま、スライダーの範囲を保存値まで広げる
+  (`AppPreferences.maxTrackedBooksCountSliderRange`。目盛り 50 に切り上げ)。(3) スクロール量は `KeyBindingStore.scrollStep(in:)` が読むときに
+  `scrollStepRange`(5…200、スライダーも同じ定数)へ収める。テスト `AppPreferencesTests.retentionCountsMatchTheirSliders`・
+  `KeyBindingStoreTests.scrollStepsAreClampedWhenRead`。docs/08・docs/09。
+- **ST-14**(直した): `AppPreferences.availableSmartLibraryCoverFit(_:shape:)` を init(形を先に読む)と `apply`(形を入れた後)で通す。
+  テスト `AppPreferencesTests.squareCoversNeverKeepByOrientation`。docs/08。
+- **ST-15**(直した): §5 の 4 件。「ファイルブラウザを有効にする」の吹き出しから「履歴から開く」を外し、「保存データ」の説明を今の中身
+  (読書位置・スマートライブラリ・ファイルブラウザ・環境設定(シークレットフォルダを含む)を足し、隠したお気に入りを外す)にし、外観の
+  「初期設定に戻す」に「「ウインドウ」欄の 2 つを除いて」を足し、「前回読んでいた本を開き直す」に淡色の理由の吹き出しを足した
+  (xcstrings はキーごと差し替えて日本語訳を入れた)。文言だけなのでテストは足していない。docs/09。
+
+**§5「文書・コメントの食い違い」の仕分け**(上から順に。「済」は段 1〜8 の前半で直っていたもの)
+
+- docs: 05 の高解像度ソース(V-2)済、07 のクリック位置の無い経路(V-16)と `normalizedAnchorIndex`(V-5)済、06/14 のチップ(X-4・決定 8)済、
+  06 の窓を作る所・通り抜け(O-3・O-4)済、09 の取り消しの積み・振り分け・`RunningWorkRegistry`・ボタン 1 つの `.alert`(BE-11・M-2・TW-18・ST-4)済、
+  15 のメニューバーの断り(FBA-5)・置き換え(FBA-1)・リンクの先(FBU-2)済、04 の開けないもの(O-6)と EPUB を飛ばす範囲(決定 2)済、03 の補助
+  ウインドウ済。**この段で直した**: docs/07 の自動取り込みしたブックマーク(「編集ウインドウには出さない」→ 今は出す。`isEpubDerived` は
+  取り込み済みの目印だけ)、docs/06 のシークレットフォルダの「読むが書かない」(「ブックマーク・レイアウトの編集」ウインドウは既存の保存データを
+  書ける ―― 止めるのはディスクキャッシュだけ、と但し書き)。
+- 設定画面・MANUAL: ST-10 の吹き出しと home-interaction-design 済、SL-9 済、BE-2 の書き出し後の説明済、ST-6 の吹き出し済。**この段で直した**:
+  ST-15 の 4 件、命名規則の画面の 3 件(MD-5・MD-12・MD-13)。MANUAL は触らない約束なので、残りは報告に一覧で挙げた(MANUAL:412 の V-19、
+  :579 の SP-13、:539・:2451 の ST-9 の淡色の条件、:1511 の formatVersion)。MANUAL §19 の原寸大は V-17 の直しで実装が記述に合った。
+- コード内のコメント: V-11・V-5 のテスト・ST-6・SP-3・SP-4・SP-8・M-8・FBU-3・TW-2・X-5・H-9・SL-2・SL-9・TW-10・TW-7・TW-11 は済。**この段で直した**:
+  `SidePanelBrowserState.currentDirectoryHasImages` の「このフォルダの画像を開く導線を出す」(今は移動した時点で開き、値は一覧が空の理由の文に
+  使うだけ)、`BookTitleResolver.searchableText` の「すべての欄」(MD-15)、命名規則の「段 1/段 2」。
+
+**§2 の全 ID と §9 の照合**: §2 の主 ID 155 件(§6 で棄却した 9 件は §2 に無い)を、§9 の太字の記録(`**ID**`)と機械的に突き合わせた。この段の
+記録を足す前に漏れていたのはこの段の担当の 13 件(M-5・BE-14・MD-5・MD-8・MD-9・MD-10・MD-12・MD-13・MD-15・ST-9・ST-13・ST-14・ST-15 ――
+MD-15 は段 4 に「触っていない」とだけあった)だけで、足した後は 0 件。
+
+テスト: 10 件足した(上記)。docs: 02(テスト表)、06(シークレットフォルダの編集ウインドウ)、07(自動取り込みのブックマーク・メタデータの編集と
+規則の窓)、08(題と著者の種・保管件数と形の合わせ方の読み方)、09(キーの重複の確かめ・スクロール量・外観の揃いと淡色・初期設定に戻す)、
+14(ホームの検索の値)、15(ウインドウの題)。

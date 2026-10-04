@@ -180,17 +180,32 @@ final class MetadataEditorModel {
         // ほかの書き手(1 冊ぶんのシート・保存データの読み込み・書誌の取り込み)が変えた行の形を受ける。
         observeStoreChanges(of: workspace)
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
-        MetadataRulesPicked.shared.set(workspace.books.map(\.fileName))
+        publishNamesForRules(of: workspace)
         self.workspace = workspace
         outdatedBookIDs = metadataStore.outdatedFieldBookIDs.intersection(workspace.bookIDs)
         checkExistence(of: workspace)
     }
 
+    /// 規則の窓の「名前の読めぐあい」へ、一覧の本の名前と、その本を読むルールセットを渡す(2026-10-04 の監査 MD-5 ――
+    /// 以前は名前だけを開いた時に 1 度渡し、規則の窓は全冊を直しているルールセットで読んでいた)。開いた時と、一覧の行が
+    /// 変わるたび(`MetadataWorkspace.booksRevision`。ルールセットの切り替え・自動の選択の変更を含む)に呼ぶ。中身が同じなら
+    /// 受け手が何もしない。
+    func publishNamesForRules(of workspace: MetadataWorkspace) {
+        MetadataRulesPicked.shared.set(workspace.books.map { ($0.fileName, workspace.presetName(for: $0.id)) })
+    }
+
     /// 以前の版の欄で登録した本の、空の欄だけをファイル名から埋める(登録した値はそのまま。ロックも掛けたまま)。
+    ///
+    /// 読むルールセットは一覧と同じ、その本のもの(右クリックで選んだものがあればそれ。`MetadataWorkspace.presetName(for:)`)。
+    /// 2026-10-04 の監査 MD-13(b) ―― 以前は自動の選択だけで読み、行で選んだルールセットを見なかった。
     func fillMissingFieldsOfOutdatedBooks() {
         let rules = rulesStore.rules
+        let workspace = self.workspace
         metadataStore.fillMissingFields(of: outdatedBookIDs) { bookID in
-            BookMetadataValues(MetadataRulesStore.reading(forBookID: bookID, rules: rules).metadata)
+            guard let preset = workspace?.presetName(for: bookID) else {
+                return BookMetadataValues(MetadataRulesStore.reading(forBookID: bookID, rules: rules).metadata)
+            }
+            return BookMetadataValues(MetadataRulesStore.reading(forBookID: bookID, rules: rules, preset: preset).metadata)
         }
         outdatedBookIDs = []
     }
@@ -448,6 +463,8 @@ struct MetadataEditorContent: View {
             }
         }
         .hardTopScrollEdgeEffect()
+        // 一覧の行が変わったら、規則の窓の名前の読めぐあいへ渡し直す(本ごとのルールセットが変わりうる。監査 MD-5)。
+        .onChange(of: workspace.booksRevision) { model.publishNamesForRules(of: workspace) }
         // ツールバーの「メタデータを再生成」(窓の側。MetadataEditorToolbarItems)。頼みの番号が進んだら出す。
         // 作り直された中身は、それより前の頼みには応えない(onChange は最初の値では呼ばれない)。
         .onChange(of: toolbarRequests.regenerateSerial) { confirmsReparseAll = true }
@@ -723,10 +740,14 @@ struct MetadataBookTableView: View {
     enum TableAlert: Identifiable {
         /// メタデータを削除する。
         case delete(Set<String>)
+        /// メタデータを再生成する(ロックしていない本。ツールバーのボタンと同じ確かめ ―― 2026-10-04 の監査 MD-10。以前は
+        /// 右クリックだけ確かめずに直した欄を捨てていた。どちらも取り消せる)。
+        case regenerate(Set<String>)
 
         var id: String {
             switch self {
             case .delete(let ids): "delete-\(ids.sorted().joined())"
+            case .regenerate(let ids): "regenerate-\(ids.sorted().joined())"
             }
         }
     }
@@ -734,6 +755,7 @@ struct MetadataBookTableView: View {
     private var alertTitle: String {
         switch tableAlert {
         case .delete?: "Delete the metadata of these books?".ui
+        case .regenerate?: "Regenerate the metadata?".ui
         case nil: ""
         }
     }
@@ -780,11 +802,19 @@ struct MetadataBookTableView: View {
             case .delete(let ids):
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) { workspace.deleteBooks(ids) }
+            case .regenerate(let ids):
+                Button("Cancel", role: .cancel) {}
+                // 確かめの間にロックされた本は外す(ツールバーの `regenerationTargets` と同じく、ロックしていない本だけ)。
+                Button("Regenerate", role: .destructive) {
+                    workspace.reparseFromFileNames(ids.filter { !workspace.isLocked($0) })
+                }
             }
         } message: { alert in
             switch alert {
             case .delete(let ids):
                 Text(verbatim: "The metadata of %lld books is deleted and they are removed from this list. The books themselves are not deleted. This can't be undone.".ui(ids.count))
+            case .regenerate(let ids):
+                Text(verbatim: "%lld unlocked books are parsed and extracted again from their file names, and the values you edited are thrown away. Locked books are left alone. You can undo this with Undo.".ui(ids.count))
             }
         }
         .overlay(alignment: .bottom) {
@@ -851,7 +881,8 @@ struct MetadataBookTableView: View {
     }
 
     /// 直した値の入れ先は、右クリックと同じ口(取り消しも同じ 1 手)。**押した 1 冊だけ**に入る。
-    private func commit(_ column: MetadataBookTable.Column, _ line: Int, _ value: String, for book: MetadataBookRow) {
+    private func commit(_ column: MetadataBookTable.Column, _ line: Int, _ value: String, original: String,
+                        for book: MetadataBookRow) {
         let text = value.trimmingCharacters(in: .whitespaces)
         switch column {
         case .lock, .fileName, .cover:
@@ -867,7 +898,8 @@ struct MetadataBookTableView: View {
         case .field(.volume):
             if text.isEmpty { workspace.clearVolumes([book.id]) } else { workspace.setVolumes(text, for: [book.id]) }
         case .field(let field) where field.holdsSeveralInQooViewer:
-            workspace.setLine(field, of: book.id, at: line, to: text)
+            // 書き換えを始めた段が、確定の時点でもう無ければ(裏で並びが変わって消えた)何もしない(監査 MD-9)。
+            if !workspace.setLine(field, of: book.id, at: line, to: text, replacing: original) { NSSound.beep() }
         case .field(let field):
             workspace.set(field, to: [text], for: [book.id])
         }
@@ -951,7 +983,7 @@ struct MetadataBookTableView: View {
         // 読み直す
         // 名前はツールバーのボタンと揃える(利用者の指示 2026-09-21)。
         items.append(Item(title: "Regenerate Metadata".ui, isEnabled: hasEditable) {
-            workspace.reparseFromFileNames(editable)
+            tableAlert = .regenerate(editable)
         })
         // ファイル名の解析ルール: 使うルールセットを切り替えるだけ(読み直しは「メタデータを再生成」。利用者の指示 2026-09-21)。
         let overridden = Set(ids.filter { workspace.hasPresetOverride($0) })

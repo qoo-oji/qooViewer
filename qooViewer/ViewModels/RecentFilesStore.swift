@@ -69,10 +69,12 @@ final class RecentFilesStore: ObservableObject {
     /// コメント参照)。設定される前・不正な値の場合は既定値へフォールバックし、範囲外の値は
     /// 丸めておく。
     private var maxCount: Int {
-        let stored = defaults.object(forKey: AppPreferences.recentFilesLimitDefaultsKey) as? Double
-        let value = stored ?? AppPreferences.defaultRecentFilesLimit
-        let range = AppPreferences.recentFilesLimitRange
-        return Int(min(max(value, range.lowerBound), range.upperBound))
+        // AppPreferences の読み方と同じ関数で収める(2026-10-04 の監査 ST-13 ―― 以前の `min(max(…))` は NaN を素通しし、
+        // `Int(.nan)` でトラップしえた)。
+        Int(AppPreferences.storedDouble(
+            defaults.object(forKey: AppPreferences.recentFilesLimitDefaultsKey),
+            default: AppPreferences.defaultRecentFilesLimit, range: AppPreferences.recentFilesLimitRange
+        ))
     }
 
     /// 新形式(パス等のキャッシュを含む)の保存先。

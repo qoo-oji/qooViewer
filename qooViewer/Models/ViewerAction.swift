@@ -201,6 +201,19 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    /// 機能を隠しているために、どこにも見えない操作かどうか(今はお気に入りの 3 つ。FavoritesFeature)。
+    ///
+    /// 既定の割り当て(⌥A / ⌥B)は復活に備えて KeyBindingStore に残してあるが、設定画面には行が出ない。
+    /// キー設定の重複の確かめ(`KeyBindingStore.conflictingAction`)はこの操作を「割り当て済み」に数えない
+    /// (2026-10-04 の監査 BE-14 = ST-11 ―― 数えていたので、⌥A を別の操作に割り当てようとすると見えない操作を理由に断られ、
+    /// 行が無いので外す手段も無かった)。
+    var isHiddenByFeatureSwitch: Bool {
+        switch self {
+        case .toggleFavorite, .showFavoritesList, .showFavoritesOrganizer: return !FavoritesFeature.isEnabled
+        default: return false
+        }
+    }
+
     /// スクロールできる表示モードでしか意味を持たない操作かどうか。
     /// 「入力」タブ(表示モードに依存しない設定、KeyBindingSettingsView)の一覧から外し、
     /// 「入力2」タブ(ModeInputSettingsView)側へ回すための振り分けに使う。

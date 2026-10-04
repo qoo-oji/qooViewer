@@ -144,10 +144,13 @@ private struct AppearanceSettingsContent: View {
             viewerSection
             panelsSection
 
+            // 「ウインドウ」欄の 2 つ(固有の外観を使うか・シークレットウインドウの目印)は戻さない(AppearanceSettings の揃いの外にある
+            // AppPreferences の値で、揃いごとの「初期設定に戻す」の相手ではない)。吹き出しでそう言う(2026-10-04 の監査 ST-15 ――
+            // 「このページのすべての設定」と言っていた)。
             SettingsResetSection(
                 help: preferences.privateWindowsUseOwnAppearance
-                    ? "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected."
-                    : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected."
+                    ? "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface, except the two settings under Windows. The other windows’ appearance and other pages are not affected."
+                    : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface, except the two settings under Windows. Other pages are not affected."
             ) {
                 appearance.resetToDefaults()
             }

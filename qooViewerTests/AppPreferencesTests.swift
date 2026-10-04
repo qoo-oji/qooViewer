@@ -455,3 +455,54 @@ struct AppPreferencesTests {
         }
     }
 }
+
+// MARK: - 2026-10-04、状態と画面の監査の段 8(後半)
+
+extension AppPreferencesTests {
+    @Test("履歴の保持件数は読むときにスライダーと同じ範囲へ収まり、データを残す冊数のスライダーは保存値まで上を広げる(ST-13)")
+    func retentionCountsMatchTheirSliders() {
+        let suite = PreferencesSuite()
+        suite.defaults.set(5000.0, forKey: AppPreferences.recentFilesLimitDefaultsKey)
+        suite.defaults.set(5003.0, forKey: "qooViewer.pref.maxTrackedBooksCount")
+        let p = suite.makePreferences()
+
+        // 履歴は RecentFilesStore がもともと 200 で切っていた ―― 画面にもその値を出す。
+        #expect(p.recentFilesLimit == AppPreferences.recentFilesLimitRange.upperBound)
+        // 残す冊数は下げない(下げると読書位置が間引かれる)。スライダーのほうを広げ、目盛りに揃えて切り上げる。
+        #expect(p.maxTrackedBooksCount == 5003)
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: p.maxTrackedBooksCount) == 50...5050)
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: 500) == 50...2000)
+        #expect(AppPreferences.maxTrackedBooksCountSliderRange(current: .nan) == 50...2000)
+    }
+
+    @Test("正方形の表紙では、読み込み・取り込みのどちらでも「向きで切り替える」が「切り取って埋める」になる(ST-14)")
+    func squareCoversNeverKeepByOrientation() {
+        let suite = PreferencesSuite()
+        suite.defaults.set(SmartLibraryCoverShape.square.rawValue, forKey: "qooViewer.pref.smartLibrary.coverShape")
+        suite.defaults.set(CoverFit.byOrientation.rawValue, forKey: "qooViewer.pref.smartLibrary.coverFit")
+        #expect(suite.makePreferences().smartLibraryCoverFit == .crop)
+
+        // 取り込み(保存先へ書いてから読み直す)も、形 → 合わせ方の順の代入で didSet の直しを上書きしない。
+        let other = PreferencesSuite()
+        let p = other.makePreferences()
+        p.smartLibraryCoverShape = .portrait
+        p.smartLibraryCoverFit = .byOrientation
+        other.defaults.set(SmartLibraryCoverShape.square.rawValue, forKey: "qooViewer.pref.smartLibrary.coverShape")
+        other.defaults.set(CoverFit.byOrientation.rawValue, forKey: "qooViewer.pref.smartLibrary.coverFit")
+        p.reloadFromDefaults()
+        #expect(p.smartLibraryCoverShape == .square)
+        #expect(p.smartLibraryCoverFit == .crop)
+        // 縦長の枠では向きで切り替えるのまま。
+        #expect(AppPreferences.availableSmartLibraryCoverFit(.byOrientation, shape: .portrait) == .byOrientation)
+        #expect(AppPreferences.availableSmartLibraryCoverFit(.byOrientation, shape: .matchImage) == .byOrientation)
+    }
+
+    @Test("「表示中のサムネイルの拡大画像を先に用意」は、どれかの窓の揃いでプレビューが出るなら触れる(ST-9)")
+    func previewPreloadFollowsEitherAppearanceSet() {
+        #expect(AppPreferences.showsThumbnailHoverPreview(normal: true, privateSet: false, privateUsesOwnSet: true))
+        #expect(AppPreferences.showsThumbnailHoverPreview(normal: false, privateSet: true, privateUsesOwnSet: true))
+        // シークレットの揃いを使わない間は、シークレットの値は効かない。
+        #expect(!AppPreferences.showsThumbnailHoverPreview(normal: false, privateSet: true, privateUsesOwnSet: false))
+        #expect(!AppPreferences.showsThumbnailHoverPreview(normal: false, privateSet: false, privateUsesOwnSet: true))
+    }
+}
