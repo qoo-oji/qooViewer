@@ -53,15 +53,21 @@ struct CollectionAddingContext {
     /// 本(1 冊ずつの本の URL)をコレクションへ登録し、結果の文を `report` へ渡す。
     ///
     /// - Returns: 登録の Task(テストのための口)。ライブラリ機能が OFF なら nil。
+    /// - Parameter decidedNotSecret: 開いた時点でシークレットフォルダの外と決まっている本のパス(ビューアに表示中の本。
+    ///   CollectionStore.makePendingItems のコメント。監査 X-8)。
     @MainActor
     @discardableResult
-    func add(_ books: [URL], to collectionID: UUID, report: @escaping @MainActor @Sendable (String) -> Void) -> Task<Void, Never>? {
+    func add(
+        _ books: [URL], to collectionID: UUID, decidedNotSecret: Set<String> = [],
+        report: @escaping @MainActor @Sendable (String) -> Void
+    ) -> Task<Void, Never>? {
         guard isLibraryFeatureEnabled, !books.isEmpty else { return nil }
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let context = self
         return Task { @MainActor in
             guard let result = await CollectionBookAdding.add(
                 books, to: collectionID, collectionStore: context.collectionStore, coverExtractor: context.coverExtractor,
+                decidedNotSecret: decidedNotSecret,
                 isStillEnabled: { context.isLibraryFeatureEnabled }
             ) else { return }
             report(FileBrowserActions.addedToCollectionMessage(
@@ -96,6 +102,9 @@ extension CollectionMenuLibrary {
 struct AddToCollectionMenu: View {
     let books: [URL]
     var isEnabled = true
+    /// 本がビューアに表示中の本で、シークレットフォルダかどうかが開いた時点で決まっている(外と決まった)とき true
+    /// (CollectionStore.makePendingItems の decidedNotSecret。2026-10-04 の監査 X-8)。
+    var booksAreDecidedNotSecret = false
     let report: @MainActor @Sendable (String) -> Void
 
     @EnvironmentObject private var directory: HomeMenuDirectoryStore
@@ -107,12 +116,13 @@ struct AddToCollectionMenu: View {
         if isEnabled, !books.isEmpty {
             let adding = adding
             let books = books
+            let decidedNotSecret: Set<String> = booksAreDecidedNotSecret ? Set(books.map(\.path)) : []
             let report: @MainActor @Sendable (String) -> Void = report
             Menu(title) {
                 FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(
                     for: CollectionMenuLibrary.libraries(from: directory.directory, locale: locale), locale: locale
                 ) { collectionID in
-                    adding.add(books, to: collectionID, report: report)
+                    adding.add(books, to: collectionID, decidedNotSecret: decidedNotSecret, report: report)
                 })
             }
         } else {

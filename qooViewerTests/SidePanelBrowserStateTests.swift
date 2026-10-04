@@ -214,13 +214,13 @@ struct SidePanelBrowserStateTests {
     func aClickInsideThePanelSkipsTheNextAnchor() async throws {
         let fixture = try Fixture("browser-skip")
         await fixture.settle()
-        let book = try await fixture.makeImageBook()
+        let book = try await FixtureBook.load(fixture.images)
 
         // フォルダ行のクリックは「入る」と「開く」を同時に行う。ここで再アンカーすると、
         // せっかく入ったフォルダから親へ弾き返される。
         fixture.state.navigate(into: fixture.images)
         await fixture.settle()
-        fixture.state.skipNextAnchorOnce()
+        fixture.state.skipNextAnchorOnce(for: fixture.images)
         fixture.state.handlePanelRevealed(currentBook: book)
         await fixture.settle()
         #expect(fixture.state.currentDirectory == fixture.images)
@@ -229,6 +229,77 @@ struct SidePanelBrowserStateTests {
         fixture.state.handlePanelRevealed(currentBook: book)
         await fixture.settle()
         #expect(fixture.state.currentDirectory == fixture.root)
+    }
+
+    /// 2026-10-04 の監査 SP-1(シークレットウインドウへ回した・読み込みに失敗した本の見送りの印が残った)。
+    @Test("見送りの印は相手付きで、別の本が開いたら見送らずに再アンカーし、印も下ろす")
+    func theAnchorSkipOnlyAppliesToItsOwnBook() async throws {
+        let fixture = try Fixture("browser-skip-target")
+        await fixture.settle()
+        let other = try temporaryBook(in: fixture, named: "elsewhere/book")
+
+        // images を開こうとして印を立てたが、その本はこの窓に出なかった(回送・失敗)。別の経路で別の本が開く。
+        fixture.state.navigate(into: fixture.images)
+        await fixture.settle()
+        fixture.state.skipNextAnchorOnce(for: fixture.images)
+        fixture.state.handlePanelRevealed(currentBook: try await FixtureBook.load(other))
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == other.deletingLastPathComponent())
+
+        // 印はもう無い: 後で images が開いても再アンカーする。
+        fixture.state.handlePanelRevealed(currentBook: try await FixtureBook.load(fixture.images))
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.root)
+    }
+
+    /// 2026-10-04 の監査 SP-13・決定 12。
+    @Test("今の本の行は、戻る/進むで本のフォルダへ戻っても今の本として分かる(「上へ」で出たフォルダの強調とは別)")
+    func theCurrentBookRowSurvivesBackAndForward() async throws {
+        let fixture = try Fixture("browser-current-row")
+        await fixture.settle()
+        let book = try await FixtureBook.load(fixture.images)
+        fixture.state.handlePanelRevealed(currentBook: book)
+        await fixture.settle()
+        #expect(fixture.state.currentBookRowURL == fixture.images)
+
+        fixture.state.navigate(into: fixture.inner)
+        await fixture.settle()
+        fixture.state.goBack()
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory == fixture.root)
+        // 戻ると「上へ」の強調(highlightedURL)は外れるが、今の本の行は変わらない。
+        #expect(fixture.state.highlightedURL == nil)
+        #expect(fixture.state.currentBookRowURL == fixture.images)
+
+        // 「上へ」で出てきたフォルダは highlightedURL の側。
+        fixture.state.navigate(into: fixture.inner)
+        await fixture.settle()
+        fixture.state.goUp()
+        await fixture.settle()
+        #expect(fixture.state.highlightedURL == fixture.inner)
+        #expect(fixture.state.currentBookRowURL == fixture.images)
+
+        fixture.state.handlePanelRevealed(currentBook: nil)
+        #expect(fixture.state.currentBookRowURL == nil)
+    }
+
+    /// 2026-10-04 の監査 SP-3・決定 14。
+    @Test("章ごとの画像フォルダに分けた本(規則 2)の行は、一覧を読んだ後に分かる")
+    func chapterBookFoldersAreFoundAfterListing() async throws {
+        let fixture = try Fixture("browser-chapter-books")
+        let chapter = try fixture.temporary.directory("root/chapters/ch1")
+        try FixtureFolder.make(at: chapter, pages: [.init("001.png", number: 1)])
+        fixture.state.navigate(into: fixture.root)
+        await fixture.settle()
+        let chapters = fixture.root.appendingPathComponent("chapters")
+        // 規則 2 の本だけ。inner(中のフォルダに画像が無い)と images(規則 1、直下に画像)は入らない。
+        #expect(fixture.state.chapterBookFolderPaths == [chapters.path])
+    }
+
+    private func temporaryBook(in fixture: Fixture, named name: String) throws -> URL {
+        let directory = fixture.temporary.file(name)
+        try FixtureFolder.make(at: directory, pages: [.init("001.png", number: 1)])
+        return directory
     }
 
     /// 2026-10-04 の監査 SP-4(実測: フォルダブラウザがアプリの一時フォルダへ移った)。

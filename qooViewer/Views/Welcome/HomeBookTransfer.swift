@@ -238,15 +238,17 @@ enum CollectionBookAdding {
     ///
     /// - Parameter isStillEnabled: ブックマークを作り終えた後で訊く「ライブラリ機能はまだ ON か」。OFF にされていたら登録しない
     ///   (OFF の間はコレクションの行に触らない。AppStores.applyLibraryFeature)。
+    /// - Parameter decidedNotSecret: 開いた時点でシークレットフォルダの外と決まっている本(表示中の本。CollectionStore.makePendingItems)。
     static func add(
         _ books: [URL], to collectionID: UUID,
         collectionStore: CollectionStore?, coverExtractor: CollectionCoverExtractor?,
+        decidedNotSecret: Set<String> = [],
         isStillEnabled: @MainActor () -> Bool = { true }
     ) async -> Result? {
         // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
-        let pending = await CollectionStore.makePendingItems(for: books)
+        let pending = await CollectionStore.makePendingItems(for: books, decidedNotSecret: decidedNotSecret)
         guard isStillEnabled() else { return nil }
-        let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
+        let skippedSecret = books.filter { !decidedNotSecret.contains($0.path) && SecretFolderStore.isSecretAppWide($0) }.count
         // 待っている間に消されたコレクションには足さない(idで引き直す。WelcomeDropHandling.handle と同じ)。
         guard let collectionStore, let collection = collectionStore.collection(withID: collectionID) else { return nil }
         guard !pending.isEmpty else {

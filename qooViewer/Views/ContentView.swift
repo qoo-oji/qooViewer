@@ -1375,9 +1375,12 @@ struct ContentView: View {
         .modifier(SecretFolderPrivateRedirect(
             redirect: appState.privateRedirect,
             perform: { [weak appState, launchCoordinator, openWindow, wasCreatedForBook] redirect in
+                // 通り抜けの移動(サイドパネルのフォルダブラウザ。履歴に残さない要求)は、焦点を移さず同じタブで入れ替える
+                // (2026-10-04 の監査 O-4・決定 4。BookWindowOpener.openSecretBookPrivatelyQuietly)。
                 BookWindowOpener.openSecretBookPrivately(
                     redirect.request, source: appState, launchCoordinator: launchCoordinator, openWindow: openWindow,
-                    initialEdge: redirect.initialEdge, startsSlideshow: redirect.startsSlideshow)
+                    initialEdge: redirect.initialEdge, startsSlideshow: redirect.startsSlideshow,
+                    quietly: !redirect.request.recordsInHistory)
                 // この本を開くためだけに作られた窓で、まだ一度も本を出していないなら閉じる。ノーマルの窓を作る所は作る前に回すので、
                 // ここへ来るのは棚を読み替えた先がシークレットフォルダの本だったときぐらい(AppState.open)。判定は AppState の
                 // いまの値で見る(読み込みをやめた知らせ・awaitsInitialBook の書き換えとの順序に頼らない。コードレビューの指摘)。

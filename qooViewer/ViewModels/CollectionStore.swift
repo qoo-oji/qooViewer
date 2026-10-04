@@ -916,8 +916,16 @@ final class CollectionStore: ObservableObject {
     /// **シークレットフォルダの本は入れない**(2026-10-03。SecretFolderStore ―― コレクションの項目は本のパスを持つ保存データ)。
     /// 画面の入り口(ドロップ・「本を追加」・「＋」・右クリックの「コレクションに登録」)はすべてここを通る。保存データの読み込みは
     /// 1 冊ずつの `makePendingItem` を使い、ここを通らない(読み込みは特別扱いしない ―― 決定 13)。
-    @concurrent nonisolated static func makePendingItems(for urls: [URL]) async -> [PendingItem] {
-        urls.filter { !SecretFolderStore.isSecretAppWide($0) }.compactMap(makePendingItem(for:))
+    ///
+    /// - Parameter decidedNotSecret: **開いた時点で**シークレットフォルダの外と決まっている本のパス(ビューアに表示中の本の「コレクションに
+    ///   登録」。2026-10-04 の監査 X-8・決定 10 の (a))。開いている本の扱いは開いた時点で決まる(決定 16。`MangaBook.isInSecretFolder`)ので、
+    ///   淡色の判定(`AppState.canAddCurrentBookToCollection`)と同じくその値で通す ―― 以前は淡色は開いた時点の値、拒否は今の一覧で、
+    ///   開いた後にそのフォルダをシークレットフォルダへ足すと、押せるのに断られた。開かずに書く経路(ドロップ・本を追加・ファイル
+    ///   ブラウザ・サイドパネル)は渡さない(場所で決める。CLAUDE.md「Secret folders」)。
+    @concurrent nonisolated static func makePendingItems(
+        for urls: [URL], decidedNotSecret: Set<String> = []
+    ) async -> [PendingItem] {
+        urls.filter { decidedNotSecret.contains($0.path) || !SecretFolderStore.isSecretAppWide($0) }.compactMap(makePendingItem(for:))
     }
 
     /// シークレットフォルダの本を入れなかったことの知らせ(入り口が結果の文に添える)。

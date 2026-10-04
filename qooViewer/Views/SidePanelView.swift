@@ -751,14 +751,25 @@ struct SidePanelView: View {
         // パスの文字列は同じでも素のURL同士の==比較が一致しないことがある。下のscrollTo側は
         // 既にEntry.id(= url.path)を使っておりこの問題を回避できているため、ここも合わせて
         // パス文字列で比較する。
-        let isHighlighted = entry.url.path == folderState.highlightedURL?.path
+        //
+        // 強調は 2 種類(2026-10-04 の監査 SP-13・決定 12)。今の本の行(currentBookRowURL)は、どう移動してきても塗りの選択色。
+        // 「上へ」で出てきたフォルダ(highlightedURL。今の本の行でないとき)は枠だけ ―― 以前は強調が 1 つだけで、戻る/進むで本の
+        // フォルダへ戻ると今の本の行が強調されず、「上へ」で出たフォルダと見分けもつかなかった。枠は右クリックの枠(アクセント 2pt)
+        // より細い選択色の 1pt。
+        let isCurrentBookRow = entry.url.path == folderState.currentBookRowURL?.path
+        let isHighlighted = !isCurrentBookRow && entry.url.path == folderState.highlightedURL?.path
         let label = rowLabel(
             icon: iconName(fileName: entry.isDirectory ? nil : entry.url.lastPathComponent, isDirectory: entry.isDirectory),
             name: entry.displayName
         )
-        .background { if isHighlighted { SelectionEmphasisHighlight(shape: Rectangle()) } }
-        // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
-        .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
+        .background { if isCurrentBookRow { SelectionEmphasisHighlight(shape: Rectangle()) } }
+        .overlay {
+            if isHighlighted {
+                SelectionEmphasisReader { tint in Rectangle().strokeBorder(tint, lineWidth: 1) }
+            }
+        }
+        // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。枠の側も同じ。
+        .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrentBookRow || isHighlighted)
 
         return Group {
             if entry.isDirectory {
@@ -768,8 +779,11 @@ struct SidePanelView: View {
                     // あれば開く、無ければ移動する、で判定する(ユーザー要望)。
                     label.onTapGesture(count: 2) { handleFolderDoubleClick(entry) }
                 } else {
+                    // ダブルクリックは「開く・移動をダブルクリックにする」ON のときと同じ判定(直下に画像があれば開く、無ければ移動)。
+                    // 以前は判定なしで開きへ回し、本の無いフォルダでは読み込みに失敗して読んでいた本が閉じ、本を奥に含む中間フォルダでは
+                    // 奥の最初の本が開いた(2026-10-04 の監査 SP-2)。
                     label
-                        .onTapGesture(count: 2) { onOpen(entry.url) }
+                        .onTapGesture(count: 2) { handleFolderDoubleClick(entry) }
                         .onTapGesture(count: 1) { handleFolderClick(entry) }
                 }
             } else {
@@ -827,9 +841,12 @@ struct SidePanelView: View {
         } else if !isBook, preferences.smartLibraryFeatureEnabled {
             Divider()
             // シークレットフォルダそのもの・その中は淡色(2026-10-04 の監査 X-7。足しても一冊も並ばない)。
+            // 章ごとの画像フォルダに分けた本(規則 2)も淡色(監査 SP-3・決定 14。本のフォルダは対象にしない ―― 押すと断っていた)。
+            // 規則 2 は一覧を読んだ後で分かる(SidePanelBrowserState.chapterBookFolderPaths)。
             Button("Add to Smart Library Targets") { addToSmartLibrary(entry) }
                 .disabled(isPrivateWindow || smartLibraryStore.containsFolder(entry.url)
-                          || secretFolderStore.contains(path: entry.url.path))
+                          || secretFolderStore.contains(path: entry.url.path)
+                          || folderState.chapterBookFolderPaths.contains(entry.url.path))
         }
         if entry.isDirectory {
             Divider()
@@ -909,7 +926,7 @@ struct SidePanelView: View {
         guard let directory = folderState.currentDirectory,
               DirectoryBrowser.directlyContainsImageFile(directory),
               !isCurrentBookFolder(directory) else { return }
-        folderState.skipNextAnchorOnce()
+        folderState.skipNextAnchorOnce(for: directory)
         onBrowseToFolder(directory)
     }
 

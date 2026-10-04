@@ -1085,25 +1085,32 @@ struct BookmarkEditorView: View {
             return
         }
 
-        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
-        guard let url = BookLocationResolver.outsideTrash(bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen))
-            ?? BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen))
-        else {
-            openErrorBookName = BookFileName.displayName(forBookID: bookID)
-            return
+        // 場所の解決はメインの外で、期限つき(StoredBookLocator。2026-10-04 の監査 O-12 ―― 以前はメインで同期に `.userOpen` の
+        // 解決をして、電源の落ちた NAS の本では約 30 秒アプリ全体が止まった)。ゴミ箱の中まで追った場所は「見つからない」(O-11)。
+        let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+        Task { @MainActor in
+            let outcome = await StoredBookLocator.resolve(material)
+            guard case .found(let url) = outcome else {
+                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                return
+            }
+            SecurityScopedHandoff.begin(url)
+            // 開く先は、新しい窓と同じ性質の手前の窓(監査 M-8 = O-2。以前は性質を問わない手前の窓で、手前のシークレットウインドウで
+            // 読んでいた本を置き換えた ―― 上の「もう開いている窓」はノーマルの窓しか探さないのに)。
+            if let targetAppState = launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
+                targetAppState.open(url: url)
+                closeEditorWindow()
+            } else {
+                // 本を表示しているウインドウが1つも無いので、引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
+                // 窓を作るのは BookWindowOpener を通す(監査 O-3。以前は openWindow を直に呼び、シークレットフォルダの本では
+                // ノーマルの窓が一瞬できてから閉じた ―― docs/06「窓を作る所は作る前に回す」)。
+                BookWindowOpener.open(
+                    BookOpenRequest(url), to: .newWindow, from: nil,
+                    launchCoordinator: launchCoordinator, openWindow: openWindow,
+                    onOpened: { closeEditorWindow() }
+                )
+            }
         }
-        SecurityScopedHandoff.begin(url)
-
-        if let targetAppState = launchCoordinator.frontmostContentAppState() {
-            targetAppState.open(url: url)
-        } else {
-            // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
-            // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
-            // 値の型は WindowGroup の`for:`と同じ WindowContentRequest で渡す(2026-09-27 まで BookOpenRequest をそのまま渡していて、
-            // 型の合うシーンが無いので何も開かず、編集ウインドウだけが閉じていた。表示の切り替えの監査で見つけた)。
-            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: WindowContentRequest.book(BookOpenRequest(url)))
-        }
-        closeEditorWindow()
     }
 
     /// 左ペインの右クリックメニューから、その本を新しいウインドウ/タブで開く。
@@ -1114,26 +1121,29 @@ struct BookmarkEditorView: View {
     /// BookWindowOpenerが持っている)。URLの解決と、解決できなかったときのエラー表示は
     /// openBook(bookID:)と同じ。
     private func openBook(bookID: String, to destination: BookOpenDestination) {
-        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
-        guard let url = BookLocationResolver.outsideTrash(bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID, purpose: .userOpen))
-            ?? BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen))
-        else {
-            openErrorBookName = BookFileName.displayName(forBookID: bookID)
-            return
+        // 解決は openBook(bookID:) と同じ(メインの外・期限つき・ゴミ箱の中は見つからない。監査 O-12・O-11)。
+        let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+        Task { @MainActor in
+            let outcome = await StoredBookLocator.resolve(material)
+            guard case .found(let url) = outcome else {
+                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                return
+            }
+            BookWindowOpener.open(
+                BookOpenRequest(url),
+                to: destination,
+                // このウインドウは特定の本に属さない独立ウインドウなので、派生元は「今いちばん手前で
+                // 本を表示しているウインドウ」にする(タブの追加先・シークレットの引き継ぎ元)。新しい窓と同じ性質のものに限る
+                // (監査 M-8 = O-2。以前は性質を問わず、手前のシークレットウインドウのタブ・性質で開いた)。
+                // 1つも無ければnil = 環境設定に従う(BookWindowGroup参照)。この場合は
+                // 「新規タブで開く」も追加先が無いため新しいウインドウになる。
+                from: launchCoordinator.frontmostContentAppStateForUnfocusedOpen(),
+                launchCoordinator: launchCoordinator,
+                openWindow: openWindow,
+                // 本を開いたら、その操作の元になったこの編集ウインドウは閉じる(openBook(bookID:)と同じ)。
+                onOpened: { closeEditorWindow() }
+            )
         }
-        BookWindowOpener.open(
-            BookOpenRequest(url),
-            to: destination,
-            // このウインドウは特定の本に属さない独立ウインドウなので、派生元は「今いちばん手前で
-            // 本を表示しているウインドウ」にする(タブの追加先・シークレットの引き継ぎ元)。
-            // 1つも無ければnil = 環境設定に従う(BookWindowGroup参照)。この場合は
-            // 「新規タブで開く」も追加先が無いため新しいウインドウになる。
-            from: launchCoordinator.frontmostContentAppState(),
-            launchCoordinator: launchCoordinator,
-            openWindow: openWindow,
-            // 本を開いたら、その操作の元になったこの編集ウインドウは閉じる(openBook(bookID:)と同じ)。
-            onOpened: { closeEditorWindow() }
-        )
     }
 
     private func closeEditorWindow() {
@@ -2223,45 +2233,44 @@ private struct BookmarkDetailPane: View {
             return
         }
 
-        // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)。
-        guard let url = BookLocationResolver.outsideTrash(layoutStore.resolvedURL(forBookID: bookID, purpose: .userOpen)) else {
-            openErrorBookName = BookFileName.displayName(forBookID: bookID)
-            return
-        }
-        SecurityScopedHandoff.begin(url)
-
-        if let targetAppState = launchCoordinator.frontmostContentAppState() {
-            targetAppState.open(url: url)
-            waitAndJump(appState: targetAppState, toPageIndex: pageIndex)
-        } else {
-            // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
-            // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
-            // 値の型は WindowGroup の`for:`と同じ WindowContentRequest で渡す(2026-09-27 まで BookOpenRequest をそのまま渡していて、
-            // 型の合うシーンが無いので何も開かず、編集ウインドウだけが閉じていた。表示の切り替えの監査で見つけた)。
-            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: WindowContentRequest.book(BookOpenRequest(url)))
-            Task { @MainActor in
-                for _ in 0..<200 {
-                    if let newAppState = launchCoordinator.openAppState(forBookID: bookID) {
-                        waitAndJump(appState: newAppState, toPageIndex: pageIndex)
-                        return
-                    }
-                    try? await Task.sleep(nanoseconds: 25_000_000)
-                }
+        // 場所はブックマーク → レイアウトの順に、メインの外で期限つきで解決する(StoredBookLocator。2026-10-04 の監査 BE-12・O-12 ――
+        // 以前はレイアウトの行だけをメインで同期に解決し、ブックマークしか持たない本は左ペインのダブルクリックでは開けるのに
+        // ここでは「見つかりません」だった)。ゴミ箱の中まで追った場所は「見つからない」(O-11)。
+        let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+        Task { @MainActor in
+            let outcome = await StoredBookLocator.resolve(material)
+            guard case .found(let url) = outcome else {
+                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                return
             }
+            SecurityScopedHandoff.begin(url)
+            // 開く先は新しい窓と同じ性質の手前の窓(監査 M-8 = O-2)。無ければ BookWindowOpener で新しい窓(監査 O-3。シークレット
+            // フォルダの本は窓を作る前にシークレットウインドウへ回る)。
+            if let targetAppState = launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
+                targetAppState.open(url: url)
+            } else {
+                BookWindowOpener.open(
+                    BookOpenRequest(url), to: .newWindow, from: nil,
+                    launchCoordinator: launchCoordinator, openWindow: openWindow
+                )
+            }
+            waitAndJump(toPageIndex: pageIndex)
         }
     }
 
-    private func waitAndJump(appState: AppState, toPageIndex pageIndex: Int) {
+    /// 本が開くのを待って、そのページへ飛ぶ。開いた先は**性質を問わずに**探す(2026-10-04 の監査 O-3)。シークレットフォルダの本は
+    /// 開く先(ノーマルの窓)からシークレットウインドウへ回るので、以前のように頼んだ窓・ノーマルの窓(openAppState(forBookID:))だけを
+    /// 見ていると見つけられず、ジャンプが黙って消えた。5 秒待って開かなければ(読み込みの失敗はその窓が知らせる)やめる。
+    private func waitAndJump(toPageIndex pageIndex: Int) {
         Task { @MainActor in
             for _ in 0..<200 {
-                if appState.currentBook?.id == bookID, appState.jumpToPageIndex != nil {
+                if let appState = launchCoordinator.allOpenAppStates.first(where: {
+                    $0.currentBook?.id == bookID && $0.jumpToPageIndex != nil
+                }) {
                     appState.jumpToPageIndex?(pageIndex)
                     appState.hostWindow?.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
                     closeEditorWindow()
-                    return
-                }
-                if appState.currentBook == nil, appState.errorMessage != nil {
                     return
                 }
                 try? await Task.sleep(nanoseconds: 25_000_000)

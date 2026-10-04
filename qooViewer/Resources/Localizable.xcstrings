@@ -4,6 +4,70 @@
     "" : {
 
     },
+    "Information Unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Information Unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報を取得できません"
+          }
+        }
+      }
+    },
+    "“%1$@” couldn’t be opened. %2$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” couldn’t be opened. %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を開けませんでした。%2$@"
+          }
+        }
+      }
+    },
+    "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションとその中の本、スマートライブラリのアイコン表示(グリッド)に効きます(スマートライブラリのリスト表示には効きません)。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so its cover can’t be changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so its cover can’t be changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、表紙は変えられません。"
+          }
+        }
+      }
+    },
     " (off)" : {
       "localizations" : {
         "en" : {

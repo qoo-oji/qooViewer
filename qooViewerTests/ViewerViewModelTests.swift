@@ -400,6 +400,47 @@ struct ViewerViewModelTests {
         #expect(Set(viewer.bookmarks.compactMap(\.pageKey)) == [keys[4], keys[5]])
     }
 
+    @Test("「見開きの2枚目」指定のページへは、単ページでは寄せずに着地し、見開きへ切り替えたら組の起点へ寄せる。次のブックマークは相方を越える(2026-10-04 の監査 V-5・V-10・V-6)")
+    func secondOfPairPagesAreReachableInSinglePageMode() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let viewer = await harness.open(book)
+        #expect(viewer.displayMode == .spread)
+        // 3 ページ目(番号 2)と 4 ページ目(番号 3)を明示の見開きにする(自動レイアウトの本・EPUB と同じ形)。
+        let first = PageLayoutState(epubSpreadPosition: SpreadPairing.firstOfPairPosition(viewer.readingDirection))
+        let second = PageLayoutState(epubSpreadPosition: SpreadPairing.secondOfPairPosition(viewer.readingDirection))
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[2].sortKey, state: first)
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[3].sortKey, state: second)
+        await viewer.settle()
+
+        // 見開きでは「2枚目」へ直接着地すると組の起点へ寄せる(今までどおり)。
+        viewer.jump(toPageIndex: 3)
+        await viewer.settle()
+        #expect(viewer.currentIndex == 2)
+        #expect(viewer.partnerPageIndex == 3)
+
+        // V-6: 相方(番号 3)のブックマークは「次」にならない。以前は 3 を選んで起点 2 へ寄せ戻し、何度押しても止まった。
+        viewer.addBookmark(atIndex: 3)
+        viewer.addBookmark(atIndex: 5)
+        viewer.jumpToNextBookmark()
+        await viewer.settle()
+        #expect(viewer.currentIndex == 5)
+
+        // V-5: 単ページでは寄せない。以前は番号 2 が出て、指定したページを表示できなかった。
+        viewer.toggleDisplayMode()
+        await viewer.settle()
+        viewer.jump(toPageIndex: 3)
+        await viewer.settle()
+        #expect(viewer.currentIndex == 3)
+
+        // V-10: そこから見開きへ切り替えると組の起点へ寄せ、2 枚組で出す(寄せないと片側が空白の見開きになる)。
+        viewer.toggleDisplayMode()
+        await viewer.settle()
+        #expect(viewer.currentIndex == 2)
+        #expect(viewer.currentImages.count == 2)
+    }
+
     @Test("ブックマークへ飛ぶのはこの本のブックマークだけ。並びが変わっても同じページへ(2026-10-04 の監査 M-1)")
     func jumpingToABookmarkChecksTheBook() async throws {
         let harness = try ViewerHarness()

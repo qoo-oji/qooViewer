@@ -257,13 +257,13 @@ final class BookLayoutEditorViewModel: ObservableObject {
         }
 
         // URLの解決(セキュリティスコープ付きブックマーク)自体もメインスレッドを止めうるため、
-        // DBを読む部分だけをここで済ませ、解決はメインアクターの外で行う。
-        let bookmarkData = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData
-        let targetBookID = bookID
-        let url = await Task.detached(priority: .userInitiated) {
-            LayoutStore.resolvedURL(bookmarkData: bookmarkData, bookID: targetBookID)
-        }.value
-        guard let url else {
+        // DBを読む部分だけをここで済ませ、解決はメインアクターの外(FileIO、期限つき)で行う。
+        // 手がかりはブックマーク → レイアウトの順(StoredBookLocator。2026-10-04 の監査 BE-12 ―― 以前はレイアウトの行の
+        // ブックマークだけを見たので、ブックマークしか持たない本(許可の無い場所の本を直接開いてブックマークだけ付けた)は素のパスが
+        // サンドボックスの外で読めず「見つかりません」になった。左ペインのダブルクリックでは開けるのに)。裏の読み込みなので
+        // 繋がっていないボリュームへは繋ぎに行かない(.background)。
+        let material = StoredBookLocator.material(forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+        guard case .found(let url) = await StoredBookLocator.resolve(material, purpose: .background) else {
             // キャッシュから描けていても、本体が見つからないことに変わりはないので
             // 素直にエラー表示へ倒す(サムネイルもジャンプも機能しないため)。
             loadState = .failed

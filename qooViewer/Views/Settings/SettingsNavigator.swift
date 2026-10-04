@@ -88,8 +88,14 @@ final class SettingsNavigator: ObservableObject {
     /// ウインドウを実際に開く(または前面に出す)のは呼び出し側の`openSettings()`の役目。
     /// **こちらを先に呼ぶこと** ―― 開いた後に行き先を書いても、既に組み上がった画面が
     /// 拾える保証が無いため。
-    func prepareAppearance(opening surface: PanelSurface) {
+    ///
+    /// - Parameter profile: 編集する揃い。右クリックした窓が描かれている揃い(`AppearanceSettings.profile`)を渡す
+    ///   (2026-10-04 の監査 ST-1。以前は面しか渡さず、シークレットの揃いで描かれた窓の「調整…」がノーマルの揃いを開き、
+    ///   いじっても右クリックした窓は変わらなかった。逆に、環境設定がシークレットの揃いを編集中のまま開いていると、ノーマルの窓の
+    ///   「調整…」がシークレットの揃いを開いた)。
+    func prepareAppearance(opening surface: PanelSurface, profile: AppearanceProfile = .normal) {
         UserDefaults.standard.set(SettingsPane.appearance.rawValue, forKey: Self.selectedPaneDefaultsKey)
+        editingAppearanceProfile = profile
         appearanceTarget = surface
     }
 

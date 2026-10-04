@@ -147,7 +147,14 @@ nonisolated enum SpreadPairing {
     /// 1. そのページ自身に「2 枚目」の明示指定がある(そのページは直前と組む)。
     /// 2. そのページには指定が無く、**直前のページに「1 枚目」の明示指定がある**。
     ///    明示指定は横長ヒューリスティックに勝つので、直前のページは必ずこのページと組む ――
-    ///    そのまま着地するとその組を割ってしまう。組の判定が意味を持つ見開き表示中だけ。
+    ///    そのまま着地するとその組を割ってしまう。
+    ///
+    /// **どちらも見開き表示中だけ**。単ページ表示では組を作らないので、寄せると指定したページではなく
+    /// 1 つ前のページが出てしまう(2026-10-04 の監査 V-5・決定 1)。以前は条件 2 だけが見開きに限られ、
+    /// 条件 1 は単ページでも寄せていた ―― ジャンプ・ブックマーク・再開位置で「見開き左」のページ(自動レイアウトの
+    /// 本ではおおむね 2 枚に 1 枚)を表示できず、「次のブックマーク」もそこで止まっていた。2 つの条件を足した理由
+    /// (d10b285・7913831)はどちらも見開きの話で、単ページで寄せる理由はどこにも無かった。単ページ → 見開きの
+    /// 切り替えでは、呼ぶ側(`ViewerViewModel.toggleDisplayMode`)がこの補正を掛け直す。
     ///
     /// - Parameter honorsPredecessorClaim: false なら条件 2 を適用しない。「どこかへ着地し直す」
     ///   のではなく「いまの位置の描き直し」のときに使う ―― 描き直しにまで効かせると、
@@ -157,10 +164,10 @@ nonisolated enum SpreadPairing {
         readingDirection: ReadingDirection, honorsPredecessorClaim: Bool = true,
         hint: (Int) -> PageSpreadPosition?
     ) -> Int {
-        guard rawIndex > 0, rawIndex < pageCount else { return rawIndex }
+        guard displayMode == .spread, rawIndex > 0, rawIndex < pageCount else { return rawIndex }
         let position = hint(rawIndex)
         if position == secondOfPairPosition(readingDirection) { return rawIndex - 1 }
-        if honorsPredecessorClaim, position == nil, displayMode == .spread,
+        if honorsPredecessorClaim, position == nil,
            hint(rawIndex - 1) == firstOfPairPosition(readingDirection) {
             return rawIndex - 1
         }

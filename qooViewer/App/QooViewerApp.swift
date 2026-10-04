@@ -1034,7 +1034,7 @@ struct QooViewerApp: App {
                                 // 開けなければ、開く先になるはずだった窓に理由を知らせる(窓が無ければアラート。2026-10-04 の
                                 // 監査 SP-7 = M-4。以前は黙って何もしなかった)。
                                 guard let url = recentFiles.resolveForOpening(
-                                    entry, reportingTo: focusedAppState ?? launchCoordinator.frontmostContentAppState()
+                                    entry, reportingTo: focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
                                 ) else { return }
                                 SecurityScopedHandoff.begin(url)
                                 openRecentAccordingToPreference(url)
@@ -2197,7 +2197,8 @@ struct QooViewerApp: App {
     /// 「最近使ったファイル」(openURLPreferringFocusedWindow参照)と同じく新しいウインドウを
     /// 開いてそこへ表示する。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        let targetAppState = focusedAppState ?? launchCoordinator.frontmostContentAppState()
+        // 焦点が無ければ、新しい窓と同じ性質の手前の窓(監査 M-8。openRecentAccordingToPreference と同じ)。
+        let targetAppState = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
         guard let targetAppState, targetAppState.currentBook != nil else {
             if let targetAppState {
                 targetAppState.openFavorite(favorite)
@@ -2219,8 +2220,11 @@ struct QooViewerApp: App {
     /// 「最近使った項目を開く」から選んだ本を、環境設定「本を開く」の「履歴から」に従って開く(2026-09-28。
     /// 分岐は `AppState.openFromHistory`)。相手のウインドウの探し方と、内容ウインドウが 1 枚も無いときの扱いは
     /// `openURLPreferringFocusedWindow` と同じ。
+    ///
+    /// 焦点が無いときの相手は、新しい窓と同じ性質の手前の窓(2026-10-04 の監査 M-8 = O-2。
+    /// `LaunchCoordinator.frontmostContentAppStateForUnfocusedOpen`。以前は手前のシークレットウインドウで開いた)。
     private func openRecentAccordingToPreference(_ url: URL) {
-        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
             target.openFromHistory(url, launchCoordinator: launchCoordinator, openWindow: openWindow)
         } else {
             openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
@@ -2235,7 +2239,8 @@ struct QooViewerApp: App {
     /// (0枚を含む)ときに何も起きなくなる不具合の対策(ユーザー報告。お気に入りの同種の不具合は
     /// openFavoriteAccordingToPreference参照)。
     private func openURLPreferringFocusedWindow(_ url: URL) {
-        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+        // 焦点が無ければ、新しい窓と同じ性質の手前の窓(監査 M-8)。
+        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {
             target.open(url: url)
         } else {
             openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)

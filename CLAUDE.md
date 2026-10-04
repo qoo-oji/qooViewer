@@ -197,7 +197,7 @@ time. The auto-add folder holds a *path only* — folder permission stays with `
 selection and keys are the same on every Home grid** (2026-09-27, `docs/plans/home-interaction-design.md`): click selects,
 double-click/Return/⌘↓ opens, ⌘↑/Esc leaves a collection or group, ⌘/⇧ click, marquee, arrows, type-select
 (`GridSelection`, `HomeGridInteraction`; the setting `homeOpensWithSingleClick` makes a plain click open on the shelf and the
-smart library, never in the file browser). Edit mode no longer changes clicks: it only decides what a drop means (open vs.
+smart library's grid, never in the file browser or the smart library's list, which share the file browser's parts). Edit mode no longer changes clicks: it only decides what a drop means (open vs.
 create/add — and a drop on a tile adds to that collection), shows the select-all/trash buttons and the delete items, and the
 header rename; creating/adding/renaming are not gated on it (the user kept edit mode on purpose: without it, people who drop
 to open would lose drop-to-create). **「直前の本へ戻る」** (2026-09-28): the leftmost item of every Home top bar (and the top-left of the classic screen) reopens the book this
@@ -443,6 +443,10 @@ measured on device 2026-10-01: drops on the cover opened the image as a book, an
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
 books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).
+**A failed load never closes the book on screen** (2026-10-04 audit O-1, decision 2): `open(request:)` keeps it (`restoreState`) and toasts
+the reason; next/previous book (siblings and sequences) skip non-picture EPUBs and try the next one (`BookStep`). Opens from an unfocused
+menu or a tool window go to `LaunchCoordinator.frontmostContentAppStateForUnfocusedOpen()` (same privacy as a new window), never the
+privacy-blind `frontmostContentAppState()`; tool windows resolve books known only from saved data with `StoredBookLocator` (off-main, deadline).
 **Books leave Home by copy and drag** (collections and the smart library, 2026-09-23; `Views/Welcome/HomeBookTransfer.swift`):
 the pasteboard gets the real file URLs; drags allow **copy only** (unlike the file browser, dropping on the same volume in Finder
 must not move a shelved book). SwiftUI grids start an AppKit `beginDraggingSession` from a cell's `DragGesture` (`.onDrag`

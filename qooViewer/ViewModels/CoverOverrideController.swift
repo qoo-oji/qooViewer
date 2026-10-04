@@ -406,8 +406,10 @@ final class CoverOverrideController: ObservableObject {
     // MARK: - カバーの指定
 
     /// その本のカバーの指定を変えてよいか。シークレットフォルダの本は変えさせない(指定はレイアウトの行と元画像の複製として
-    /// 残る。SecretFolderStore)。入り口(書き出しのカバー列・インスペクタ・1 冊の書き出しシート)は同じ判定で淡色にし、
-    /// ここでも断る(どの入り口から来ても行を作らないように)。
+    /// 残る。SecretFolderStore)。入り口は同じ判定で閉じ(書き出しのカバー列・1 冊の書き出しシートは淡色、インスペクタの表紙は
+    /// 右クリックとドロップを付けずに、メタデータの欄と同じ注意書きを表紙の下に出す ―― 2026-10-04 の監査 X-5・決定 11。以前は
+    /// ここに「インスペクタも淡色」と書いていたが、インスペクタは理由も無く消していた)、ここでも断る(どの入り口から来ても行を
+    /// 作らないように)。
     func allowsCoverChanges(forBookID bookID: String) -> Bool {
         !SecretFolderStore.isSecretAppWide(path: bookID)
     }

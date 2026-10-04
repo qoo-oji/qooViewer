@@ -47,7 +47,7 @@ struct HomeInspectorBookView: View {
     @Environment(\.locale) private var locale
 
     /// 表紙を変えられるか。シークレットフォルダの本は変えさせない(表紙の指定はレイアウトの行と元画像の複製を作る。
-    /// SecretFolderStore)。
+    /// SecretFolderStore)。変えられないときは右クリックとドロップを付けず、理由を表紙の下に出す(body。監査 X-5・決定 11)。
     private var allowsCoverEditing: Bool { allowsEditing && !secretFolders.contains(path: bookID) }
 
     /// 表紙の指定の口。環境オブジェクトが要るので init では作れず、onAppear で組み立てる(メタデータの編集シートと同じ形)。
@@ -85,6 +85,17 @@ struct HomeInspectorBookView: View {
     var body: some View {
         VStack(spacing: 14) {
             cover
+            // シークレットフォルダの本は表紙を変えさせない(右クリックとドロップを付けない ―― シークレットウインドウと同じ見え方)。
+            // 理由が見えなかったので、メタデータの欄と同じ注意書きを表紙の下にも出す(2026-10-04 の監査 X-5・決定 11 の (b))。
+            // シークレットウインドウ(allowsEditing が false)は窓ごと見るだけなので出さない(docs/14「インスペクタ」)。
+            if allowsEditing, !allowsCoverEditing {
+                Label("This book is in a secret folder, so its cover can’t be changed.", systemImage: "eye.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .panelOutlinedContent()
+            }
             HomeInspectorTitle(name: name, subtitle: HomeInspectorFormat.subtitle(kind: facts?.kind, size: facts?.size))
             HomeInspectorMetadataSection(bookID: bookID, sourceURL: sourceURL, allowsEditing: allowsEditing, home: home)
                 .id(bookID)

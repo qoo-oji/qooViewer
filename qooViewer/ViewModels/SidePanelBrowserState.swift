@@ -48,18 +48,34 @@ final class SidePanelBrowserState: ObservableObject {
     /// サブフォルダが並んでいるならその先頭の行として)。
     @Published private(set) var currentDirectoryHasImages = false
     /// 表示枠内へスクロール+ハイライトする対象。handlePanelRevealed/goUpが設定する。
+    /// 「上へ」で出てきたフォルダの強調はこれ。今の本の行の強調は下の currentBookRowURL で別に持つ(2026-10-04 の監査 SP-13・決定 12)。
     @Published private(set) var highlightedURL: URL?
+    /// 今の本の行(本の親フォルダの一覧での本自身。画像を直接開いた本は画像の入ったフォルダ ―― browserAnchor の highlighted)。
+    /// **どこへ移動しても**、その行が一覧にあれば今の本として強調する(SP-13・決定 12)。以前は強調が highlightedURL 1 つだけで、
+    /// 戻る/進むで本のフォルダへ戻っても今の本の行が強調されず、「上へ」で出てきたフォルダと同じ見た目だった。
+    @Published private(set) var currentBookRowURL: URL?
+    /// 規則 2(直下に画像が無く、章ごとの画像フォルダに分けた本)と分かったフォルダの行のパス(2026-10-04 の監査 SP-3・決定 14)。
+    /// サイドパネルは今のまま規則 1 だけで「本」を数える(「開く」系は直下に画像がある行だけ。MANUAL)が、規則 2 の行の
+    /// 「スマートライブラリの対象に追加」は押しても断られる(本のフォルダは対象にしない)ので、淡色にするためにこれを見る。
+    /// 一覧を読んだ後に、直下に画像が無くサブフォルダがある行だけを FileIO の上で調べる(probeChapterBooks)。分かるまでは空 ――
+    /// その間は押せて、押せば従来どおり断って知らせる。
+    @Published private(set) var chapterBookFolderPaths: Set<String> = []
+    private var chapterProbeTask: Task<Void, Never>?
 
     weak var folderAccess: FolderAccessStore?
     weak var preferences: AppPreferences?
 
-    /// 次の`handlePanelRevealed`での再アンカーを1回だけ見送るための目印。
+    /// 次の`handlePanelRevealed`での再アンカーを1回だけ見送るための目印。**どの本のための見送りか**(開こうとしたフォルダ)を持つ。
     ///
     /// フォルダ行のクリックは「そのフォルダへ入る」と「そのフォルダの画像を開く」を同時に行う
     /// (SidePanelView.navigateAndOpenIfImages)。本が切り替わればContentViewが
     /// `handlePanelRevealed`を呼ぶが、そこでいつもどおり本の親フォルダへ再アンカーすると、
     /// **せっかく入ったフォルダから親へ弾き返されて**しまい、中のサブフォルダへ進めなくなる。
-    private var skipsNextAnchor = false
+    ///
+    /// 相手を持つのは 2026-10-04 の監査 SP-1。以前は真偽だけで、開こうとした本がこの窓に出なかった(シークレットウインドウへ
+    /// 回した・読み込みに失敗した・中止した)と印が残り、次に別の経路で開いた本でフォルダブラウザが追従しなかった。今は次の本の
+    /// 切り替わりで必ず下ろし、見送るのはその本が印の相手のときだけ。
+    private var skipsNextAnchorFor: URL?
 
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
@@ -161,17 +177,27 @@ final class SidePanelBrowserState: ObservableObject {
     /// 名残。その呼び出しは、フォルダブラウザで移動した場所がパネルが隠れるたびに失われて
     /// 常時表示と挙動が食い違うため、やめた(ユーザーの指示)。今は本の切り替わりだけが契機。
     func handlePanelRevealed(currentBook: MangaBook?) {
-        guard let currentBook else { return }
-        // このパネルの中のクリックで開いた本なら、今いる場所をそのまま保つ
-        // (skipsNextAnchorのコメント参照)。一覧はnavigate側で読み込み済み。
-        if skipsNextAnchor {
-            skipsNextAnchor = false
+        guard let currentBook else {
+            currentBookRowURL = nil
             return
         }
         // 入れ子の書庫を書き出した一時コピーの本(本の中身ブラウザの「新しい本として開く」)では、今いる場所を保つ(2026-10-04 の監査 SP-4)。
         // 親はアプリの一時フォルダで、そこへ移ると利用者の知らないフォルダ(空、または UUID 名の書庫)が並んだ。
-        if currentBook.isTemporaryCopy { return }
+        // 一時フォルダの中なので、どの行も今の本として強調しない。
+        if currentBook.isTemporaryCopy {
+            currentBookRowURL = nil
+            skipsNextAnchorFor = nil
+            return
+        }
         let anchor = Self.browserAnchor(for: currentBook)
+        currentBookRowURL = anchor.highlighted
+        // このパネルの中のクリックで開いた本なら、今いる場所をそのまま保つ
+        // (skipsNextAnchorForのコメント参照)。一覧はnavigate側で読み込み済み。印は相手に関わらずここで下ろす(SP-1)。
+        let skipTarget = skipsNextAnchorFor
+        skipsNextAnchorFor = nil
+        if let skipTarget, MountTable.normalized(skipTarget.path) == MountTable.normalized(currentBook.sourceURL.path) {
+            return
+        }
         let directoryChanged = anchor.directory != currentDirectory
         if directoryChanged {
             backStack.append(currentDirectory)
@@ -203,9 +229,10 @@ final class SidePanelBrowserState: ObservableObject {
         return (parent.deletingLastPathComponent(), parent)
     }
 
-    /// 上記を1回だけ見送らせる。フォルダ行のクリックで本を開く直前に呼ぶ。
-    func skipNextAnchorOnce() {
-        skipsNextAnchor = true
+    /// 上記を1回だけ見送らせる。フォルダ行のクリックで本を開く直前に、開こうとする本(フォルダ)を渡して呼ぶ。
+    /// 次に切り替わった本がそれでなければ見送らない(SP-1)。
+    func skipNextAnchorOnce(for book: URL) {
+        skipsNextAnchorFor = book
     }
 
     /// フォルダ行のシングルクリック。
@@ -254,7 +281,12 @@ final class SidePanelBrowserState: ObservableObject {
     func settle() async {
         while let task = reloadTask {
             await task.value
-            if reloadTask == task { return }
+            if reloadTask == task { break }
+        }
+        // 規則 2 の下調べ(probeChapterBooks)も待つ。
+        while let task = chapterProbeTask {
+            await task.value
+            if chapterProbeTask == task { return }
         }
     }
 
@@ -282,6 +314,7 @@ final class SidePanelBrowserState: ObservableObject {
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = false
                 self.listingErrorMessage = nil
+                if let directory { self.probeChapterBooks(in: result, directory: directory) } else { self.clearChapterBooks() }
                 // 読み込んでいる間に並べ替え設定が変わっていた場合の取りこぼしを拾う
                 // (変わっていなければ何もしない)。
                 self.applySortSettings()
@@ -309,11 +342,41 @@ final class SidePanelBrowserState: ObservableObject {
                 }
                 self.entries = []
                 self.currentDirectoryHasImages = false
+                self.clearChapterBooks()
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = otherFailure == nil
                 self.listingErrorMessage = otherFailure
             }
         }
+    }
+
+    /// 一覧のうち、直下に画像が無くサブフォルダがある行が規則 2 の本か(ShelfFolderResolver.isSingleBookFolder)を調べ、
+    /// chapterBookFolderPaths に入れる(SP-3・決定 14)。子フォルダの中を読むので一覧より I/O が増える ―― 調べるのはその形の行だけ、
+    /// FileIO の上で 1 行ずつ(応答しない共有で協調スレッドを止めない。CLAUDE.md)。ネットワークのボリュームでは調べない(行ごとに
+    /// 往復が増える。淡色にならないだけで、押せば従来どおり断る)。TCC の保護下の場所は、表示中のフォルダと同じ保護下でなければ
+    /// 読まない(DirectoryProbe.mayReadChild。読むこと自体が許可のダイアログを出す)。
+    private func probeChapterBooks(in entries: [DirectoryBrowser.Entry], directory: URL) {
+        clearChapterBooks()
+        let candidates = entries
+            .filter { $0.isDirectory && !$0.containsImageFile && $0.containsSubdirectory }
+            .map(\.url)
+            .filter { DirectoryProbe.mayReadChild($0, of: directory) }
+        guard !candidates.isEmpty, !MountTable.current().isRemote(directory) else { return }
+        chapterProbeTask = Task { [weak self] in
+            var found: Set<String> = []
+            for url in candidates {
+                guard !Task.isCancelled else { return }
+                if await FileIO.perform({ ShelfFolderResolver.isSingleBookFolder(url) }) { found.insert(url.path) }
+            }
+            guard !Task.isCancelled, let self, self.currentDirectory == directory else { return }
+            self.chapterBookFolderPaths = found
+        }
+    }
+
+    private func clearChapterBooks() {
+        chapterProbeTask?.cancel()
+        chapterProbeTask = nil
+        if !chapterBookFolderPaths.isEmpty { chapterBookFolderPaths = [] }
     }
 
     /// 並べ替え設定(パネル上部の並べ替えメニュー、および環境設定「一般」タブのグループ分け)が

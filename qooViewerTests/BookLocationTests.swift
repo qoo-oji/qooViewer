@@ -155,3 +155,45 @@ struct BookLocationTests {
         #expect(BookLocationResolver.mountedVolumeUUIDs().contains(volumeUUID))
     }
 }
+
+// MARK: - 保存データの手がかりから開く前の解決(StoredBookLocator。2026-10-04 の監査 BE-12・O-12)
+
+extension BookLocationTests {
+    @Test("保存データの手がかり(ブックマーク)から、移った本を見つける。手がかりが無ければ記録したパス、どちらも無ければ見つからない")
+    func storedBookLocatorFollowsTheBookmarks() async throws {
+        let workspace = try TemporaryDirectory("stored-locator")
+        let original = workspace.file("before.cbz")
+        try Data("a".utf8).write(to: original)
+        let bookmark = try original.bookmarkData(
+            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+        )
+        let moved = workspace.file("after.cbz")
+        try FileManager.default.moveItem(at: original, to: moved)
+
+        // ブックマークしか持たない本(BE-12: 以前の右ペインはレイアウトの行しか見ず、記録したパスだけで「見つかりません」)。
+        let followed = await StoredBookLocator.resolve(
+            .init(bookID: original.path, bookmarks: [bookmark]), purpose: .background
+        )
+        guard case .found(let url) = followed else {
+            Issue.record("moved book was not found: \(followed)")
+            return
+        }
+        #expect(url.lastPathComponent == "after.cbz")
+
+        // 手がかりが無くても、記録したパスに在れば見つかる。
+        let byPath = await StoredBookLocator.resolve(.init(bookID: moved.path, bookmarks: []), purpose: .background)
+        guard case .found = byPath else {
+            Issue.record("book at the recorded path was not found: \(byPath)")
+            return
+        }
+
+        // どちらも無ければ見つからない。
+        let missing = await StoredBookLocator.resolve(
+            .init(bookID: workspace.file("gone.cbz").path, bookmarks: []), purpose: .background
+        )
+        guard case .notFound = missing else {
+            Issue.record("a missing book was reported as \(missing)")
+            return
+        }
+    }
+}

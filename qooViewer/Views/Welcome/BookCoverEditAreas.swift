@@ -355,7 +355,10 @@ struct FileBrowserCoverArea: View {
 
 private extension View {
     /// 表紙を変える口(画像ファイルのドロップと右クリック)。`isEnabled` が false なら何も付けない(シークレットウインドウ ――
-    /// 保存データへの書き込み)。値はウインドウの一生のあいだ変わらないので、`if` で分けてもビューが作り直されることはない。
+    /// 保存データへの書き込み ―― と、シークレットフォルダの本。後者は表紙の下に理由を出す。HomeInspectorBookView.body)。
+    /// シークレットウインドウでは値がウインドウの一生のあいだ変わらないが、シークレットフォルダの本では一覧を変えると変わり、
+    /// `if` で分けたビューが作り直される(2026-10-04 の監査 X-5。以前は「変わらないので作り直されない」と書いていた)。表紙の側は
+    /// 持つ状態がドロップの強調だけなので、作り直されても失うものは無い。
     @ViewBuilder
     func coverEditing<MenuContent: View>(
         isEnabled: Bool, isDropTargeted: Binding<Bool>, onDropImage: @escaping (URL) -> Void,

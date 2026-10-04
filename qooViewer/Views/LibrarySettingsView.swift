@@ -16,11 +16,13 @@ struct LibrarySettingsView: View {
             Section {
                 // 2026-09-27、利用者の決定(ホームの操作の統一)。既定はクリックで選び、ダブルクリックで開く(Finder と同じ)。
                 // スマートライブラリにも効くが、コレクションが主な相手なのでこの画面に置く(吹き出しで両方に効くと言う)。
+                // スマートライブラリで効くのはアイコン表示(グリッド)だけ。リスト表示はファイルブラウザのリストと同じ部品で、そちらにも
+                // この設定は効かない(2026-10-04 の監査 ST-10・決定 6。以前の吹き出しは「スマートライブラリに効く」とだけ言っていた)。
                 // ライブラリもスマートライブラリも OFF の間は効かない(AppPreferences.homeOpensWithSingleClick)。
                 SettingsToggle(
                     "Open Items with a Single Click",
                     isOn: $preferences.homeOpensWithSingleClick,
-                    help: "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+                    help: "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
                 )
                 .disabled(!preferences.libraryFeatureEnabled && !preferences.smartLibraryFeatureEnabled)
             } header: {

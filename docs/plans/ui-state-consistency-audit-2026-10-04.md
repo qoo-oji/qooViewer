@@ -1997,3 +1997,80 @@ docs: 02(テスト表)、04(新規ウインドウで開く…)、06(履歴の理
 名前の変更・空の画面・規則の保存の問題)、09(サイドパネルの一覧の失敗と踏み込みの失敗・拡大の淡色・マウスの重なり・⌘O)、14(スマートライブラリの
 開く前の確かめ・対象フォルダとシークレット・本を追加・表紙のファイル)、15(ツリーのドロップ・カットの記憶・中止の報告・一括リネームの淡色・⌥⌘V)、
 CLAUDE.md。
+
+### 段 7(2026-10-04)
+
+§1-9 の群(ビューアと開く入口の残り)。§3 の決定 1〜4・6・8・10〜12・14 のとおり。決まりを 1 つ CLAUDE.md に足した: 読み込みの失敗で
+表示中の本を閉じない/焦点の無いメニュー・道具の窓からの「開く」は `frontmostContentAppStateForUnfocusedOpen()`/保存データにしか手がかりの
+無い本は `StoredBookLocator` で解決する。
+
+**見開きの着地とブックマーク**
+
+- **V-5**(直した、決定 1): `SpreadPairing.normalizedAnchorIndex` は条件 1 も見開き表示のときだけ寄せる。`SpreadPairingTests` の `.single` の
+  期待を rawIndex へ直した。テスト `ViewerViewModelTests.secondOfPairPagesAreReachableInSinglePageMode`。docs/07 を直した。
+- **V-10**(直した): `toggleDisplayMode` は focus 無しの `reloadLayoutData` と同じ掛け方(条件 1 だけ)で補正し、`ignorePreviousDisplayedRange: true`
+  で組み直す。`toggleReadingDirection` は見開きで近くに指定があるときだけ補正して組み直す。上と同じテスト(単ページ → 見開きで起点へ寄り 2 枚組)。
+- **V-6**(直した): `jumpToNextBookmark` の起点を `partnerPageIndex ?? currentIndex` にし、補正した着地先が今の起点と同じものも飛ばす。上と同じテスト。
+- **V-16**(直した): サイドパネルの「+」(`appState.addBookmarkAction`)を `ViewerView.addCurrentPageBookmark`(ツールバー・メニュー・キーと共通。
+  「毎回尋ねる」とトースト込み)へ寄せた。編集ウインドウの空表示のボタンは段 6 の BE-9 で無くなっている。View の配線なのでテストは足せない。
+- **V-2**(直した): 高解像度ソースをどのページのものか鍵の並び(`highResolutionSourceKeys`)で持ち、別のページへ移ったら取得を待たずに捨てる
+  (同じページの描き直しでは捨てない)。拡大鏡の描画の確かめは実機。docs/05 を直した。
+- **V-11**(直した): 「情報を見る」は開いた時点のページの鍵で相手を固定し(`PageInfoPanelContent`)、情報が無ければ
+  `pageImageInfo(forPageKey:)` を待って描き直す(取得できない・並びから消えたら「情報を取得できません」)。パネルの間はキー・ホイールで
+  ページを送らない(Esc・Return で閉じる)。View なのでテストは足していない。§5 の ViewerView.swift:1481 のコメントは消えた。
+- **V-17**(直した): 「実寸表示」は表示用の画像が 4096px に届いていれば `fullResolutionImage`(鍵で引き直したページ)で読み直してから出す。
+  ViewerView は捕まえない(値だけを Task に渡す)。実機。
+
+**開く入口**
+
+- **O-1・SP-2**(直した、決定 2 の (a)+(c)): `open(request:)` は本を表示している窓で読み込みが失敗したら `restoreState` で表示中の本のぶんへ戻し、
+  「“名前”を開けませんでした。理由」をトーストに出す(本を出していない窓は従来どおりホームにエラー)。次の本・前の本は `BookStep` を渡し、
+  画像の本でない EPUB を同じ向きへ飛ばす(兄弟は `SiblingFinder`、一覧の並びは `nextReachable` ―― `openInSequence` と同じ確かめ・期限 ――
+  で残りの位置を試し、着いた位置を `bookSequence` に)。飛ばした先のシークレットフォルダの本は `redirectShelfBookIfNeeded` で着いた位置の
+  並びごと回す。開けた本は「直前の本」・ウインドウの値にも実際に開いた本で残す。SP-2 はあわせて、単一クリック設定のダブルクリックを
+  `handleFolderDoubleClick` にそろえた。テスト `AppStateOpenTests.aFailedReplacementKeepsTheShownBook`・`siblingStepsSkipNonPictureEpubs`・
+  `sequenceStepsSkipNonPictureEpubs`(と、本を閉じてからの失敗に直した `aFailedOpenKeepsThePreviousLastOpenedBook`・本の無い窓の
+  `aFailedOpenLeavesAnErrorMessage`)。docs/04:85 と MANUAL.md:74(決定 2 の (c))を直した。
+- **O-10**(直した、決定 3): 次の本・前の本で回した本を `AppState.passedOverBook` に控え、同じ向きの次の一歩はそこ(一覧の並びならその位置)から
+  探す。逆向きは今の本から。この窓で次の読み込みを始めたら・本を閉じたら捨てる。「常にシークレットウインドウで開く」はテストの中で常に OFF
+  (`AppPreferences.opensSecretFolderBooksPrivately` は static)なので、テストは足せない(実機)。
+- **O-4**(直した、決定 4 の (b)): 通り抜けの移動(履歴に残さない要求)の回送は `BookWindowOpener.openSecretBookPrivatelyQuietly` へ。同じ本を
+  出しているシークレットウインドウがあれば何もしない。前回回した先がまだその本を出している(読み込み中)ならそこで入れ替え(焦点は移さない)、
+  初回は開き先の設定どおりに開いてから元の窓へ焦点を戻し、開いた窓を控える。窓と焦点の動きなので実機。docs/06 に書いた。
+- **SP-1**(直した): 見送りの印は `skipNextAnchorOnce(for:)` で開こうとした本を持ち、次の本の切り替わりで必ず下ろす(見送るのは相手が一致するとき
+  だけ)。テスト `SidePanelBrowserStateTests.theAnchorSkipOnlyAppliesToItsOwnBook`(既存の見送りのテストはフォルダの本で開くよう直した)。
+- **M-8(= O-2)**(直した): `LaunchCoordinator.frontmostContentAppStateForUnfocusedOpen()`(新しい窓と同じ性質の手前の窓)を足し、焦点が無いときの
+  ファイル ▸ 最近使った項目(知らせの宛先も)・お気に入り・`openURLPreferringFocusedWindow`、編集ウインドウの開く 3 つ(派生元も)がそれを使う。
+  §5 の `frontmostContentAppState` の doc コメントも直した。窓の手前・奥で決まるのでテストは足せない(実機)。
+- **O-3**(直した): 編集ウインドウの「開く」(本の窓が 1 つも無いとき)とページのダブルクリックを `BookWindowOpener.open(…, to: .newWindow, from: nil)`
+  に置き換え、ジャンプは開いた先を性質を問わずに探す(`waitAndJump(toPageIndex:)`)。docs/06 に書いた。実機。
+- **O-12・BE-12**(直した): `StoredBookLocator`(新規。ブックマーク → レイアウト → メタデータ → コレクションの手がかりを `FileIO` の上で期限つきに
+  解決、ゴミ箱の中は見つからない)を、編集ウインドウの左ペインのダブルクリック・右クリックの「新規◯◯で開く」・ページのダブルクリック(`.userOpen`)、
+  右ペインの読み込み(`.background`。以前は `Task.detached` でレイアウトの行だけ)、メタデータの編集の「開く」(`.userOpen`。見つからなければ
+  開かずにトースト)が使う。テスト `BookLocationTests.storedBookLocatorFollowsTheBookmarks`。
+
+**サイドパネル・ホーム・設定**
+
+- **SP-3**(直した、決定 14 の (a)): 一覧を読んだ後、直下に画像が無くサブフォルダがある行だけを `FileIO` の上で `isSingleBookFolder` で調べ
+  (`SidePanelBrowserState.chapterBookFolderPaths`。ネットワークのボリュームでは調べない・保護下は `mayReadChild`)、規則 2 の行の
+  「スマートライブラリの対象に追加」を淡色にする。「開く」系は今のまま規則 1。テスト `SidePanelBrowserStateTests.chapterBookFoldersAreFoundAfterListing`。
+  §5 の ShelfFolderResolver.swift:17-18 のコメントを直した。
+- **SP-13**(直した、決定 12 の (a)): 今の本の行(`currentBookRowURL`)は塗りの選択色、「上へ」で出たフォルダ(`highlightedURL`)は細い枠だけ。
+  テスト `SidePanelBrowserStateTests.theCurrentBookRowSurvivesBackAndForward`(見た目は実機)。MANUAL.md:579 の「同様にハイライト」は決定に
+  MANUAL の直しが含まれないので残した(段 8 で文言を直すなら「枠で示す」)。
+- **ST-10**(直した、決定 6 の (b)): 吹き出し(LibrarySettingsView)・MANUAL.md:2307・home-interaction-design.md:79・docs/14・CLAUDE.md を
+  「スマートライブラリはアイコン表示(グリッド)だけ」に直した。
+- **X-5**(直した、決定 11 の (b)): インスペクタの表紙はシークレットフォルダの本で今の見え方のまま、表紙の下に「シークレットフォルダの本のため、
+  表紙は変えられません」を出す(シークレットウインドウでは出さない)。§5 の CoverOverrideController・BookCoverEditAreas のコメントを直した。View。
+- **X-8**(直した、決定 10 の (a)): `CollectionStore.makePendingItems(for:decidedNotSecret:)` を足し、表示中の本の「コレクションに登録」(メニューバーの
+  `AppState.addCurrentBook` とビューアの右クリックの `AddToCollectionMenu(booksAreDecidedNotSecret:)`)は開いた時点の値で通す。開かずに書く経路は
+  今までどおり場所で決める(CLAUDE.md の約束との境目 ―― 渡すのは表示中の本だけ)。アプリの一覧の写しをテストから書けないので、テストは足していない。
+- **決定 8**(X-4 は棄却、決定は (a)): シークレットウインドウでもライブラリのチップの右クリックを付け、「名前を変更…」「削除…」を淡色に。
+  ライブラリが 1 つのときの「削除…」も消さずに淡色。docs/14 を docs/06 にそろえた。View。
+- **ST-1**(直した): 「調整…」が窓の揃い(`AppearanceSettings.profile`)を `SettingsNavigator.prepareAppearance(opening:profile:)` へ渡し、
+  `editingAppearanceProfile` も決める。設定ウインドウを開くので実機。
+
+ViewerView の body には modifier を足していない(V-11 はパネルの中身の差し替えと、キーのモニタの中の分岐だけ)。CI の型推論の件は直していない。
+docs: 04(EPUB を飛ばす範囲・次の本が開けないとき)、05(高解像度ソース)、06(編集ウインドウの窓・越えた本・通り抜けの回送)、07(着地の補正・
+「+」・次のブックマーク)、09(フォルダブラウザの印・強調・ダブルクリック・規則 2)、14(クリック 1 回・チップの右クリック・インスペクタの表紙)、
+plans/home-interaction-design.md、CLAUDE.md、MANUAL.md(決定 2・6 の箇所だけ)。

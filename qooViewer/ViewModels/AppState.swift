@@ -473,9 +473,10 @@ final class AppState: ObservableObject {
         refreshIsCurrentPageBookmarked()
     }
 
-    /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
-    /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add This Page」
-    /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
+    /// サイドパネル(ブックマークモード)の「+」ボタンから、今読んでいるページをこの本のブックマークとして
+    /// 追加するための橋渡し。ツールバー・メニュー・キーと同じ追加(見開きでは SpreadBookmarkTargetBehavior に従う。
+    /// 2026-10-04 の監査 V-16)。以前は「ブックマークの編集」ウインドウの空の画面の「Add This Page」ボタンも
+    /// 使っていた(BE-9 で外した)。
     /// jumpToBookmarkと同じく、ViewerViewが表示されている間だけ自分自身を登録し、
     /// 閉じるときにnilへ戻す。
     ///
@@ -1279,13 +1280,26 @@ final class AppState: ObservableObject {
     ///   `initialEdge`と同じく、指定が無ければ前の操作が積んだ指定をここで捨てる。
     /// - Parameter isInitialRequest: 窓を作った要求そのものを開く(ContentView の onAppear だけが true)。シークレットウインドウへ
     ///   回したときに、本を出さないまま残る窓を閉じてよいかの判定に使う(`initialOpenToken`)。
+    /// - Parameter step: 次の本・前の本(一覧の並びを含む)として開くときの向きと並びの残り(`BookStep`)。開いた本が画像の本でない
+    ///   EPUB なら、同じ向きへ飛ばして次を試す(2026-10-04 の監査 O-1・決定 2 の (c))。シークレットウインドウへ回したら、その本を
+    ///   「越えた」ことにする(O-10・決定 3。`passedOverBook`)。
+    ///
+    /// **今の本を置き換える読み込みが失敗したら、どの入口でも今の本を残して知らせる**(2026-10-04 の監査 O-1・SP-2、決定 2 の (a))。
+    /// 以前は失敗すると今の本を閉じてホームとエラーにしていた ―― 次の本が小説の EPUB・壊れた書庫だと、読んでいた本が閉じ、
+    /// 「直前の本へ戻る」で戻ってもまた同じ本で閉じて先へ進めなかった。本を出していない窓(ホーム・本のために作った窓)では従来どおり
+    /// ホームにエラーを出す。
     func open(
         request: BookOpenRequest, reusesExistingWindow: Bool = true,
-        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false, isInitialRequest: Bool = false
+        initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false, isInitialRequest: Bool = false,
+        step: BookStep? = nil
     ) {
         // シークレットフォルダの本で、環境設定「常にシークレットウインドウで開く」が ON なら、この窓では開かずにシークレットウインドウへ
         // 回す(2026-10-03。この窓は今の中身のまま)。窓を開くのはビューの側なので、頼みだけ出す(privateRedirect)。
         if BookWindowOpener.shouldOpenSecretBookPrivately(request, opensPrivately: isPrivateWindow) {
+            // 次の本・前の本で回したなら、その本を越えたことにする(passedOverBook のコメント)。
+            if let step, let url = request.primaryURL {
+                passedOverBook = PassedOverBook(forward: step.forward, url: url, sequence: request.sequence)
+            }
             privateRedirect = PrivateRedirect(request: request, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
                                               closesUnusedWindow: isInitialRequest)
             return
@@ -1324,6 +1338,8 @@ final class AppState: ObservableObject {
             return
         }
         openTask?.cancel()
+        // 越えた本の控えは、この窓で次の読み込みを始めたら要らない(passedOverBook のコメント)。
+        passedOverBook = nil
         // 一時コピーの本(本の中身ブラウザの「新しい本として開く」)なら、このウインドウが寿命を引き受ける(ownedTemporaryCopies のコメント)。
         adoptTemporaryCopies(of: request)
         // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
@@ -1380,6 +1396,11 @@ final class AppState: ObservableObject {
         }
 
         openTask = Task { [weak self] in
+            // 実際に試した本(棚を読み替えた先・EPUB を飛ばした先)。失敗の知らせと、開けたときの「直前の本」に使う。
+            var attempted = request.primaryURL
+            // 一覧の並びで EPUB を飛ばしたら、着いた位置(開けたときの bookSequence)。
+            var landedSequence: BookSequence?
+            var sequenceSteps = step?.sequence
             do {
                 var loaded: MangaBook
                 if request.bundlesMultipleImages {
@@ -1397,7 +1418,8 @@ final class AppState: ObservableObject {
                     // 棚のフォルダのパスで見るので、棚の外にシークレットフォルダの本だけがある形はここで分かる)。下の「別のウインドウで
                     // 開いていた」より先に見る(関数の頭と同じ順 ―― 回すかどうかが先で、同じ本の窓探しは回した先がする)。
                     if MountTable.normalized(target.path) != MountTable.normalized(url.path), let self, !Task.isCancelled,
-                       self.redirectShelfBookIfNeeded(target, shelfRequest: request, beforeOpen: beforeOpen, token: token) {
+                       self.redirectShelfBookIfNeeded(target, shelfRequest: request, sequence: request.sequence, step: step,
+                                                      beforeOpen: beforeOpen, token: token) {
                         return
                     }
                     // 棚を先頭の本に読み替えたら、その本が別のウインドウで開いていないかをもう一度見る(2026-09-22 の監査。
@@ -1413,13 +1435,19 @@ final class AppState: ObservableObject {
                         return
                     }
                     // 棚の先頭が画像の本ではない EPUB(小説など)なら、同じ棚の次の本へ進む(2026-09-22 の監査。本の数え方は
-                    // 拡張子で決めるので、棚の先頭が小説だと棚そのものが開けなかった)。進むのは棚を開いたとき(読み替えたとき)だけ。
+                    // 拡張子で決めるので、棚の先頭が小説だと棚そのものが開けなかった)。以前は進むのは棚を開いたとき(読み替えたとき)
+                    // だけだったが、次の本・前の本と一覧の並びでも、同じ向きへ飛ばして次を試す(2026-10-04 の監査 O-1・決定 2 の (c)。
+                    // 次の本は利用者が名指しした本ではなく、ページ送りの延長 ―― 以前はそこで止まって先へ進めなかった)。
                     var candidate = target
                     var skipped = 0
                     while true {
-                        // EPUB を飛ばして進んだ先がシークレットフォルダの本なら、そこで回す(先頭の本は上で見た)。
+                        attempted = candidate
+                        // EPUB を飛ばして進んだ先がシークレットフォルダの本なら、そこで回す(先頭の本は上で見た)。一覧の並びなら、
+                        // 回した先にも着いた位置を渡す。
                         if skipped > 0, let self, !Task.isCancelled,
-                           self.redirectShelfBookIfNeeded(candidate, shelfRequest: request, beforeOpen: beforeOpen, token: token) {
+                           self.redirectShelfBookIfNeeded(candidate, shelfRequest: request,
+                                                          sequence: landedSequence ?? request.sequence, step: step,
+                                                          beforeOpen: beforeOpen, token: token) {
                             return
                         }
                         do {
@@ -1432,9 +1460,35 @@ final class AppState: ObservableObject {
                                 onProgress: onProgress
                             )
                             break
-                        } catch BookLoaderError.epubNotPictureBook where candidate != url && skipped < 50 && !Task.isCancelled {
-                            guard let next = await SiblingFinder.url(after: candidate, order: shelfOrder) else {
-                                throw BookLoaderError.epubNotPictureBook
+                        } catch BookLoaderError.epubNotPictureBook
+                                    where (candidate != url || step != nil) && skipped < 50 && !Task.isCancelled {
+                            let next: URL
+                            if var steps = sequenceSteps {
+                                // 一覧の並び: 残りの位置を近い順に確かめる(openInSequence と同じ確かめ・期限)。
+                                guard let self else { return }
+                                let result = await self.nextReachable(in: &steps, stillWanted: { [weak self] in
+                                    self?.openToken == token
+                                })
+                                sequenceSteps = steps
+                                switch result {
+                                case .found(let position, let foundURL):
+                                    landedSequence = steps.sequence.moved(to: position)
+                                    next = foundURL
+                                case .timedOut:
+                                    // 期限切れは先へ進まずに止める(openInSequence のコメント)。
+                                    NSSound.beep()
+                                    throw BookLoaderError.epubNotPictureBook
+                                case .end, .abandoned:
+                                    throw BookLoaderError.epubNotPictureBook
+                                }
+                            } else {
+                                // 棚の中・同じフォルダの兄弟: 向きは step(棚は前向き)。
+                                let forward = step?.forward ?? true
+                                let found = forward
+                                    ? await SiblingFinder.url(after: candidate, order: shelfOrder)
+                                    : await SiblingFinder.url(before: candidate, order: shelfOrder)
+                                guard let found else { throw BookLoaderError.epubNotPictureBook }
+                                next = found
                             }
                             candidate = next
                             skipped += 1
@@ -1583,8 +1637,17 @@ final class AppState: ObservableObject {
                     }
                     self.currentBook = book
                     self.errorMessage = nil
+                    // 次の本・一覧の並びで EPUB を飛ばして開いたなら、控える要求も実際に開いた本(と並びの位置)にする ―― 元の要求は
+                    // 開けなかった EPUB を指す(「直前の本へ戻る」・ウインドウの値がそれを開き直してしまう)。棚の読み替えは
+                    // 棚の要求のまま(開き直せば同じ本へ読み替わる)。
+                    var shownRequest = request
+                    if step != nil, let attempted, attempted != request.primaryURL {
+                        shownRequest = BookOpenRequest(attempted, recordsInHistory: request.recordsInHistory,
+                                                       sequence: landedSequence ?? request.sequence)
+                    }
+                    if let landedSequence { self.bookSequence = landedSequence }
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
-                    self.lastOpenedBook = LastOpenedBook(request: request, sourceURL: book.sourceURL, title: book.title)
+                    self.lastOpenedBook = LastOpenedBook(request: shownRequest, sourceURL: book.sourceURL, title: book.title)
                     self.lastBookAvailability = .available
                     // 読み込みが済んだ。前の本が一時コピーだったなら、表示中でも直前の本でもなくなったので消える。
                     self.openingTemporaryCopies = []
@@ -1612,15 +1675,15 @@ final class AppState: ObservableObject {
                 // Task.isCancelledのときはそこで抜けてしまうため)。
                 if let self, self.openToken == token { self.loadingProgress = nil }
                 guard !Task.isCancelled, let self else { return }
+                let attemptedName = attempted?.lastPathComponent ?? ""
                 // 失敗の反映も成功と同じ理由で保留する(currentBookの変更はメニューに波及する。
                 // 上の成功側のコメント参照)。キーも成功側と共用する: 同じopen()の結果は
                 // どちらか一方しか来ないうえ、保留中に別のopen()の結果が来た場合は
                 // 最後の1つだけが適用されるのが正しい(openTokenの照合はその二重の保険)。
                 MenuBarMenuGate.shared.run(self.menuGateKey("openCompleted")) { [weak self] in
                     guard let self, self.openToken == token else { return }
-                    self.currentBook = nil
-                    // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
-                    self.lastBookAwaitsHomeSelection = false
+                    let failure = (error as? LocalizedError)?.errorDescription
+                        ?? String(localized: "The book could not be opened.", language: locale)
                     // 開けなかったのが直前の本なら、「直前の本へ戻る」はもう働かない(LastBookAvailability.failedToOpen の
                     // コメント。ボタンから開き直したときに限らない ―― 履歴などから同じ本を開こうとして失敗しても同じ)。
                     // 無いせいなのかは、続けて確かめる。
@@ -1628,6 +1691,20 @@ final class AppState: ObservableObject {
                         self.lastBookAvailability = .failedToOpen
                         self.refreshLastBookAvailability()
                     }
+                    // 本を表示している窓なら、その本を残して知らせる(この関数の doc コメント。決定 2 の (a))。セキュリティスコープ・
+                    // 一覧の並び・着地の指定を表示中の本のぶんへ戻し(restoreState。棚の読み替えでやめるときと同じ)、知らせは
+                    // ビューアのトーストへ。
+                    if self.currentBook != nil {
+                        self.pendingInitialPage = nil
+                        self.restoreState(beforeOpen)
+                        self.postViewerNotice(String(
+                            format: String(localized: "“%1$@” couldn’t be opened. %2$@", language: locale), attemptedName, failure
+                        ))
+                        return
+                    }
+                    self.currentBook = nil
+                    // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
+                    self.lastBookAwaitsHomeSelection = false
                     self.clearSiblingBooks()
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
@@ -1635,8 +1712,7 @@ final class AppState: ObservableObject {
                     // 開けなかった一時コピーは、直前の本でなければもう要らない。
                     self.openingTemporaryCopies = []
                     self.releaseUnusedTemporaryCopies()
-                    self.errorMessage = (error as? LocalizedError)?.errorDescription
-                        ?? String(localized: "The book could not be opened.", language: locale)
+                    self.errorMessage = failure
                 }
             }
         }
@@ -1669,12 +1745,16 @@ final class AppState: ObservableObject {
     /// - Parameter startsSlideshow: 開いた本でスライドショーを続けるか(`pendingStartsSlideshow`参照)。次の本が無ければ
     ///   何も開かないので、スライドショーは止まったままになる。
     func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false) {
+        // シークレットウインドウへ回した本を越えたことにする(passedOverBook のコメント。同じ向きのときだけ)。
+        let passed = passedOverBook?.forward == true ? passedOverBook : nil
         if let bookSequence {
             openInSequence(
-                bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow
+                passed?.sequence ?? bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil,
+                startsSlideshow: startsSlideshow, origin: bookSequence
             )
             return
         }
+        let currentURL = passed?.url ?? currentURL
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
         // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
         let order = siblingBookOrder
@@ -1688,8 +1768,9 @@ final class AppState: ObservableObject {
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
             self.open(
-                url: next, reusesExistingWindow: false,
-                initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow
+                request: BookOpenRequest(next), reusesExistingWindow: false,
+                initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow,
+                step: BookStep(forward: true)
             )
         }
     }
@@ -1698,10 +1779,13 @@ final class AppState: ObservableObject {
     /// - Parameter landsOnLastPage: 環境設定「最初のページで」が「前の本の最後のページへ」の
     ///   場合にtrue(openSibling(after:landsOnFirstPage:)の逆向き)。
     func openSibling(before currentURL: URL, landsOnLastPage: Bool = false) {
+        let passed = passedOverBook?.forward == false ? passedOverBook : nil
         if let bookSequence {
-            openInSequence(bookSequence, forward: false, initialEdge: landsOnLastPage ? .last : nil)
+            openInSequence(passed?.sequence ?? bookSequence, forward: false, initialEdge: landsOnLastPage ? .last : nil,
+                           origin: bookSequence)
             return
         }
+        let currentURL = passed?.url ?? currentURL
         let order = siblingBookOrder
         // 次の本と同じく、探す間に別の本を開いた・閉じたら置き換えない(O-7)。
         let tokenAtStart = openToken
@@ -1711,11 +1795,72 @@ final class AppState: ObservableObject {
             guard let self, self.openToken == tokenAtStart, self.currentBook?.id == bookAtStart else { return }
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
             self.open(
-                url: previous, reusesExistingWindow: false,
-                initialEdge: landsOnLastPage ? .last : nil
+                request: BookOpenRequest(previous), reusesExistingWindow: false,
+                initialEdge: landsOnLastPage ? .last : nil, step: BookStep(forward: false)
             )
         }
     }
+
+    /// 次の本・前の本(一覧の並びを含む)として開くときの向きと、一覧の並びならその残り(`open(request:step:)`)。
+    struct BookStep: Sendable {
+        let forward: Bool
+        /// 一覧の並びをたどっているときの、開こうとしている本より先の位置。nil なら同じフォルダの兄弟をたどる。
+        var sequence: SequenceSteps?
+    }
+
+    /// 一覧の並びの、まだ確かめていない位置(向きの順。近い順)。
+    struct SequenceSteps: Sendable {
+        let sequence: BookSequence
+        var remaining: [Int]
+    }
+
+    enum SequenceProbeResult {
+        case found(position: Int, url: URL)
+        /// 端まで開ける本が無い。
+        case end
+        /// 1 冊の確かめが期限を過ぎた(先へ進まずに止める。openInSequence のコメント)。
+        case timedOut
+        /// 待つ間に取り消された・もう要らなくなった。
+        case abandoned
+    }
+
+    /// 並びの残りを近い順に確かめ、最初に開ける本の位置と URL を返す(見つからない本は飛ばす)。確かめは FileIO の上で、1 冊ごとに
+    /// 期限つき。繋がっていないボリューム上のパスは触らずに飛ばす。openInSequence と、開いた本が画像の本でない EPUB だったときの
+    /// 続き(open(request:step:))が使う。
+    private func nextReachable(in steps: inout SequenceSteps, stillWanted: () -> Bool) async -> SequenceProbeResult {
+        let mounts = MountTable.current()
+        while !steps.remaining.isEmpty {
+            guard !Task.isCancelled, stillWanted() else { return .abandoned }
+            let position = steps.remaining.removeFirst()
+            let entry = steps.sequence.entries[position]
+            if case .file(let path) = entry, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: false)) { continue }
+            let probe = sequenceProbe(for: entry)
+            let url: URL?
+            do {
+                url = try await FileIO.withDeadline(Self.sequenceProbeLimit) {
+                    await FileIO.perform { probe.resolve() }
+                }
+            } catch {
+                return Task.isCancelled || !stillWanted() ? .abandoned : .timedOut
+            }
+            guard !Task.isCancelled, stillWanted() else { return .abandoned }
+            if let url { return .found(position: position, url: url) }
+        }
+        return .end
+    }
+
+    /// ノーマルの窓の「次の本へ」「前の本へ」で、行き先をシークレットウインドウへ回したとき(シークレットフォルダの本で、「常に
+    /// シークレットウインドウで開く」が ON)、その本を**越えた**ことにする控え(2026-10-04 の監査 O-10・決定 3)。この窓は今の本の
+    /// ままなので、以前は次にまた同じ本を探し当てて回し続け、ノーマルの窓ではその本の先へ進めなかった。同じ向きの次の一歩は
+    /// この本(一覧の並びならその位置)から探す。逆向きは今の本から(越えた本の手前は今の本そのもの)。この窓で次の読み込みを
+    /// 始めたら・本を閉じたら捨てる。
+    struct PassedOverBook {
+        let forward: Bool
+        let url: URL
+        /// 一覧の並びをたどっていたなら、回した本の位置へ動かした並び。
+        let sequence: BookSequence?
+    }
+    private(set) var passedOverBook: PassedOverBook?
 
     /// 一覧の並び(`bookSequence`)の次/前の本を開く。**見つからない本は飛ばして**その先を試し、端まで無ければ何もしない
     /// (同じフォルダの本へは戻らない ―― 一覧で絞り込んだ範囲の外へ出ないため。利用者の指示 2026-09-22)。
@@ -1729,37 +1874,35 @@ final class AppState: ObservableObject {
     /// **先へ進まずに止める**(鳴らす)。飛ばして先へ進むと、眠っていたディスクが起きるのを待てば開けた本を、黙って越えて
     /// しまう ―― 止めておけば、もう一度押したときにはディスクが起きている。繋がっていないボリューム上のパス(スマート
     /// ライブラリの本)は、マウント表の綴りだけで分かるので触らずに飛ばす。
+    ///
+    /// - Parameter origin: いま表示中の本の並び(`bookSequence`)。待つ間にこれが変わったら(別の本を開いた)やめる。`sequence` と
+    ///   違うのは、シークレットウインドウへ回した本を越えて探すとき(`passedOverBook`)だけ。
     private func openInSequence(
-        _ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?, startsSlideshow: Bool = false
+        _ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?, startsSlideshow: Bool = false,
+        origin: BookSequence? = nil
     ) {
+        let origin = origin ?? sequence
         let candidates = sequence.candidatePositions(forward: forward)
         guard !candidates.isEmpty else { return }
         sequenceTask?.cancel()
         sequenceTask = Task { [weak self] in
-            let mounts = MountTable.current()
-            for position in candidates {
-                guard !Task.isCancelled, let self, self.bookSequence == sequence else { return }
-                let entry = sequence.entries[position]
-                if case .file(let path) = entry, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path, isDirectory: false)) { continue }
-                let probe = self.sequenceProbe(for: entry)
-                let url: URL?
-                do {
-                    url = try await FileIO.withDeadline(Self.sequenceProbeLimit) {
-                        await FileIO.perform { probe.resolve() }
-                    }
-                } catch {
-                    // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。
-                    guard !Task.isCancelled, self.bookSequence == sequence else { return }
-                    NSSound.beep()
-                    return
-                }
-                guard let url else { continue }
-                guard !Task.isCancelled, self.bookSequence == sequence else { return }
-                // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。
+            guard let self else { return }
+            var steps = SequenceSteps(sequence: sequence, remaining: candidates)
+            let result = await self.nextReachable(in: &steps, stillWanted: { [weak self] in self?.bookSequence == origin })
+            guard !Task.isCancelled, self.bookSequence == origin else { return }
+            switch result {
+            case .found(let position, let url):
+                // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。開いた本が画像の本でない EPUB なら、
+                // 残りの位置から続きを試す(step)。
                 self.open(
                     request: BookOpenRequest(url, sequence: sequence.moved(to: position)),
-                    reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow
+                    reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
+                    step: BookStep(forward: forward, sequence: steps)
                 )
+            case .timedOut:
+                // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。
+                NSSound.beep()
+            case .end, .abandoned:
                 return
             }
         }
@@ -1791,6 +1934,7 @@ final class AppState: ObservableObject {
     func closeBook() {
         openTask?.cancel()
         bookSequence = nil
+        passedOverBook = nil
         // 閉じて戻ったホームには、直前の本を選ばせてよい(lastBookAwaitsHomeSelection のコメント)。
         if currentBook != nil, lastOpenedBook != nil { lastBookAwaitsHomeSelection = true }
         currentBook = nil
@@ -1981,6 +2125,28 @@ final class AppState: ObservableObject {
         static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     }
 
+    /// 通り抜けの移動(サイドパネルのフォルダブラウザ)でシークレットウインドウへ回した先と、その本(2026-10-04 の監査 O-4・決定 4。
+    /// BookWindowOpener.openSecretBookPrivatelyQuietly)。次の通り抜けは同じタブで入れ替える。
+    private weak var passThroughPrivateTargetState: AppState?
+    private var passThroughPrivateURL: URL?
+
+    func notePassThroughPrivateTarget(_ target: AppState?, url: URL) {
+        if let target { passThroughPrivateTargetState = target }
+        passThroughPrivateURL = url
+    }
+
+    /// 次の通り抜けで入れ替える先。控えた窓がまだ開いていて、前回回した本を出している(読み込み中で何も出していない)ときだけ ――
+    /// 利用者がそのタブで別の本を読み始めていたら、それを入れ替えない。控えが無ければ、前回回した本を出しているシークレットウインドウ。
+    func passThroughPrivateTarget(in launchCoordinator: LaunchCoordinator) -> AppState? {
+        guard let url = passThroughPrivateURL else { return nil }
+        if let target = passThroughPrivateTargetState, target.isPrivateWindow, target.hostWindow != nil,
+           launchCoordinator.allOpenAppStates.contains(where: { $0 === target }),
+           target.currentBook == nil || target.currentBook?.sourceURL.path == url.path {
+            return target
+        }
+        return launchCoordinator.openAppState(forBookAt: url, isPrivate: true)
+    }
+
     /// 読み込みを始めた後でやめるときに、表示中の本のぶんへ戻すための控え(`open(request:)` の beforeOpen)。
     fileprivate struct StateBeforeOpen {
         let scopedURLs: [URL]
@@ -2003,8 +2169,12 @@ final class AppState: ObservableObject {
 
     /// 棚を読み替えた先の本がシークレットフォルダの中なら、読み込みをやめてシークレットウインドウへ回す(「常にシークレットウインドウで
     /// 開く」が ON のとき)。回したら true。
+    ///
+    /// 次の本・前の本で画像の本でない EPUB を飛ばした先(2026-10-04 の監査 O-1)もここを通る。`sequence` は回した先へ渡す並び
+    /// (飛ばして着いた位置)、`step` があれば回した本を越えたことにする(passedOverBook)。
     fileprivate func redirectShelfBookIfNeeded(
-        _ book: URL, shelfRequest: BookOpenRequest, beforeOpen: StateBeforeOpen, token: UUID
+        _ book: URL, shelfRequest: BookOpenRequest, sequence: BookSequence?, step: BookStep?,
+        beforeOpen: StateBeforeOpen, token: UUID
     ) -> Bool {
         guard openToken == token,
               BookWindowOpener.shouldOpenSecretBookPrivately(BookOpenRequest(book), opensPrivately: isPrivateWindow)
@@ -2014,8 +2184,9 @@ final class AppState: ObservableObject {
         // ドロップで開いて許可の外にあると、本の URL だけでは読めない)。新しい窓・タブへの受け渡しと同じ 10 秒の橋渡し。
         SecurityScopedHandoff.begin(shelfRequest.urls)
         restoreState(beforeOpen)
+        if let step { passedOverBook = PassedOverBook(forward: step.forward, url: book, sequence: sequence) }
         privateRedirect = PrivateRedirect(
-            request: BookOpenRequest(book, recordsInHistory: shelfRequest.recordsInHistory, sequence: shelfRequest.sequence),
+            request: BookOpenRequest(book, recordsInHistory: shelfRequest.recordsInHistory, sequence: sequence),
             initialEdge: initialEdge, startsSlideshow: startsSlideshow, closesUnusedWindow: token == initialOpenToken)
         return true
     }
@@ -2031,7 +2202,12 @@ final class AppState: ObservableObject {
     @discardableResult
     func addCurrentBook(toCollection collectionID: UUID, using adding: CollectionAddingContext) -> Task<Void, Never>? {
         guard canAddCurrentBookToCollection, let url = currentBook?.sourceURL else { return nil }
-        return adding.add([url], to: collectionID) { [weak self] message in self?.postViewerNotice(message) }
+        // シークレットフォルダかどうかは、淡色の判定(上の canAddCurrentBookToCollection ―― leavesNoRecord は開いた時点の値)と
+        // 同じく開いた時点の値で決める(2026-10-04 の監査 X-8・決定 10 の (a))。以前は登録の側が今の一覧で断ったので、開いた後に
+        // そのフォルダをシークレットフォルダへ足すと、押せるのに断られた。
+        return adding.add([url], to: collectionID, decidedNotSecret: [url.path]) { [weak self] message in
+            self?.postViewerNotice(message)
+        }
     }
 
     func revealCurrentBookInFinder() {

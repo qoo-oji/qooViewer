@@ -128,11 +128,17 @@ enum BookWindowOpener {
     ///   上など)なら使わない(`visibleFrameOrNil`)。
     /// - Parameter initialEdge, startsSlideshow: 着地の指定とスライドショー。今あるシークレットウインドウで入れ替えるときだけ効く
     ///   (AppState.PrivateRedirect のコメント)。
+    /// - Parameter quietly: 通り抜けの移動(サイドパネルのフォルダブラウザで画像のフォルダへ入った。`recordsInHistory == false`)から
+    ///   回すとき true。`openSecretBookPrivatelyQuietly` のコメント。
     static func openSecretBookPrivately(
         _ request: BookOpenRequest, source: AppState?, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction,
         newWindowFrame: NSRect? = nil, initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false,
-        onOpened: (() -> Void)? = nil
+        quietly: Bool = false, onOpened: (() -> Void)? = nil
     ) {
+        if quietly, let source {
+            openSecretBookPrivatelyQuietly(request, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow)
+            return
+        }
         let placement = AppPreferences.currentSecretFolderPrivatePlacement
         if placement != .newPrivateWindow, let host = frontmostPrivateAppState(launchCoordinator: launchCoordinator) {
             switch placement {
@@ -152,6 +158,43 @@ enum BookWindowOpener {
             open(request, to: .newPrivateWindow, from: source, launchCoordinator: launchCoordinator, openWindow: openWindow,
                  newWindowFrame: newWindowFrame.flatMap(visibleFrameOrNil), onOpened: onOpened)
         }
+    }
+
+    /// 通り抜けの移動から回すとき(2026-10-04 の監査 O-4・決定 4 の (b))。「常にシークレットウインドウで開く」は破らずに回すが、
+    /// **焦点を移さず、前回この窓から回したシークレットウインドウのタブを入れ替える**。以前は名指しの「開く」と同じ扱いで、ノーマルの窓の
+    /// サイドパネルでシークレットフォルダの中を行き来すると、画像のフォルダへ入るたびにシークレットウインドウへタブが 1 枚ずつ足され、
+    /// 焦点もそちらへ移った(実測)。
+    ///
+    /// - 同じ本をもうシークレットウインドウで出していれば、何もしない(前にも出さない)。
+    /// - 前回回した先(`AppState.passThroughPrivateTarget`。まだその本を出している・読み込み中のとき)があれば、そこで入れ替える。
+    ///   無ければ、前回回した本をいま出しているシークレットウインドウを探す。
+    /// - どちらも無い初回は、環境設定の開き先(タブ・入れ替え・新しい窓)のとおりに開き、開いた後で元の窓へ焦点を戻す。開いた窓が
+    ///   その時点で分かれば、次の回のためにそれを控える。
+    private static func openSecretBookPrivatelyQuietly(
+        _ request: BookOpenRequest, source: AppState, launchCoordinator: LaunchCoordinator, openWindow: OpenWindowAction
+    ) {
+        guard let url = request.primaryURL else { return }
+        if let shown = launchCoordinator.openAppState(forBookAt: url, isPrivate: true) {
+            source.notePassThroughPrivateTarget(shown, url: url)
+            return
+        }
+        if let target = source.passThroughPrivateTarget(in: launchCoordinator) {
+            target.open(request: request, reusesExistingWindow: false)
+            source.notePassThroughPrivateTarget(target, url: url)
+            return
+        }
+        source.notePassThroughPrivateTarget(nil, url: url)
+        let sourceWindow = source.hostWindow
+        openSecretBookPrivately(
+            request, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow,
+            onOpened: { [weak source, weak sourceWindow] in
+                // 開いた窓はこの時点で手前(キー)にある。次の回の入れ替え先として控えてから、焦点を元の窓へ戻す。
+                if let source, let key = NSApp.keyWindow, key !== sourceWindow,
+                   let opened = launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow === key && $0.isPrivateWindow }) {
+                    source.notePassThroughPrivateTarget(opened, url: url)
+                }
+                sourceWindow?.makeKeyAndOrderFront(nil)
+            })
     }
 
     /// 今つながっている画面のどれかに十分に載る位置ならそのまま、載らなければ nil(元の窓を基準にずらす側へ倒す)。

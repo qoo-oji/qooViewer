@@ -69,6 +69,8 @@ enum ViewerPanelPart {
 private struct PanelPartContextMenu: ViewModifier {
     let part: ViewerPanelPart
     @EnvironmentObject private var appState: AppState
+    /// この窓が描かれている外観の揃い(ContentView が窓ごとの揃いで上書きする)。「調整…」で同じ揃いを開くため(監査 ST-1)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     /// 「調整…」で環境設定ウインドウを開く(macOS 14以降のSwiftUI標準の操作)。
     /// どの画面のどこを開くかは、呼ぶ直前にSettingsNavigatorへ預ける(SettingsNavigator参照)。
     @Environment(\.openSettings) private var openSettings
@@ -98,8 +100,9 @@ private struct PanelPartContextMenu: ViewModifier {
                 // 行き先を先に預けてからウインドウを開く(順序の理由はprepareAppearance参照)。
                 // 閉包は値だけを捕まえる(このモディファイアごと ―― @EnvironmentObject の AppState を含む ―― を捕まえると、
                 // メニュー項目が閉じたウインドウの AppState を残しうる。ViewerActionRelay と同じ理由。2026-09-27 の監査)。
-                Button("Adjust…") { [openSettings, surface = part.panelSurface] in
-                    SettingsNavigator.shared.prepareAppearance(opening: surface)
+                // 編集する揃いは、この窓が描かれている揃い(2026-10-04 の監査 ST-1。SettingsNavigator.prepareAppearance)。
+                Button("Adjust…") { [openSettings, surface = part.panelSurface, profile = appearance.profile] in
+                    SettingsNavigator.shared.prepareAppearance(opening: surface, profile: profile)
                     openSettings()
                 }
             }

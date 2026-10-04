@@ -256,9 +256,11 @@ struct ViewerView: View {
 
     /// コンテキストメニュー「情報を見る」(ユーザー要望)の、ビューアウインドウ内オーバーレイ
     /// パネル(mainZStack内、ThumbnailGridBackdropView + PageInfoPanelView)の表示状態。
-    /// 対象ページはisLastContextClickOnLeftHalfから毎回infoContextPageIndexで再計算するため、
-    /// ここでは表示中かどうかだけを持てば十分(PageInfoPanelView参照)。
+    /// 対象ページは開いた時点のページの鍵(pageInfoPanelPageKey)で固定する。以前は描くたびに
+    /// isLastContextClickOnLeftHalfからinfoContextPageIndexで再計算していたので、パネルを出したまま
+    /// ページが送れると黙って別のページの情報に変わった(2026-10-04 の監査 V-11。PageInfoPanelContent参照)。
     @State private var isShowingPageInfoPanel = false
+    @State private var pageInfoPanelPageKey: String?
 
     /// 画像のエクスポート機能(要望)。エクスポート中に画像の読み込み・結合・書き込みのいずれかで
     /// 失敗した場合のエラーメッセージ。nilなら非表示(applyLayoutAlerts参照)。
@@ -422,8 +424,11 @@ struct ViewerView: View {
         // 現在のページを追加するための橋渡し(jumpToBookmarkと同じ理由。削除・リネームは
         // BookmarkStoreが直接SwiftDataを操作するため、ここでは扱わない。
         // AppState.swiftのコメント参照)。
+        // ツールバー・メニュー・キーと同じ追加(見開きでは「見開きでブックマークを追加するとき」に従い、トーストで知らせる)。
+        // 以前は viewModel.addBookmark() 直通で、「毎回尋ねる」でも起点のページへ黙って足していた(2026-10-04 の監査 V-16。
+        // docs/07「クリック位置の無い経路は SpreadBookmarkTargetBehavior に従う」)。
         appState.addBookmarkAction = {
-            viewModel.addBookmark()
+            addCurrentPageBookmark()
         }
         // ページ一覧パネル・サイドパネルのサムネイル右クリックから、そのページ1枚を対象に
         // ブックマークを追加/削除するための橋渡し(AppState.toggleBookmarkAtIndex参照)。
@@ -598,6 +603,20 @@ struct ViewerView: View {
                 }
             }
             guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
+            // 「情報を見る」のパネルを出している間は、背後の本を送らない(2026-10-04 の監査 V-11。以前は送れて、パネルが黙って
+            // 別のページの情報に変わった)。Esc・Return・Enter で閉じる(ページ一覧と同じ)。修飾キーの付いたキーはメニューへ渡す。
+            if isShowingPageInfoPanel {
+                switch event.type {
+                case .keyDown:
+                    guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
+                    if [53, 36, 76].contains(event.keyCode) { isShowingPageInfoPanel = false }
+                    return nil
+                case .scrollWheel, .swipe:
+                    return nil
+                default:
+                    return event
+                }
+            }
             // 常時表示のサイドパネルの上での操作は、パネル自身のスクロールに任せて
             // ページ送りには使わない(ユーザー報告: 一覧の上でホイールを回すと、一覧が
             // スクロールすると同時にページ送りまで起きてしまう)。イベント自体は消費せず
@@ -772,6 +791,20 @@ struct ViewerView: View {
         ) { (event: NSEvent) -> NSEvent? in
             guard let hostWindow, event.window === hostWindow else { return event }
             guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
+            // 「情報を見る」のパネルを出している間は、背後の本を送らない(2026-10-04 の監査 V-11。以前は送れて、パネルが黙って
+            // 別のページの情報に変わった)。Esc・Return・Enter で閉じる(ページ一覧と同じ)。修飾キーの付いたキーはメニューへ渡す。
+            if isShowingPageInfoPanel {
+                switch event.type {
+                case .keyDown:
+                    guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
+                    if [53, 36, 76].contains(event.keyCode) { isShowingPageInfoPanel = false }
+                    return nil
+                case .scrollWheel, .swipe:
+                    return nil
+                default:
+                    return event
+                }
+            }
             let isRightMouseDown: Bool = event.type == .rightMouseDown
             let isControlClick: Bool = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
             let isContextMenuClick: Bool = isRightMouseDown || isControlClick
@@ -1505,14 +1538,11 @@ struct ViewerView: View {
                 ZStack {
                     ThumbnailGridBackdropView(isPresented: $isShowingPageInfoPanel)
                     Group {
-                        if let info = viewModel.pageImageInfo(atIndex: infoContextPageIndex) {
-                            PageInfoPanelView(viewModel: viewModel, pageIndex: infoContextPageIndex, info: info)
+                        if let pageInfoPanelPageKey {
+                            PageInfoPanelContent(viewModel: viewModel, pageKey: pageInfoPanelPageKey)
                         } else {
-                            // 通常はここに来ない(ViewerViewModel.pageImageInfoCacheのコメント
-                            // 参照。表示中ページの情報はloadCurrentSpreadの時点で取得を開始して
-                            // いる)が、念のためのフォールバック。SwiftUIの通常のView更新経路の
-                            // ため、取得が完了すれば自動的にPageInfoPanelViewへ切り替わる。
-                            Text("Loading…")
+                            // 開いた時点のページが引けなかった(範囲外)。PageInfoPanelContent の「取得できない」と同じ文言。
+                            Text("Information Unavailable")
                                 .panelOutlinedContent()
                                 .padding(16)
                         }
@@ -2537,6 +2567,7 @@ struct ViewerView: View {
         // 外にはみ出す吹き出しとして表示され意図と異なる(ユーザー報告)ため使っていない。
         Button("Get Info") {
             relay.send { view in
+                view.pageInfoPanelPageKey = view.viewModel.pageKey(at: view.infoContextPageIndex)
                 view.isShowingPageInfoPanel = true
             }
         }
@@ -2565,8 +2596,10 @@ struct ViewerView: View {
         // 機能が OFF のときだけ ―― 利用者の決定 2026-09-23。以前はシークレットウインドウでも消していた)。
         // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
         if preferences.libraryFeatureEnabled {
+            // シークレットフォルダかどうかは淡色と同じく開いた時点の値で決める(skipsPersistence ⊇ isInSecretFolder。監査 X-8・決定 10)。
             AddToCollectionMenu(
                 books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence,
+                booksAreDecidedNotSecret: true,
                 report: { [weak appState] message in appState?.postViewerNotice(message) }
             )
         }
@@ -4438,7 +4471,15 @@ struct ViewerView: View {
             // 取り消せる削除(⌘Z。DataUndoStack)。
             DataUndoStack.deleteBookmarks(toDelete, in: bookmarkStore, recordingOn: appState.dataUndo)
             showToast(bookmarkRemovalToastMessage(for: names))
-        } else if partnerPageIndex != nil, preferences.spreadBookmarkTargetBehavior == .askEachTime {
+        } else {
+            addCurrentPageBookmark()
+        }
+    }
+
+    /// クリック位置の無い経路の「今のページを追加」。toggleCurrentPageBookmark(ツールバー・メニュー・キー)の追加側と、
+    /// サイドパネルのブックマークの「+」(appState.addBookmarkAction)が共通して使う(2026-10-04 の監査 V-16)。
+    private func addCurrentPageBookmark() {
+        if partnerPageIndex != nil, preferences.spreadBookmarkTargetBehavior == .askEachTime {
             // 見開き表示中(実際に2ページ組でペア表示されているとき)で、環境設定
             // (「Adding Bookmarks in Spread View」)が「実行するたびに尋ねる」の場合は、
             // ここでは追加を実行せず、左右どちらを対象にするか尋ねる確認ダイアログ
@@ -4635,12 +4676,41 @@ struct ViewerView: View {
     /// 見開きの左/右ページを原寸大の別ウインドウで表示する(cooViewerの「実寸表示ウィンドウ」相当)。
     /// 対象のスロットが空白(orderedCurrentSlots参照。EPUB仕様に合わせた空白ページ挿入)の
     /// 場合は、実画像が存在しないため何もしない。
+    ///
+    /// 表示用の画像は ImageDecoder.pageMaxPixelSize(4096px)へ縮めてあるので、それに届いている画像は元の大きさで
+    /// 読み直してから出す(2026-10-04 の監査 V-17。以前は表示用をそのまま渡し、4096px を超える画像では「原寸大」が
+    /// 縮小版だった ―― MANUAL §19)。読み直しは「見開きを結合して書き出す」と同じ fullResolutionImage(書き出しと同じ上限)で、
+    /// ページは鍵で引き直す(待つ間に並びが変わっても、押したページを出す)。読めなければ表示用を出す。
     private func showActualSizeWindow(forLeftPage: Bool) {
         let orderedSlots = orderedCurrentSlots
         guard !orderedSlots.isEmpty else { return }
         let index = forLeftPage ? 0 : orderedSlots.count - 1
         guard case .image(let image) = orderedSlots[index] else { return }
+        let pageKey = viewModel.pageKey(at: forLeftPage ? spreadLeftPageIndex : spreadRightPageIndex)
+        guard CGFloat(max(image.width, image.height)) >= ImageDecoder.pageMaxPixelSize, let pageKey else {
+            Self.openActualSizeWindow(
+                image: image, backgroundColor: appearance.effectiveBackgroundColor,
+                preferences: preferences, hostWindowAppearance: appState.hostWindow?.appearance
+            )
+            return
+        }
+        // ViewerView は捕まえない(閉じたウインドウを読み込みの間だけ生かさない)。必要な値だけ渡す。
+        Task { [weak viewModel = self.viewModel, preferences, appState,
+                backgroundColor = appearance.effectiveBackgroundColor] in
+            var fullImage: CGImage?
+            if let viewModel, let pageIndex = viewModel.pageIndex(forPageKey: pageKey) {
+                fullImage = await viewModel.fullResolutionImage(at: pageIndex)
+            }
+            Self.openActualSizeWindow(
+                image: fullImage ?? image, backgroundColor: backgroundColor,
+                preferences: preferences, hostWindowAppearance: appState.hostWindow?.appearance
+            )
+        }
+    }
 
+    private static func openActualSizeWindow(
+        image: CGImage, backgroundColor: Color, preferences: AppPreferences, hostWindowAppearance: NSAppearance?
+    ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: min(CGFloat(image.width), 900), height: min(CGFloat(image.height), 700)),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -4649,7 +4719,7 @@ struct ViewerView: View {
         )
         window.contentView = NSHostingView(
             rootView: ActualSizePageView(
-                image: image, backgroundColor: appearance.effectiveBackgroundColor,
+                image: image, backgroundColor: backgroundColor,
                 // 開いている間に表示言語を替えたら題も替える(監査 M-7)。`$displayLanguage` は書き換えの前に新しい値を流すので、
                 // 渡された値の Locale で引く(preferences.effectiveLocale はまだ前の値)。
                 displayLanguageChanges: preferences.$displayLanguage.dropFirst().removeDuplicates().eraseToAnyPublisher(),
@@ -4667,7 +4737,7 @@ struct ViewerView: View {
         // ようになり、表示言語設定(preferences.effectiveLocale)にも従うようになる。
         window.title = String(localized: "Actual Size", language: preferences.effectiveLocale)
         // 本のウインドウのライト/ダークを継ぐ(シークレットウインドウが自分の外観を使っているとき。WindowAppearance参照)。
-        window.appearance = appState.hostWindow?.appearance
+        window.appearance = hostWindowAppearance
         window.center()
         // このウインドウを閉じるとアプリ全体が強制終了してしまう不具合の原因はここ。
         // isReleasedWhenClosed(既定でtrue)がtrueのままだと、close()が呼ばれた瞬間に

@@ -147,3 +147,44 @@ struct PageInfoPanelView: View {
         }
     }
 }
+
+/// 「情報を見る」のパネルの中身。相手は**開いた時点のページの鍵**で固定する(2026-10-04 の監査 V-11)。以前は表示中の見開きと
+/// 右クリックの位置(`ViewerView.infoContextPageIndex`)から描くたびに引き直していたので、パネルを出したままページが送れると
+/// (キーのモニタはパネルを見ていなかった)、黙って別のページの情報に変わった。今はパネルの間はページ送りも止める
+/// (`ViewerView.makeScrollMonitor`)。情報がまだ無ければ取得を待って描き直す ―― キャッシュは @Published でないので、
+/// 以前は「読み込み中…」のまま残った。
+struct PageInfoPanelContent: View {
+    let viewModel: ViewerViewModel
+    let pageKey: String
+
+    /// 取得を待って受け取った情報(キャッシュにあれば body がその場で読むので、待つのは無いときだけ)。
+    @State private var fetched: PageImageInfo?
+    /// 取得を待ったが情報が無かった(読めない・そのページが並びから消えた)。
+    @State private var isUnavailable = false
+
+    var body: some View {
+        Group {
+            // そのページが並びから消えた(別の窓で除外した等)なら、情報があっても出さない ―― 番号を引けない。
+            if let index = viewModel.pageIndex(forPageKey: pageKey),
+               let info = fetched ?? viewModel.pageImageInfo(atIndex: index) {
+                PageInfoPanelView(viewModel: viewModel, pageIndex: index, info: info)
+            } else if isUnavailable || viewModel.pageIndex(forPageKey: pageKey) == nil {
+                Text("Information Unavailable")
+                    .panelOutlinedContent()
+                    .padding(16)
+            } else {
+                Text("Loading…")
+                    .panelOutlinedContent()
+                    .padding(16)
+            }
+        }
+        .task(id: pageKey) {
+            fetched = nil
+            isUnavailable = false
+            let info = await viewModel.pageImageInfo(forPageKey: pageKey)
+            guard !Task.isCancelled else { return }
+            fetched = info
+            isUnavailable = info == nil
+        }
+    }
+}

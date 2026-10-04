@@ -476,18 +476,17 @@ struct WelcomeTopBar: View {
             )
         )
 
-        // 項目が空になるcontextMenuは付けない(CollectionGridView.tileと同じ判断)。
-        if canEditLibraries {
-            button.contextMenu {
-                Button("Rename…") { librarySheet = .rename(library.id) }
-                // 最後の1つは消させない ―― ライブラリが無くなるとコレクションを置く先が
-                // 無くなり、画面が操作できなくなる(CollectionStore.delete(_ library:)参照)。
-                if collectionStore.libraries.count > 1 {
-                    Button("Delete…", role: .destructive) { deletingLibraryID = library.id }
-                }
-            }
-        } else {
-            button
+        // 右クリックはいつでも付け、書き込む項目は**消さずに淡色**にする(2026-10-04 の監査 X-4・決定 8。docs/06 のアプリ全体の約束
+        // 「書き込みを伴う UI は消さずに淡色、消すのは機能が OFF のときだけ」に揃えた。以前はシークレットウインドウでは右クリックごと
+        // 付けず、ライブラリが 1 つのときは「削除…」を消していた)。分岐で付け外ししないので、チップが作り直されることも無い
+        // (LibraryChipReorder の型コメントと同じ理由)。
+        button.contextMenu {
+            Button("Rename…") { librarySheet = .rename(library.id) }
+                .disabled(!canEditLibraries)
+            // 最後の1つは消させない ―― ライブラリが無くなるとコレクションを置く先が
+            // 無くなり、画面が操作できなくなる(CollectionStore.delete(_ library:)参照)。
+            Button("Delete…", role: .destructive) { deletingLibraryID = library.id }
+                .disabled(!canEditLibraries || collectionStore.libraries.count <= 1)
         }
     }
 }

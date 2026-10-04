@@ -141,8 +141,18 @@ final class MetadataEditorModel {
     /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
     @ObservationIgnored private var relocationAttempted: Set<String> = []
 
-    /// 本の実体の URL(保存データのブックマークから。右クリックの「開く」「コレクションに登録」。2026-09-23)。
+    /// 本の実体の URL(保存データのブックマークから。右クリックの「コレクションに登録」など。2026-09-23)。
     @ObservationIgnored let resolveURL: (String) -> URL?
+
+    /// 「開く」の前に場所を解決する材料(StoredBookLocator。2026-10-04 の監査 O-12 ―― 「開く」はメインの外で期限つき・`.userOpen` で
+    /// 解決する。以前は上の resolveURL(既定の `.background`、メインで同期)で、繋がっていないボリュームの本は解決できず素のパスで
+    /// 新しい窓を開いてエラーにした)。
+    func locatorMaterial(forBookID bookID: String) -> StoredBookLocator.Material {
+        StoredBookLocator.material(
+            forBookID: bookID, bookmarkStore: stores.bookmarkStore, layoutStore: stores.layoutStore,
+            metadataStore: stores.metadataStore, collectionStore: stores.collectionStore
+        )
+    }
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
          preferences: AppPreferences, relocator: BookRecordRelocator?, resolveURL: @escaping (String) -> URL?) {
@@ -1003,11 +1013,25 @@ extension MetadataBookTableView {
     }
 
     /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(「お気に入りの編集」ウインドウから開くのと同じ)。
+    /// 場所はメインの外で期限つきに解決し、見つからなければ開かずに知らせる(2026-10-04 の監査 O-12。ブックマーク・レイアウトの
+    /// 編集ウインドウと同じ StoredBookLocator。以前は解決できないと素のパスで新しい窓を開き、窓の中でエラーにした)。
     fileprivate func openBook(_ book: MetadataBookRow) {
-        BookWindowOpener.open(
-            BookOpenRequest(bookURL(book)), to: .newNormalWindow, from: nil,
-            launchCoordinator: launchCoordinator, openWindow: openWindow
-        )
+        let material = model.locatorMaterial(forBookID: book.id)
+        let name = URL(fileURLWithPath: book.id, isDirectory: false).lastPathComponent
+        let locale = preferences.effectiveLocale
+        Task { @MainActor in
+            switch await StoredBookLocator.resolve(material) {
+            case .found(let url):
+                BookWindowOpener.open(
+                    BookOpenRequest(url), to: .newNormalWindow, from: nil,
+                    launchCoordinator: launchCoordinator, openWindow: openWindow
+                )
+            case .notFound:
+                showToast(String(format: String(localized: "“%@” could not be found.", language: locale), name))
+            case .timedOut:
+                NSSound.beep()
+            }
+        }
     }
 
     fileprivate func showInFileBrowser(_ book: MetadataBookRow) {

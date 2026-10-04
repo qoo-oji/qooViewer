@@ -98,6 +98,10 @@ final class ViewerViewModel: ObservableObject {
     /// ピンチ拡大側はページごとのスロットに分けて描画するため、こちらは使わない。
     @Published private(set) var loupeCombinedSourceImage: CGImage?
     private var highResolutionSourceLoadTask: Task<Void, Never>?
+    /// highResolutionSourceImages がどのページ(鍵の並び)のものか。ページを送ったら、取得が終わるのを待たずに古い像を
+    /// 捨てるために持つ(2026-10-04 の監査 V-2。以前は取得が終わるまで前のページの拡大像を出し続け、高解像度のデコードだけが
+    /// 失敗するとそのまま残った ―― ViewerView は枚数しか照合しない)。
+    private var highResolutionSourceKeys: [String] = []
     /// トラックパッドのピンチイン・ピンチアウトによる無段階拡大の倍率。1.0が初期状態
     /// (=そのモードでの通常の表示倍率。ViewerView.renderScaleが返す値)で、常に1.0以上
     /// (初期状態より縮小はしない。ユーザーの判断)。上限は環境設定
@@ -1124,6 +1128,7 @@ final class ViewerViewModel: ObservableObject {
         // 空の範囲を見て即座に戻るだけなので、この代入順で問題ない。
         currentImages = []
         highResolutionSourceImages = []
+        highResolutionSourceKeys = []
         loupeCombinedSourceImage = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
@@ -1614,6 +1619,15 @@ final class ViewerViewModel: ObservableObject {
     /// BookReadingState(この本を最後にどう表示していたか)ではなくBookLayoutSettings側へ
     /// 書き戻す。そうしないと、本を開き直すたびに初期化時の優先順位(BookLayoutSettings >
     /// BookReadingState)により元の強制値へ戻ってしまい、切り替えが保存されない。
+    ///
+    /// 切り替えたら着地の補正を掛け直し、「同じ位置の描き直し」として組み直す(2026-10-04 の監査 V-10)。
+    /// 上書きのある本は書いた知らせ → reloadLayoutData で組み直されていたが、上書きの無い本(自窓のトグルだけで
+    /// 変わる本)はそのままだった ―― 単ページで「見開きの2枚目」指定のページ(V-5 の直しで単ページでは寄せなく
+    /// なった)から見開きへ切り替えると、そのページを起点にして片側が空白の見開きになる。補正の掛け方は
+    /// reloadLayoutData の focus 無しの読み直しと同じ(条件1だけ。honorsPredecessorClaim のコメント参照)
+    /// にして、上書きの有無で結果が変わらないようにしてある。ignorePreviousDisplayedRange: true なのも同じ理由
+    /// (単ページで表示していたページが新しい組の相方になる ―― 「直前に表示したページを相方にしない」制約を
+    /// 当てると組めない)。
     func toggleDisplayMode() {
         resetPinchZoom()
         cancelPendingPageFlip()
@@ -1622,8 +1636,9 @@ final class ViewerViewModel: ObservableObject {
         if bookLayoutSettings?.forcedDisplayMode != nil, !skipsPersistence {
             layoutStore.setForcedDisplayMode(for: book, displayMode)
         }
+        currentIndex = normalizedAnchorIndex(currentIndex, honorsPredecessorClaim: false)
         persistState()
-        reloadAsync()
+        reloadAsync(ignorePreviousDisplayedRange: true)
     }
 
     /// 本単位で記憶された、古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFFを
@@ -1677,12 +1692,26 @@ final class ViewerViewModel: ObservableObject {
     func toggleReadingDirection() {
         hasUserChangedReadingDirection = true
         resetPinchZoom()
-        // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
         if bookLayoutSettings?.readingDirectionOverride != nil, !skipsPersistence {
             layoutStore.setReadingDirectionOverride(for: book, readingDirection)
         }
+        // 明示指定の無い本では、表示中の画像は変わらず並びだけがViewer側で反転するので読み直しは要らない。
+        // 近くに見開きの指定があると、どちらが「2枚目」かが読み方向で入れ替わる(SpreadPairing の型コメント)ので、
+        // 着地を補正して組み直す(2026-10-04 の監査 V-10。以前は読み直さず、上書きの無い本では組が古い向きのまま
+        // 残った ―― 上書きのある本は知らせ → reloadLayoutData で組み直されていた)。
+        if displayMode == .spread, hasSpreadHint(near: currentIndex) {
+            currentIndex = normalizedAnchorIndex(currentIndex, honorsPredecessorClaim: false)
+            persistState()
+            reloadAsync(ignorePreviousDisplayedRange: true)
+            return
+        }
         persistState()
+    }
+
+    /// `index` とその前後 1 ページのどれかに見開きの明示指定があるか(toggleReadingDirection が組み直すかどうかの判定)。
+    private func hasSpreadHint(near index: Int) -> Bool {
+        ((index - 1)...(index + 1)).contains { layoutHint(at: $0) != nil }
     }
 
     func cycleScalingMode() {
@@ -2268,8 +2297,15 @@ final class ViewerViewModel: ObservableObject {
         return true
     }
 
+    /// 起点は**画面に出ている最後のページ**(見開きなら相方)。以前は `currentIndex` だったので、表示中の見開きの
+    /// 相方ページのブックマークが「次」になり、そこに「2枚目」の指定があると(自動レイアウトの本・EPUB では普通)
+    /// 着地の補正で今の起点へ戻って jump が何もせず、何度押しても先へ進まなかった。指定が無ければ相方へ着地して
+    /// 組が 1 ページずれていた(2026-10-04 の監査 V-6)。補正した着地先が今の位置と同じものも飛ばす(同じ見開きの中)。
     func jumpToNextBookmark() {
-        guard let next = bookmarks.first(where: { $0.pageIndex > currentIndex }) else { return }
+        let lastShown = partnerPageIndex ?? currentIndex
+        guard let next = bookmarks.first(where: {
+            $0.pageIndex > lastShown && normalizedAnchorIndex($0.pageIndex) != currentIndex
+        }) else { return }
         jump(toPageIndex: next.pageIndex)
     }
 
@@ -2413,14 +2449,22 @@ final class ViewerViewModel: ObservableObject {
             // 今の見開き分が既に揃っていれば読み直す必要はない(拡大鏡とピンチ拡大は
             // 同じソースを共有するため、拡大したまま拡大鏡を出し入れしても
             // 同じ画像を何度もデコードし直さないようにする)。
-            guard highResolutionSourceImages.count != currentImages.count else { return }
+            // 枚数だけでなくページの鍵でも照合する(監査 V-2)。
+            guard highResolutionSourceImages.count != currentImages.count
+                    || highResolutionSourceKeys != currentSpreadPageKeys else { return }
             scheduleHighResolutionSourceLoad()
         } else {
             highResolutionSourceLoadTask?.cancel()
             highResolutionSourceLoadTask = nil
             highResolutionSourceImages = []
+            highResolutionSourceKeys = []
             loupeCombinedSourceImage = nil
         }
+    }
+
+    /// 画面に出ている見開き(currentIndex..<currentIndex+currentImages.count)のページの鍵。
+    private var currentSpreadPageKeys: [String] {
+        (currentIndex..<(currentIndex + currentImages.count)).compactMap { pageKey(at: $0) }
     }
 
     /// 現在表示中の見開き(currentIndex..<currentIndex+currentImages.count)分の高解像度画像を
@@ -2436,8 +2480,18 @@ final class ViewerViewModel: ObservableObject {
         let indices = Array(currentIndex..<(currentIndex + currentImages.count))
         guard !indices.isEmpty else {
             highResolutionSourceImages = []
+            highResolutionSourceKeys = []
             loupeCombinedSourceImage = nil
             return
+        }
+        // 別のページへ移ったなら、取得を待たずに前のページの像を捨てる(監査 V-2)。その間は ViewerView が表示用の
+        // currentImages へフォールバックする(枚数が合わないため)。同じページの描き直し(補正の切り替えなど)では
+        // 捨てない ―― 拡大鏡が一瞬だけ粗い像に落ちるのを避ける。
+        let keys = currentSpreadPageKeys
+        if keys != highResolutionSourceKeys {
+            highResolutionSourceImages = []
+            highResolutionSourceKeys = []
+            loupeCombinedSourceImage = nil
         }
         // ここで取得するimages自体はbook順(currentIndexが先頭)のまま保持する
         // (highResolutionSourceImagesはcurrentImagesと同じ順序であるという前提を崩さないため)。
@@ -2453,6 +2507,7 @@ final class ViewerViewModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             self.highResolutionSourceImages = images
+            self.highResolutionSourceKeys = keys
             // 前のページの結合画像は古い。捨ててから、拡大鏡が出ていれば作り直す。
             self.loupeCombinedSourceImage = nil
             self.rebuildLoupeCombinedSourceImageIfNeeded()
@@ -2749,6 +2804,19 @@ final class ViewerViewModel: ObservableObject {
         return pageImageInfoCache[book.pages[index].sortKey]
     }
 
+    /// 鍵のページの画像ファイル情報。キャッシュに無ければ取得して入れてから返す。「情報を見る」のパネルが、
+    /// 取得が終わるのを待って描き直すために使う(2026-10-04 の監査 V-11。pageImageInfoCache は @Published でないので、
+    /// 以前のパネルは「読み込み中…」のまま残った)。今の並びに無いページ(除外された・消えた)なら nil。
+    func pageImageInfo(forPageKey key: String) async -> PageImageInfo? {
+        if let cached = pageImageInfoCache[key] { return cached }
+        guard let index = pageIndex(forPageKey: key),
+              let info = await pageLoader.pageImageInfo(at: index) else { return nil }
+        // 待つ間に並びが変わっていたら、取った情報は別のページのものかもしれない。鍵で確かめ直す。
+        guard pageKey(at: index) == key else { return nil }
+        pageImageInfoCache[key] = info
+        return info
+    }
+
     /// indexのページの画像ファイル情報を取得し、pageImageInfoCacheへ格納する。既に取得済みの
     /// ページは何もしない(同じページに何度も右クリックしても取得し直さない)。
     private func cachePageImageInfo(at index: Int) {
@@ -2992,9 +3060,13 @@ final class ViewerViewModel: ObservableObject {
     /// 2. rawIndex自身には明示指定が無いが、直前のページに「見開きの起点(1番目に読むページ)」の
     ///    明示指定がある場合。shouldPairWithNextPageの仕様上、起点指定を持つページは相方
     ///    (=rawIndex)が無指定なら必ずそのページと組む(明示指定が横長ヒューリスティックに
-    ///    勝つ)ため、rawIndexへそのまま着地するとその組を割ってしまう。こちらは組の判定が
-    ///    意味を持つ見開き表示中に限って補正する(単ページ表示中に適用すると、指定した
-    ///    ページではなく1つ前のページが表示されてしまう)。
+    ///    勝つ)ため、rawIndexへそのまま着地するとその組を割ってしまう。
+    ///
+    /// どちらの条件も、組の判定が意味を持つ見開き表示中に限って補正する(単ページ表示中に適用すると、
+    /// 指定したページではなく1つ前のページが表示されてしまう)。以前は条件2だけがそうで、条件1は単ページでも
+    /// 寄せていた(2026-10-04 の監査 V-5・決定 1。SpreadPairing.normalizedAnchorIndexのコメント参照)。
+    /// そのぶん、単ページ → 見開きの切り替え(toggleDisplayMode)と、見開き中の読み方向の切り替え
+    /// (toggleReadingDirection。どちらが「2枚目」かが入れ替わる)でもこの補正を掛け直す(監査 V-10)。
     ///
     /// 経緯(条件2のユーザー報告): レイアウトの保存が無い右開きの本を自動レイアウトで開き、
     /// 見開きの左ページ(=2番目に読むページ。自動レイアウトが「見開き左」を書き込んでいる)を

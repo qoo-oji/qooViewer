@@ -259,16 +259,19 @@ struct SpreadPairingTests {
 
     // MARK: - 着地先の補正
 
-    @Test("「2枚目」を指定されたページへ直接着地しようとしたら、組の起点へ寄せる")
+    @Test("見開き表示で「2枚目」を指定されたページへ直接着地しようとしたら、組の起点へ寄せる(単ページでは寄せない)")
     func landingOnASecondOfPairMovesToTheAnchor() {
         for direction in directions {
             let first = SpreadPairing.firstOfPairPosition(direction)
             let second = SpreadPairing.secondOfPairPosition(direction)
-            for mode in [DisplayMode.spread, .single] {
-                #expect(SpreadPairing.normalizedAnchorIndex(
-                    1, pageCount: 3, displayMode: mode, readingDirection: direction,
-                    hint: hints([first, second, nil])) == 0)
-            }
+            #expect(SpreadPairing.normalizedAnchorIndex(
+                1, pageCount: 3, displayMode: .spread, readingDirection: direction,
+                hint: hints([first, second, nil])) == 0)
+            // 単ページ表示では寄せない ―― 組を作らないので、寄せると指定したページではなく 1 つ前が出る
+            // (2026-10-04 の監査 V-5・決定 1。以前はこの期待が 0 で、今の挙動を表引きで固定していた)。
+            #expect(SpreadPairing.normalizedAnchorIndex(
+                1, pageCount: 3, displayMode: .single, readingDirection: direction,
+                hint: hints([first, second, nil])) == 1)
             // 先頭ページと範囲外はそのまま。
             #expect(SpreadPairing.normalizedAnchorIndex(
                 0, pageCount: 3, displayMode: .spread, readingDirection: direction,
