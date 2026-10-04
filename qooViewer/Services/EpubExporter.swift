@@ -318,6 +318,8 @@ nonisolated enum EpubExporter {
             // mimetypeが先頭であることだけが仕様上の要件で、package.opfの位置は自由。
             var pageResolutions: [PixelSize] = []
             for (page, item) in zip(orderedPages, prepared) {
+                // 書き出しの「キャンセル」はページごとに見る(2026-10-04 の監査 TW-4。書きかけは呼び出し側が一時ファイルごと捨てる)。
+                try Task.checkCancellation()
                 // 画像が読めないページがあれば、そこで書き出しを中断する。飛ばして進むと
                 // 実体の無いファイルを参照するmanifestを持った不正なEPUBが出来上がる
                 // (EpubExportError.pageImageUnavailableのコメント参照)。

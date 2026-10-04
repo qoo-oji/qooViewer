@@ -1525,6 +1525,8 @@ struct SmartLibraryContent: View {
                     bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
                     usesPageListCache: !appState.isPrivateWindow
                 ), exportRequest == nil else { return }
+                // ウインドウを閉じたら取り消す(TW-6。AppState.trackHomeBookExport)。
+                appState.trackHomeBookExport(export.viewModel)
                 exportRequest = HomeBookExportRequest(export: export)
             }
         }
@@ -1807,11 +1809,18 @@ struct SmartLibraryContent: View {
     /// **在るかの確かめは FileIO の上で**(2026-09-22 の監査で指摘)。一覧は保存した前回のものを先に出すので、対象フォルダが
     /// 眠っている・切れているネットワークのボリュームでも表紙は並ぶ。そこで main から `fileExists` を呼ぶと、クリック 1 回で
     /// SMB のタイムアウト(30 秒)までアプリ全体が固まった。
-    private func withResolvedURL(for book: SmartBook, _ body: @escaping @MainActor (URL) -> Void) {
+    ///
+    /// 待った後は、スマートライブラリ機能が ON のままか(と、`stillWanted` があればそれ)を確かめる(2026-10-04 の監査 O-8 = SP-10。
+    /// 以前は何も見ず、待つ間に別の本を開いても、確かめ終わった本がそれを置き換えた)。
+    private func withResolvedURL(
+        for book: SmartBook, stillWanted: (@MainActor () -> Bool)? = nil, _ body: @escaping @MainActor (URL) -> Void
+    ) {
         let url = URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder)
         let path = url.path
+        let preferences = preferences
         Task { @MainActor in
             let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
+            guard preferences.smartLibraryFeatureEnabled, stillWanted?() ?? true else { return }
             if exists {
                 body(url)
             } else {
@@ -1839,7 +1848,12 @@ struct SmartLibraryContent: View {
     private func open(_ book: SmartBook) {
         // 見えている並びを渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
         let sequence = state.sequence(opening: book)
-        withResolvedURL(for: book) { appState.open(request: BookOpenRequest($0, sequence: sequence)) }
+        // 確かめを待つ間に別の入口で本を開いていたら、後から置き換えない(O-8。AppState.openRequestToken)。
+        let appState = appState
+        let token = appState.openRequestToken
+        withResolvedURL(for: book, stillWanted: { appState.openRequestToken == token }) {
+            appState.open(request: BookOpenRequest($0, sequence: sequence))
+        }
     }
 }
 

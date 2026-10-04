@@ -27,6 +27,8 @@ import SwiftUI
 struct SidePanelLibraryTreeSection: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var collectionStore: CollectionStore
+    /// 確かめを待つ間に別の本が開かれたかを見る(`openRequestToken`。2026-10-04 の監査 SP-10)。
+    @EnvironmentObject private var appState: AppState
     @Environment(\.locale) private var locale
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     /// 開く直前の確かめ(ブックマークの解決・存在確認)をメインの外で行う(CollectionItemOpenTracker。2026-09-27、
@@ -189,6 +191,13 @@ struct SidePanelLibraryTreeSection: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
+            // 開く前の確かめが長引いている本(眠っている共有など)。以前はツリーに何も出ず、押しても何も起きないように見えた
+            // (2026-10-04 の監査 SP-10。ホームのコレクションのカバーと同じ回転表示。出すのは CollectionItemOpenTracker が
+            // 250ms 待ってから)。小さな部品で地を持たないが、輪郭は下の panelOutlinedContent が文字と一緒に付ける。
+            if openTracker.resolvingItemID == item.id {
+                ProgressView()
+                    .controlSize(.mini)
+            }
         }
         .panelOutlinedContent()
         .padding(.leading, Self.leadingInset(depth: 2))
@@ -231,7 +240,10 @@ struct SidePanelLibraryTreeSection: View {
 
     private func open(_ item: CollectionItem) {
         let makeRequest = requestMaker(opening: item)
-        withResolvedURL(item) { url in onOpen(makeRequest(url)) }
+        // 確かめを待つ間(最長 45 秒)に別の入口で本を開いていたら、後から置き換えない(2026-10-04 の監査 SP-10)。
+        let appState = appState
+        let token = appState.openRequestToken
+        withResolvedURL(item, stillWanted: { appState.openRequestToken == token }) { url in onOpen(makeRequest(url)) }
     }
 
     /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求を作る。
@@ -245,9 +257,17 @@ struct SidePanelLibraryTreeSection: View {
     /// 開く直前にブックマークを解決する(メインの外で。`openTracker`)。見つからなければ警告音だけ鳴らす ―― 理由を書き分けた
     /// アラート(「本が見つかりません」)はウェルカム画面のコレクションの中が持っており、細い
     /// パネルの行からは淡く描いてあることで伝える。
-    private func withResolvedURL(_ item: CollectionItem, perform body: @escaping @MainActor (URL) -> Void) {
+    ///
+    /// 待った後は、ライブラリ機能が ON のままか(このツリーはライブラリ機能の一部)と、`stillWanted` があればそれを確かめる
+    /// (2026-10-04 の監査 SP-10)。
+    private func withResolvedURL(
+        _ item: CollectionItem, stillWanted: (@MainActor () -> Bool)? = nil,
+        perform body: @escaping @MainActor (URL) -> Void
+    ) {
+        let preferences = preferences
         openTracker.resolve(
             CollectionItemOpenProbe.Material(item),
+            stillWanted: { preferences.libraryFeatureEnabled && (stillWanted?() ?? true) },
             onNotFound: { _ in NSSound.beep() },
             body
         )

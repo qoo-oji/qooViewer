@@ -37,4 +37,35 @@ struct WindowSheetTests {
         #expect(box.response == .cancel)
         #expect(window.attachedSheet == nil)
     }
+
+    @Test("自前のシートのウインドウ(一括リネーム)も、出したままウインドウが閉じられたら Cancel で終わり、その間は上にパネルを重ねない(FBA-2)")
+    func closingTheHostEndsAHandBuiltSheet() async throws {
+        // 2026-10-04 の監査 FBA-2: 一括リネームのシートは `beginSheet` を直に呼んでいて、「すべてを閉じる」でウインドウが閉じると
+        // 完了ハンドラが呼ばれず、ファイル操作の列が止まった。
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        try #require(WindowSheet.placement(for: window) == .sheet(window))
+
+        let sheet = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+            styleMask: [.titled, .docModalWindow], backing: .buffered, defer: true
+        )
+        sheet.isReleasedWhenClosed = false
+        let box = ResponseBox()
+        Task { box.response = await WindowSheet.run(sheetWindow: sheet, for: window) }
+        for _ in 0..<200 where window.attachedSheet == nil { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(window.attachedSheet === sheet)
+        // 出している間は「ここで出したもの」に数え、同じウインドウへ 2 つ目のパネルを重ねさせない。
+        #expect(WindowSheet.placement(for: window) == .busy)
+
+        window.close()
+        for _ in 0..<200 where box.response == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(box.response == .cancel)
+        #expect(window.attachedSheet == nil)
+    }
 }

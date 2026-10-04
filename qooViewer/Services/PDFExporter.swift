@@ -187,6 +187,8 @@ nonisolated enum PDFExporter {
         var pageNumber = 0
         var context: CGContext?
         for page in orderedPages {
+            // 書き出しの「キャンセル」はページごとに見る(2026-10-04 の監査 TW-4。書きかけは呼び出し側が一時ファイルごと捨てる)。
+            try Task.checkCancellation()
             guard let originalIndex = originalIndexByKey[page.sortKey] else { continue }
 
             // 描画に必要な材料(元PDFのページ、または画像)を先に用意する。用意できない

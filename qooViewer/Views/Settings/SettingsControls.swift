@@ -578,7 +578,10 @@ struct SettingsSlider: View {
     private let step: Double
     private let sliderStep: Double
     private let showsStepper: Bool
+    private let commitsOnRelease: Bool
     private let format: (Double) -> String
+    /// `commitsOnRelease`のとき、ドラッグの途中の値(離すまで`value`へ書かない)。
+    @State private var draft: Double?
 
     /// - Parameters:
     ///   - step: 値の刻み。ステッパー(⬆⬇)はこの刻みで動く。
@@ -598,6 +601,9 @@ struct SettingsSlider: View {
     ///     (ユーザー報告: スライドショーの間隔。0.5〜30秒を0.1秒刻みにしていたため296本あった)。
     ///     いまは`TickMarkSlider`が刻みとは別に読み取れる本数を決めるので、
     ///     刻みを粗くするかどうかは「ドラッグで止まれるか」だけで判断してよい。
+    ///   - commitsOnRelease: ドラッグの途中の値を`value`へ書かず、マウスを離したときに最後の値だけを書く
+    ///     (2026-10-04 の監査 ST-6、決定 15(a))。下げると保存済みのデータをその場で取り消せない形で消す設定に使う
+    ///     ―― 「保持する履歴の件数」を左端までドラッグして戻すと、通り過ぎた 10 件で履歴を切り詰めて保存していた。
     init(
         _ title: LocalizedStringKey,
         value: Binding<Double>,
@@ -606,6 +612,7 @@ struct SettingsSlider: View {
         help: LocalizedStringKey? = nil,
         showsStepper: Bool = false,
         sliderStep: Double? = nil,
+        commitsOnRelease: Bool = false,
         format: @escaping (Double) -> String
     ) {
         self.title = title
@@ -615,7 +622,23 @@ struct SettingsSlider: View {
         self.sliderStep = sliderStep ?? step
         self.help = help
         self.showsStepper = showsStepper
+        self.commitsOnRelease = commitsOnRelease
         self.format = format
+    }
+
+    /// 表示する値(ドラッグの途中ならその値)。
+    private var shownValue: Double { draft ?? value }
+
+    /// スライダーへ渡す値。`commitsOnRelease`なら途中の値は`draft`へ入れ、離したときに`value`へ移す。
+    private var sliderValue: Binding<Double> {
+        guard commitsOnRelease else { return $value }
+        return Binding(get: { draft ?? value }, set: { draft = $0 })
+    }
+
+    private func commitDraft() {
+        guard let pending = draft else { return }
+        draft = nil
+        if pending != value { value = pending }
     }
 
     var body: some View {
@@ -623,7 +646,7 @@ struct SettingsSlider: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 SettingsRowLabel(title: title, help: help, allowsWrapping: true)
                 Spacer(minLength: 12)
-                Text(format(value))
+                Text(format(shownValue))
                     .monospacedDigit()
                     .fontWeight(.semibold)
                 if showsStepper {
@@ -662,9 +685,12 @@ struct SettingsSlider: View {
                 // 目盛りの本数は刻みとは別に決める(TickMarkSlider参照)。
                 // SwiftUIの`Slider`は刻みの数だけ目盛りを描くため、細かい刻みの設定では
                 // 目盛りが潰れて1本の直線に見えていた。
-                TickMarkSlider(value: $value, in: range, step: sliderStep)
+                TickMarkSlider(
+                    value: sliderValue, in: range, step: sliderStep,
+                    onEditingEnded: commitsOnRelease ? { commitDraft() } : nil
+                )
                     .accessibilityLabel(Text(title))
-                    .accessibilityValue(Text(format(value)))
+                    .accessibilityValue(Text(format(shownValue)))
 
                 Text(format(range.upperBound))
                     .font(.callout)

@@ -946,6 +946,31 @@ final class AppState: ObservableObject {
     /// このウインドウのスマートライブラリの状態。表示メニューの「アイコン」「リスト」が見せ方を切り替える(2026-09-27)。持ち主はContentView。
     weak var smartLibrary: SmartLibraryViewState?
 
+    /// ホーム(コレクション・スマートライブラリ)から出した「本の書き出し」シートの VM(2026-10-04 の監査 TW-6)。
+    ///
+    /// ビューアとファイルブラウザの 1 冊書き出しは、ウインドウを閉じたときに`cancel()`で同名確認の待ちを解く
+    /// (ViewerView.cancelOpenBookExportIfNeeded、FileBrowserState.releaseResources)が、ホームのシートは View の
+    /// `@State`に要求を持つだけで誰も取り消さなかった。同名確認の最中にタブ 1 枚の赤ボタンなどで閉じると、書き出しの Task が
+    /// 答えを永久に待ち、`RunningWorkRegistry`に残って以後の終了のたびに「作業の途中」と尋ねられた。View の`onDisappear`は
+    /// ウインドウごと閉じたときに来ないことがあるので(SmartLibraryPane の onAppear のコメント)、ウインドウの`willClose`から
+    /// 届くこちらに控える。終わった VM を握り続けないよう弱い参照で持つ。
+    private var homeBookExports: [WeakHomeBookExport] = []
+    private struct WeakHomeBookExport { weak var viewModel: BookExportViewModel? }
+
+    /// ホームから出した書き出しを、ウインドウが閉じたときに取り消す対象として控える。
+    func trackHomeBookExport(_ viewModel: BookExportViewModel) {
+        homeBookExports.removeAll { $0.viewModel == nil }
+        homeBookExports.append(WeakHomeBookExport(viewModel: viewModel))
+    }
+
+    /// ウインドウが閉じる(ContentView の willClose)・ホームが畳まれるときに呼ぶ。走っている書き出しを止め、同名確認の待ちを
+    /// 「スキップ」で解く(`BookExportViewModel.cancel()`)。
+    func cancelHomeBookExports() {
+        let exports = homeBookExports
+        homeBookExports = []
+        for export in exports { export.viewModel?.cancel() }
+    }
+
     /// このウインドウの位置・サイズが決まって、最初の描画を1回通したか
     /// (ContentViewのWindowAccessorが立てる)。
     ///
@@ -1176,10 +1201,15 @@ final class AppState: ObservableObject {
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         var seen = Set<String>()
         let candidates = urls.filter { seen.insert($0.path).inserted }
-        Task { @MainActor [weak self] in
+        // 下調べを待つ間に別の本を開いた・読み込みを中止したら、後から来た結果で置き換えない(2026-10-04 の監査 O-7)。
+        // `open(request:)` と `cancelOpen()` が `openToken` を進める。
+        let tokenAtStart = openToken
+        openProbeTask = Task { @MainActor [weak self] in
+            // 下調べはファイルを読むので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。O-7 の付記。以前は
+            // `Task.detached` で、応答しない共有ではプールのスレッドを止めていた)。
             if candidates.count == 1, let url = candidates.first {
-                let verdict = await Task.detached(priority: .userInitiated) { DroppedBooks.single(url, order: order) }.value
-                guard let self else { return }
+                let verdict = await FileIO.perform { DroppedBooks.single(url, order: order) }
+                guard let self, self.openToken == tokenAtStart else { return }
                 guard verdict == .open else {
                     self.postViewerNotice(String(
                         format: String(localized: "“%@” can’t be opened as a book.", language: locale), url.lastPathComponent
@@ -1189,8 +1219,8 @@ final class AppState: ObservableObject {
                 self.open(request: request)
                 return
             }
-            let found = await Task.detached(priority: .userInitiated) { DroppedBooks.multiple(candidates, order: order) }.value
-            guard let self else { return }
+            let found = await FileIO.perform { DroppedBooks.multiple(candidates, order: order) }
+            guard let self, self.openToken == tokenAtStart else { return }
             guard let first = found.books.first else {
                 self.postViewerNotice(String(localized: "None of the items can be opened as a book.", language: locale))
                 return
@@ -1642,11 +1672,16 @@ final class AppState: ObservableObject {
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
         // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
         let order = siblingBookOrder
-        Task { [weak self] in
+        // 兄弟を探す間に別の本を開いた・閉じたら、見つけた結果で置き換えない(2026-10-04 の監査 O-7。`openInSequence` が
+        // `bookSequence == sequence` を見るのと同じ)。
+        let tokenAtStart = openToken
+        let bookAtStart = currentBook?.id
+        openProbeTask = Task { [weak self] in
             guard let next = await SiblingFinder.url(after: currentURL, order: order) else { return }
+            guard let self, self.openToken == tokenAtStart, self.currentBook?.id == bookAtStart else { return }
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
-            self?.open(
+            self.open(
                 url: next, reusesExistingWindow: false,
                 initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow
             )
@@ -1662,10 +1697,14 @@ final class AppState: ObservableObject {
             return
         }
         let order = siblingBookOrder
-        Task { [weak self] in
+        // 次の本と同じく、探す間に別の本を開いた・閉じたら置き換えない(O-7)。
+        let tokenAtStart = openToken
+        let bookAtStart = currentBook?.id
+        openProbeTask = Task { [weak self] in
             guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
+            guard let self, self.openToken == tokenAtStart, self.currentBook?.id == bookAtStart else { return }
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
-            self?.open(
+            self.open(
                 url: previous, reusesExistingWindow: false,
                 initialEdge: landsOnLastPage ? .last : nil
             )
@@ -1722,6 +1761,14 @@ final class AppState: ObservableObject {
 
     /// 一覧の並びをたどって次の本を探している最中の仕事(テストが終わりを待つ。続けて押されたら前のものは取り消す)。
     private(set) var sequenceTask: Task<Void, Never>?
+
+    /// 開く要求の番号(`open(request:)` と `cancelOpen()` で変わる)。本を開く前に確かめを待つ入口が、待った後に「その間に別の本を
+    /// 開いた・やめた」かを見る(2026-10-04 の監査 SP-10 = O-8。CollectionItemOpenTracker の `stillWanted`)。
+    var openRequestToken: UUID { openToken }
+
+    /// 開く前の下調べ(`open(urls:)`)・同じフォルダの次/前の本を探している最中の仕事。テストが終わりを待つ(2026-10-04 の監査 O-7)。
+    /// 取り消しはしない ―― 待った後に `openToken` と表示中の本で、まだ頼んだときのままかを確かめる。
+    private(set) var openProbeTask: Task<Void, Never>?
 
     /// 一覧の並びをたどるとき、1 冊の確かめを待つ上限(`openInSequence` のコメント)。眠っていた外付けディスクが回り出す
     /// 数秒は待ち、応答しない SMB の 30 秒は待たない。

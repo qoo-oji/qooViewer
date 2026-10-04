@@ -56,6 +56,10 @@ final class ViewerViewModel: ObservableObject {
         = (.spread, .rightToLeft, .fitToScreen)
     /// このウインドウで利用者が読み方向を変えたか(ComicInfo.xml の取り込みが、利用者の選択を上書きしないため)。
     private var hasUserChangedReadingDirection = false
+    /// DB へ書かない本(skipsPersistence)で、利用者が見開き・補正をメモリの上で切り替えたか。`reloadLayoutData` が DB の値で
+    /// 戻さないため(2026-10-04 の監査 V-14)。読み方向は上の `hasUserChangedReadingDirection` を使う。
+    private var hasUserChangedDisplayModeInMemory = false
+    private var hasUserChangedContrastCorrectionInMemory = false
     @Published var scalingMode: ScalingMode
     @Published private(set) var currentImages: [CGImage] = [] {
         didSet {
@@ -1460,7 +1464,7 @@ final class ViewerViewModel: ObservableObject {
                 } else {
                     // 通過中のコマ: 先読みは行わないが、見開き表示中は見た目を保つため
                     // このページを含む隣接ページとのペア表示を試みる。
-                    await loadTransitFrame(at: currentIndex)
+                    await loadTransitFrame(at: currentIndex, flipGeneration: generation)
                     // このコマの表示時間(下のsleep)を使って、次に表示する予定のページ(と、
                     // 見開き表示中ならそのペア相手)のデコードを先に始めておく(結果は待たない)。
                     // ページによってデコード時間にばらつきがあっても、1コマ分前もって着手して
@@ -1482,11 +1486,23 @@ final class ViewerViewModel: ObservableObject {
     /// ページめくりアニメーションの通過中コマ用の表示。先読みは行わないが、見開き表示中は
     /// (実際に止まったときの見た目に近づけるため)このページと次のページのペア表示を試みる
     /// 横長画像であれば単ページのまま。単ページ表示中は常にこのページ1枚だけを表示する。
-    private func loadTransitFrame(at index: Int) async {
-        guard let firstImage = await pageLoader.pageImage(at: index) else { return }
+    ///
+    /// **代入の前に、待っている間に取り消されていないか・ほかの表示が始まっていないかを確かめる**(2026-10-04 の監査 V-1)。
+    /// 以前は世代も取り消しも見ずに代入していたので、ホイールで数ページ先まで積んだ最中にジャンプ・1 ページずらし・
+    /// 見開きの切り替えをすると、移動先の読み込み(キャッシュからすぐ終わる)の後にこのコマが届き、ページ番号は移動先なのに
+    /// 画像は通過ページのまま次の操作まで残った(`currentImages.didSet` が拡大鏡の元画像・相方・1 ページずらしの淡色も
+    /// 食い違った枚数で計算する)。`loadCurrentSpread` は `loadGeneration` で古い結果を捨てているので、同じ形にそろえる。
+    private func loadTransitFrame(at index: Int, flipGeneration: Int) async {
+        let spreadGeneration = loadGeneration
+        func isStillCurrent() -> Bool {
+            !Task.isCancelled && flipGeneration == pageFlipGeneration
+                && spreadGeneration == loadGeneration && currentIndex == index
+        }
+        guard let firstImage = await pageLoader.pageImage(at: index), isStillCurrent() else { return }
         var images = [firstImage]
         if shouldPairWithNextPage(at: index, firstImage: firstImage),
            let secondImage = await pageLoader.pageImage(at: index + 1) {
+            guard isStillCurrent() else { return }
             images.append(secondImage)
             // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
             _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
@@ -1602,6 +1618,7 @@ final class ViewerViewModel: ObservableObject {
         resetPinchZoom()
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
+        if skipsPersistence { hasUserChangedDisplayModeInMemory = true }
         if bookLayoutSettings?.forcedDisplayMode != nil, !skipsPersistence {
             layoutStore.setForcedDisplayMode(for: book, displayMode)
         }
@@ -1625,6 +1642,7 @@ final class ViewerViewModel: ObservableObject {
         let newValue = !isContrastCorrectionEnabled
         isContrastCorrectionEnabled = newValue
         // シークレットウインドウでは本ごとの設定として保存しない(この本を開いている間だけ効く)。
+        if skipsPersistence { hasUserChangedContrastCorrectionInMemory = true }
         if !skipsPersistence {
             layoutStore.setContrastCorrectionEnabled(for: book, newValue)
         }
@@ -1991,7 +2009,10 @@ final class ViewerViewModel: ObservableObject {
         let needsBookmarks = !hasAnyBookmark
         // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
         // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。
-        let needsReadingDirection = layoutStore.bookLayoutSettings(forBookID: book.id)?.didImportSourceLayout != true
+        // 差し替えの疑いを確かめている間は、向きを DB の行へ取り込まない(2026-10-04 の監査 V-13。疑わしい行に新しいファイルの向きが
+        // 書かれていた。init が EPUB/PDF のヒントの取り込みを見送るのと同じ)。確かめた後で resolveLayoutReplacement が取り込み直す。
+        let needsReadingDirection = pendingLayoutReplacementStatus == nil
+            && layoutStore.bookLayoutSettings(forBookID: book.id)?.didImportSourceLayout != true
         guard needsMetadata || needsBookmarks || needsReadingDirection else { return }
         // 前に開いたとき(同じ本体のまま)、要るものが ComicInfo.xml に無かったなら探し直さない(sourceProbe のコメント。
         // フォルダの本は中の一覧を取り直し、書庫の本は全エントリの名前を見て回るので、開くたびに払っていた)。
@@ -2057,7 +2078,7 @@ final class ViewerViewModel: ObservableObject {
                !hasUserChangedReadingDirection {
                 readingDirection = direction
             }
-        } else if needsReadingDirection, let fileDirection = comicInfo.readingDirection {
+        } else if needsReadingDirection, pendingLayoutReplacementStatus == nil, let fileDirection = comicInfo.readingDirection {
             // ComicInfo.xml を読んでいる間に利用者が向きを変えていたら、**利用者の向きを取り込んだことにする**(2026-09-25)。
             // 以前はファイルの向きで上書きしていたので、初めて開いた本で読み込みが終わる前に切り替えると(ネットワーク上の本では
             // 数秒の隙があった)、画面の向きが戻され、次に開いても戻っていた。取り込まずに見送ると次に開いたときにまた取り込んで
@@ -3168,6 +3189,12 @@ final class ViewerViewModel: ObservableObject {
         // 残っていれば何もしない(=ユーザーが残すと決めた内容がそのまま残る)。
         layoutStore.importSourceLayoutIfNeeded(for: book)
         reloadLayoutData()
+        // ComicInfo.xml の向きも、疑いがある間は見送っていた(V-13。importComicInfoIfNeeded)。EPUB/PDF 以外の本だけ読み直す
+        // (取り込み済みなら中で何もしない)。
+        let fileName = book.sourceURL.lastPathComponent
+        if !skipsPersistence, !isEpubFile(fileName), !isPDFFile(fileName) {
+            startupTasks.append(Task { [weak self] in await self?.importComicInfoIfNeeded() })
+        }
     }
 
     /// layoutDataDidChange通知によるreloadLayoutDataを、ごく短い間だけまとめてから1回だけ実行する
@@ -3220,13 +3247,22 @@ final class ViewerViewModel: ObservableObject {
     ///   自動的にフォールバックする。nil(既定値)の場合は、以前どおり現在表示中のページを
     ///   維持しようとする(読み方向の上書きなど、対象となる特定のページが無い変更向け)。
     private func reloadLayoutData(focusPageKey: String? = nil) {
+        // 差し替えの疑いを確かめている間は、DB のレイアウトを画面に当てない(2026-10-04 の監査 V-13)。init と自動レイアウトは
+        // この間 DB のレイアウトに手を出さない約束なのに、ほかのウインドウ・関係の無い本の知らせでここが走ると、疑わしい行の
+        // 向き・見開き・並びがそのまま画面に当たっていた。確かめた後は resolveLayoutReplacement が読み直す(この間の知らせは
+        // そこで最新を読むので落ちない)。
+        guard pendingLayoutReplacementStatus == nil else { return }
         // isContrastCorrectionEnabled(このインスタンスがpageLoaderへ最後に反映した値)を基準に
         // 差分を取る。bookLayoutSettings(SwiftDataのマネージドオブジェクト)を直接比較しないのは、
         // toggleContrastCorrectionが同じModelContext上のこのオブジェクトを直接書き換えるため、
         // 「変更前」を読みたいこの時点で既に新しい値になっており、差分が取れなくなるため。
         let previousContrastCorrectionEnabled = isContrastCorrectionEnabled
         bookLayoutSettings = layoutStore.bookLayoutSettings(forBookID: book.id)
-        let newContrastCorrectionEnabled = bookLayoutSettings?.contrastCorrectionEnabled ?? false
+        // DB へ書かない本でメモリの上だけ切り替えた項目(補正・見開き・読み方向)は、DB の値で戻さない(2026-10-04 の監査 V-14。
+        // トグルは DB へ書かないのに、関係の無いレイアウトの知らせでここが走ると DB の値へ戻っていた)。
+        let newContrastCorrectionEnabled = skipsPersistence && hasUserChangedContrastCorrectionInMemory
+            ? isContrastCorrectionEnabled
+            : bookLayoutSettings?.contrastCorrectionEnabled ?? false
         isContrastCorrectionEnabled = newContrastCorrectionEnabled
 
         // 読み方向・見開き強制の上書きも、この読み直しの時点でビューアへ反映する(ユーザー要望:
@@ -3248,13 +3284,15 @@ final class ViewerViewModel: ObservableObject {
         // shouldPairWithNextPage参照)は、この関数の末尾のloadCurrentSpreadが行う。ここでの
         // 代入は、後続のnormalizedAnchorIndex/spreadPairStillDisplayableの判定より前で
         // なければならない(どちらもreadingDirection/displayModeを参照する)。
-        if let directionOverride = bookLayoutSettings?.readingDirectionOverride,
+        if !(skipsPersistence && hasUserChangedReadingDirection),
+           let directionOverride = bookLayoutSettings?.readingDirectionOverride,
            directionOverride != readingDirection {
             // toggleReadingDirectionと同じ後始末(resetPinchZoom)。
             resetPinchZoom()
             readingDirection = directionOverride
         }
-        if let forcedMode = bookLayoutSettings?.forcedDisplayMode, forcedMode != displayMode {
+        if !(skipsPersistence && hasUserChangedDisplayModeInMemory),
+           let forcedMode = bookLayoutSettings?.forcedDisplayMode, forcedMode != displayMode {
             // toggleDisplayModeと同じ後始末(resetPinchZoom+cancelPendingPageFlip)。
             resetPinchZoom()
             cancelPendingPageFlip()

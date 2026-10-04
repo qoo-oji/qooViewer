@@ -177,4 +177,23 @@ struct HomeInteractionTests {
         #expect(single.request?.urls == [book2])
         #expect(single.request?.sequence == nil)
     }
+
+    @Test("まとめ直しの回は、先の回でシークレットウインドウへ回した本を入れない。全部が回した本なら何も開かず、数えもしない(O-9)")
+    func externalOpenPreparationLeavesOutBooksRoutedPrivately() throws {
+        let temporary = try TemporaryDirectory("external-open-routed")
+        let routedBook = temporary.file("1.cbz")
+        let normalBook = temporary.file("2.cbz")
+        try makeArchive(routedBook, number: 1)
+        try makeArchive(normalBook, number: 2)
+
+        // 先の回で 1.cbz を回した。まとめ直した [1, 2] からは 2 だけを開く(以前は並びの先頭の 1 がまた回され、2 はどこにも開かれなかった)。
+        let merged = ExternalOpenPreparation.prepare([routedBook, normalBook], order: .byName, excluding: [routedBook.path])
+        #expect(merged.request?.urls == [normalBook])
+        #expect(merged.request?.sequence == nil)
+        #expect(merged.skipped == 0)
+
+        let nothingLeft = ExternalOpenPreparation.prepare([routedBook], order: .byName, excluding: [routedBook.path])
+        #expect(nothingLeft.request == nil)
+        #expect(nothingLeft.skipped == 0)
+    }
 }

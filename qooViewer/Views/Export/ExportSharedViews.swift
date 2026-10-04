@@ -78,9 +78,17 @@ struct ExportProgressSheet: View {
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+            // 押したら見た目でも分かるようにする(2026-10-04 の監査 TW-4。以前は押しても何も変わらず、いま書いている本は
+            // 最後まで書かれていた)。止まるのはいま書いているページの次。
+            if viewModel.wasCancelled {
+                Text("Cancelling…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button("Cancel") {
                 viewModel.cancel()
             }
+            .disabled(viewModel.wasCancelled)
         }
         .padding(32)
         .frame(minWidth: 380, minHeight: 220)
@@ -118,7 +126,8 @@ struct ExportResultSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Export Complete")
+            // 取り消したときは「完了」と言わない(TW-4)。数は取り消す前に書き終えた本。
+            Text(viewModel.wasCancelled ? LocalizedStringKey("Export Cancelled") : LocalizedStringKey("Export Complete"))
                 .font(.headline)
             Text(
                 String(

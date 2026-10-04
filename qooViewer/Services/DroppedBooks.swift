@@ -88,7 +88,8 @@ extension BookOpenRequest {
         guard Set(candidates.map(\.path)).count > 1,
               !candidates.allSatisfy({ isImageFile($0.lastPathComponent) })
         else { return nil }
-        let found = await Task.detached(priority: .userInitiated) { DroppedBooks.multiple(candidates, order: order) }.value
+        // 下調べはファイルを読むので FileIO の上で(2026-10-04 の監査 O-7 の付記。`Task.detached` は応答しない共有でプールを止める)。
+        let found = await FileIO.perform { DroppedBooks.multiple(candidates, order: order) }
         guard let first = found.books.first else { return nil }
         let sequence = found.books.count > 1
             ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
@@ -105,9 +106,12 @@ nonisolated enum ExternalOpenPreparation {
         var skipped: Int
     }
 
-    static func prepare(_ urls: [URL], order: SiblingBookOrder) -> Prepared {
+    /// - Parameter routed: 先の回でシークレットウインドウへ回した本のパス(2026-10-04 の監査 O-9)。まとめ直しの回はこれを
+    ///   入れない ―― 入れると、まとめ直した並びの先頭がまた回され、一緒に渡されたノーマルの本がどこにも開かれず並びにも残らなかった
+    ///   (実測)。回した本はシークレットウインドウに出ている。全部が回した本なら、要求も数えた件数も無い(知らせも出さない)。
+    static func prepare(_ urls: [URL], order: SiblingBookOrder, excluding routed: Set<String> = []) -> Prepared {
         var seen = Set<String>()
-        let unique = urls.filter { seen.insert($0.path).inserted }
+        let unique = urls.filter { !routed.contains($0.path) && seen.insert($0.path).inserted }
         guard let first = unique.first else { return Prepared(request: nil, skipped: 0) }
         if unique.allSatisfy({ isImageFile($0.lastPathComponent) }) {
             return Prepared(request: BookOpenRequest(openingCandidates: unique), skipped: 0)
@@ -118,9 +122,11 @@ nonisolated enum ExternalOpenPreparation {
                 : Prepared(request: nil, skipped: 1)
         }
         let found = DroppedBooks.multiple(unique, order: order)
-        guard let book = found.books.first else { return Prepared(request: nil, skipped: found.skipped) }
-        let sequence = found.books.count > 1
-            ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
+        // 棚を中の本に展開した結果にも、回した本は入れない(上の routed)。
+        let books = found.books.filter { !routed.contains($0.path) }
+        guard let book = books.first else { return Prepared(request: nil, skipped: found.skipped) }
+        let sequence = books.count > 1
+            ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0) : nil
         return Prepared(request: BookOpenRequest(book, sequence: sequence), skipped: found.skipped)
     }
 }

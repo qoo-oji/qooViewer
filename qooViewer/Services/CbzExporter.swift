@@ -195,6 +195,8 @@ nonisolated enum CbzExporter {
             // 問題にならない。
             var comicInfoPages = [ComicInfoPage?](repeating: nil, count: planned.count)
             for (outputIndex, entry) in planned.enumerated() {
+                // 書き出しの「キャンセル」はページごとに見る(2026-10-04 の監査 TW-4。書きかけは呼び出し側が一時ファイルごと捨てる)。
+                try Task.checkCancellation()
                 let imageData: Data
                 switch entry.source {
                 case .rawData(let data):

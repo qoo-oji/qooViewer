@@ -151,16 +151,26 @@ struct WelcomeTopBar: View {
         .onChange(of: librarySheet != nil && !isLibrarySheetResolvable) { _, isStale in
             if isStale { librarySheet = nil }
         }
+        // ライブラリ機能を OFF にしたら、帯から出したシートと削除の確認も下ろす(2026-10-04 の監査 X-3)。シートとアラートは帯の外枠に
+        // 付いていて機能スイッチの外にあり(帯はスマートライブラリのために出たまま)、`endEditing()` もこの @State を下ろさないので、
+        // 以前は OFF のまま作成・改名・削除できた。
+        .onChange(of: state.isLibraryFeatureEnabled) { _, isEnabled in
+            guard !isEnabled else { return }
+            librarySheet = nil
+            deletingLibraryID = nil
+        }
         .alert(
             "Delete Library?",
             isPresented: Binding(
-                get: { deletingLibraryID != nil },
+                get: { deletingLibraryID != nil && state.isLibraryFeatureEnabled },
                 set: { if !$0 { deletingLibraryID = nil } }
             )
         ) {
             Button("Cancel", role: .cancel) { deletingLibraryID = nil }
             Button("Delete", role: .destructive) {
-                if let library = deletingLibraryID.flatMap({ collectionStore.library(withID: $0) }) {
+                // 押した時点でも確かめる(X-3。アラートが下りる前の一瞬に OFF になった場合)。
+                if state.isLibraryFeatureEnabled,
+                   let library = deletingLibraryID.flatMap({ collectionStore.library(withID: $0) }) {
                     DataUndoStack.deleteLibrary(library, in: collectionStore, recordingOn: dataUndo)
                 }
                 deletingLibraryID = nil
@@ -293,9 +303,10 @@ struct WelcomeTopBar: View {
         .accessibilityLabel(Text("Open Book…"))
     }
 
-    /// 出しているシートの相手を引けるか(作成は相手が無いので常に引ける)。
+    /// 出しているシートの相手を引けるか(作成は相手が無いので常に引ける)。ライブラリ機能が OFF なら出さない(X-3)。
     private var isLibrarySheetResolvable: Bool {
-        switch librarySheet {
+        guard state.isLibraryFeatureEnabled else { return false }
+        return switch librarySheet {
         case .create: true
         case .rename(let id): collectionStore.library(withID: id) != nil
         case nil: false
@@ -311,6 +322,8 @@ struct WelcomeTopBar: View {
                 initialName: "",
                 isDuplicate: { collectionStore.hasLibraryNamed($0) },
                 onCommit: { name, _ in
+                    // シートの間に OFF になっていたら作らない(X-3)。
+                    guard state.isLibraryFeatureEnabled else { return }
                     if let created = collectionStore.createLibrary(name: name) {
                         state.selectedLibraryID = created.id
                         state.openedCollectionID = nil
@@ -325,7 +338,11 @@ struct WelcomeTopBar: View {
                     // (BookLibrary.displayName参照)。
                     initialName: library.displayName(language: locale),
                     isDuplicate: { collectionStore.hasLibraryNamed($0, excluding: library) },
-                    onCommit: { name, _ in collectionStore.rename(library, to: name) }
+                    onCommit: { name, _ in
+                        // シートの間に OFF になっていたら変えない(X-3)。
+                        guard state.isLibraryFeatureEnabled else { return }
+                        collectionStore.rename(library, to: name)
+                    }
                 )
             }
         case nil:

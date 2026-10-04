@@ -163,4 +163,44 @@ enum WindowSheet {
             begin(alert, for: window) { continuation.resume(returning: $0) }
         }
     }
+
+    // MARK: 自前のシートのウインドウ
+
+    /// 自前で組んだシートのウインドウ(一括リネームの`BulkRenamePanel`)を出し、閉じたら応答を返す
+    /// (2026-10-04 の監査 FBA-2)。
+    ///
+    /// 以前の一括リネームは`host.beginSheet`を直に呼んでいて(リポジトリでここだけ)、`CloseWatch`が無かった。シートを出したまま
+    /// 「すべてを閉じる」などの`close()`でウインドウが閉じると完了ハンドラが呼ばれず、ファイル操作の列が永久に止まり、
+    /// 以後の終了のたびに「作業の途中」と尋ねられた(実測。赤ボタンはシートの間は閉じない)。既にシートがあるときに
+    /// アプリモーダルへ落ちる点も、ほかのパネルの「いちばん上に重ねる」と食い違っていた。
+    ///
+    /// シートの側は、閉じるときに`sheetParent?.endSheet(_:returnCode:)`(シートのとき)か`NSApp.stopModal(withCode:)`
+    /// (アプリモーダルのとき)を呼ぶこと。同じウインドウでパネル・アラートが既に出ていれば、保存パネルと同じくビープして
+    /// キャンセル扱い(上に重ねない)。出している間は「ここで出したもの」に数え、上にパネル・アラートを重ねさせない。
+    static func run(sheetWindow sheet: NSWindow, for window: NSWindow? = nil) async -> NSApplication.ModalResponse {
+        switch placement(for: window) {
+        case .sheet(let host):
+            let sheetID = ObjectIdentifier(sheet)
+            presentedAlertWindows.insert(sheetID)
+            let watch = CloseWatch(sheet: sheet, windows: chain(from: window))
+            let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+                host.beginSheet(sheet) { response in
+                    MainActor.assumeIsolated {
+                        watch.stop()
+                        _ = presentedAlertWindows.remove(sheetID)
+                    }
+                    afterSheetIsGone { continuation.resume(returning: response) }
+                }
+            }
+            return response
+        case .appModal:
+            sheet.center()
+            let response = NSApp.runModal(for: sheet)
+            sheet.orderOut(nil)
+            return response
+        case .busy:
+            NSSound.beep()
+            return .cancel
+        }
+    }
 }

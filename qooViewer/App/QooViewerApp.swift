@@ -2888,12 +2888,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             urls: (merging ? externalOpenGroup?.urls ?? [] : []) + urls,
             startedAt: merging ? externalOpenGroup?.startedAt ?? now : now,
             openedIn: merging ? externalOpenGroup?.openedIn : nil,
-            openedInNewWindowBookURL: merging ? externalOpenGroup?.openedInNewWindowBookURL : nil
+            openedInNewWindowBookURL: merging ? externalOpenGroup?.openedInNewWindowBookURL : nil,
+            routedPrivatelyPaths: merging ? externalOpenGroup?.routedPrivatelyPaths ?? [] : []
         )
         externalOpenGroup = group
         externalOpenTask?.cancel()
         let order = preferences?.siblingBookOrder ?? .byName
         let candidates = group.urls
+        let routed = group.routedPrivatelyPaths
         let waitsForMoreBatches = isLaunchingToOpenDocuments
         externalOpenTask = Task { @MainActor [weak self] in
             // 本を渡されて起動したときは、残りの回(約 50ms 後)が届くのを待ってから始める。1 回目だけで新しい本のウインドウを
@@ -2904,11 +2906,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // 開く前に下調べする(DroppedBooks。ウインドウへのドロップと同じ): 開けないものは開かない(読み込みでエラーになり、
             // ホームのウインドウが残っていた)、複数の本は先頭を開いて残りを「次の本・前の本」でたどる。
-            let prepared = await Task.detached(priority: .userInitiated) {
-                ExternalOpenPreparation.prepare(candidates, order: order)
-            }.value
+            // 下調べはファイルを読むので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。2026-10-04 の監査 O-7 の付記)。
+            // 先の回でシークレットウインドウへ回した本は入れない(O-9。ExternalOpenPreparation.prepare の routed)。
+            let prepared = await FileIO.perform {
+                ExternalOpenPreparation.prepare(candidates, order: order, excluding: routed)
+            }
             guard !Task.isCancelled, let self else { return }
             let locale = self.preferences?.effectiveLocale ?? AppLanguage.currentLocale
+            // 渡されたものが全部、先の回で回した本だった(まとめ直しで足すものが無い)。
+            if prepared.request == nil, prepared.skipped == 0, !routed.isEmpty { return }
             guard let request = prepared.request else {
                 // 本が 1 つも無い。開かずに、手前のウインドウに知らせる(起動した主ウインドウはそのままホームとして使う)。
                 self.isLaunchingToOpenDocuments = false
@@ -2958,6 +2964,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         /// 先の回を新しいタブ・ウインドウで開いたときの、その本(`openedIn` は取れない。まとめ直したものは、この本を読み込んだ
         /// ウインドウを探して開き直す)。
         var openedInNewWindowBookURL: URL?
+        /// 先の回でシークレットウインドウへ回した本のパス(2026-10-04 の監査 O-9)。回した回は `openedIn` /
+        /// `openedInNewWindowBookURL` を控えない ―― 以前は回した元の窓(本を出していない)を「先の回を開いたウインドウ」として
+        /// 控え、まとめ直した並びをそこで開き直してまた回していた。新しい窓の回はノーマルの窓で探すので、回した先を見つけられずに
+        /// 3 秒待っていた。まとめ直しはこれらを除いた残りを、ふつうの「開く」として開く。
+        var routedPrivatelyPaths: Set<String> = []
     }
     private var externalOpenGroup: ExternalOpenGroup?
     private var externalOpenTask: Task<Void, Never>?
@@ -3043,10 +3054,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (同じキーに重ねると最後の1件しか実行されない)。
         MenuBarMenuGate.shared.run("AppDelegate.open-\(UUID().uuidString)") { [weak self] in
             guard let self else { return }
+            // 開く前に決める(開く窓は「シークレットモードで起動」の性質で選ばれる。performExternalOpen)。
+            let routedPrivately = BookWindowOpener.shouldOpenSecretBookPrivately(
+                request, opensPrivately: AppPreferences.isPrivateModeDefault)
             let target = self.performExternalOpen(request: request)
-            // まとめ直しの回が同じウインドウで開き直せるように控える。
-            self.externalOpenGroup?.openedIn = target
-            if target == nil, request.urls.count == 1 { self.externalOpenGroup?.openedInNewWindowBookURL = request.urls[0] }
+            if routedPrivately {
+                // シークレットウインドウへ回した。まとめ直しの回はこの本を除いて、ふつうに開く(O-9。ExternalOpenGroup のコメント)。
+                self.externalOpenGroup?.routedPrivatelyPaths.formUnion(request.urls.map(\.path))
+            } else {
+                // まとめ直しの回が同じウインドウで開き直せるように控える。
+                self.externalOpenGroup?.openedIn = target
+                if target == nil, request.urls.count == 1 { self.externalOpenGroup?.openedInNewWindowBookURL = request.urls[0] }
+            }
             if skipped > 0 { target?.postViewerNotice(AppState.skippedNotice(skipped, locale: locale)) }
         }
     }

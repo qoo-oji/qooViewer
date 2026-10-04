@@ -756,7 +756,8 @@ struct MetadataBookTableView: View {
                           coverView: { [preferences] id in
                               AnyView(ExportCoverCell(bookID: id, controller: controller, showsCropAnchor: true)
                                   .environmentObject(preferences))
-                          })
+                          },
+                          registerCellCommit: { [workspace] commit in workspace.commitEditingCell = commit })
         .sheet(item: $sheet) { sheet in
             MetadataEditorSheetView(sheet: sheet, workspace: workspace, rulesStore: rulesStore) { name, ids in
                 applySeriesName(name, to: ids)

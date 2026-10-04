@@ -228,6 +228,17 @@ final class MetadataWorkspace {
     /// 動かしたあとに確定すると、別の値を書き換えてしまう(2026-10-01 のレビュー: 著者 [A, B, C] の B を直しかけて ⌥⌘↑ を押し、
     /// Return で確定すると [B, X, C] になり A が消えた)。
     var isEditingCell = false
+    /// 書き換えているセルを打った値で確定させる口(表が入れる。`MetadataBookTable.registerCellCommit`)。
+    @ObservationIgnored var commitEditingCell: (() -> Void)?
+
+    /// 書き換えているセルがあれば、先に確定させる(2026-10-04 の監査 MD-7)。ツールバー・右クリックの「ロック」「メタデータを
+    /// 再生成」は、フィールドエディタの確定を起こさない(実測: 打ちかけのままツールバーのロックを押すと、書き換える前の値で
+    /// ロックされ、続く Return で打った値が黙って捨てられた)。確定は `commit` → `edit` を通り DB へ書くので、続くロックは
+    /// その読みが届いてから値を読む(`setLocked` の待ち)。鍵の列のボタンは、押すと表が焦点を取るので確定が先に届く。
+    func commitEditingCellIfNeeded() {
+        guard isEditingCell else { return }
+        commitEditingCell?()
+    }
 
     /// 1 冊の中の、ある欄の 1 段。
     struct LineSelection: Hashable {
@@ -586,6 +597,10 @@ final class MetadataWorkspace {
         guard !changedIDs.isEmpty else { return }
         forgetUndo(for: Set(changedIDs))
         refreshRegistration(changedIDs)
+        // 外で書かれた直しも「DB へ書いたが、まだ読みが届いていない」に数える(2026-10-04 の監査 MD-14)。以前は `committed` を
+        // 進めなかったので、インスペクタで直した直後(メタデータ生成の回 ―― 300ms 後 ―― の前)にこの窓でロックすると、`setLocked` が
+        // 待たずに見えている古い値でロックし、直しが失われた(実測)。読みが届いてからロックする道に乗せる。
+        refreshFromGenerator()
     }
 
     // MARK: - 本の付け替え
@@ -849,6 +864,8 @@ final class MetadataWorkspace {
     /// 鍵を外した元の登録の値(以前のアプリで登録した、ジャンルなどが空の値)を、新しい解析でやり直すための口
     /// (利用者の指示 2026-09-21)。
     func reparseFromFileNames(_ ids: Set<MetadataBookRow.ID>) {
+        // 打ちかけの値を先に確定させる(MD-7。確定した直しも、この再生成で提案へ戻る ―― 確かめの後に押したのは利用者)。
+        commitEditingCellIfNeeded()
         edit("Redo parsing and extraction".ui, ids) { input in
             input.confirmation = .none
         }
@@ -986,6 +1003,7 @@ final class MetadataWorkspace {
     /// **欄がすべて空の本には掛けない**(2026-09-22 の監査で指摘)。DB は空の値の行を作らない(`BookMetadataStore.applyUpsert`)
     /// ので、掛けると鍵の印だけが付いて何も残らず、開き直すと外れていた。
     func setLocked(_ ids: Set<String>, _ lock: Bool) {
+        commitEditingCellIfNeeded()
         let targets = ids.filter { id in
             guard states[id] != nil, isLocked(id) != lock else { return false }
             return !lock || row(id)?.values.isEmpty == false

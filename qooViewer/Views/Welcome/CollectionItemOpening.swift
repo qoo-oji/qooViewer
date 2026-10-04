@@ -92,8 +92,13 @@ final class CollectionItemOpenTracker {
 
     /// 1 冊を確かめてから `body`(見つかった)か `onNotFound`(見つからない)を呼ぶ。続けて別の本(同じ本でも)を頼まれたら、
     /// 前の結果は捨てる(後から押したほうが利用者の意図)。期限切れは鳴らすだけ(上の「期限」)。
+    ///
+    /// - Parameter stillWanted: 待った後に、まだ頼んだときのままかを答える(2026-10-04 の監査 SP-10 = O-8)。このトラッカーは
+    ///   同じ画面の次の頼みしか見ないので、待つ間(最長 45 秒)に**別の入口で**本を開いた(`AppState.openRequestToken` が進んだ)、
+    ///   ライブラリ機能を OFF にした、を呼ぶ側が確かめる。false なら何もしない(鳴らしもしない ―― 利用者はもう別のことをしている)。
     func resolve(
         _ material: CollectionItemOpenProbe.Material,
+        stillWanted: (@MainActor () -> Bool)? = nil,
         onNotFound: @escaping @MainActor (BookLocation) -> Void,
         _ body: @escaping @MainActor (URL) -> Void
     ) {
@@ -112,6 +117,7 @@ final class CollectionItemOpenTracker {
             indicatorTask?.cancel()
             indicatorTask = nil
             resolvingItemID = nil
+            if let stillWanted, !stillWanted() { return }
             switch outcome {
             case .found(let url): body(url)
             case .notFound(let location): onNotFound(location)

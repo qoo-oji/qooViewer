@@ -17,8 +17,8 @@ import AppKit
 /// ここでは例の行に赤字で理由を出し「名前を変更」を押せなくする(BulkRename の型コメント)。
 ///
 /// ■ 寿命
-/// シートが閉じるまでは`beginSheet`の完了の閉包がこれを掴み、閉じたら手放す。ホストのウインドウは引数で受け取るだけで持たない
-/// (CLAUDE.md のリークの件)。
+/// シートが閉じるまでは`run`の待ち(`WindowSheet.run(sheetWindow:for:)`)がこれを掴み、閉じたら手放す。ホストのウインドウは
+/// 引数で受け取るだけで持たない(CLAUDE.md のリークの件)。
 @MainActor
 final class BulkRenamePanel: NSObject, NSTextFieldDelegate {
     /// 例の行だけでなく全件を毎回決め直す上限(超えたら例の行だけ。使えない名前は押した後に FileBrowserOperations が見る)。
@@ -70,19 +70,12 @@ final class BulkRenamePanel: NSObject, NSTextFieldDelegate {
         panel.initialFirstResponder = firstField
     }
 
-    /// シートで尋ねる。「名前を変更」なら入力を、「キャンセル」なら nil。ホストが無い・既にシートが出ているならモーダルのウインドウで。
+    /// シートで尋ねる。「名前を変更」なら入力を、「キャンセル」なら nil。出し方は`WindowSheet.run(sheetWindow:for:)`に任せる
+    /// (既にシートがあれば上に重ね、ウインドウが無ければアプリモーダル。シートの間にウインドウが`close()`されたら Cancel で
+    /// 終わる ―― 2026-10-04 の監査 FBA-2。以前はここで`beginSheet`を直に呼んでいて、閉じると操作の列が止まった)。
     static func run(_ request: BulkRenameRequest, on host: NSWindow?, locale: Locale) async -> BulkRenameSettings? {
         let sheet = BulkRenamePanel(request: request, locale: locale)
-        let response: NSApplication.ModalResponse
-        if let host, host.attachedSheet == nil, host.isVisible {
-            response = await withCheckedContinuation { continuation in
-                host.beginSheet(sheet.panel) { continuation.resume(returning: $0) }
-            }
-        } else {
-            sheet.panel.center()
-            response = NSApp.runModal(for: sheet.panel)
-            sheet.panel.orderOut(nil)
-        }
+        let response = await WindowSheet.run(sheetWindow: sheet.panel, for: host)
         return response == .OK ? sheet.settings : nil
     }
 

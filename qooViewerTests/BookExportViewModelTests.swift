@@ -24,8 +24,18 @@ struct BookExportViewModelTests {
         private(set) var sourceExistedDuringExport: [Bool] = []
         /// true にすると書き込みが失敗する(後始末の確認用)。
         var failsToWrite = false
+        /// true にすると書きかけのファイルを置いてから、取り消されるまで待つ(TW-4 の「いま書いている本」)。
+        var waitsForCancellation = false
+        /// `waitsForCancellation` の待ちに入ったか。
+        private(set) var isWaitingInExport = false
 
         override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
+            if waitsForCancellation {
+                try Data("partial".utf8).write(to: destinationURL)
+                isWaitingInExport = true
+                // 取り消されると Task.sleep が CancellationError を投げる(Exporter のページのループの checkCancellation と同じ)。
+                while true { try await Task.sleep(for: .milliseconds(5)) }
+            }
             if let sourceURLToWatch {
                 sourceExistedDuringExport.append(
                     FileManager.default.fileExists(atPath: sourceURLToWatch.path)
@@ -297,6 +307,36 @@ struct BookExportViewModelTests {
         }
         #expect(viewModel.writtenTo.isEmpty)
         #expect(try String(contentsOf: destination, encoding: .utf8) == "original")
+    }
+
+    @Test("「キャンセル」はいま書いている本にも届き、出力先に何も置かず、成功にも失敗にも数えない(2026-10-04 の監査 TW-4)")
+    func cancellingReachesTheBookBeingWritten() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        // 共有のページ一覧キャッシュに触れない(BookLoader.load を通るので)。
+        viewModel.usesPageListCache = false
+        viewModel.waitsForCancellation = true
+        let folder = try FixtureFolder.make(at: env.temporary.file("book"), pages: [.init("p01.png", number: 1)])
+        let output = env.temporary.file("out")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let book = MangaBook(id: folder.path, title: "book", sourceURL: folder, pages: [])
+
+        let run = Task { await viewModel.exportOpenBook(book, displayState: nil, to: output) }
+        for _ in 0..<2000 where !viewModel.isWaitingInExport {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(viewModel.isWaitingInExport)
+        viewModel.cancel()
+        let failure = await run.value
+
+        #expect(failure == nil)
+        #expect(viewModel.wasCancelled)
+        #expect(viewModel.successCount == 0)
+        #expect(viewModel.failures.isEmpty)
+        #expect(!viewModel.isExporting)
+        // 書きかけの一時ファイルも残らない。
+        #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
 
     // MARK: - 題・著者の種と付け替え(2026-10-04 の監査 TW-1・TW-5)

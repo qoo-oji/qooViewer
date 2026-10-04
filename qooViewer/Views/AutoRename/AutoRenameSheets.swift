@@ -140,7 +140,8 @@ struct AutoRenameMoveSuggestionsSheet: View {
             Table(service.moveSuggestions, selection: $rowSelection) {
                 TableColumn("Update") { suggestion in
                     Toggle(isOn: Binding(
-                        get: { chosen.contains(suggestion.id) },
+                        // 「更新できる」でない行は、チェックが残っていても外して見せる(TW-17)。
+                        get: { chosen.contains(suggestion.id) && suggestion.status == .updatable },
                         set: { isOn in
                             if isOn { chosen.insert(suggestion.id) } else { chosen.remove(suggestion.id) }
                         }
@@ -196,7 +197,9 @@ struct AutoRenameMoveSuggestionsSheet: View {
                     Text("Update").frame(minWidth: width)
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(chosen.isEmpty)
+                // 押して何かが起きるときだけ押せる(TW-17。以前は `chosen` が空かだけを見ていて、残ったチェックが「更新できる」で
+                // なくなった行だけだと、押せるのに何もしなかった)。
+                .disabled(!service.moveSuggestions.contains { chosen.contains($0.id) && $0.status == .updatable })
             }
         }
         .padding(20)
@@ -208,7 +211,8 @@ struct AutoRenameMoveSuggestionsSheet: View {
         }
         .onChange(of: service.moveSuggestions) { _, suggestions in
             if suggestions.isEmpty { dismiss() }
-            chosen.formIntersection(suggestions.map(\.id))
+            // 消えた行だけでなく、「更新できる」でなくなった行のチェックも外す(2026-10-04 の監査 TW-17)。
+            chosen.formIntersection(suggestions.filter { $0.status == .updatable }.map(\.id))
         }
     }
 

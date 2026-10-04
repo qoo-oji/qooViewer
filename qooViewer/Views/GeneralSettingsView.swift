@@ -167,8 +167,11 @@ struct GeneralSettingsView: View {
                     in: AppPreferences.recentFilesLimitRange,
                     step: 5,
                     // 「履歴を何件保持するか」はラベルが言っているので落とし、
-                    // ラベルからは分からない「どこに出るのか」だけを残す。
-                    help: "Shown in the File menu's Open Recent and in the side panel's History mode."
+                    // ラベルからは分からない「どこに出るのか」と、下げたときにすぐ消えることを書く
+                    // (履歴はバックアップに入らず取り消せない。2026-10-04 の監査 ST-6、決定 15(a))。
+                    help: "Shown in the File menu's Open Recent and in the side panel's History mode. Lowering it deletes the oldest history as soon as you release the slider. This can't be undone.",
+                    // ドラッグの途中で通り過ぎた小さい値で切り詰めない(ST-6)。
+                    commitsOnRelease: true
                 ) { value in
                     "\(Int(value))"
                 }

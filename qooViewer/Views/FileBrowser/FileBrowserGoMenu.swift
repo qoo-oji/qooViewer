@@ -113,6 +113,8 @@ struct FileBrowserGoToFolderSheet: View {
     @State private var path = ""
     @State private var errorKey: LocalizedStringKey?
     @State private var isChecking = false
+    /// 確かめている Task。「キャンセル」とシートが消えたときに取り消す(2026-10-04 の監査 FBU-6)。
+    @State private var checkTask: Task<Void, Never>?
 
     var body: some View {
         // **ボタンの幅は揃える**(「キャンセル」と「移動」で大きさが違うのは美しくない ―― ユーザー指摘 2026-09-13)。
@@ -144,7 +146,10 @@ struct FileBrowserGoToFolderSheet: View {
             }
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
-                Button { dismiss() } label: {
+                Button {
+                    checkTask?.cancel()
+                    dismiss()
+                } label: {
                     Text("Cancel").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.cancelAction)
@@ -160,20 +165,28 @@ struct FileBrowserGoToFolderSheet: View {
         .onAppear {
             path = state.currentFolder?.path ?? ""
         }
+        // ウインドウごと閉じた・シートが下りたら、確かめ終わっても移動しない(FBU-6)。
+        .onDisappear { checkTask?.cancel() }
     }
 
     private func go() {
+        // 確かめている最中に Return をもう一度押しても 2 本目を走らせない(FBU-6 の検証での追加。以前は 2 本走り、2 回目の移動が
+        // 同じ場所への移動になって選択を消した ―― FBU-7)。「移動」ボタンは淡色だが、欄の onSubmit は通る。
+        guard !isChecking else { return }
         guard let target = Self.resolve(path) else {
             errorKey = "Enter a full path that starts with / or ~."
             return
         }
         isChecking = true
-        Task {
+        checkTask = Task {
             let isFolder = await FileIO.perform { () -> Bool in
                 var isDirectory: ObjCBool = false
                 return FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory) && isDirectory.boolValue
             }
             isChecking = false
+            // 確かめている間に「キャンセル」された・シートが消えたら移動しない(2026-10-04 の監査 FBU-6。以前は取り消しも
+            // シートの消滅も見ずに `navigate` していた)。
+            guard !Task.isCancelled else { return }
             guard isFolder else {
                 errorKey = "The folder can’t be found."
                 return

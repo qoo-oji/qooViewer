@@ -381,6 +381,30 @@ struct MetadataWorkspaceTests {
         #expect(stored.source == "作品A")
     }
 
+    @Test("ほかの画面(インスペクタ)で直した直後にロックしても、直す前の値でロックしない(2026-10-04 の監査 MD-14)")
+    func lockingRightAfterAnOutsideEditKeepsTheEdit() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        await workspace.settle()
+
+        // インスペクタと同じ書き方: 値と、直した欄を持つ行の形を書く。値はメタデータ生成の次の回で窓へ届く。
+        let record = try #require(library.metadata.record(forBookID: second))
+        var values = record.values
+        values.title = "外で直した題"
+        var state = record.rowState
+        state.edits = MetadataParsing.edits(changing: record.values.trimmed, to: values.trimmed, in: state.edits)
+        library.metadata.upsertAll([.init(bookID: second, values: values.trimmed, state: state)])
+        workspace.applyExternalChanges([second: library.metadata.record(forBookID: second)])
+
+        // 読みが届く前に、この窓で鍵を掛ける。
+        workspace.setLocked([second], true)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: second)?.isLocked == true)
+        #expect(library.metadata.record(forBookID: second)?.values.title == "外で直した題")
+        #expect(workspace.row(second)?.metadata.title == "外で直した題")
+    }
+
     @Test("ほかの画面が DB を変えたら、その本の行が合う")
     func externalChangesAreApplied() async throws {
         let library = try InMemoryLibrary()

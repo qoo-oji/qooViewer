@@ -439,6 +439,34 @@ struct ViewerViewModelTests {
         #expect(viewer.hasPageLayoutOverride(atIndex: viewer.currentIndex))
     }
 
+    @Test("記録を残さない本でメモリの上だけ切り替えた見開き・読み方向・補正は、レイアウトの知らせで DB の値へ戻らない(V-14)")
+    func inMemoryTogglesSurviveLayoutNotifications() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+        let layouts = harness.library.layouts
+        layouts.setForcedDisplayMode(for: book, .spread)
+        layouts.setReadingDirectionOverride(for: book, .rightToLeft)
+        let viewer = await harness.open(book, skipsPersistence: true)
+        #expect(viewer.displayMode == .spread)
+        #expect(viewer.readingDirection == .rightToLeft)
+
+        viewer.toggleDisplayMode()
+        viewer.toggleReadingDirection()
+        viewer.toggleContrastCorrection()
+        await viewer.settle()
+
+        // 関係の無い変更(ほかのウインドウでのページの指定)の知らせで読み直しが走る。
+        layouts.setPageLayoutState(for: book, pageKey: book.pages[3].sortKey, state: .single)
+        await viewer.settle()
+        #expect(viewer.displayMode == .single)
+        #expect(viewer.readingDirection == .leftToRight)
+        #expect(viewer.isContrastCorrectionEnabled)
+        // DB は書いていない。
+        #expect(layouts.bookLayoutSettings(forBookID: book.id)?.forcedDisplayMode == .spread)
+        #expect(layouts.bookLayoutSettings(forBookID: book.id)?.contrastCorrectionEnabled != true)
+    }
+
     // MARK: - 表示モードの書き戻し先
 
     @Test("見開き/単ページの切り替えは、強制指定がある本ならそちらへ書き戻す")

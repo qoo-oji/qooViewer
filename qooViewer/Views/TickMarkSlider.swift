@@ -32,23 +32,29 @@ struct TickMarkSlider: NSViewRepresentable {
     private let step: Double
     private let tickValues: [Double]
     private let trackFillColor: NSColor?
+    private let onEditingEnded: (() -> Void)?
 
     /// - Parameters:
     ///   - step: ドラッグで止まれる値の刻み。0以下なら連続(丸めない)。
     ///   - tickValues: 目盛りを置く値。省略すると`tickValues(in:step:)`が決める。
     ///   - trackFillColor: つまみより左側の塗り色。省略するとシステム既定(アクセントカラー)。
+    ///   - onEditingEnded: 操作が終わったとき(ドラッグ・トラックのクリックはマウスを離したとき、キーボード・アクセシビリティでの
+    ///     変更はその都度)に呼ぶ。値はドラッグの途中も`value`へ書く(現在値の表示のため)。途中の値で取り消せないことをする
+    ///     設定は、これを待って確定させる(2026-10-04 の監査 ST-6。SettingsSlider の`commitsOnRelease`)。
     init(
         value: Binding<Double>,
         in range: ClosedRange<Double>,
         step: Double,
         tickValues: [Double]? = nil,
-        trackFillColor: NSColor? = nil
+        trackFillColor: NSColor? = nil,
+        onEditingEnded: (() -> Void)? = nil
     ) {
         self._value = value
         self.range = range
         self.step = step
         self.tickValues = tickValues ?? Self.tickValues(in: range, step: step)
         self.trackFillColor = trackFillColor
+        self.onEditingEnded = onEditingEnded
     }
 
     func makeNSView(context: Context) -> TickMarkSliderView {
@@ -81,6 +87,8 @@ struct TickMarkSlider: NSViewRepresentable {
             }
         }
 
+        slider.onEditingEnded = onEditingEnded
+
         // ドラッグ中の書き戻しでつまみが震えないよう、ずれているときだけ入れ直す。
         if abs(slider.doubleValue - value) > 1e-9 {
             slider.doubleValue = value
@@ -91,6 +99,7 @@ struct TickMarkSlider: NSViewRepresentable {
     /// SwiftUIが渡した閉包はAppKit側のオブジェクトに保持され、ウインドウより長く生きうる)。
     static func dismantleNSView(_ nsView: TickMarkSliderView, coordinator: ()) {
         nsView.onChange = nil
+        nsView.onEditingEnded = nil
         nsView.quantize = nil
         nsView.target = nil
         nsView.action = nil
@@ -197,7 +206,11 @@ struct TickMarkSlider: NSViewRepresentable {
 /// (`NSControl.target`は弱参照なので循環参照にはならない)。目盛りも自分で描く。
 final class TickMarkSliderView: NSSlider {
     var onChange: ((Double) -> Void)?
+    /// 操作が終わったとき(TickMarkSlider.init の`onEditingEnded`)。
+    var onEditingEnded: (() -> Void)?
     var quantize: ((Double) -> Double)?
+    /// マウスでつまみ・トラックを操作している最中か。`NSSlider`の`mouseDown`はマウスを離すまで戻らない(追跡のループを中で回す)。
+    private var isTrackingMouse = false
     var tickValues: [Double] = [] {
         didSet {
             if tickValues != oldValue { needsDisplay = true }
@@ -212,6 +225,15 @@ final class TickMarkSliderView: NSSlider {
             sender.doubleValue = snapped
         }
         onChange?(snapped)
+        // キーボード・アクセシビリティでの変更は、その 1 回で操作が終わる。
+        if !isTrackingMouse { onEditingEnded?() }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isTrackingMouse = true
+        super.mouseDown(with: event)
+        isTrackingMouse = false
+        onEditingEnded?()
     }
 
     override func draw(_ dirtyRect: NSRect) {

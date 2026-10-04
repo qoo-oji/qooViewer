@@ -170,6 +170,9 @@ struct MetadataBookTable: NSViewRepresentable {
     var toggleLock: (MetadataBookRow.ID) -> Void
     /// 表紙の列のセルの中身(SwiftUI)。
     var coverView: (MetadataBookRow.ID) -> AnyView
+    /// 書き換えているセルを今すぐ確定させる口を、画面の側へ渡す(nil で外す。2026-10-04 の監査 MD-7)。ツールバー・右クリックの
+    /// 「ロック」はフィールドエディタの確定を起こさないので(実測)、画面の側がロックの前にこれを呼ぶ。
+    var registerCellCommit: ((() -> Void)?) -> Void = { _ in }
 
     /// 列の並び・幅・表示を覚えておく名前。列を足したので名前も変えた(前の並びを当てると新しい列が隠れる)。
     static let autosaveName = "qooViewer.metadataEditor.bookTable.v2"
@@ -456,6 +459,7 @@ struct MetadataBookTable: NSViewRepresentable {
 
         /// 画面の閉包を手放す(dismantleNSView)。
         func release() {
+            parent?.registerCellCommit(nil)
             parent = nil
             table?.menu = nil
             table?.headerView?.menu = nil
@@ -469,6 +473,7 @@ struct MetadataBookTable: NSViewRepresentable {
         /// 画面の側の値を表へ入れる。
         func apply(_ parent: MetadataBookTable, initial: Bool) {
             self.parent = parent
+            if initial { parent.registerCellCommit { [weak self] in self?.commitEditingNow() } }
             guard let table else { return }
             isApplying = true
             defer { isApplying = false }
@@ -879,6 +884,14 @@ struct MetadataBookTable: NSViewRepresentable {
             guard let insertion else { return }
             self.insertion = nil
             if let row = index(of: insertion.bookID) { reload(IndexSet(integer: row)) }
+        }
+
+        /// 書き換えているセルがあれば、打った値で確定させる(Return と同じ。`registerCellCommit`)。表へ焦点を移すと
+        /// `controlTextDidEndEditing` が確定を届ける。移せなかったときは直に確定する(Option+Return の道と同じ)。
+        func commitEditingNow() {
+            guard editing != nil else { return }
+            table?.window?.makeFirstResponder(table)
+            if editing != nil { finishEditing(keeping: true) }
         }
 
         private func finishEditing(keeping: Bool) {

@@ -143,6 +143,10 @@ struct FileBrowserListView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
+        // 名前を打ちかけていれば、打った名前で確定する(2026-10-04 の監査 FBU-4。アイコン表示と同じ。Finder も表示を切り替えると確定する)。
+        // 以前は確定も取りやめもせずに表と状態を手放したので、後から来る `controlTextDidEndEditing` が何もできず、⌘1 で表示を
+        // 切り替える・ホームが畳まれると打った名前が黙って捨てられた(実測)。下で表と状態を切る前に行う。
+        coordinator.commitEditingForDismantle()
         coordinator.saveScrollOrigin(of: scroll)
         if let table = coordinator.table {
             table.dataSource = nil
@@ -444,6 +448,25 @@ struct FileBrowserListView: NSViewRepresentable {
             // Esc: 取りやめて元の名前に戻す。
             cancelEditing(field)
             return true
+        }
+
+        /// 捨てる直前に、打ちかけの名前で確定する(`dismantleNSView`。FBU-4)。アイコン表示の `finishEditing(commit: true,
+        /// syncsAfterward: false)` と同じく、捨てる表へ一覧を取り込み直さない。編集を閉じるのは `abortEditing` で、
+        /// `controlTextDidEndEditing` から 2 度目の名前の変更が走らないようにする(`isCancellingEdit`)。
+        func commitEditingForDismantle() {
+            guard let table, let field = editingNameField as? FileBrowserNameField else { return }
+            let row = table.row(for: field)
+            let newName = field.currentEditor()?.string ?? field.stringValue
+            // 編集中は `entries` を差し替えないので、行番号と `entries` は揃っている(controlTextDidEndEditing と同じ突き合わせ)。
+            if entries.indices.contains(row), let state, field.editingName == entries[row].url.lastPathComponent,
+               newName != entries[row].url.lastPathComponent {
+                state.operations.rename(entries[row], to: newName)
+            }
+            isCancellingEdit = true
+            field.abortEditing()
+            isCancellingEdit = false
+            field.editingName = nil
+            needsReloadAfterEditing = false
         }
 
         /// 打った名前を捨てて編集を終える(Esc・編集中の項目が一覧から消えた)。

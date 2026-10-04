@@ -57,6 +57,13 @@ struct ResetDataSettingsView: View {
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @State private var isShowingConfirmation = false
     @State private var isShowingCompletion = false
+    /// 削除を済ませたか。済ませた後は、完了アラートがどう閉じても(ウインドウごと閉じても)アプリを終える(下の`quitAfterReset`)。
+    @State private var didReset = false
+
+    /// 完了アラートを出したまま放っておかれても終える秒数(2026-10-04 の監査 ST-4、決定 16(a))。
+    static let quitDelayAfterReset: Duration = .seconds(10)
+    /// 終了を 1 度だけ頼む(タイマー・ボタン・閉じたときが重なっても、終了の確認を 2 度出さない)。
+    private static var hasRequestedQuit = false
 
     var body: some View {
         SettingsPaneContainer {
@@ -180,13 +187,32 @@ struct ResetDataSettingsView: View {
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある
         // (「キャンセルして使い続ける」という選択肢を出すと、削除済みのモデルを参照したままの
         // 状態でアプリを使い続けられるかのように誤解させてしまうため)。
+        //
+        // **閉じ方に関わらず終える**(2026-10-04 の監査 ST-4、決定 16(a))。アラートは環境設定ウインドウのシートなので、出したまま
+        // ほかの本のウインドウを使い続けられ、その間の編集は終了時の削除で消える(表紙・規則・一覧は既に消えていて SwiftData と
+        // UserDefaults は残る、という中途の状態)。ボタン 1 つの`.alert`には SwiftUI が「キャンセル」を足さず Esc でも閉じない
+        // (2026-10-04 実測)ので、ボタンに`.cancel`の役を付けて Esc でも終え、放っておかれても`quitDelayAfterReset`で終え、
+        // ウインドウごと閉じられても終える。アプリモーダルにしてほかのウインドウを止める案(決定 16(b))は採らなかった。
         .alert("Reset Complete", isPresented: $isShowingCompletion) {
-            Button("Quit Now") {
-                NSApp.terminate(nil)
+            Button("Quit Now", role: .cancel) {
+                Self.quitAfterReset()
             }
         } message: {
-            Text("All data has been deleted. qooViewer will now quit — please reopen it.")
+            Text("All data has been deleted. qooViewer will quit in 10 seconds — please reopen it.")
         }
+        .onChange(of: isShowingCompletion) { _, isShowing in
+            if !isShowing, didReset { Self.quitAfterReset() }
+        }
+        .onDisappear {
+            if didReset { Self.quitAfterReset() }
+        }
+    }
+
+    /// 削除の後の終了。何度呼ばれても 1 度だけ`terminate`する。
+    private static func quitAfterReset() {
+        guard !hasRequestedQuit else { return }
+        hasRequestedQuit = true
+        NSApp.terminate(nil)
     }
 
     /// 「整理」セクションの2つのボタンの共通幅。`.frame`を当てるのはボタンではなくラベル
@@ -247,6 +273,12 @@ struct ResetDataSettingsView: View {
         // (「Quit Now」までの間に画面に残っていると、消えていないように見えるため)。
         recentFiles.removeAll()
         LastActiveBookStore.clear()
+        didReset = true
         isShowingCompletion = true
+        // 放っておかれても終える(ST-4)。この Task はウインドウが閉じても走り続ける。
+        Task {
+            try? await Task.sleep(for: Self.quitDelayAfterReset)
+            Self.quitAfterReset()
+        }
     }
 }

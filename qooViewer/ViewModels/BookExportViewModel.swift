@@ -233,6 +233,13 @@ class BookExportViewModel: ObservableObject {
     @Published private(set) var completedCount = 0
     @Published private(set) var totalCount = 0
     private var isCancelled = false
+    /// 書き出しの最中に「キャンセル」が押されたか(次の書き出しを始めるまで残る)。進捗シートの「取り消しています…」、
+    /// 結果シートの見出し、1 冊書き出しで「書き出したあとの動作」と保存データの後片付けへ進まないこと(OpenBookExportSheet.run)に使う
+    /// (2026-10-04 の監査 TW-4)。
+    @Published private(set) var wasCancelled = false
+    /// いま 1 冊を書いている Task。`cancel()`がこれを取り消し、Exporter のページのループ(`Task.checkCancellation()`)と
+    /// `write`の置き換えの手前で止まる(TW-4。以前はループの頭でしか見ず、いま書いている本は最後まで書いていた)。
+    private var currentBookTask: Task<Void, any Error>?
 
     // MARK: - 同名ファイルの確認
 
@@ -717,6 +724,9 @@ class BookExportViewModel: ObservableObject {
 
     final func cancel() {
         isCancelled = true
+        // 書いている本も止める(TW-4)。書き出し中でなければ(シートを閉じただけなら)取り消した印は付けない。
+        if isExporting { wasCancelled = true }
+        currentBookTask?.cancel()
         // 同名ファイルの確認(askOverwriteDecision)を待っている最中なら、その待ちも
         // 「スキップ」で解く(監査で指摘)。以前はフラグを立てるだけで、待ちの
         // continuationはそのままだった。確認ダイアログは4つのボタンのどれかで必ず
@@ -825,6 +835,7 @@ class BookExportViewModel: ObservableObject {
         defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
         isExporting = true
         isCancelled = false
+        wasCancelled = false
         failures = []
         successCount = 0
         completedCount = 0
@@ -839,14 +850,23 @@ class BookExportViewModel: ObservableObject {
             // 書き出しを始めた後に付け替えられた本は、今の bookID で引く(2026-10-04 の監査 TW-5)。
             let row = followingRelocations(target)
             currentBookDisplayName = row.displayName
+            // 1 冊ぶんを取り消せる Task で書く(`cancel()`がこれを取り消す。TW-4)。Task はこのアクタを受け継ぐので、
+            // 中で触る状態は今までどおりメインの上。
+            let work = Task { try await self.exportOne(row: row, destinationFolder: destinationFolder) }
+            currentBookTask = work
             do {
-                try await exportOne(row: row, destinationFolder: destinationFolder)
+                try await work.value
                 successCount += 1
             } catch is ExportSkippedByUser {
                 // ユーザーがこの本のスキップを選んだ場合。失敗としては扱わない。
+            } catch where isCancelled {
+                // 取り消した本。書きかけは`write`が捨てている。失敗には数えない(結果シートは「取り消しました」と出す)。
+                currentBookTask = nil
+                break
             } catch {
                 failures.append(FailureReport(displayName: row.displayName, message: error.localizedDescription))
             }
+            currentBookTask = nil
             completedCount += 1
         }
 
@@ -953,6 +973,8 @@ class BookExportViewModel: ObservableObject {
         let row = prepared.row
         let destinationFileURL = destinationFolder
             .appendingPathComponent("\(row.displayName).\(outputFileExtension)")
+        // 本を読んでいる間に取り消されたら、ここで止める(TW-4)。
+        try Task.checkCancellation()
         if FileManager.default.fileExists(atPath: destinationFileURL.path) {
             let decision = await askOverwriteDecision(for: row.displayName)
             guard decision == .overwrite else { throw ExportSkippedByUser() }
@@ -977,6 +999,8 @@ class BookExportViewModel: ObservableObject {
         )
         do {
             try await export(prepared, to: temporaryURL)
+            // 書き終えた直後に取り消されていても、出力先へは置かない(取り消した本の後片付けへ進ませないのと揃える。TW-4)。
+            try Task.checkCancellation()
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error

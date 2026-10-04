@@ -187,10 +187,14 @@ struct OpenBookExportSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Export") {
-                    guard let destination else { return }
+                    // 始めた印はボタンの動作の中で同期に立てる(2026-10-04 の監査 TW-15)。以前は Task の中の`run`で立てていたので、
+                    // メインキューの消化をはさまずに 2 回押されると、書き出しが 2 本走りえた。
+                    guard let destination, !didStart else { return }
+                    didStart = true
                     Task { await run(destination) }
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(didStart)
             }
         }
         .padding(20)
@@ -258,7 +262,9 @@ struct OpenBookExportSheet: View {
         // (ユーザーの指示。毎回OKを押させると、繰り返しの流れが途切れるため)。
         // ユーザーが同名確認でスキップを選んだ場合もここへ来るが、その場合は書き出して
         // いないので、後続の動作へは進めない(successCountで見分ける)。
-        onFinish(viewModel.successCount > 0)
+        // 「キャンセル」を押した場合も進めない(2026-10-04 の監査 TW-4。以前は書き出しが最後まで進み、取り消したのに
+        // 保存データの後片付けと「次の本へ」「ウインドウを閉じる」まで走っていた。いまは書いている本も止まる)。
+        onFinish(viewModel.successCount > 0 && !viewModel.wasCancelled)
     }
 }
 

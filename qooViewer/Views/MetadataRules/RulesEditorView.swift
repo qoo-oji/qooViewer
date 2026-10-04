@@ -740,18 +740,27 @@ private struct ParameterRow: View {
 }
 
 /// 整数の欄(入力して確定、または上下のボタン)。
+///
+/// 打った数は Return のほか、**焦点が外れたとき・欄が消えるときにも当てる**(2026-10-04 の監査 MD-11)。`onSubmit` は Return でしか
+/// 走らず(Tab でもほかの欄のクリックでも走らない ―― 実測)、以前は打った数が設定と違うまま欄に残った。当てた後は欄を当てた値へ
+/// 戻す ―― 範囲の外の数を丸めた値が今の値と同じだと `value` が変わらず、`onChange` が来ないので、打った数が残っていた。
 private struct IntField: View {
     var title: LocalizedStringKey
     var value: Int
     var range: ClosedRange<Int>
     var commit: (Int) -> Void
     @State private var text = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         LabeledContent(title) {
             HStack(spacing: 4) {
                 TextField("", text: $text).frame(width: 70).multilineTextAlignment(.trailing)
+                    .focused($isFocused)
                     .onSubmit { apply() }
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused { apply() }
+                    }
                 Stepper("", value: Binding(get: { value }, set: { commit(min(max($0, range.lowerBound), range.upperBound)) }), in: range)
                     .labelsHidden()
                 Text("%1$lld to %2$lld".ui(range.lowerBound, range.upperBound)).font(.caption).foregroundStyle(.tertiary)
@@ -759,11 +768,14 @@ private struct IntField: View {
         }
         .onAppear { text = String(value) }
         .onChange(of: value) { text = String(value) }
+        .onDisappear { apply() }
     }
 
     private func apply() {
         guard let number = Int(text.trimmingCharacters(in: .whitespaces)) else { text = String(value); return }
-        commit(min(max(number, range.lowerBound), range.upperBound))
+        let clamped = min(max(number, range.lowerBound), range.upperBound)
+        if clamped != value { commit(clamped) }
+        text = String(clamped)
     }
 }
 

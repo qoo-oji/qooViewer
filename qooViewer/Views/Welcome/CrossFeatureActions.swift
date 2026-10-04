@@ -268,6 +268,10 @@ extension View {
             ) { _ in
                 request.wrappedValue = nil
             }
+            // シートが畳まれたら(本を開いてホームが外れた・書き出しの途中で消えた)書き出しも止める(2026-10-04 の監査 TW-6)。
+            // 終えて閉じたときに呼んでも何もしない。ウインドウごと閉じたときにここが来ないことがあるので、作った側が
+            // `AppState.trackHomeBookExport`でウインドウの willClose からも取り消せるようにしてある。
+            .onDisappear { export.viewModel.cancel() }
         }
     }
 }

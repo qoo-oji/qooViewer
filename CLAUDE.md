@@ -595,7 +595,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   **Save/open panels and confirmation alerts that belong to a window go through `WindowSheet`** (2026-09-27): a sheet on that window
   (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in
-  New Window…). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
+  New Window…), and never `beginSheet` a hand-built sheet window — use `WindowSheet.run(sheetWindow:for:)` (2026-10-04, the bulk rename
+  sheet stalled the operation queue when its window was closed). Anything that awaits before opening a book snapshots
+  `AppState.openRequestToken` and drops its result if it moved (another book was opened meanwhile; audit O-7/SP-10). Other windows keep working during the sheet, so whatever runs after it re-checks feature flags, read-only mode and the open book.
   `close()` on a window with a sheet never calls the sheet's completion handler (measured), so `WindowSheet` ends its sheet with Cancel from
   `willClose` of every window under it (`CloseWatch`) — several close paths (single-tab red button, Close Window over background tabs, the
   slideshow's Close Tab) call `close()` without checking for sheets.

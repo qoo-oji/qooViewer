@@ -1855,3 +1855,78 @@ docs: 06(付け替えの知らせ・FolderAccessStore)、07(編集ウインド�
 
 docs: 09(メニューバーの写しの決まり・取り消しの振り分け・「メニューを消去」・覚え書きの鍵)、15(断ったら鳴らす・鍵・取り消し)、03(メニュー用の値)、
 02(ローカライズのメニューバーの言語・テスト表)、CLAUDE.md。
+
+### 段 6(前半)(2026-10-04)
+
+§1-5 の群(非同期の後始末)。決まりを 2 つ足し、CLAUDE.md と docs/09・docs/04 に書いた: (1) 自前で組んだシートのウインドウも `WindowSheet` を通す
+(`WindowSheet.run(sheetWindow:for:)`。`beginSheet` を直に呼ばない)。(2) 本を開く前に待つ入口は、待つ前に `AppState.openRequestToken`
+(`openToken` の読み出し)を控え、待った後に進んでいれば結果を捨てる。
+
+**閉じる・取り消し**
+
+- **FBA-2**(直した): `WindowSheet.run(sheetWindow:for:)` を足し(`CloseWatch` と「同じウインドウに 2 つ目」の判定を共有。出している間は
+  ここで出したものに数え、上にパネル・アラートを重ねさせない)、`BulkRenamePanel.run` をこれへ移した。既にシートがあるときもアプリモーダルへ
+  落とさず上に重ねる。テスト `WindowSheetTests.closingTheHostEndsAHandBuiltSheet`(閉じたら Cancel・出している間は上に重ねない)。シートの見た目は実機。
+- **TW-6**(直した): ホームの 1 冊書き出しは、作った側が `AppState.trackHomeBookExport` で VM を弱く控え、ContentView の willClose が
+  `cancelHomeBookExports()` を呼ぶ。シートが畳まれたとき(本を開いてホームが外れた)も `homeBookExportSheet` の `onDisappear` で取り消す。
+  View とウインドウの配線なのでテストは足せない(取り消しそのものは TW-4 のテスト)。
+- **TW-4**(直した): `BookExportViewModel` が 1 冊ぶんを取り消せる Task(`currentBookTask`)で書き、`cancel()` が取り消す。3 つの Exporter の
+  ページのループに `Task.checkCancellation()`、`write` は読み終えた直後と置き換えの直前にも見る(書きかけは一時ファイルごと捨てる)。取り消した本は
+  成功にも失敗にも数えない。`wasCancelled` で進捗シートは「中止しています…」(ボタンは淡色)、結果シートは「書き出しを中止しました」、1 冊書き出しは
+  `onFinish(successCount > 0 && !wasCancelled)` で後片付けと「書き出したあとの動作」へ進まない。テスト `BookExportViewModelTests.cancellingReachesTheBookBeingWritten`。
+- **TW-12**(直した、止めない側): 読み込みは途中で切ると保存データが半分だけ書き換わるので止める口は作らず、実行中は「キャンセル」を淡色にして
+  「ウインドウを閉じても続きます」と出す(書き出しも同じ形)。View だけなのでテストは足せない(実機)。
+- **ST-4**(直した、決定 16(a)): 完了アラートの「今すぐ終了」に `role: .cancel` を付けて Esc でも終え、出したまま 10 秒で終え(`quitDelayAfterReset`)、
+  環境設定ウインドウごと閉じられても終える(`onChange` / `onDisappear`。終了の頼みは 1 度だけ)。文言を「10 秒後に終了します」に改めた。
+  View だけなのでテストは足せない(実機)。docs/09 にボタン 1 つの `.alert` の実測を書き足した(§5)。
+- **ST-6**(直した、決定 15(a)): `TickMarkSlider` に操作の終わり(`onEditingEnded`。マウスは `mouseDown` が戻ったとき、キーボード・アクセシビリティは
+  その都度)を足し、`SettingsSlider(commitsOnRelease:)` はドラッグの途中の値を手元の下書きに置いて、離したときだけ `value` へ書く。「保持する履歴の件数」に
+  使い、吹き出しに「スライダーを離したときにすぐ削除され、元に戻せない」を足した。§5 の AppPreferences.swift のコメントも直した。AppKit の
+  追跡なのでテストは足せない(実機)。
+
+**待った後の確かめ直し**
+
+- **O-7**(直した): `open(urls:)` の下調べと `openSibling(after:/before:)` の兄弟探しが、待つ前の `openToken`(兄弟探しは表示中の本も)と比べ、
+  変わっていれば結果を捨てる。下調べ(ここと `BookOpenRequest.sequenced`・Dock/Finder の `ExternalOpenPreparation`)は `Task.detached` から
+  `FileIO.perform` へ。テスト用に `openProbeTask` を出した。テスト `AppStateOpenTests.aSiblingFoundLateDoesNotReplaceABookOpenedMeanwhile`・
+  `aDropCheckedLateDoesNotReplaceABookOpenedMeanwhile`。
+- **SP-10(= O-8)**(直した): `CollectionItemOpenTracker.resolve(stillWanted:)` を足し、サイドパネルのライブラリのツリー・ホームのコレクションは
+  「ライブラリ機能が ON のまま」と(開くときは)`openRequestToken` が変わっていないことを、スマートライブラリの `withResolvedURL` は機能と
+  `openRequestToken` を、待った後に確かめる。ツリーの本の行に回転表示を出した(`resolvingItemID`)。View の配線なのでテストは足せない
+  (`openRequestToken` の意味は O-7 のテストが押さえる)。
+- **O-9**(直した): 先の回をシークレットウインドウへ回したら(`BookWindowOpener.shouldOpenSecretBookPrivately` で開く前に判定)、その本を
+  `ExternalOpenGroup.routedPrivatelyPaths` に控え、`openedIn` / `openedInNewWindowBookURL` は控えない。まとめ直しは
+  `ExternalOpenPreparation.prepare(_:order:excluding:)` で回した本を除いた残りを、ふつうの「開く」として開く(全部が回した本なら何もしない)。
+  テスト `HomeInteractionTests.externalOpenPreparationLeavesOutBooksRoutedPrivately`(AppDelegate の配線は実機)。
+- **X-3**(直した): 帯のシートは「相手を引けるか」に機能スイッチを足し、OFF になったら `librarySheet` / `deletingLibraryID` を下ろし、作成・改名の
+  `onCommit` と削除のボタンでも確かめる。View の状態なのでテストは足せない(実機)。
+- **FBU-6**(直した): 「フォルダへ移動…」の確かめを `checkTask` に持ち、「キャンセル」・`onDisappear` で取り消し、確かめ終わったら取り消しを見る。
+  確かめている間の Return の 2 度押しも断る(FBU-7 の選択消しへの道もこれで塞がる。FBU-7 自体は段 8)。View なのでテストは足せない(実機)。
+- **V-1**(直した): `loadTransitFrame` が `pageFlipGeneration`・`loadGeneration`・今のページ・取り消しを、ページの読み込みを待った後(相方を読んだ後にも)
+  確かめてから代入する。ページの読み込みの速さしだいの競合なので、決まって起こせるテストは書けなかった。
+- **V-13**(直した): 差し替えの疑いがある間は `reloadLayoutData` が何もせず、`importComicInfoIfNeeded` は向きを取り込まない(メタデータ・ブックマークは
+  ページの鍵で付くので従来どおり)。`resolveLayoutReplacement` が読み直しの後に ComicInfo の取り込みをやり直す。テスト
+  `ReadingStateReplacementTests.aPendingReplacementKeepsTheDatabaseLayoutOffTheScreen`。
+- **V-14**(直した): 記録を残さない本でメモリの上だけ切り替えた見開き・補正を覚え(`hasUserChangedDisplayModeInMemory` /
+  `…ContrastCorrectionInMemory`。読み方向は既存の `hasUserChangedReadingDirection`)、`reloadLayoutData` はそれらを DB の値で戻さない。
+  テスト `ViewerViewModelTests.inMemoryTogglesSurviveLayoutNotifications`。
+- **TW-15**(直した、見込みのまま): 「書き出す」はボタンの動作の中で `didStart` を同期に立て、以後は淡色。パネルを挟むので実測もテストもしていない。
+- **TW-17**(直した): 移動の提案のシートは、`moveSuggestions` が変わったら「更新できる」でなくなった行のチェックも外し、トグルは「更新できる」行だけ
+  オンに見せ、「更新」は押して何かが起きるときだけ押せる。View なのでテストは足せない(実機)。
+- **MD-14**(直した): `applyExternalChanges` が行の形を合わせたら `refreshFromGenerator()` で `committed` を進め、`setLocked` が読みの届くのを待って
+  から値を読む。テスト `MetadataWorkspaceTests.lockingRightAfterAnOutsideEditKeepsTheEdit`。
+
+**確定前の入力**
+
+- **MD-11**(直した): `IntField` が焦点を失ったとき(`@FocusState`)と消えるときにも当て、当てた後は欄を当てた値へ戻す(範囲の外を丸めた値が今の値と
+  同じとき、打った数が残っていた)。View なのでテストは足せない(実機)。
+- **MD-7**(直した): 表が `registerCellCommit` で「書き換えているセルを今すぐ確定させる」口(`commitEditingNow`。表へ焦点を移し、移せなければ直に
+  確定)を `MetadataWorkspace.commitEditingCell` に渡し、`setLocked` と `reparseFromFileNames` の頭で `commitEditingCellIfNeeded()` を呼ぶ。確定は
+  DB へ書くので、続くロックは MD-14 と同じ待ちに乗る。AppKit のフィールドエディタなのでテストは足せない(実機)。
+- **FBU-4**(直した): リスト表示の `dismantleNSView` が、表と状態を切る前に `commitEditingForDismantle()` で打った名前で確定する(アイコン表示の
+  `finishEditing(commit: true, syncsAfterward: false)` と同じ。`abortEditing` で閉じ、`controlTextDidEndEditing` からの 2 度目の名前の変更を止める)。
+  AppKit のフィールドエディタなのでテストは足せない(実機)。
+
+docs: 04(下調べの後の確かめ直し・外からの「開く」のまとめ直しとシークレット)、05(通過ページのコマ)、06(履歴の件数)、07(差し替え中の読み直し・
+記録を残さない本のトグル・メタデータの編集のロックと数の欄)、08(書き出しの取り消し・ホームの書き出しと閉じる・保存データの実行中)、09(自前のシート・
+ボタン 1 つの `.alert`)、14(帯のシートと機能スイッチ)、15(フォルダへ移動・リストの名前の確定・一括リネームのシート・移動の提案)、02(テスト表)、CLAUDE.md。

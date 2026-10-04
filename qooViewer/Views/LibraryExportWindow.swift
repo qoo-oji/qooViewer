@@ -188,11 +188,17 @@ struct LibraryExportWindow: View {
             if isExporting {
                 ProgressView()
                     .controlSize(.small)
+                // 実行中は止められない(読み込みは途中で切ると保存データが半分だけ書き換わる)。以前は「キャンセル」が押せて、
+                // 窓を閉じるだけで処理は最後まで続いていた(2026-10-04 の監査 TW-12)。淡色にして、閉じても続くことを言葉で示す。
+                Text("Exporting saved data… It continues even if you close this window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Button("Cancel") {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
+            .disabled(isExporting)
 
             Button("Export Saved Data") {
                 exportButtonTapped()

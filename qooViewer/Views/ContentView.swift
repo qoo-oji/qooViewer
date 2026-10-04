@@ -1306,6 +1306,8 @@ struct ContentView: View {
                 removeMenuTrackingObservers()
                 // ファイルブラウザのFSEventsの監視と購読も(FileBrowserState.releaseResources)。
                 fileBrowser.releaseResources()
+                // ホームから出した「本の書き出し」も止める(同名確認の待ちを解く。2026-10-04 の監査 TW-6)。
+                appState.cancelHomeBookExports()
                 // 本の中身ブラウザが握っている入れ子の書庫(ファイルハンドル・一時ファイル・メモリ)も(2026-09-25 の監査)。
                 // 普段は本が閉じたときの onChange が手放すが、ウインドウごと閉じたときにそれが走る保証は無い。
                 bookContentsBrowserTask?.cancel()

@@ -19,7 +19,7 @@
 | 自動リネームの規則・除外・実行ログ | UserDefaults(`qooViewer.fileBrowser.autoRename.rules` JSON / `.excludedPaths` 配列 / `.activityLog` JSON) | `AutoRenameStore` / `AutoRenameActivityLog` | 規則 20・規則ごとの対象 20・除外 2000・ログ 500。対象はパス・ボリュームの UUID・**セキュリティスコープの無い**ブックマーク(移動の提案用)を持ち、読む権限は `FolderAccessStore`。SwiftData ではないので世代は増えない。「初期設定に戻す」の対象外、全削除では消える。**保存データの書き出しには規則と対象が入る**(2026-09-23。ボリュームの UUID・ブックマーク・確認の印は落とす → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ))。→ [15](15-file-browser.md#自動リネーム2026-09-15ユーザー要望) |
 | 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。「すべてのデータを削除」で消える(終了時。→ [15](15-file-browser.md#保存するもの)) |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | 保存データの書き出しに入る(2026-09-23。キーは接頭辞で拾う → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ)) |
-| 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30)。**保存データの書き出しには入らない**(アクセス権と同じ理由) |
+| 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30)。**保存データの書き出しには入らない**(アクセス権と同じ理由)。件数を下げると取り消せない形で切り詰めるので、スライダーは離したときの値だけを当て(`SettingsSlider(commitsOnRelease:)`)、吹き出しで「すぐ消えて戻せない」と言う(2026-10-04 の監査 ST-6、決定 15(a)。以前はドラッグの途中で通り過ぎた値で切り詰めた) |
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す。**保存データの書き出しには入らない**(書き出した端末でしか意味を持たないブックマーク) |
 | 最後に開いていた本 | UserDefaults | `LastActiveBookStore` | 1件 |
 | キー・マウスの割り当て | UserDefaults(JSON、`*.v1` キー) | `KeyBindingStore` | 保存データの書き出しに入る(2026-09-23。環境設定と同じカテゴリ) |

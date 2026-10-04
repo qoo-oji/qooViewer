@@ -200,4 +200,33 @@ struct ReadingStateReplacementTests {
         // 行が残っても、古い指紋のまま次に開くたびに尋ね直さない。
         #expect(layouts.checkContentReplacement(book: replaced) == .unaffected)
     }
+
+    @Test("差し替えを確かめている間は、レイアウトの知らせで DB のレイアウトを画面に当てず、確かめた後に当てる(2026-10-04 の監査 V-13)")
+    func aPendingReplacementKeepsTheDatabaseLayoutOffTheScreen() async throws {
+        let harness = try ViewerHarness(label: "replacement-pending")
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 4)
+        let layouts = harness.library.layouts
+        layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
+        try FileManager.default.copyItem(
+            at: book.sourceURL.appendingPathComponent("p04.png"), to: book.sourceURL.appendingPathComponent("p05.png")
+        )
+        let replaced = try await harness.reloadBook()
+        let viewer = await harness.open(replaced)
+        #expect(viewer.pendingLayoutReplacementStatus != nil)
+        let shown = viewer.readingDirection
+        let opposite: ReadingDirection = shown == .rightToLeft ? .leftToRight : .rightToLeft
+
+        // ほかのウインドウ(編集ウインドウなど)が向きを書いた知らせ。疑わしい行の向き・ページの指定は画面に当たらない。
+        layouts.setReadingDirectionOverride(for: replaced, opposite)
+        await viewer.settle()
+        #expect(viewer.readingDirection == shown)
+        #expect(!viewer.hasPageLayoutOverride(atIndex: 0))
+
+        // 「そのまま使う」を選んだら、DB の値が当たる。
+        viewer.resolveLayoutReplacement(applyExisting: true)
+        await viewer.settle()
+        #expect(viewer.readingDirection == opposite)
+        #expect(viewer.hasPageLayoutOverride(atIndex: 0))
+    }
 }

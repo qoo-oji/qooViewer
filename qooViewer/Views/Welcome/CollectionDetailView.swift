@@ -274,9 +274,17 @@ struct CollectionDetailView: View {
     /// (CollectionItemOpenProbe の型コメント)。いまは待つ間もアプリは動き、長引けばカバーに回転表示が出る。
     /// `perform` は待った後に呼ばれるので、**モデル(`CollectionItem`)をそこで読まない** ―― 必要な値は呼ぶ前に写し取る
     /// (待つ間に別のウインドウが外していれば、モデルは使えなくなっている。missingBook のコメントと同じ理由)。
-    private func withExistingURL(of item: CollectionItem, perform: @escaping @MainActor (URL) -> Void) {
+    ///
+    /// 待った後は、ライブラリ機能が ON のままか(と、`stillWanted` があればそれ)を確かめる(2026-10-04 の監査 O-8 = SP-10)。
+    private func withExistingURL(
+        of item: CollectionItem, stillWanted: (@MainActor () -> Bool)? = nil,
+        perform: @escaping @MainActor (URL) -> Void
+    ) {
         let material = CollectionItemOpenProbe.Material(item)
-        openTracker.resolve(material, onNotFound: { location in
+        let preferences = preferences
+        openTracker.resolve(material, stillWanted: {
+            preferences.libraryFeatureEnabled && (stillWanted?() ?? true)
+        }, onNotFound: { location in
             missingBook = MissingBook(id: material.itemID, title: material.title, reason: location)
         }, perform)
     }
@@ -773,6 +781,8 @@ struct CollectionDetailView: View {
                 format: format, preferences: preferences, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 metadataStore: metadataStore, collectionStore: collectionStore, usesPageListCache: allowsEditing
             ), exportRequest == nil else { return }
+            // ウインドウを閉じたら取り消す(TW-6。AppState.trackHomeBookExport)。
+            appState.trackHomeBookExport(export.viewModel)
             exportRequest = HomeBookExportRequest(export: export)
         }
     }
@@ -964,7 +974,10 @@ struct CollectionDetailView: View {
         // 見えている並び(検索・並べ替えの後)を渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
         // 押した時点の並びを写しておく(確かめを待つ間に並びが変わっても、見ていた並びをたどる)。
         let sequence = BookSequence.collection(items, opening: item)
-        withExistingURL(of: item) { url in
+        // 確かめを待つ間に別の入口で本を開いていたら、後から置き換えない(O-8。AppState.openRequestToken)。
+        let appState = appState
+        let token = appState.openRequestToken
+        withExistingURL(of: item, stillWanted: { appState.openRequestToken == token }) { url in
             appState.open(request: BookOpenRequest(url, sequence: sequence))
         }
     }
