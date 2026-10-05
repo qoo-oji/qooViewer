@@ -29,33 +29,39 @@ enum LastActiveBookStore {
     /// (`recordGenerations`)―― 続けて別の本を記録した・ホームへ戻って消した後に、先の記録が遅れて届いて上書きしないように。
     /// 呼び出し側は待たない(戻り値はテストが終わりを待つためのもの)。
     ///
-    /// **いま記録してある本と同じなら何もしない**(2026-10-05 の効率の監査 C9)。ウインドウを切り替えるたびに呼ばれるので、以前は
+    /// **いま記録してある本と同じなら作り直さない**(2026-10-05 の効率の監査 C9)。ウインドウを切り替えるたびに呼ばれるので、以前は
     /// 同じ本でも毎回ブックマークを作り(ネットワーク上の本なら往復)、UserDefaults へ書いていた。「記録してある」は、この起動の中で
-    /// 書き終えた記録だけ(`lastRecordedPaths`)。別の本の記録を始めた・消したら忘れる。
+    /// 書き終えた記録だけ(`lastRecorded`)で、パスに加えてファイルそのもの(`FileNodeIdentifier`)も同じときだけ。パスだけで
+    /// 見ると、開いている間に同じパスへ置き換えられた本(Finder の「置き換える」・ダウンロードし直し)で古い記録が残り、ブックマークが
+    /// ゴミ箱へ入った前のファイルを指したまま、次の起動で開き直せなかった(2026-10-05 のコードレビュー)。確かめの stat もメインの外。
     @discardableResult
     static func record(url: URL, defaults: UserDefaults = .standard) -> Task<Void, Never> {
         let key = ObjectIdentifier(defaults)
         // 記録がまだ残っているかも見る(保存先の中身が外で消された ―― テストの保存先が作り直された ―― ときは書き直す)。
-        if lastRecordedPaths[key] == url.path, defaults.data(forKey: defaultsKey) != nil { return Task {} }
-        lastRecordedPaths[key] = nil
+        let recorded = defaults.data(forKey: defaultsKey) != nil ? lastRecorded[key] : nil
         recordGenerations[key, default: 0] &+= 1
         let generation = recordGenerations[key]
         return Task { @MainActor in
-            let data = await FileIO.perform {
-                try? url.bookmarkData(
+            if let recorded, recorded.path == url.path {
+                let node = await FileIO.perform { FileNodeIdentifier.current(for: url) }
+                if node != nil, node == recorded.node { return }
+            }
+            let made = await FileIO.perform { () -> (data: Data?, node: FileNodeIdentifier?) in
+                let data = try? url.bookmarkData(
                     options: .withSecurityScope,
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
+                return (data, FileNodeIdentifier.current(for: url))
             }
-            guard let data, generation == recordGenerations[key] else { return }
+            guard let data = made.data, generation == recordGenerations[key] else { return }
             defaults.set(data, forKey: defaultsKey)
-            lastRecordedPaths[key] = url.path
+            lastRecorded[key] = (url.path, made.node)
         }
     }
 
-    /// この起動の中で書き終えた記録の本のパス(`record` のコメント)。保存先ごと。
-    private static var lastRecordedPaths: [ObjectIdentifier: String] = [:]
+    /// この起動の中で書き終えた記録の本のパスとファイル(`record` のコメント)。保存先ごと。
+    private static var lastRecorded: [ObjectIdentifier: (path: String, node: FileNodeIdentifier?)] = [:]
 
     /// 記録・消去の世代(`record` のコメント)。後から呼ばれたものが勝つ。保存先ごとに数える(テストは保存先を分けて並行に走る。
     /// 別の保存先への記録で自分の記録が捨てられないように)。
@@ -67,7 +73,7 @@ enum LastActiveBookStore {
     static func clear(defaults: UserDefaults = .standard) {
         // 作っている最中の記録があっても、届いたときに書かせない(`record` のコメント)。
         recordGenerations[ObjectIdentifier(defaults), default: 0] &+= 1
-        lastRecordedPaths[ObjectIdentifier(defaults)] = nil
+        lastRecorded[ObjectIdentifier(defaults)] = nil
         defaults.removeObject(forKey: defaultsKey)
     }
 

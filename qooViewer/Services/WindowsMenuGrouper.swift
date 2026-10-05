@@ -42,7 +42,13 @@ final class WindowsMenuGrouper {
                 // 続けざまに届くイベント(マウスの移動・ドラッグの途中・スクロール・ピンチなど)の後では確かめない(2026-10-05 の
                 // 効率の監査 C11。以前はイベント 1 つごとに一覧の項目を取り出して並べ直しの要否を求めていた)。タブの結合・切り離し・
                 // 並べ替えは、マウスを離したとき・メニューやキーの操作で終わるので、その後のイベントで拾える。
-                if let type = NSApp.currentEvent?.type, Self.continuousEventTypes.contains(type) { return }
+                // ただしドラッグで結合・切り離したタブは、AppKit のドラッグの中で終わり、最後のイベントがドラッグのまま届きうる
+                // (その後マウスを動かすだけでは拾えず、次にクリックした「ウインドウ」メニューが古い並びで開いた ―― 2026-10-05 の
+                // コードレビュー)。続けざまのイベントの後は、少し後に 1 回だけ確かめる(`scheduleDeferredCheck`)。
+                if let type = NSApp.currentEvent?.type, Self.continuousEventTypes.contains(type) {
+                    self?.scheduleDeferredCheck()
+                    return
+                }
                 self?.regroupIfNeeded()
             }
         })
@@ -63,6 +69,22 @@ final class WindowsMenuGrouper {
         .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel,
         .magnify, .rotate, .swipe, .gesture, .pressure, .mouseEntered, .mouseExited, .cursorUpdate
     ]
+
+    /// 続けざまのイベントの後の確かめを予約済みか(`scheduleDeferredCheck`)。
+    private var isDeferredCheckScheduled = false
+
+    /// 続けざまのイベントの後の確かめ。間隔を空けて 1 回だけ(イベント 1 つごとには確かめない)。
+    private func scheduleDeferredCheck() {
+        guard !isDeferredCheckScheduled else { return }
+        isDeferredCheckScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isDeferredCheckScheduled = false
+                self.regroupIfNeeded()
+            }
+        }
+    }
 
     private func scheduleRegroup() {
         guard !isScheduled else { return }

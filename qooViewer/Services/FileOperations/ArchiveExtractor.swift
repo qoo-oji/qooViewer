@@ -69,7 +69,7 @@ nonisolated enum ArchiveExtractor {
         }
         var written: UInt64 = 0
         // 作った・フォルダだと確かめた場所(`makeDirectories`)。ファイルごとに親を頭から mkdir し直さない。
-        var madeDirectories = Set<String>()
+        var madeDirectories = Set<[UInt8]>()
         do {
             // フォルダは先に全部作る(空のフォルダも残す)。
             for item in prepared.plan.items where item.isDirectory {
@@ -195,16 +195,20 @@ nonisolated enum ArchiveExtractor {
     /// ファイル 1 つごとに、一時フォルダから下の階層の数だけ mkdir(EEXIST)と lstat をしていた ―― 展開先が共有なら 1 回ごとに往復)。
     /// 一時フォルダ(0700)に書くのはこの展開だけで、ファイルは `O_EXCL` で作るので、確かめたフォルダが後からファイルに変わることは無い。
     /// ファイルがある場所は `made` に入らないので、今までどおり mkdir(EEXIST)と lstat で断る。
-    private static func makeDirectories(_ folder: URL, under root: URL, made: inout Set<String>) throws {
+    /// 鍵はパスの**バイト列**(`String` の比較は NFC と NFD を同じとみなすが、正規化を区別するボリューム ―― NFS・Linux の SMB ――
+    /// では別の名前。書庫の中で綴りの違うフォルダの 2 つめの mkdir を飛ばし、その下のファイルが作れなかった ―― 2026-10-05 の
+    /// コードレビュー)。
+    private static func makeDirectories(_ folder: URL, under root: URL, made: inout Set<[UInt8]>) throws {
         let rootPath = root.path
         let path = folder.path
         guard path.hasPrefix(rootPath) else { throw FileOperationError.posixFailure(item: folder, errnoCode: EPERM) }
         var current = rootPath
         for component in path.dropFirst(rootPath.count).split(separator: "/") {
             current += "/" + component
-            if made.contains(current) { continue }
+            let key = Array(current.utf8)
+            if made.contains(key) { continue }
             if mkdir(current, 0o755) == 0 {
-                made.insert(current)
+                made.insert(key)
                 continue
             }
             let code = errno
@@ -212,7 +216,7 @@ nonisolated enum ArchiveExtractor {
             guard code == EEXIST, lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else {
                 throw FileOperationError.posixFailure(item: URL(fileURLWithPath: current), errnoCode: code)
             }
-            made.insert(current)
+            made.insert(key)
         }
     }
 

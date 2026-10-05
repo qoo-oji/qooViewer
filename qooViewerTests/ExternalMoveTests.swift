@@ -58,6 +58,26 @@ struct ExternalMoveTests {
         #expect(library.metadata.metadata(forBookID: new.path)?.author == "A")
     }
 
+    @Test("本を開いたときの付け替えの後、全行の控え(allRecords)に元のパスの項目が残らない")
+    func reconcileOnOpenRefreshesAllRecordsMemo() throws {
+        // 控えは書いた本の項目だけを差し替える(2026-10-05 の効率の監査 B12)。付け替えは元のパスの項目も外さないと、
+        // メタデータ生成が実在しないパスに行を作り直していた(2026-10-05 のコードレビュー)。
+        let library = try InMemoryLibrary(label: "outside-move-open-memo")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("outside-move-open-memo")
+        let old = temporary.file("before.cbz")
+        try Data("a".utf8).write(to: old)
+        registerLocked(old, in: library)
+        let new = temporary.file("after.cbz")
+        try FileManager.default.moveItem(at: old, to: new)
+        #expect(library.metadata.allRecords().keys.sorted() == [old.path], "控えを今の revision で作っておく")
+
+        let book = MangaBook(id: new.path, title: "after", sourceURL: new, pages: [])
+        #expect(library.metadata.reconcileBookIDIfMoved(book: book) == old.path)
+        #expect(library.metadata.allRecords().keys.sorted() == [new.path])
+        #expect(library.metadata.allRecords()[new.path]?.values.title == "T")
+    }
+
     @Test("本を開いたときの追従: 識別子を持たないメタデータの行も、ほかのストアが見つけた元のパスで付いてくる")
     func openingFollowsRowsWithoutIdentity() throws {
         // AppState.open と同じ手順(5 つの reconcile → 元のパスで applyBookRelocation)を、ストアの上で通す。

@@ -183,23 +183,32 @@ final class SharedStorageUsageScan: ObservableObject {
     @Published private(set) var isScanning = false
 
     private var finishedAt: ContinuousClock.Instant?
-    private var running: (task: Task<StorageUsage?, Never>, startedAt: ContinuousClock.Instant)?
+    private var running: (id: Int, task: Task<StorageUsage?, Never>, startedAt: ContinuousClock.Instant)?
+    private var lastRunID = 0
 
     /// 最新の結果が `maxAge` 秒より古ければ(無ければ)走査する。0 なら必ず、呼んだ後に始まった走査の結果にする。
     func refresh(maxAge: TimeInterval, locations: StorageUsageScanner.Locations) async {
         let requestedAt = ContinuousClock.now
         if maxAge > 0, let finishedAt, requestedAt - finishedAt < .seconds(maxAge) { return }
         // 走っている走査があれば待つ。古さを問わない頼みならそれで足りる。「今すぐ」は、頼んだ後に始まった走査でなければもう 1 本。
-        while let running {
-            _ = await running.task.value
-            if maxAge > 0 || running.startedAt >= requestedAt { return }
+        // 待ち終えた走査がまだ `running` に残っている(始めた側がまだ片付けていない)ときは、もう待たずに始める ―― 同じ走査を
+        // 待ち直すと、終わった Task の待ちがその場で戻る場合にメインで回り続ける(2026-10-05 のコードレビュー)。片付けは
+        // 自分の番号のときだけ行うので、ここで始めた走査は先の走査の片付けに消されない。
+        while let current = running {
+            _ = await current.task.value
+            if maxAge > 0 || current.startedAt >= requestedAt { return }
+            if running?.id == current.id { break }
         }
+        lastRunID &+= 1
+        let id = lastRunID
         let task = Task { await FileIO.perform(qos: .utility) { StorageUsageScanner.scan(locations) } }
-        running = (task, ContinuousClock.now)
+        running = (id, task, ContinuousClock.now)
         isScanning = true
         let result = await task.value
-        running = nil
-        isScanning = false
+        if running?.id == id {
+            running = nil
+            isScanning = false
+        }
         finishedAt = ContinuousClock.now
         if let result { usage = result }
     }

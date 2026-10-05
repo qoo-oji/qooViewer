@@ -625,7 +625,11 @@ nonisolated enum SmartSort {
             let fileName: String
         }
         func volume(_ book: SmartBook) -> Double {
-            book.metadata.volumeSort ?? Double(book.metadata.volume) ?? .greatestFiniteMagnitude
+            // "nan" と書かれた巻は NaN になり、どれと比べても「後ろ」になって並べ方の前提(厳密な順序)を崩す。全冊を 1 度並べてから
+            // 絞る形(`SmartLibraryViewState.recompute`)では、絞ってから並べたときと順が変わりうるので、数でない巻と同じく末尾へ
+            // (2026-10-05 のコードレビュー)。
+            let value = book.metadata.volumeSort ?? Double(book.metadata.volume) ?? .greatestFiniteMagnitude
+            return value.isNaN ? .greatestFiniteMagnitude : value
         }
         let keys = books.map { book -> Key in
             var k = Key(fileName: book.fileName)
@@ -682,7 +686,8 @@ nonisolated enum SmartSort {
             }
         }
         func volume(_ book: SmartBook) -> Double {
-            book.metadata.volumeSort ?? Double(book.metadata.volume) ?? .greatestFiniteMagnitude
+            let value = book.metadata.volumeSort ?? Double(book.metadata.volume) ?? .greatestFiniteMagnitude
+            return value.isNaN ? .greatestFiniteMagnitude : value
         }
         return books.sorted { a, b in
             var result: ComparisonResult

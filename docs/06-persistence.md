@@ -295,7 +295,15 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 ものだけ受ける。本を開くときの Bookmark の全件フェッチ・ファイルの識別子(`FileNodeIdentifier`)は 1 回ずつにして、5 つのストアの
 `reconcileBookIDIfMoved(book:knownIdentifier:)` へ同じ値を渡す(以前は全件フェッチが 2〜3 回、識別子が最大 7 回)。差し替えと判断して
 ブックマークを消したときも `.bookmarksDidChange` を出す(以前は出さず、編集ウインドウの一覧が消えた行を持ち続けた)。
-`BookMetadataStore.allRecords()` は `revision` が同じ間は控えを返す。
+`BookMetadataStore.allRecords()` は `revision` が同じ間は控えを返す。1 冊ずつの書き込み(`saveAndNotify`)・まとめての書き込みは、
+控えが今の `revision` のものなら**書いた本の項目だけを差し替えて**次の `revision` の控えにする(`advanceRevision(changing:)`、
+2026-10-05 の効率の監査 B12)。行の `bookID` を書き換える書き込みは、元の ID も差し替えの相手に渡すこと(`reconcileBookIDIfMoved` は
+渡し忘れて、控えに元のパスの項目が残った ―― 同日のコードレビュー)。`bookID` をまとめて書き換える口(`applyBookRelocation` など)は
+`revision` を進めて控えを捨てる。
+
+保存データの読み込みで、各ストアをファイルの識別子(iノード)で引くときは、段ごとに 1 回だけ索引を作る(`fileNodeIndex()` →
+`FileNodeIndex`。2026-10-05 の効率の監査 A5)。行を書き換えながら照らす段(レイアウト・ブックマークの取り込み)は今までどおり 1 件ずつ探す
+(索引が古くなる)。
 
 ## UserDefaults のストア
 

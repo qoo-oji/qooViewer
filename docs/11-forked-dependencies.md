@@ -263,7 +263,10 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 `Services/RarArchiveReader.swift` がこのフォークの利用者で、`ArchiveReading` に
 `init(data:)` 相当の入口があります。入れ子の rar も 7z と同じく、予算内ならメモリから、
 超えれば一時ファイルから開きます(`NestedArchiveResolver`)。展開(`ArchiveReading.readEntriesInArchiveOrder`)は
-`forEachEntry` を使います。ネットワークボリューム上の rar は `init(source:)`(`Source.reader`)で読み込み層を通します
+`forEachEntry` を使います。ビューアの本全体の下調べ(ページの寸法)も、ルートが rar の本は専用の reader で `forEachEntry` を
+書庫順に 1 回だけ読み通します(`PageLoader.startRarScanIfNeeded`、2026-10-05 の効率の監査 A1。1 件ずつの取り出しはソリッドで書庫の
+大きさの 2 乗の伸長になり、合成した 80 ページのソリッドの cbr で 79.8 秒 → 2.1 秒)。rar がいくつも入ったフォルダの本は書庫ごとに順に。
+ネットワークボリューム上の rar は `init(source:)`(`Source.reader`)で読み込み層を通します
 (`makeArchiveReader(kind:url:)` が選ぶ)。7z も同じく `SevenZipArchiveReader.init(source:)`(`Archive(reader:)`)。
 
 ### 既知の制限

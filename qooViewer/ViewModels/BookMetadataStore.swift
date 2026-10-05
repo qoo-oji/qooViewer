@@ -553,7 +553,9 @@ final class BookMetadataStore: ObservableObject {
         cachedByBookID?[oldBookID] = nil
         cachedByBookID?[book.id] = matched
         registeredBookIDs.remove(oldBookID)
-        saveAndNotify(bookID: book.id)
+        // `allRecords()` の控えは古いパスの項目も外す(書いた本だけを差し替える控えなので、ここで言わないと古いパスの項目が残り、
+        // メタデータ生成が実在しないパスに行を作り直していた ―― 2026-10-05 のコードレビュー)。
+        saveAndNotify(bookID: book.id, alsoChanging: [oldBookID])
         return oldBookID
     }
 
@@ -692,7 +694,8 @@ final class BookMetadataStore: ObservableObject {
         }
     }
 
-    private func saveAndNotify(bookID: String) {
+    /// - Parameter alsoChanging: `bookID` のほかに行が消えた・移った本(`allRecords()` の控えの差し替えの相手。通知は `bookID` だけ)。
+    private func saveAndNotify(bookID: String, alsoChanging otherBookIDs: [String] = []) {
         do {
             try modelContext.save()
             lastSaveErrorMessage = nil
@@ -704,7 +707,7 @@ final class BookMetadataStore: ObservableObject {
         } else {
             registeredBookIDs.remove(bookID)
         }
-        advanceRevision(changing: [bookID])
+        advanceRevision(changing: [bookID] + otherBookIDs)
         NotificationCenter.default.post(
             name: .bookMetadataDidChange, object: self, userInfo: ["bookID": bookID]
         )

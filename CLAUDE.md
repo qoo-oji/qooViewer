@@ -179,6 +179,14 @@ new windows/sheets/undo snapshots that keep bookIDs must subscribe (docs/06「�
 notice, never on `FileSystemChangeCenter` (it arrives before the stores are rewritten; writes before the notice go to the old row, which the
 relocator carries — rows added while it plans included; review R4-1). "The file had nothing" facts (no ComicInfo/TOC/outline/metadata) are remembered in
 `BookPageListCache.Entry.sourceProbe` — never by setting `didImportSourceMetadata`, which would change `isParsedOnly`.
+**Second efficiency audit (2026-10-05; `docs/plans/efficiency-audit-2026-10-05.md`, incl. the device measurements and the code review)**:
+stores a big view only hands on or uses inside actions come from `\.unobservedStores` (`UnobservedStores.required(…)`), not
+`@EnvironmentObject` — but a store whose value the body, a helper it calls or a memo key reads stays subscribed (`LaunchCoordinator` in
+ContentView drives the menu's open-book dimming; removing it was a regression caught in review; docs/09「その他の小さな約束」). Lazy image
+lists hold `LazyCellImageBudget.ViewState` (only the epoch is `@State`). Memos patched per written row (`BookMetadataStore.advanceRevision(changing:)`)
+must be told every ID a write touched, old IDs of a rekeyed row included. A rar book's whole-book scan reads each root rar once in archive
+order (`PageLoader.startRarScanIfNeeded`); per-entry rar extraction is quadratic on solid archives. Zoom/Actual Size images stay plain
+ImageIO `CGImage`s: routing them through `PagePixelBuffer` measured no difference on macOS 27 and was reverted.
 **The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
 zip restores the environment, folder access permissions aside). So anything new the user creates that is
 persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file — must decide whether it joins

@@ -24,7 +24,10 @@ struct ContentView: View {
     private var metadataStore: BookMetadataStore { UnobservedStores.required(unobservedStores.metadataStore) }
     private var collectionStore: CollectionStore { UnobservedStores.required(unobservedStores.collectionStore) }
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
-    private var launchCoordinator: LaunchCoordinator { UnobservedStores.required(unobservedStores.launchCoordinator) }
+    /// 起動の調整役は購読のまま(2026-10-05 のコードレビュー)。ほかのウインドウで本を開く・閉じると知らせ(手前の本のウインドウと
+    /// その本が変わったとき)、メニューバーのファイルブラウザの項目の淡色(`fileBrowserMenuSelection` の鍵の `openBookPaths`)を
+    /// 組み直すきっかけはこれだけ。知らせはまれ(手前の本のウインドウ・その本が変わったときだけ)。
+    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     /// シークレットフォルダ(2026-10-03)。ここで読むのは、以前の除外フォルダから移したことの 1 度きりの知らせだけ。
     @EnvironmentObject private var secretFolderStore: SecretFolderStore
     @Environment(\.openSettings) private var openSettings

@@ -86,6 +86,39 @@ struct PageLoaderTests {
         }
     }
 
+    @Test("rar がいくつも入ったフォルダの本も、書庫ごとに読み通して同じ寸法を返す(2026-10-05 のコードレビュー)")
+    func rarScanCoversEveryArchiveInAFolderBook() async throws {
+        let temporary = try TemporaryDirectory("loader-rar-folder")
+        for (index, fixture) in ["rar/rar-solid.cbr", "rar/rar-flat.cbr"].enumerated() {
+            try FileManager.default.copyItem(at: Fixtures.url(fixture), to: temporary.file("第\(index + 1)話.cbr"))
+        }
+        let book = try await FixtureBook.load(temporary.url)
+        let roots = Set(book.pages.compactMap { page -> URL? in
+            if case .archive(let locator, _) = page.source { return locator.rootURL } else { return nil }
+        })
+        #expect(roots.count == 2, "前提: 2 つの書庫のページが 1 冊に並ぶ")
+        let scanning = makeLoader(book)
+        let direct = makeLoader(book)
+        defer {
+            Task { await scanning.releaseAllResources() }
+            Task { await direct.releaseAllResources() }
+        }
+        await scanning.beginWholeBookScan()
+        var scanned: [[Int]] = []
+        for index in book.pages.indices {
+            let size = await scanning.scanPage(at: index)
+            scanned.append(size.map { [$0.width, $0.height] } ?? [])
+        }
+        await scanning.endWholeBookScan()
+        var expected: [[Int]] = []
+        for index in book.pages.indices {
+            let size = await direct.pageSize(at: index)
+            expected.append(size.map { [$0.width, $0.height] } ?? [])
+        }
+        #expect(scanned == expected)
+        #expect(!expected.contains([]))
+    }
+
     @Test("範囲外の番号は nil(落ちない)")
     func anOutOfRangeIndexReturnsNil() async throws {
         let source = try await makeSource("loader-range", pageCount: 3)
@@ -348,8 +381,8 @@ struct PageLoaderTests {
         return Array(pixel[0..<3])
     }
 
-    @Test("拡大用・原寸大の画像は表示用のバッファ経由で作られ、寸法と色は ImageIO で直に読んだものと同じ")
-    func highResolutionImagesComeFromPixelBuffers() async throws {
+    @Test("拡大用・原寸大の画像は表示用の上限を超えた寸法で、寸法と色は ImageIO で直に読んだものと同じ")
+    func highResolutionImagesMatchDirectDecoding() async throws {
         let temporary = try TemporaryDirectory("loader-highres")
         let directory = temporary.file("book")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

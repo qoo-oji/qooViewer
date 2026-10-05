@@ -215,6 +215,26 @@ struct FolderMemoryTests {
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults)?.path == fixture.beta.path)
     }
 
+    @Test("同じ本の記録は作り直さないが、同じパスに置き換えられた本は記録し直す(2026-10-05 のコードレビュー)")
+    func aBookReplacedAtTheSamePathIsRecordedAgain() async throws {
+        let fixture = try Fixture("last-book-same-path")
+        let defaults = fixture.suite.defaults
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: defaults).value
+        let first = try #require(defaults.data(forKey: "qooViewer.lastActiveBookBookmark"))
+        // 何も変わっていなければ書き直さない(効率の監査 C9)。目印の値に変えておき、残ることを確かめる。
+        defaults.set(Data([1]), forKey: "qooViewer.lastActiveBookBookmark")
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: defaults).value
+        #expect(defaults.data(forKey: "qooViewer.lastActiveBookBookmark") == Data([1]))
+        // 同じパスへ別のもの(別のファイルノード)が置かれたら、記録し直す。
+        defaults.set(first, forKey: "qooViewer.lastActiveBookBookmark")
+        try FileManager.default.removeItem(at: fixture.alpha)
+        try FileManager.default.createDirectory(at: fixture.alpha, withIntermediateDirectories: false)
+        await LastActiveBookStore.record(url: fixture.alpha, defaults: defaults).value
+        let second = try #require(defaults.data(forKey: "qooViewer.lastActiveBookBookmark"))
+        #expect(second != first)
+        #expect(LastActiveBookStore.resolve(defaults: defaults)?.path == fixture.alpha.path)
+    }
+
     @Test("消すと解決しなくなる(ウェルカム画面へ戻ったときに呼ぶ)")
     func clearingStopsTheResolution() async throws {
         let fixture = try Fixture("last-book-clear")
