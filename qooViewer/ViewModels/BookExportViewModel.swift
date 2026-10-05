@@ -850,7 +850,7 @@ class BookExportViewModel: ObservableObject {
     final func startExport(destinationFolder: URL) async {
         let targets = rows.filter { selectedBookIDs.contains($0.bookID) }
         guard !targets.isEmpty else { return }
-        await runExport(targets: targets, destinationFolder: destinationFolder)
+        guard await runExport(targets: targets, destinationFolder: destinationFolder) else { return }
         // 結果シート(「N冊中N冊を書き出しました」)を出す。1冊だけを書き出す経路
         // (exportOpenBook)はこれを立てない ―― そちらは書き出しの後に「次の本へ」等が
         // 続く流れの途中なので、毎回OKを押させるとその流れが途切れる(ユーザーの指示)。
@@ -902,13 +902,24 @@ class BookExportViewModel: ObservableObject {
         // シートが既に呼んでいるのが普通だが、固定の保存先で何も尋ねずに書き出す経路も
         // あるので、ここでも必ず通しておく(二度呼んでも害は無い)。
         let row = prepareOpenBook(book)
-        await runExport(targets: [row], destinationFolder: destinationFolder)
+        // 走っている書き出しがあれば始めない(runExport のコメント)。失敗の知らせは出さない ―― 呼ぶ側は successCount(走っている
+        // 書き出しのもの。1 冊ぶんは書き終えるまで 0)で「書き出したあとの動作」へ進まない。
+        guard await runExport(targets: [row], destinationFolder: destinationFolder) else { return nil }
         return failures.first?.message
     }
 
     /// 書き出しの本体(進捗・キャンセル・同名確認・失敗の集約)。一覧から選んだ複数冊も、
     /// いま開いている1冊も、ここを通る。
-    private func runExport(targets: [Row], destinationFolder: URL) async {
+    ///
+    /// - Returns: 始めたか。**同じ ViewModel で書き出しが走っている間は始めない**(鳴らして false。2026-10-05 の監査 A5-1)。2 本目は
+    ///   状態を初めに戻し、同名の確認を待つ continuation(1 つしか持てない)を上書きして 1 本目を永久に待たせ、RunningWorkRegistry の
+    ///   数も戻らなくなる(終了のたびに「作業の途中」と尋ねる)。ファイルブラウザのシートが、ホームが外れた後で出直したときに起きた。
+    @discardableResult
+    private func runExport(targets: [Row], destinationFolder: URL) async -> Bool {
+        guard !isExporting else {
+            NSSound.beep()
+            return false
+        }
         // ⌘Q の確認のために数える(RunningWorkRegistry)。
         let workToken = RunningWorkRegistry.forCurrentProcess?.begin()
         defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
@@ -928,10 +939,15 @@ class BookExportViewModel: ObservableObject {
             guard !isCancelled else { break }
             // 書き出しを始めた後に付け替えられた本は、今の bookID で引く(2026-10-04 の監査 TW-5)。
             let row = followingRelocations(target)
+            // ここまでの付け替えは row へ当てた。1 冊ぶんの Task へ移る間に届くものは、exportOne が読んだ後で当てる(数えるのはここ ――
+            // Task の中で数えると、移る間に届いた知らせを当てずに「当てた」ことにしてしまう。2026-10-05 の監査 A5-2)。
+            let noticesApplied = relocationsDuringExport.count
             currentBookDisplayName = row.displayName
             // 1 冊ぶんを取り消せる Task で書く(`cancel()`がこれを取り消す。TW-4)。Task はこのアクタを受け継ぐので、
             // 中で触る状態は今までどおりメインの上。
-            let work = Task { try await self.exportOne(row: row, destinationFolder: destinationFolder) }
+            let work = Task {
+                try await self.exportOne(row: row, destinationFolder: destinationFolder, noticesApplied: noticesApplied)
+            }
             currentBookTask = work
             do {
                 try await work.value
@@ -951,10 +967,15 @@ class BookExportViewModel: ObservableObject {
 
         isExporting = false
         currentBookDisplayName = nil
+        return true
     }
 
     /// 1冊ぶんの材料をDB・ファイルから集め、出力先を確定して、サブクラスのexport(_:to:)へ渡す。
-    private func exportOne(row: Row, destinationFolder: URL) async throws {
+    /// - Parameter noticesApplied: `row` へ当て済みの付け替えの知らせの数(runExport が Task を作る前に数える)。
+    private func exportOne(row target: Row, destinationFolder: URL, noticesApplied: Int) async throws {
+        // Task へ移る間に届いた付け替えを当ててから引く(以前はここで数え始めたので、それらを当てずに古い bookID で引き、「見つからない」
+        // と数えた。A5-2)。
+        let row = followingRelocations(target, since: noticesApplied)
         let noticesBeforeLoading = relocationsDuringExport.count
         guard let sourceURL = resolveURL(forBookID: row.bookID) else {
             throw SimpleError(message: String(localized: "The original file/folder couldn't be found.", language: preferences.effectiveLocale))

@@ -23,7 +23,7 @@
    ビューアの題 `BookTitleResolver` と同じ。2026-10-04 の監査 MD-15(a) ―― 以前は題が空の行をファイル名から読み直し、行の著者を見なかった)。初期値(種)は利用者の編集とは別に控え、**欄が種のままなら読み直しのたびに今の値へ
    入れ替える**(2026-10-04 の監査 TW-1。以前は最初の種が「編集済み」として凍り、インスペクタ・メタデータの編集ウインドウで直した題・著者が
    書き出しに届かなかった)。書き換えた欄は残す。本が付け替えられたら、チェック・題と著者の編集は新しい bookID へ移り、書き出しの最中でも
-   今の bookID で引く(TW-5。`BookRelocationNotice` → [06](06-persistence.md#移動リネームへの追従))。2 人目以降の著者とジャンルも書く(EPUB は `dc:creator` を並べ `dc:subject`、
+   今の bookID で引く(TW-5。1 冊ぶんの Task へ移る間に届いた知らせも当てる ―― 数え始めるのは Task を作る前、2026-10-05 の監査 A5-2。`BookRelocationNotice` → [06](06-persistence.md#移動リネームへの追従))。2 人目以降の著者とジャンルも書く(EPUB は `dc:creator` を並べ `dc:subject`、
    PDF は Author を「, 」でつなぎ Subject(XMP にも `dc:creator` の並びと `dc:subject`)、CBZ は Writer/Penciller を「, 」でつなぎ
    Genre、情報は Notes)。イベント・原作は書かない(合う欄が無い。CBZ の `Tags` は v2.1 草案で、v2.0 の XSD 検証を外すことに
    なるため見送り、2026-09-22)。
@@ -89,7 +89,9 @@
   (2026-10-04 の監査 TW-6): シートが畳まれたとき(`homeBookExportSheet` の `onDisappear`)と、ウインドウの `willClose`
   (作った側が `AppState.trackHomeBookExport` で控え、ContentView が `cancelHomeBookExports()` を呼ぶ ―― ウインドウごと閉じたときは
   `onDisappear` が来ないことがある)。以前は誰も取り消さず、同名確認の最中に閉じると `RunningWorkRegistry` に残って以後の終了のたびに
-  「作業の途中」と尋ねられた。
+  「作業の途中」と尋ねられた。ファイルブラウザのシートも畳まれたら止め、シートの印(`FileBrowserState.bookSheet`)も下ろす(2026-10-05 の
+  監査 A5-1。印は窓ごとの状態でホームが外れても残るので、戻ったときにシートが出直し、何も尋ねない設定では同じ ViewModel で 2 本目が走った)。
+  `runExport` 自身も、同じ ViewModel で書き出しが走っている間は始めない(鳴らして false。2 本目は状態を初めに戻し、continuation を上書きした)。
 - **「キャンセル」を押したら「書き出したあとの動作」と保存データの後片付けへ進まない**(`onFinish(successCount > 0 && !wasCancelled)`。TW-4)。
 - 「書き出す」はボタンの動作の中で同期に始めた印(`didStart`)を立て、以後は淡色(TW-15。Task の中で立てていたので、2 回の
   クリックが続けて処理されると 2 本走りえた)。

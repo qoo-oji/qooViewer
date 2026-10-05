@@ -184,6 +184,15 @@ struct FileBrowserPane: View {
             ) { [weak state] _ in
                 state?.bookSheet = nil
             }
+            // シートが畳まれたら(本を開いてホームが外れた・ファイルブラウザの機能を切った)書き出しも止め、シートの印も下ろす
+            // (2026-10-05 の監査 A5-1。ホームの 2 つのシートの TW-6 と同じ ―― こちらだけ漏れていた)。印は窓ごとの
+            // FileBrowserState にあってホームが外れても残るので、残すと戻ったときにシートが出直し、何も尋ねない設定では同じ
+            // ViewModel で 2 本目の書き出しが始まった。止めないと、同名の確認を待つ書き出しは誰にも答えられないまま残り、
+            // 終了のたびに「作業の途中」と尋ねた。書き終えて閉じたときに呼んでも何もしない。
+            .onDisappear { [weak state] in
+                sheet.cancelExport()
+                if state?.bookSheet?.id == sheet.id { state?.bookSheet = nil }
+            }
         }
     }
 

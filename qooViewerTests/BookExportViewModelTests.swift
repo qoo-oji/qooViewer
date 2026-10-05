@@ -390,6 +390,36 @@ struct BookExportViewModelTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
 
+    @Test("同じ ViewModel で書き出しが走っている間は、2 本目を始めない(1 本目の状態と待ちを壊さない。2026-10-05 の監査 A5-1)")
+    func aSecondExportDoesNotStartWhileOneRuns() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        viewModel.usesPageListCache = false
+        viewModel.waitsForCancellation = true
+        let folder = try FixtureFolder.make(at: env.temporary.file("book"), pages: [.init("p01.png", number: 1)])
+        let output = env.temporary.file("out")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let book = MangaBook(id: folder.path, title: "book", sourceURL: folder, pages: [])
+
+        let first = Task { await viewModel.exportOpenBook(book, displayState: nil, to: output) }
+        for _ in 0..<2000 where !viewModel.isWaitingInExport {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(viewModel.isWaitingInExport)
+
+        // 2 本目はすぐ戻り、1 本目は書き出し中のまま(以前は状態を初めに戻して並んで走った)。
+        let second = await viewModel.exportOpenBook(book, displayState: nil, to: output)
+        #expect(second == nil)
+        #expect(viewModel.isExporting)
+        #expect(viewModel.totalCount == 1)
+
+        viewModel.cancel()
+        _ = await first.value
+        #expect(!viewModel.isExporting)
+        #expect(viewModel.wasCancelled)
+    }
+
     // MARK: - 題・著者の種と付け替え(2026-10-04 の監査 TW-1・TW-5)
 
     @Test("題・著者の欄は、触っていなければメタデータの今の値へ付いていき、書き換えた欄はそのまま残る(TW-1)")
