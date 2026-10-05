@@ -643,10 +643,13 @@ final class RecentFilesStore: ObservableObject {
         // (そのまま参照するとSwift 6の並行性チェックで「Reference to captured var 'self' in
         // concurrently-executing code」になる。QooViewerApp.swiftの
         // applicationDidFinishLaunchingにある同種のコメント参照)。
-        Task.detached(priority: .utility) { [weak self] in
-            let refreshed = Self.revalidate(snapshot)
+        //
+        // 解決と stat は FileIO の上で(CLAUDE.md の FileIO の約束。2026-10-05 の効率の監査 ―― 以前は Task.detached で、応答しない
+        // 共有の上の履歴があると、アクティブ化・着脱のたびに協調スレッドを 1 本塞いだ)。
+        Task { [weak self] in
+            let refreshed = await FileIO.perform(qos: .utility) { Self.revalidate(snapshot) }
             guard let self else { return }
-            await self.finishRefresh(refreshed, snapshot: snapshot)
+            self.finishRefresh(refreshed, snapshot: snapshot)
         }
     }
 

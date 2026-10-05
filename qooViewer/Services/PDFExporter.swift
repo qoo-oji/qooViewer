@@ -95,7 +95,10 @@ enum PDFExportError: LocalizedError {
 /// nonisolated: BookLoader/EpubExporterと同じくメインスレッド外(PDFExportWindowが管理する
 /// バックグラウンドタスク)から呼ばれるため、Xcode 26既定のMainActor自動分離の対象外にしている。
 nonisolated enum PDFExporter {
-    static func export(_ input: PDFExportInput, options: PDFExportOptions, to destinationURL: URL) async throws {
+    /// **`@concurrent`**(2026-10-05 の効率の監査 A4)。この型は `nonisolated` だが、Approachable Concurrency の下の `nonisolated async`
+    /// は呼び出し側のアクタで走る(`BookPageListCache.pageList(forBookID:)` のコメント)。書き出しの VM(`@MainActor`)から呼ばれるので、
+    /// 以前は画像の取り出し・圧縮・形式の変換・書き込みがすべてメインで走り、書き出しの間ほかのウインドウの操作が引っかかった。
+    @concurrent static func export(_ input: PDFExportInput, options: PDFExportOptions, to destinationURL: URL) async throws {
         let excludedKeys: Set<String> = options.includeExcludedPages
             ? []
             : Set(input.pageOverrides.filter { $0.value == .excluded }.map(\.key))

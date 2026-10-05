@@ -292,7 +292,7 @@ struct FileBrowserCoverArea: View {
             }
         }
         .contentShape(shape)
-        .task(id: "\(thumbnails.revision)|\(controller.revision)") { await load() }
+        .task(id: loadKey) { await load() }
         // CollectionCoverEditArea と同じく自前で受ける。画像 1 枚だけ。
         .coverEditing(
             isEnabled: isEditable, isDropTargeted: $isCoverDropTargeted,
@@ -323,6 +323,15 @@ struct FileBrowserCoverArea: View {
         .accessibilityLabel(Text("Collection Cover"))
     }
 
+
+    /// 絵を頼み直す条件。出どころの鍵(`FileBrowserThumbnailProvider.sourceKey`)が変わったときだけ ―― 全体の `revision` は表紙を
+    /// 1 冊抽出するたびに進むので、それを鍵にすると、選んでいる本と関係の無い抽出のたびに頼み直して絵を作り直していた(2026-10-05 の
+    /// 効率の監査 C1。グリッドのセルは 2026-09-25 にこの形にした)。表紙の指定・表紙ができた・キャッシュを消した、は出どころの鍵に入る。
+    private var loadKey: String {
+        let source = kind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? ""
+        let known = knownKey.map { "\($0.volume)-\($0.inode)-\($0.modified)-\($0.size)" } ?? ""
+        return "\(source)|\(known)|\(controller.revision)"
+    }
 
     private func load() async {
         guard let kind else {

@@ -32,6 +32,14 @@ final class TabbedWindowCloseMenuRouter: NSObject, NSMenuItemValidation {
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let self, let menu = notification.object as? NSMenu else { return }
+                // 足された項目だけを見る(知らせの `NSMenuItemIndex`)。以前は項目が 1 つ足されるたびにそのメニューの全項目を見ていて、
+                // 項目の多いメニュー(同じフォルダのファイルを開く、など)を組むと項目の数の 2 乗になった(2026-10-05 の効率の監査 C15)。
+                // 番号が付いていなければ今までどおり全部を見る。
+                if let index = (notification.userInfo?["NSMenuItemIndex"] as? NSNumber)?.intValue,
+                   index >= 0, index < menu.numberOfItems, let item = menu.item(at: index) {
+                    if item.action == Self.closeTabbedWindowGroupAction, item.target !== self { item.target = self }
+                    return
+                }
                 for item in menu.items where item.action == Self.closeTabbedWindowGroupAction && item.target !== self {
                     item.target = self
                 }

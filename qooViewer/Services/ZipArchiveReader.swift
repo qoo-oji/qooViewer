@@ -81,9 +81,11 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     /// CRC は**照合されない**(2026-09-24 に確認)。ZIPFoundation の `Archive.extract(_:consumer:)` は CRC を計算して返すが、
     /// エントリの CRC と比べるのは `FileManager.unzipItem` だけ。以前ここに「ライブラリの既定どおり検証する」と書いていたのは誤り。
     /// 照合を足すと、今は表示・展開できている壊れかけの書庫のページが失敗に変わるので、挙動は変えていない。
+    /// 照合しないので計算もさせない(`skipCRC32: true`。返すバイト列は同じ。2026-10-05 の効率の監査 C3。以前は捨てる CRC を
+    /// ページ全体ぶん計算していた)。この型の取り出しはすべて同じ。
     func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
-        _ = try archive.extract(entry, bufferSize: 1 << 18) { chunk in
+        _ = try archive.extract(entry, bufferSize: 1 << 18, skipCRC32: true) { chunk in
             try body(chunk)
         }
     }
@@ -110,16 +112,39 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     func data(at path: String) throws -> Data {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         var result = Data()
-        result.reserveCapacity(Int(min(entry.uncompressedSize, UInt64(Self.reserveCapByteCount))))
         // 読みの単位はエントリの圧縮後の大きさ(16KB〜4MB)。ZIPFoundation の既定(16KB)だと 1 ページ 1MB で 60 回ほどの
         // read() になり、1 回ごとに往復するボリューム(ネットワーク越し)では往復の数だけ待った(2026-09-24)。Apple の fread は
         // 要求が内部バッファより大きいと呼び出し側のバッファへ直接読むので、ページ 1 枚がほぼ 1 回の read() で済む。
         // deflate では伸長の出力バッファも同じ大きさになる(上限 4MB)。
-        let bufferSize = Int(min(max(entry.compressedSize, UInt64(Self.minimumReadChunk)), UInt64(Self.maximumReadChunk)))
-        _ = try archive.extract(entry, bufferSize: bufferSize) { chunk in
+        let bufferSize = Self.readChunkSize(forCompressedSize: entry.compressedSize, limit: nil)
+        // 格納のエントリが 1 チャンクで全部届いたら(4MB 以下の格納のページ ―― 画像の zip のほとんど)、そのチャンクをそのまま返す。
+        // 格納のチャンクは ZIPFoundation が読むたびに新しく確保した独立のバッファ(`Data.readChunk`)なので、持ち続けてよい。以前は
+        // 先に確保した `result` へもう一度写していた(1 ページぶんの確保と写しが 1 回ずつ余計。2026-10-05 の効率の監査 C3)。続きが
+        // 来たときだけ確保して足す(申告の大きさは信用しない ―― 足りなければ伸びる)。
+        // **deflate のチャンクは持ち続けてはいけない**: 伸長の出力は使い回すバッファを指す `Data(bytesNoCopy:deallocator: .none)`
+        // (ZIPFoundation の `Data.process`)で、次のチャンク・伸長の終わりで中身が変わる・解放される(2026-10-05 にテストで踏んだ)。
+        let adoptsWholeChunk = !entry.isCompressed
+        let declaredSize = Int(clamping: entry.uncompressedSize)
+        var isFirstChunk = true
+        _ = try archive.extract(entry, bufferSize: bufferSize, skipCRC32: true) { chunk in
+            if isFirstChunk {
+                isFirstChunk = false
+                if adoptsWholeChunk, chunk.count >= declaredSize {
+                    result = chunk
+                    return
+                }
+                result.reserveCapacity(Int(min(entry.uncompressedSize, UInt64(Self.reserveCapByteCount))))
+            }
             result.append(chunk)
         }
         return result
+    }
+
+    /// 読みの単位: 圧縮後の大きさ(`limit` があればそれ以下)を 16KB〜4MB に収めたもの(`data(at:)` のコメント)。
+    private static func readChunkSize(forCompressedSize compressedSize: UInt64, limit: Int?) -> Int {
+        var size = compressedSize
+        if let limit { size = min(size, UInt64(max(limit, 0))) }
+        return Int(min(max(size, UInt64(minimumReadChunk)), UInt64(maximumReadChunk)))
     }
 
     /// 目的のバイト数に達したことを伝えるためだけの内部エラー。ZIPFoundationのextractは
@@ -144,8 +169,12 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         // maxByteCountで頭打ちになるが、Int(_:)はInt.max超えの申告値でトラップするため
         // clampingで安全に変換する(reserveCapByteCountのコメント参照)。
         result.reserveCapacity(min(maxByteCount, Int(clamping: entry.uncompressedSize)))
+        // 読みの単位は `data(at:)` と同じ考え方で、欲しいぶん(`maxByteCount`)を超えない大きさ。以前は既定の 16KB で、入れ子の書庫
+        // (最大 256MB を丸ごと読む ―― NestedArchiveResolver)を 1 万回を超える読みと写しで取り出していた(2026-10-05 の効率の監査 C3)。
+        // 頭の 128KB だけを覗く読みは 128KB 以下で止まるので、読みすぎない。
+        let bufferSize = Self.readChunkSize(forCompressedSize: entry.compressedSize, limit: maxByteCount)
         do {
-            _ = try archive.extract(entry, skipCRC32: true) { chunk in
+            _ = try archive.extract(entry, bufferSize: bufferSize, skipCRC32: true) { chunk in
                 result.append(chunk)
                 if result.count >= maxByteCount { throw PrefixReached() }
             }
@@ -180,7 +209,9 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             var writtenByteCount = 0
-            _ = try archive.extract(entry) { chunk in
+            // 1MB 単位で書く(rar / 7z の reader と同じ桁。以前は既定の 16KB で、16KB ごとに write の呼び出しが 1 回 ―― 2026-10-05 の
+            // 効率の監査 C3)。CRC は計算させない(readEntry のコメント)。
+            _ = try archive.extract(entry, bufferSize: 1 << 20, skipCRC32: true) { chunk in
                 writtenByteCount += chunk.count
                 guard writtenByteCount <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
                 try handle.write(contentsOf: chunk)

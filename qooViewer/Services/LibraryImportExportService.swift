@@ -499,11 +499,13 @@ enum LibraryImportExportService {
 
     // MARK: - JSONの読み書き
 
-    static func write(_ file: QooLibraryExportFile, to url: URL) throws {
+    /// 符号化はここ(メイン。JSON の型の `Codable` はメインに分離されている)、書き込みは FileIO の上で(保存先が応答しない共有でも
+    /// メインを止めない。2026-10-05 の効率の監査 A4)。
+    static func write(_ file: QooLibraryExportFile, to url: URL) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(file)
-        try data.write(to: url, options: .atomic)
+        try await FileIO.perform { try data.write(to: url, options: .atomic) }
     }
 
     static func read(from url: URL) throws -> QooLibraryExportFile {

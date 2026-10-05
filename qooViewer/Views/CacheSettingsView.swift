@@ -38,6 +38,8 @@ struct CacheSettingsView: View {
     /// 使用量を測り直させるための合図。削除の直後など、値が変わったはずのタイミングで
     /// 進めると`.task(id:)`が走り直す。
     @State private var usageRefreshToken = 0
+    /// ウインドウが前面に戻った回数(`usageTaskID`)。
+    @State private var activationCount = 0
 
     var body: some View {
         SettingsPaneContainer {
@@ -202,6 +204,11 @@ struct CacheSettingsView: View {
         .task(id: usageTaskID) {
             await refreshUsage()
         }
+        // 前面に戻ったとき(キーになったとき)だけ数える。離れた・閉じたときは測り直さない(2026-10-05 の効率の監査 C15。以前は
+        // `controlActiveState` そのものを鍵にしていたので、離れるたび・閉じるたびにもディレクトリの全走査を 2 回ずつしていた)。
+        .onChange(of: controlActiveState) { oldState, newState in
+            if newState == .key, oldState != .key { activationCount += 1 }
+        }
     }
 
     /// 使用量を測り直す条件。
@@ -214,7 +221,7 @@ struct CacheSettingsView: View {
     private var usageTaskID: String {
         let settings = "\(preferences.thumbnailDiskCacheEnabled)|\(Int(preferences.thumbnailDiskCacheLimitMB))"
             + "|\(preferences.fileBrowserThumbnailCacheEnabled)|\(Int(preferences.fileBrowserThumbnailCacheLimitMB))"
-        return "\(settings)|\(controlActiveState)|\(usageRefreshToken)"
+        return "\(settings)|\(activationCount)|\(usageRefreshToken)"
     }
 
     private var usedBytesDescription: String {

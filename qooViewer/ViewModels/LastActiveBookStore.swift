@@ -28,9 +28,16 @@ enum LastActiveBookStore {
     /// ボリュームの本では目に見えて止まる)。書き込みは作り終えた時点で、**まだ最後の記録・消去だったときだけ**行う
     /// (`recordGenerations`)―― 続けて別の本を記録した・ホームへ戻って消した後に、先の記録が遅れて届いて上書きしないように。
     /// 呼び出し側は待たない(戻り値はテストが終わりを待つためのもの)。
+    ///
+    /// **いま記録してある本と同じなら何もしない**(2026-10-05 の効率の監査 C9)。ウインドウを切り替えるたびに呼ばれるので、以前は
+    /// 同じ本でも毎回ブックマークを作り(ネットワーク上の本なら往復)、UserDefaults へ書いていた。「記録してある」は、この起動の中で
+    /// 書き終えた記録だけ(`lastRecordedPaths`)。別の本の記録を始めた・消したら忘れる。
     @discardableResult
     static func record(url: URL, defaults: UserDefaults = .standard) -> Task<Void, Never> {
         let key = ObjectIdentifier(defaults)
+        // 記録がまだ残っているかも見る(保存先の中身が外で消された ―― テストの保存先が作り直された ―― ときは書き直す)。
+        if lastRecordedPaths[key] == url.path, defaults.data(forKey: defaultsKey) != nil { return Task {} }
+        lastRecordedPaths[key] = nil
         recordGenerations[key, default: 0] &+= 1
         let generation = recordGenerations[key]
         return Task { @MainActor in
@@ -43,8 +50,12 @@ enum LastActiveBookStore {
             }
             guard let data, generation == recordGenerations[key] else { return }
             defaults.set(data, forKey: defaultsKey)
+            lastRecordedPaths[key] = url.path
         }
     }
+
+    /// この起動の中で書き終えた記録の本のパス(`record` のコメント)。保存先ごと。
+    private static var lastRecordedPaths: [ObjectIdentifier: String] = [:]
 
     /// 記録・消去の世代(`record` のコメント)。後から呼ばれたものが勝つ。保存先ごとに数える(テストは保存先を分けて並行に走る。
     /// 別の保存先への記録で自分の記録が捨てられないように)。
@@ -56,6 +67,7 @@ enum LastActiveBookStore {
     static func clear(defaults: UserDefaults = .standard) {
         // 作っている最中の記録があっても、届いたときに書かせない(`record` のコメント)。
         recordGenerations[ObjectIdentifier(defaults), default: 0] &+= 1
+        lastRecordedPaths[ObjectIdentifier(defaults)] = nil
         defaults.removeObject(forKey: defaultsKey)
     }
 

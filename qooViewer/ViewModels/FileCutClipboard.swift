@@ -62,7 +62,13 @@ final class FileCutClipboard: ObservableObject {
     /// 一覧が返す実体の書き方(`/private/var/…`)なので、`/private` の付いた形でも比べる(サンドボックス無しの CI で、一時フォルダの
     /// 中のリネームが記憶を下ろさなかった。2026-10-04)。
     func forget(displacedBy change: FileSystemChange) {
-        guard !paths.isEmpty, paths.contains(where: { path in Self.spellings(of: path).contains { change.displaces($0) } }) else { return }
+        guard !paths.isEmpty else { return }
+        // `displaces` は呼ぶたびに組を全部なめるので、移った元・消えた項目の集合を 1 度だけ作って祖先を引く(結果は同じ。2026-10-05 の
+        // 効率の監査 A3)。
+        let displaced = change.displacedPathSet
+        guard paths.contains(where: { path in
+            Self.spellings(of: path).contains { FileSystemChange.mayAffect($0, displaced: displaced) }
+        }) else { return }
         clear()
     }
 

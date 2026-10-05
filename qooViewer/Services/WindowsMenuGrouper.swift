@@ -15,7 +15,8 @@ import AppKit
 /// 寄せ直すのは次の 2 つの契機で、望む並びと同じなら何もしない(項目の差し替えをしない):
 /// - 一覧の項目が変わった(AppKit が字順に入れ直した)。AppKit の入れ直しが終わってから寄せるよう、1 回ランループを跨ぐ
 /// - イベントを 1 つ処理し終えた(`NSApplication.didUpdateNotification`)。タブの結合・切り離し・並べ替えは項目の変化として
-///   届かないので、こちらで拾う。比べるのは項目 20 個ほどの並びだけ
+///   届かないので、こちらで拾う。比べるのは項目 20 個ほどの並びだけ。マウスの移動・スクロールのような続けざまのイベントの後は
+///   見ない(`continuousEventTypes`)
 ///
 /// ■ 触らないもの
 /// - メニューバーのメニューが開いている間(`MenuBarMenuGate.isTracking`)。開いている最中の項目の差し替えは macOS 26 で
@@ -37,7 +38,13 @@ final class WindowsMenuGrouper {
         tokens.add(center.addObserver(
             forName: NSApplication.didUpdateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.regroupIfNeeded() }
+            MainActor.assumeIsolated {
+                // 続けざまに届くイベント(マウスの移動・ドラッグの途中・スクロール・ピンチなど)の後では確かめない(2026-10-05 の
+                // 効率の監査 C11。以前はイベント 1 つごとに一覧の項目を取り出して並べ直しの要否を求めていた)。タブの結合・切り離し・
+                // 並べ替えは、マウスを離したとき・メニューやキーの操作で終わるので、その後のイベントで拾える。
+                if let type = NSApp.currentEvent?.type, Self.continuousEventTypes.contains(type) { return }
+                self?.regroupIfNeeded()
+            }
         })
         for name in [NSMenu.didAddItemNotification, NSMenu.didRemoveItemNotification] {
             tokens.add(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
@@ -50,6 +57,12 @@ final class WindowsMenuGrouper {
             })
         }
     }
+
+    /// 続けざまに届くイベント(この後では寄せ直しを確かめない)。
+    private static let continuousEventTypes: Set<NSEvent.EventType> = [
+        .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel,
+        .magnify, .rotate, .swipe, .gesture, .pressure, .mouseEntered, .mouseExited, .cursorUpdate
+    ]
 
     private func scheduleRegroup() {
         guard !isScheduled else { return }

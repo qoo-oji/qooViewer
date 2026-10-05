@@ -68,10 +68,14 @@ nonisolated enum ArchiveExtractor {
             throw FileOperationError.posixFailure(item: folder, errnoCode: errno)
         }
         var written: UInt64 = 0
+        // 作った・フォルダだと確かめた場所(`makeDirectories`)。ファイルごとに親を頭から mkdir し直さない。
+        var madeDirectories = Set<String>()
         do {
             // フォルダは先に全部作る(空のフォルダも残す)。
             for item in prepared.plan.items where item.isDirectory {
-                try makeDirectories(temporary.appendingPathComponent(item.relativePath, isDirectory: true), under: temporary)
+                try makeDirectories(
+                    temporary.appendingPathComponent(item.relativePath, isDirectory: true), under: temporary, made: &madeDirectories
+                )
             }
             var pending = Dictionary(
                 prepared.plan.items.filter { !$0.isDirectory }.map { ($0.sourcePath, $0) }, uniquingKeysWith: { first, _ in first }
@@ -87,7 +91,7 @@ nonisolated enum ArchiveExtractor {
                     guard let item = pending.removeValue(forKey: path) else { return nil }
                     let target = temporary.appendingPathComponent(item.relativePath)
                     tracker.startEntry(named: target.lastPathComponent)
-                    try makeDirectories(target.deletingLastPathComponent(), under: temporary)
+                    try makeDirectories(target.deletingLastPathComponent(), under: temporary, made: &madeDirectories)
                     let entry = try OpenEntry(item: item, target: target)
                     current = entry
                     return { chunk in
@@ -186,19 +190,29 @@ nonisolated enum ArchiveExtractor {
     }
 
     /// `folder` を作る(途中も)。一時フォルダの外は作らない。**既にあるのがフォルダでなければ失敗**(ファイルを辿らない)。
-    private static func makeDirectories(_ folder: URL, under root: URL) throws {
+    ///
+    /// `made` は、この展開で作った・フォルダだと確かめた場所。そこは mkdir も lstat もし直さない(2026-10-05 の効率の監査 C6。以前は
+    /// ファイル 1 つごとに、一時フォルダから下の階層の数だけ mkdir(EEXIST)と lstat をしていた ―― 展開先が共有なら 1 回ごとに往復)。
+    /// 一時フォルダ(0700)に書くのはこの展開だけで、ファイルは `O_EXCL` で作るので、確かめたフォルダが後からファイルに変わることは無い。
+    /// ファイルがある場所は `made` に入らないので、今までどおり mkdir(EEXIST)と lstat で断る。
+    private static func makeDirectories(_ folder: URL, under root: URL, made: inout Set<String>) throws {
         let rootPath = root.path
         let path = folder.path
         guard path.hasPrefix(rootPath) else { throw FileOperationError.posixFailure(item: folder, errnoCode: EPERM) }
         var current = rootPath
         for component in path.dropFirst(rootPath.count).split(separator: "/") {
             current += "/" + component
-            if mkdir(current, 0o755) == 0 { continue }
+            if made.contains(current) { continue }
+            if mkdir(current, 0o755) == 0 {
+                made.insert(current)
+                continue
+            }
             let code = errno
             var info = stat()
             guard code == EEXIST, lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else {
                 throw FileOperationError.posixFailure(item: URL(fileURLWithPath: current), errnoCode: code)
             }
+            made.insert(current)
         }
     }
 

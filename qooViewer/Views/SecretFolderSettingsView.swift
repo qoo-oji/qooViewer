@@ -29,6 +29,11 @@ struct SecretFolderSettingsView: View {
     @State private var savedBookIDsByFolder: [String: [String]] = [:]
     /// 知らせを受けて待っている数え直し(`scheduleRecount`)。
     @State private var recountTask: Task<Void, Never>?
+    /// 環境設定のウインドウが出ているか(`auxiliaryWindowPresence`)。閉じている間は知らせで数え直さず、出たときに 1 回数え直す
+    /// (2026-10-05 の効率の監査 C15。Settings シーンは閉じてもビューを保つ ―― FB21393010 ―― ので、この画面のまま閉じると、
+    /// 本を開くたびのメタデータの書き込みなどで、見えない画面が全部の保存データを集め直していた)。
+    @State private var isWindowShown = true
+    @State private var recountsWhenShown = false
     /// 削除を確かめているフォルダ。
     @State private var deleting: String?
 
@@ -109,6 +114,13 @@ struct SecretFolderSettingsView: View {
         .onDisappear {
             recountTask?.cancel()
             recountTask = nil
+        }
+        .auxiliaryWindowPresence { isShown in
+            isWindowShown = isShown
+            if isShown, recountsWhenShown {
+                recountsWhenShown = false
+                recount()
+            }
         }
         // 履歴は数え直さずに描くたびに見る(件数は環境設定の保持件数まで)。
         .alert(
@@ -201,6 +213,11 @@ struct SecretFolderSettingsView: View {
     /// 知らせが続く間は待ち、止んでから 1 度だけ数え直す(上の `.onReceive` のコメント)。
     private func scheduleRecount() {
         recountTask?.cancel()
+        guard isWindowShown else {
+            recountTask = nil
+            recountsWhenShown = true
+            return
+        }
         recountTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }

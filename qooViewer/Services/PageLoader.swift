@@ -735,11 +735,17 @@ actor PageLoader {
         pageSizeCache[page.id] = size
     }
 
-    /// headerInfoCacheのキー。書庫内エントリだけが対象(フォルダの本はファイルを直接、PDFは
-    /// CGPDFPageを見れば済むので要らない)。
+    /// headerInfoCacheのキー。書庫内エントリとフォルダの本の画像ファイルが対象(PDFはCGPDFPageを見れば済むので要らない)。
+    ///
+    /// フォルダの本も入れる(2026-10-05 の効率の監査 C7)。以前は「ファイルを直接見れば済む」として外していたが、「情報を見る」の
+    /// 先取り(ViewerViewModel.cachePageImageInfo)はページを出すたびに呼ばれ、そのたびに actor の上でファイルを開いてヘッダーを
+    /// 読み直し、属性も 2 回問い合わせていた(ネットワーク上の本では往復が 3 回)。表示のために読んだバイト列から取っておけば要らない。
     private nonisolated static func headerCacheKey(for source: PageSource) -> String? {
-        guard case .archive(let locator, let entryPath) = source else { return nil }
-        return locator.displayPath + "#" + entryPath
+        switch source {
+        case .archive(let locator, let entryPath): locator.displayPath + "#" + entryPath
+        case .file(let url): "file:" + url.path
+        case .pdf: nil
+        }
     }
 
     private func noteHeaderInfo(_ header: ImageDecoder.HeaderInfo, byteCount: Int, for source: PageSource) {
@@ -913,12 +919,20 @@ actor PageLoader {
                 hasAlphaChannel: nil
             )
         case .file(let url):
-            // pageSize(at:)と同じ理由で、ファイルを丸ごと読まずヘッダーだけを読む
-            // (ImageDecoder.headerInfo(ofFileAt:)のコメント参照)。表示するファイルサイズは、
-            // 読み込んだバイト数ではなくファイルシステムに問い合わせて得る。
-            guard let header = ImageDecoder.headerInfo(ofFileAt: url) else { return nil }
-            let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
-            let dates = Self.fileSystemDates(for: url)
+            // 表示のために読んだページなら、そのときのバイト列から取っておいたヘッダーと大きさを使う(headerInfoCache参照)。
+            // 無ければpageSize(at:)と同じ理由で、ファイルを丸ごと読まずヘッダーだけを読む(ImageDecoder.headerInfo(ofFileAt:)の
+            // コメント参照)。その場合のファイルサイズはファイルシステムに問い合わせる。属性は 1 回の問い合わせで取る。
+            let header: ImageDecoder.HeaderInfo
+            let cachedByteCount: Int?
+            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+                (header, cachedByteCount) = (cached.header, cached.byteCount)
+            } else {
+                guard let parsed = ImageDecoder.headerInfo(ofFileAt: url) else { return nil }
+                (header, cachedByteCount) = (parsed, nil)
+            }
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey])
+            let fileSize = cachedByteCount.map(Int64.init) ?? values?.fileSize.map(Int64.init)
+            let dates = (created: values?.creationDate, modified: values?.contentModificationDate)
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: Self.imageFormatDescription(forFileName: page.displayName),

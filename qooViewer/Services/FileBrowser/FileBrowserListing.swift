@@ -121,6 +121,8 @@ nonisolated enum FileBrowserListing {
         .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isAliasFileKey, .localizedNameKey,
         .totalFileSizeKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isHiddenKey,
     ]
+    /// `resourceKeys` の Set(項目ごとに作り直さない。2026-10-05 の効率の監査 C15)。
+    private static let resourceKeySet = Set(resourceKeys)
 
     /// フォルダの直下を読む。隠しファイルは既定では出さない(Finderの既定と同じ)。
     ///
@@ -202,7 +204,7 @@ nonisolated enum FileBrowserListing {
 
     /// - Parameter touchesFileSystem: false なら項目を読まず(stat も種類の問い合わせもしない)、URL の綴りだけで組む。
     static func makeEntry(_ url: URL, touchesFileSystem: Bool = true, kindCache: inout [String: String]) -> FileBrowserEntry {
-        let values = touchesFileSystem ? try? url.resourceValues(forKeys: Set(resourceKeys)) : nil
+        let values = touchesFileSystem ? try? url.resourceValues(forKeys: resourceKeySet) : nil
         let isDirectory = values?.isDirectory ?? url.hasDirectoryPath
         let isPackage = values?.isPackage ?? false
         let name: String = {

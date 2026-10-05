@@ -421,7 +421,7 @@ final class MetadataWorkspace {
     }
 
     private func generatorDidUpdate(_ update: MetadataGenerator.Update) {
-        if update.isFull || Set(generator.listedBookIDs) != Set(order) {
+        if update.isFull || !Self.sameMembers(generator.listedBookIDs, order) {
             // 付け替えた本の歩みは、捨てる前に新しい bookID へ移す(followRelocation)。
             carryRelocations(listed: Set(generator.listedBookIDs))
             forgetUndo(for: Set(order).subtracting(generator.listedBookIDs))
@@ -1239,8 +1239,23 @@ final class MetadataWorkspace {
     }
 
     private func rebuildCounts() {
-        genreValues = Self.counts(books) { $0.metadata.values(.genre) }
-        authorValues = Self.counts(genreFilter == nil ? books : books.filter(matchesGenre)) { $0.metadata.authors }
+        // 同じなら入れ直さない(入れ直すと、値の数だけ項目を持つ絞り込みのメニューが描き直される。2026-10-05 の効率の監査 C15)。
+        let genres = Self.counts(books) { $0.metadata.values(.genre) }
+        if !Self.sameCounts(genres, genreValues) { genreValues = genres }
+        let authors = Self.counts(genreFilter == nil ? books : books.filter(matchesGenre)) { $0.metadata.authors }
+        if !Self.sameCounts(authors, authorValues) { authorValues = authors }
+    }
+
+    private static func sameCounts(
+        _ lhs: [(key: MetadataValueKey, count: Int)], _ rhs: [(key: MetadataValueKey, count: Int)]
+    ) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0.key == $1.key && $0.count == $1.count }
+    }
+
+    /// 2 つの並びが同じ本の集まりか。並びまで同じ(ほとんどの更新)なら Set を作らずに答える(2026-10-05 の効率の監査 C15。以前は
+    /// 更新のたびに 5 万件の Set を 2 つ作っていた)。
+    private static func sameMembers(_ lhs: [String], _ rhs: [String]) -> Bool {
+        lhs == rhs || Set(lhs) == Set(rhs)
     }
 
     private func filtersChanged(countsToo: Bool = false) {

@@ -492,6 +492,22 @@ struct ZipCompressorTests {
         return descriptor >= 0 && ZipCompressor.endOfCentralDirectoryIsPresent(descriptor: descriptor)
     }
 
+    @Test("並べた後で伸びた・縮んだファイルは、数えた大きさで切って入れずに失敗にし、zip も一時ファイルも残さない(2026-10-05 の効率の監査)")
+    func fileThatChangedSizeAfterCollectingFails() throws {
+        for delta in [100, -100] {
+            let root = try temporary.directory("changed\(delta)")
+            let file = root.appendingPathComponent("a.bin")
+            try Data(count: 1000).write(to: file)
+            let sources = try ZipCompressor.collect([file])
+            try Data(count: 1000 + delta).write(to: file)
+            let tracker = ProgressTracker(sink: nil, totalBytes: 1000, totalItems: 1)
+            #expect(throws: FileOperationError.self) {
+                _ = try ZipCompressor.compress(sources, into: root, baseName: "a.bin", fileExtension: "zip", tracker: tracker)
+            }
+            #expect((try FileManager.default.contentsOfDirectory(atPath: root.path)) == ["a.bin"])
+        }
+    }
+
     @Test("中止すると一時ファイルは残らない")
     func cancellingLeavesNothing() async throws {
         let root = try temporary.directory("root")

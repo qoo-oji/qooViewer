@@ -507,8 +507,29 @@ final class CollectionStore: ObservableObject {
     /// このアプリのコレクションに登録されている本のbookID一覧(「このアプリが知っている本」を
     /// 横断的に集める用途。FavoritesStore.allRegisteredBookIDsと同じ役割)。
     func allRegisteredBookIDs() -> Set<String> {
-        Set(allItems().map(\.bookID))
+        if let memo = registeredBookIDsMemo, memo.revision == itemOrderRevision { return memo.ids }
+        let ids = Set(allItems().map(\.bookID))
+        registeredBookIDsMemo = (itemOrderRevision, ids, nil)
+        return ids
     }
+
+    /// `allRegisteredBookIDs` を `MountTable.normalized` で揃えたもの(`FileSystemChange.touchesAny` の材料。AppStores)。
+    func normalizedRegisteredBookPaths() -> Set<String> {
+        let ids = allRegisteredBookIDs()
+        if let normalized = registeredBookIDsMemo?.normalized { return normalized }
+        let normalized = Set(ids.map(MountTable.normalized))
+        registeredBookIDsMemo?.normalized = normalized
+        return normalized
+    }
+
+    /// 登録した全冊の bookID の控え(2026-10-05 の効率の監査 C13)。表紙の抽出の待ち行列の積み直し・メタデータの母体の記録・
+    /// ファイル操作の知らせのたびに全冊ぶん作り直していた。寿命は `itemOrderRevision`(本の出し入れ・付け替えで必ず進む ――
+    /// bookID を書き換える所はどれも表紙の結果ではない `saveAndNotify` を通る)。
+    private var registeredBookIDsMemo: (revision: UInt64, ids: Set<String>, normalized: Set<String>?)?
+
+    /// 本の顔ぶれ(出し入れ・付け替え・名前)が変わるたびに進む番号(`itemOrderRevision`)。表紙の抽出の結果では進まない。
+    /// 顔ぶれを写し取る側が、変わっていないときに写し直さないために読む(AppStores.recordCollectionBooks)。
+    var itemMembershipRevision: UInt64 { itemOrderRevision }
 
     /// この本が登録されているコレクションの件数(同じ本を複数のコレクションへ入れられるため件数)。
     func membershipCount(forBookID bookID: String) -> Int {

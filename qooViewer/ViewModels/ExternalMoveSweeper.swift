@@ -35,7 +35,8 @@ enum ExternalMoveSweeper {
                 favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess)
         }.filter { !$0.bookmarkCandidates.isEmpty }
         guard !probes.isEmpty else { return [] }
-        return await Task.detached(priority: .utility) {
+        // ブックマークの解決は FileIO の上で(CLAUDE.md の FileIO の約束。以前は Task.detached。2026-10-05 の効率の監査)。
+        return await FileIO.perform(qos: .utility) {
             let mounts = MountTable.current()
             return probes.compactMap { probe -> FileSystemChange.Relocation? in
                 // 動いていない本の中は読まない(`movedDestination` のコメント。答えは `locateAtRecordedPath().movedTo` と同じ)。
@@ -43,7 +44,7 @@ enum ExternalMoveSweeper {
                       let movedTo = probe.movedDestination() else { return nil }
                 return .init(from: URL(fileURLWithPath: probe.bookID), to: URL(fileURLWithPath: movedTo))
             }
-        }.value
+        }
     }
 
     /// ビューアで開いている本(とその中・その上のフォルダ)に当たる付け替えを外す(2026-09-22 の監査)。

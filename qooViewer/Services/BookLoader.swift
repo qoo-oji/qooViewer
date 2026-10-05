@@ -71,9 +71,12 @@ nonisolated enum BookLoader {
         // そのまま本の表示までの待ち時間に乗る。このキャッシュは次に同じ本を開くときまでに
         // 書けていればよく、失敗しても次回また読み込むだけ
         // (PageLoader.thumbnail(at:)がサムネイルの保存を待たないのと同じ考え方)。
-        let entry = structureCacheEntry(for: book)
+        //
+        // 畳むのも裏で(全ページの文字列処理と、指紋のための stat。2026-10-05 の効率の監査 C4)。この関数は `nonisolated async` で
+        // 呼び出し側のアクタ ―― 本を開く経路ではメイン ―― で走るので、以前はページ数ぶんの処理と stat がメインに乗っていた。
         let bookID = book.id
-        Task.detached(priority: .background) {
+        Task.detached(priority: .utility) {
+            let entry = structureCacheEntry(for: book)
             await BookPageListCache.shared.store(entry, forBookID: bookID)
         }
         return book
@@ -146,7 +149,10 @@ nonisolated enum BookLoader {
     /// 適用するのは**入れ子の書庫を含む単一の書庫ファイルの本**だけ。平なcbz・PDF・EPUBは
     /// 元々列挙が速く、フォルダの本は指紋(更新日時)が孫ファイルの変更を拾わないため、
     /// いずれも「古い一覧のまま開いてしまう」危険に見合う利得が無い。
-    private static func restoredFromStructureCache(url: URL) async -> MangaBook? {
+    ///
+    /// `@concurrent`: 指紋の stat と全ページの組み立てをメインで行わない(呼び出し側の `load` は本を開く経路ではメインで走る。
+    /// 2026-10-05 の効率の監査 C4)。
+    @concurrent private static func restoredFromStructureCache(url: URL) async -> MangaBook? {
         guard isArchiveFile(url.lastPathComponent),
               !isPDFFile(url.lastPathComponent), !isEpubFile(url.lastPathComponent)
         else { return nil }

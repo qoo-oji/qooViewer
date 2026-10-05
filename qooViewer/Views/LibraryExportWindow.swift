@@ -257,7 +257,7 @@ struct LibraryExportWindow: View {
                     backupStores: backupStores
                 )
                 do {
-                    try LibraryImportExportService.write(file, to: url)
+                    try await LibraryImportExportService.write(file, to: url)
                     didSucceed = true
                     resultMessage = String(localized: "Export complete.", language: locale)
                     skippedFilePaths = result.allSkippedFilePaths

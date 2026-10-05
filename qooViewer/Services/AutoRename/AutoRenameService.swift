@@ -792,9 +792,27 @@ final class AutoRenameService: ObservableObject {
         for (folder, recursive) in jobs {
             // 読み取り専用は設定の値も直に見る(`isPausedForReadOnly` は切り替えの 1 ランループ後に追いつく。2026-09-21 の監査の L4)。
             guard isCurrent(generation), !isPausedForReadOnly, !preferences.fileBrowserReadOnly else { return }
-            let result = await FileIO.perform {
-                AutoRenameScanner.examine(folder: folder, recursive: recursive, plan: plan, inUsePaths: inUse, takesSnapshots: true)
+            // 書き終わりを見ている項目のうち、このフォルダの範囲のもの。走査のついでに、もう無いものを確かめる(下)。
+            let scope = AutoRename.canonicalPath(folder)
+            let observed = observations.keys.filter { path in
+                recursive
+                    ? MountTable.path(path, isAtOrUnder: scope)
+                    : (path as NSString).deletingLastPathComponent == scope
             }
+            let (result, vanished) = await FileIO.perform { () -> (AutoRenameScanner.Result, [String]) in
+                let result = AutoRenameScanner.examine(
+                    folder: folder, recursive: recursive, plan: plan, inUsePaths: inUse, takesSnapshots: true
+                )
+                let vanished = observed.filter { path in
+                    var info = stat()
+                    return lstat(path, &info) != 0 && errno == ENOENT
+                }
+                return (result, vanished)
+            }
+            // 書き終わりを待っていた項目が消えた・外で動いた・手で名前が変わったら、その観測を捨てる(2026-10-05 の効率の監査 C12。
+            // 以前は名前を変えたときと止めたときにしか消えず、フォルダの観測 ―― 中身の写しで 1 つ数 MB になりうる ―― が残り続けた)。
+            // あるものは残す(使っている本で見送った項目が、閉じた後にすぐ変えられる今の振る舞いを変えない)。
+            for path in vanished { observations[path] = nil }
             // 走査のあいだに止められていたら、その結果では名前を変えない。
             guard isCurrent(generation) else { return }
             await process(result, plan: plan, generation: generation)

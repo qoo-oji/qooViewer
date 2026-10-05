@@ -200,31 +200,34 @@ enum FileBrowserIconProvider {
 
     static func icon(for entry: FileBrowserEntry) -> NSImage {
         let key: String
-        let type: UTType
+        let type: () -> UTType
         if entry.isVolume {
             key = "volume"
-            type = .volume
+            type = { .volume }
         } else if entry.isNavigableFolder {
             key = "folder"
-            type = .folder
+            type = { .folder }
         } else {
             let ext = entry.url.pathExtension.lowercased()
-            key = (entry.isPackage ? "package." : "file.") + ext
-            type = UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 }
-                ?? (entry.isPackage ? .package : .data)
+            let isPackage = entry.isPackage
+            key = (isPackage ? "package." : "file.") + ext
+            // 種類は控えに無いときだけ引く(鍵は拡張子だけで決まる。2026-10-05 の効率の監査 C15 ―― 以前は行を出すたびに引いていた)。
+            type = {
+                UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 } ?? (isPackage ? .package : .data)
+            }
         }
         if entry.isLink { return aliasIcon(key: key, type: type) }
         if let cached = cache[key] { return cached }
-        let image = NSWorkspace.shared.icon(for: type)
+        let image = NSWorkspace.shared.icon(for: type())
         cache[key] = image
         return image
     }
 
     /// 種類のアイコンに矢印のバッジを重ねたもの(型コメント)。バッジが読めなければ種類のアイコンのまま。
-    private static func aliasIcon(key: String, type: UTType) -> NSImage {
+    private static func aliasIcon(key: String, type: () -> UTType) -> NSImage {
         let aliasKey = "alias." + key
         if let cached = cache[aliasKey] { return cached }
-        let base = NSWorkspace.shared.icon(for: type)
+        let base = NSWorkspace.shared.icon(for: type())
         let badge = aliasBadge
         let image = NSImage(size: base.size, flipped: false) { rect in
             base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)

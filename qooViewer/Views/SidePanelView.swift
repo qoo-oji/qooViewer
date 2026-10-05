@@ -1284,37 +1284,67 @@ private struct BookContentsSectionView: View {
                 allowsBookmarking: allowsBookmarking,
                 onToggleBookmark: { onToggleBookmark(index) }
             )
-        } else if let url = revealTargetURL(for: entry) {
+        } else if hasRevealTarget(entry) {
             Button("Show in Finder") {
-                FinderReveal.reveal(url)
+                withRevealTarget(for: entry) { FinderReveal.reveal($0) }
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    revealInFileBrowser(url)
+                    let reveal = revealInFileBrowser
+                    withRevealTarget(for: entry) { reveal($0) }
                 }
             }
         }
     }
 
     /// ページとして特定できなかった行(仮想フォルダ、入れ子の書庫、レイアウトで除外された
-    /// 画像など)を「Finderで開く」ときに指す実体。
-    private func revealTargetURL(for entry: BookInternalBrowsing.Entry) -> URL? {
+    /// 画像など)を「Finderで開く」ときに指す実体があるか。
+    ///
+    /// 右クリックメニューの中身は行の body と一緒に組まれる(ページを送るたびに見えている行の数だけ)ので、ここではファイルに
+    /// 触らない(2026-10-05 の効率の監査 C14。以前は除外したページの行ごとにメインで `fileExists` していた ―― ネットワーク上の
+    /// フォルダの本では往復)。実体の確かめは押したとき(`withRevealTarget`)。本そのものを示せないとき(本の場所が無い)だけは、
+    /// 項目を出すかどうかがファイルの有無で決まるので、今までどおりここで確かめる。
+    private func hasRevealTarget(_ entry: BookInternalBrowsing.Entry) -> Bool {
+        switch entry.navigateTarget {
+        case .realFolder, .archiveFileOnDisk, .documentFileOnDisk:
+            return true
+        case .archiveVirtualFolder, .nestedArchiveEntry, .documentEntry:
+            return bookSourceURL != nil
+        case nil:
+            if bookSourceURL != nil { return true }
+            return entry.matchKey.hasPrefix("/") && FileManager.default.fileExists(atPath: entry.matchKey)
+        }
+    }
+
+    /// 「Finderで開く」ときに指す実体を求めて `body` へ渡す(`hasRevealTarget` が true の行だけ)。
+    private func withRevealTarget(for entry: BookInternalBrowsing.Entry, _ body: @escaping @MainActor (URL) -> Void) {
         switch entry.navigateTarget {
         case .realFolder(let url), .archiveFileOnDisk(let url), .documentFileOnDisk(let url):
             // ディスク上に実在するフォルダ/書庫/PDF/EPUBファイル。そのまま示せる。
-            return url
+            body(url)
         case .archiveVirtualFolder, .nestedArchiveEntry, .documentEntry:
             // 書庫の中にしか存在しない。本そのものを示す。
-            return bookSourceURL
+            if let bookSourceURL { body(bookSourceURL) }
         case nil:
             // 画像(またはその他のファイル)。フォルダの本ではmatchKeyが絶対パスそのもの
             // (BookInternalBrowsing.folderEntries/imageFileEntries参照)なので、それが実在
             // すればその実体を示す。書庫の中の画像ならパスではないので本そのものを示す。
-            if entry.matchKey.hasPrefix("/"), FileManager.default.fileExists(atPath: entry.matchKey) {
-                return URL(fileURLWithPath: entry.matchKey)
+            // 実在の確かめはメインの外で(FileIO。CLAUDE.md の約束)。
+            let fallback = bookSourceURL
+            guard entry.matchKey.hasPrefix("/") else {
+                if let fallback { body(fallback) }
+                return
             }
-            return bookSourceURL
+            let path = entry.matchKey
+            Task { @MainActor in
+                let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
+                if exists {
+                    body(URL(fileURLWithPath: path))
+                } else if let fallback {
+                    body(fallback)
+                }
+            }
         }
     }
 

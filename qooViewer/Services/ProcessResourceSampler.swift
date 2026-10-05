@@ -175,10 +175,21 @@ final class ProcessResourceSampler: ObservableObject {
     }
 
     /// OFF中にパネルが現在値だけを更新したいときに呼ぶ。計測中は何もしない(タイマーが担う)。
+    ///
+    /// 前の読み直しから `interval` 近く経っていなければ何もしない(2026-10-05 の効率の監査 C8)。サイドパネルのモードはアプリで 1 つ
+    /// なので、「リソース」にすると全ウインドウの節が毎秒これを呼ぶ。以前はそのたびに `latest` を書き直して全部の節へ知らせ、
+    /// ウインドウが N 枚なら毎秒 N 回 × N 枚の描き直しになっていた。どの節も同じ値を見るので、1 秒に 1 回で足りる。
     func refreshLatest() {
         guard !isRecording else { return }
+        let now = ContinuousClock.now
+        if let lastLatestRefresh, now - lastLatestRefresh < Self.latestRefreshMinimumGap { return }
+        lastLatestRefresh = now
         latest = ProcessResourceReading.current()
     }
+
+    /// `refreshLatest` を読み直しとして扱う最短の間隔(1 秒ごとの呼び出しの揺れを吸収するため、`interval` より少し短く)。
+    private static let latestRefreshMinimumGap: Duration = .milliseconds(900)
+    private var lastLatestRefresh: ContinuousClock.Instant?
 
     private func start() {
         isRecording = true

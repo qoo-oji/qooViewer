@@ -73,8 +73,13 @@ nonisolated enum ZipCompressor {
             // 列挙はディスク上の順(名前順ではない)。書庫の中の並びを毎回同じにするため、要素ごとの名前順に並べ替える
             // (親フォルダは子より前に来る)。
             var children: [Source] = []
+            // 要素への分割は 1 件 1 回だけ(以前は比べるたびに両側を分けていた ―― 2 万件で 50 万回を超える配列の確保。2026-10-05 の
+            // 効率の監査 C15)。比べ方は同じなので並びも同じ。
             defer {
-                sources += children.sorted { $0.entryPath.split(separator: "/").lexicographicallyPrecedes($1.entryPath.split(separator: "/")) }
+                sources += children
+                    .map { (components: $0.entryPath.split(separator: "/"), source: $0) }
+                    .sorted { $0.components.lexicographicallyPrecedes($1.components) }
+                    .map(\.source)
             }
             // 再帰せずに自分のスタックで歩く(相対パス。"" は最上位)。
             var pendingFolders = [""]
@@ -248,10 +253,17 @@ nonisolated enum ZipCompressor {
     }
 
     private static func add(_ source: Source, to archive: Archive, tracker: ProgressTracker) throws {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: source.url.path)
+        // 日時と権限は lstat 1 回で(以前は `attributesOfItem` ―― 属性の辞書を作り、持ち主の名前の引き当てまでする ―― と、ファイルでは
+        // 下の `MoveVerification.stamp` の lstat の 2 回。2026-10-05 の効率の監査 C15)。どちらもリンクを辿らない。値は同じ
+        // (日時は秒 + ナノ秒、権限は `st_mode` の下位 12 ビット。zip の日時は 2 秒刻み)。
+        var info = stat()
+        let hasInfo = lstat(source.url.path, &info) == 0
+        let modifiedDate = hasInfo
+            ? Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+            : Date()
         // ZIPFoundation は日時を UTC として書くので、現地時刻になるようにずらして渡す(ZipDOSTime)。
-        let modified = ZipDOSTime.zipFoundationDate(forLocal: attributes?[.modificationDate] as? Date ?? Date())
-        let permissions = (attributes?[.posixPermissions] as? NSNumber)?.uint16Value
+        let modified = ZipDOSTime.zipFoundationDate(forLocal: modifiedDate)
+        let permissions: UInt16? = hasInfo ? UInt16(info.st_mode & 0o7777) : nil
         switch source.kind {
         case .directory:
             try archive.addEntry(
@@ -265,7 +277,13 @@ nonisolated enum ZipCompressor {
                 permissions: permissions, provider: { _, _ in target }
             )
         case .file:
-            let before = MoveVerification.stamp(of: source.url)
+            let before = hasInfo ? MoveVerification.Stamp(info) : nil
+            // 並べた(`collect`)後に伸びた・縮んだ。宣言する大きさ(数えた大きさ)と今の大きさが違えば、読む前に断る(2026-10-05 の
+            // 効率の監査で見つけた不具合。以前は読んでいる間の変化しか見ておらず、並べた後で**伸びた**ファイルは、数えた大きさで
+            // 切れたまま成功として zip に入った ―― 縮んだものは短いチャンクで捕まっていた)。
+            if let before, before.size != source.size {
+                throw FileOperationError.sourceChangedDuringOperation(source.url)
+            }
             let descriptor = open(source.url.path, O_RDONLY | O_NOFOLLOW)
             guard descriptor >= 0 else { throw FileOperationError.posixFailure(item: source.url, errnoCode: errno) }
             let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)

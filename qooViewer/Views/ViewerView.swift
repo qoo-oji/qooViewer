@@ -60,7 +60,8 @@ struct ViewerView: View {
     @State private var pendingZoomAnchor: PendingZoomAnchor?
     /// ピンチ操作中に一時的に表示する拡大率(%)。nilなら非表示。
     @State private var zoomIndicatorPercent: Int?
-    @State private var zoomIndicatorHideTask: Task<Void, Never>?
+    /// 拡大率の表示を消すタイマー(`CursorAutoHideTimer` と同じ形。ピンチのイベントごとに Task を作り直さない)。
+    @State private var zoomIndicatorTimer = CursorAutoHideTimer()
     /// 次にページを表示し始めるとき、読み終わり側の隅から始めるかどうか。
     /// scrollAndMovePreviousで前のページへ戻ったときだけtrueになる
     /// (cooViewerのsetStartFromEnd:YES相当)。
@@ -979,8 +980,7 @@ struct ViewerView: View {
         cursorAutoHide.cancel()
         toastDismissTask?.cancel()
         toastDismissTask = nil
-        zoomIndicatorHideTask?.cancel()
-        zoomIndicatorHideTask = nil
+        zoomIndicatorTimer.cancel()
         cancelPendingChromeReveal()
         if isCursorHidden {
             NSCursor.unhide()
@@ -1091,7 +1091,9 @@ struct ViewerView: View {
                         imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
                         return
                     }
-                    try ImageExporter.writeSinglePage(data: exportable.data, to: url)
+                    // 書き込みは FileIO の上で(保存先が応答しない共有でもメインを止めない。2026-10-05 の効率の監査 A4)。
+                    let data = exportable.data
+                    try await FileIO.perform { try ImageExporter.writeSinglePage(data: data, to: url) }
                 } catch {
                     imageExportErrorMessage = error.localizedDescription
                 }
@@ -1127,8 +1129,12 @@ struct ViewerView: View {
                     return
                 }
                 do {
-                    let data = try ImageExporter.combine(leftImage: leftImage, rightImage: rightImage, outputExtension: ext)
-                    try ImageExporter.writeCombinedImage(data: data, to: url)
+                    // 原寸の 2 枚を描いて符号化する(PNG なら数百 ms)のと書き込みは、メインの外で(2026-10-05 の効率の監査 A4)。
+                    // 書き込みを含むので FileIO の上で。
+                    try await FileIO.perform {
+                        let data = try ImageExporter.combine(leftImage: leftImage, rightImage: rightImage, outputExtension: ext)
+                        try ImageExporter.writeCombinedImage(data: data, to: url)
+                    }
                 } catch {
                     imageExportErrorMessage = error.localizedDescription
                 }
@@ -3474,12 +3480,26 @@ struct ViewerView: View {
 
     /// 拡大率を短時間だけ画面に表示する(showToastと同じ考え方の、拡大操作専用の軽い版)。
     /// ピンチ操作中は指を動かすたびに呼ばれるため、表示中の再表示は時間を延長するだけになる。
+    ///
+    /// ピンチのイベント(毎秒 60〜120 回)ごとに Task を作り直して `@State` に書かない(2026-10-05 の効率の監査 C15。カーソルの
+    /// 自動非表示と同じ形 ―― `CursorAutoHideTimer`)。最後に呼ばれた時刻だけを書き、待っている Task が 1 つあれば、それが目を
+    /// 覚ましたときに時刻を見て待ち直す。拡大率が同じなら書かない。
     private func showZoomIndicator(percent: Int) {
-        zoomIndicatorHideTask?.cancel()
-        zoomIndicatorPercent = percent
-        zoomIndicatorHideTask = Task { @MainActor in
-            try? await Task.sleep(for: Self.zoomIndicatorDuration)
+        if zoomIndicatorPercent != percent { zoomIndicatorPercent = percent }
+        let timer = zoomIndicatorTimer
+        timer.lastActivity = ProcessInfo.processInfo.systemUptime
+        guard timer.task == nil else { return }
+        let duration = Double(Self.zoomIndicatorDuration.components.seconds)
+            + Double(Self.zoomIndicatorDuration.components.attoseconds) / 1e18
+        timer.task = Task { @MainActor in
+            while true {
+                let remaining = timer.lastActivity + duration - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else { break }
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+            }
             guard !Task.isCancelled else { return }
+            timer.task = nil
             zoomIndicatorPercent = nil
         }
     }

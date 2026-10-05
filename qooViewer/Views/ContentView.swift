@@ -1266,6 +1266,10 @@ struct ContentView: View {
             // (NSWindow.frame・Self.mainWindowFrameDefaultsKeyはどちらもMainActor隔離)。
             MainActor.assumeIsolated {
                 guard let window = notification.object as? NSWindow else { return }
+                // ライブリサイズの間は書かず、終わったとき(didEndLiveResize)に 1 回だけ書く(2026-10-05 の効率の監査 C10。以前は
+                // ドラッグの毎フレーム ―― 毎秒 60 回前後 ―― UserDefaults へ書いていた)。残る値は同じ。終わりの知らせでは
+                // inLiveResize を見ない(知らせの時点の値を確かめていないので、取りこぼさない側に倒す)。
+                if notification.name == NSWindow.didResizeNotification, window.inLiveResize { return }
                 UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.mainWindowFrameDefaultsKey)
             }
         }
@@ -1274,6 +1278,9 @@ struct ContentView: View {
         ))
         tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main, using: save
+        ))
+        tokens.add(NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main, using: save
         ))
         tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main

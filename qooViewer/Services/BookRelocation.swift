@@ -75,8 +75,13 @@ nonisolated struct BookRelocationPlan: Sendable {
         var bookIDs: [String: String] = [:]
         var locators: [String: Locator] = [:]
         var directories: Set<String> = []
+        // 移った元の祖先を持たない本は、組を 1 つずつ当てる前に外す(パスの深さぶんの辞書引き)。以前は記録のある全冊に
+        // `relocatedPath`(組の数ぶん回る)を当てていたので、2 万冊 × 2000 件の一括リネームで数十秒ぶんの CPU を使った
+        // (2026-10-05 の効率の監査 A3)。
+        let displaced = change.displacedPathSet
         for old in knownBookIDs {
-            guard let new = change.relocatedPath(for: old), new != old else { continue }
+            guard FileSystemChange.mayAffect(old, displaced: displaced),
+                  let new = change.relocatedPath(for: old), new != old else { continue }
             bookIDs[old] = new
             let oldURL = URL(fileURLWithPath: old), newURL = URL(fileURLWithPath: new)
             var isDirectory: ObjCBool = false

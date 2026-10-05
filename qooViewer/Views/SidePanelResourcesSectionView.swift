@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import SwiftData
 
@@ -10,12 +11,16 @@ import SwiftData
 /// - グラフ: `ProcessResourceSampler`(アプリに1つ)が計測中だけ1秒ごとに伸ばす。ON/OFFは
 ///   上部のトグル。計測していなくても現在値(`latest`)は出す(サンプラーのコメント参照)。
 /// - この本のキャッシュ・現在値の更新: この節が表示されている間だけ、1秒ごとに
-///   `fetchBookSnapshot`(AppState経由でViewerViewModelへ)と`refreshLatest()`を呼ぶ。
+///   `fetchBookSnapshot`(AppState経由でViewerViewModelへ)と`refreshLatest()`を呼ぶ(現在値はアプリで 1 つなので、複数の
+///   ウインドウの節が同じ 1 秒に呼んでも読み直すのは 1 回。`refreshLatest` のコメント)。
 ///   このループは長寿命の`.task`で回るため、`fetchBookSnapshot`は**呼ばれた時点のAppStateを
 ///   引き直す**クロージャでなければならない(ContentView側のコメント参照)。本を切り替えても
 ///   ループは張り直されないので、渡されたクロージャ自体が古い本を指していると固まる。
 /// - ディスクの走査: この節が表示されている間だけ、15秒ごと+「今すぐ更新」。ディレクトリの
-///   全走査を伴うため、上の2つより粗い周期にしてある(`StorageUsageScanner`参照)。
+///   全走査を伴うため、上の2つより粗い周期にしてある(`StorageUsageScanner`参照)。走査と結果は
+///   アプリで 1 つ(`SharedStorageUsageScan`)。サイドパネルのモードはアプリで 1 つなので、「リソース」にすると
+///   本を開いている全ウインドウの節が出て、以前はウインドウの数だけ同じ走査(1 回 1 秒前後になりうる)を重ねていた
+///   (2026-10-05 の効率の監査 C8)。
 ///
 /// ■ 再描画のコスト(実測に基づく)
 /// 最初は1つのbodyに全節を書いていたが、1秒ごとの更新でパネル全体が再描画され、
@@ -40,10 +45,10 @@ struct SidePanelResourcesSectionView: View {
     /// 本を開いていなければ、呼んだ結果がnilになる(クロージャ自体はContentViewが常に渡す)。
     var fetchBookSnapshot: (() async -> ResourceMonitorSnapshot?)?
 
+    @ObservedObject private var storageScan = SharedStorageUsageScan.shared
+
     @State private var bookSnapshot: ResourceMonitorSnapshot?
     @State private var openBookCount = 0
-    @State private var storage: StorageUsage?
-    @State private var isScanningStorage = false
     @State private var anomalies: [ResourceAnomaly] = []
     @State private var detector = ResourceAnomalyDetector()
     /// グラフの時間幅。falseなら直近2分(1秒刻み)、trueなら直近1時間(10秒平均)。
@@ -79,8 +84,8 @@ struct SidePanelResourcesSectionView: View {
                         .equatable()
                     }
                     StorageSection(
-                        storage: storage,
-                        isScanning: isScanningStorage,
+                        storage: storageScan.usage,
+                        isScanning: storageScan.isScanning,
                         isDiskCacheEnabled: preferences.thumbnailDiskCacheEnabled,
                         diskCacheLimitBytes: Int(preferences.thumbnailDiskCacheLimitMB) * 1024 * 1024,
                         isFileBrowserThumbnailCacheEnabled: preferences.fileBrowserThumbnailCacheEnabled,
@@ -98,6 +103,8 @@ struct SidePanelResourcesSectionView: View {
         }
         .task(id: fetchBookSnapshot == nil) { await tickLoop() }
         .task(id: storageScanRequest) { await storageScanLoop() }
+        // どのウインドウの走査の結果でも、届いたら異常を判定し直す(以前は自分の走査の後だけ。結果がアプリで 1 つになったので)。
+        .onChange(of: storageScan.usage) { evaluateAnomalies(advancingStreaks: false) }
     }
 
     // MARK: - 更新ループ
@@ -125,7 +132,7 @@ struct SidePanelResourcesSectionView: View {
     private func evaluateAnomalies(advancingStreaks: Bool = true) {
         let found = detector.evaluate(advancingStreaks: advancingStreaks, .init(
             bookSnapshot: bookSnapshot,
-            storage: storage,
+            storage: storageScan.usage,
             isDiskCacheEnabled: preferences.thumbnailDiskCacheEnabled,
             diskCacheLimitBytes: Int(preferences.thumbnailDiskCacheLimitMB) * 1024 * 1024,
             openBookCount: ViewerViewModel.openBookCount
@@ -134,25 +141,19 @@ struct SidePanelResourcesSectionView: View {
     }
 
     /// 15秒ごとにコンテナを走査する。「今すぐ更新」で`storageScanRequest`が変わるとループが
-    /// 張り直され、即座に1回走る。
+    /// 張り直され、即座に1回走る(ほかのウインドウの走査が先に始まっていても、押した後に始めた走査の結果を出す)。
+    /// 15 秒より新しい結果があれば走査しない(ほかのウインドウの節が走査した。結果は `storageScan` から全部の節へ届く)。
     private func storageScanLoop() async {
+        var forces = storageScanRequest != 0
         while !Task.isCancelled {
-            await scanStorage()
+            await storageScan.refresh(maxAge: forces ? 0 : Self.storageScanInterval, locations: Self.storageLocations())
+            forces = false
             try? await Task.sleep(for: .seconds(Self.storageScanInterval))
         }
     }
 
-    /// 走査の世代。「今すぐ更新」で`.task(id:)`が張り直されると古い走査は取り消されるが、
-    /// その`defer`が新しい走査の最中に`isScanningStorage = false`を書いてボタンを早く
-    /// 有効にしてしまわないよう、自分が最新の世代であるときだけ状態を戻す(監査で指摘)。
-    @State private var storageScanGeneration = 0
-
-    private func scanStorage() async {
-        storageScanGeneration &+= 1
-        let generation = storageScanGeneration
-        isScanningStorage = true
-        defer { if generation == storageScanGeneration { isScanningStorage = false } }
-        let locations = StorageUsageScanner.Locations(
+    private static func storageLocations() -> StorageUsageScanner.Locations {
+        StorageUsageScanner.Locations(
             containerRoot: FileManager.default.homeDirectoryForCurrentUser,
             sessionTemporaryDirectory: TemporaryFileStore.sessionDirectory,
             temporaryRoot: FileManager.default.temporaryDirectory,
@@ -164,17 +165,43 @@ struct SidePanelResourcesSectionView: View {
             fileBrowserThumbnailCacheDirectory: FileBrowserThumbnailDiskCache.shared.directory,
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
-        // ブロッキングする列挙は FileIO の上で(CLAUDE.md の FileIO の約束。2026-10-04 の監査 §2-4 ―― 以前は Task.detached で、
-        // 協調スレッドプールのスレッドを列挙の間ずっと塞いでいた)。この`.task`が取り消されると FileIO が旗を立て、走査は列挙の
-        // 途中でそれを見て打ち切る(StorageUsageScanner参照)ため、古い走査と新しい走査が丸ごと並走することはない。
-        let result = await FileIO.perform(qos: .utility) {
-            StorageUsageScanner.scan(locations)
+    }
+}
+
+/// コンテナのディスク使用量の走査と、その最新の結果(アプリで 1 つ。`SidePanelResourcesSectionView` の型コメント)。
+///
+/// 走査は同時に 1 本だけ。走っている間に頼まれたら、それを待つ(「今すぐ更新」は、頼んだ時点より前に始まった走査なら、
+/// 終わるのを待ってからもう 1 本走らせる)。走査はブロッキングする列挙なので FileIO の上で(CLAUDE.md の FileIO の約束。
+/// 2026-10-04 の監査 §2-4)。待っていた節が消えても走査は止めない ―― 1 本だけで、ほかのウインドウの節が待っていることがある。
+@MainActor
+final class SharedStorageUsageScan: ObservableObject {
+    static let shared = SharedStorageUsageScan()
+
+    /// 最新の結果(まだ無ければ nil)。
+    @Published private(set) var usage: StorageUsage?
+    /// 走査中か(「今すぐ更新」を淡色にする)。
+    @Published private(set) var isScanning = false
+
+    private var finishedAt: ContinuousClock.Instant?
+    private var running: (task: Task<StorageUsage?, Never>, startedAt: ContinuousClock.Instant)?
+
+    /// 最新の結果が `maxAge` 秒より古ければ(無ければ)走査する。0 なら必ず、呼んだ後に始まった走査の結果にする。
+    func refresh(maxAge: TimeInterval, locations: StorageUsageScanner.Locations) async {
+        let requestedAt = ContinuousClock.now
+        if maxAge > 0, let finishedAt, requestedAt - finishedAt < .seconds(maxAge) { return }
+        // 走っている走査があれば待つ。古さを問わない頼みならそれで足りる。「今すぐ」は、頼んだ後に始まった走査でなければもう 1 本。
+        while let running {
+            _ = await running.task.value
+            if maxAge > 0 || running.startedAt >= requestedAt { return }
         }
-        guard !Task.isCancelled, let result else { return }
-        storage = result
-        // 走査の後の判定は持続回数を進めない(監査 SP-12)。持続回数は「1 秒ごとに 1 回」を単位にしているので
-        // (ResourceAnomalyDetector.evaluate)、15 秒ごとの走査と「今すぐ更新」のたびに進めると、上限の超過が 3 秒続く前に異常と出た。
-        evaluateAnomalies(advancingStreaks: false)
+        let task = Task { await FileIO.perform(qos: .utility) { StorageUsageScanner.scan(locations) } }
+        running = (task, ContinuousClock.now)
+        isScanning = true
+        let result = await task.value
+        running = nil
+        isScanning = false
+        finishedAt = ContinuousClock.now
+        if let result { usage = result }
     }
 }
 

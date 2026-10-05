@@ -338,21 +338,35 @@ struct HomeInspectorItemPreview: View {
             }
         }
         .frame(width: frameSize.width, height: frameSize.height)
-        .task(id: "\(entry.identityKey)|\(thumbnails.revision)") { await load() }
+        .task(id: loadKey) { await load() }
         .accessibilityHidden(true)
     }
 
     /// 絵がアイコン(影を付けない)か。中身の絵(画像・動画・書類の 1 ページ目)には影を付ける。
     @State private var isIcon = false
 
+    /// 提供役から引く種類(nil なら QuickLook・システムのアイコンへ)。
+    private var providerKind: BookThumbnailer.Kind? {
+        guard let kind = BookThumbnailer.kind(
+            forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
+            isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, isAliasFile: entry.isAliasFile
+        ), !(kind == .folder && !mayReadUnentered) else { return nil }
+        return kind
+    }
+
+    /// 絵を作り直す条件。提供役の絵は出どころの鍵(`FileBrowserThumbnailProvider.sourceKey`)が変わったときだけ、QuickLook・システムの
+    /// アイコンは項目が変わったときだけ。以前は全体の `revision`(表紙を 1 冊抽出するたびに進む)も鍵にしていて、本でないファイルを
+    /// 選んでいる間、抽出のたびに QuickLook の生成からやり直していた(2026-10-05 の効率の監査 C1)。
+    private var loadKey: String {
+        let source = providerKind.map { thumbnails.sourceKey(for: entry, kind: $0) } ?? ""
+        return "\(entry.identityKey)|\(source)"
+    }
+
     private func load() async {
         isLoading = true
         defer { isLoading = false }
         let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: max(width, maxHeight))
-        if let kind = BookThumbnailer.kind(
-            forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
-            isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, isAliasFile: entry.isAliasFile
-        ), !(kind == .folder && !mayReadUnentered) {
+        if let kind = providerKind {
             let buffer = await thumbnails.thumbnail(
                 for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk, currentFolder: currentFolder
             )

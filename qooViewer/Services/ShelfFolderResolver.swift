@@ -49,6 +49,11 @@ nonisolated enum ShelfFolderResolver {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue
         else { return url }
+        // 規則 1(直下に画像)なら答えは `url` そのもの。開くフォルダの本はほとんどこれなので、属性付きの一覧(全子項目の 7 つの属性・
+        // サブフォルダの中・種類の問い合わせ)を作る前に、名前だけの列挙で確かめる(最初の画像で打ち切る。結論は `firstBook` の
+        // `isSingleBook` と同じ ―― どちらも隠し項目を除いた直下の名前に `isImageFile`。2026-10-05 の効率の監査 C2)。棚の中の子フォルダは
+        // 一覧から分かるので、ここでだけ見る。
+        if DirectoryBrowser.directlyContainsImageFile(url) { return url }
         return firstBook(in: url, order: order, depth: 0) ?? url
     }
 

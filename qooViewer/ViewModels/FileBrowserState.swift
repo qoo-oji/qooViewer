@@ -1322,8 +1322,15 @@ final class FileBrowserState: ObservableObject {
         }
         backStack = backStack.map(relocated)
         forwardStack = forwardStack.map(relocated)
-        let relocatedSelection = Set(selection.map { change.relocatedPath(for: $0) ?? $0 })
-        if relocatedSelection != selection { selection = relocatedSelection }
+        // 付け替えは、移った元の祖先を持つパスにだけ当てる(`relocatedPath` は組の数ぶん回るので、多数を選んだままの一括リネーム・
+        // 移動で「選択の件数 × 組の数」になった。2026-10-05 の効率の監査 A3)。
+        if !change.relocations.isEmpty {
+            let displaced = change.displacedPathSet
+            let relocatedSelection = Set(selection.map { path in
+                FileSystemChange.mayAffect(path, displaced: displaced) ? change.relocatedPath(for: path) ?? path : path
+            })
+            if relocatedSelection != selection { selection = relocatedSelection }
+        }
         if let request = renameRequest, change.displaces(request.id) { renameRequest = nil }
         cutClipboard.forget(displacedBy: change)
 

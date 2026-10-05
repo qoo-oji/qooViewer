@@ -566,7 +566,14 @@ final class AppStores: ObservableObject {
         MetadataGenerator.appWide = metadataGenerator
         collectionStore.$revision
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.recordCollectionBooks() } }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    // `revision` は表紙を 1 枚抽出するたびにも進む。本の顔ぶれが変わっていなければ写し直さない(全冊の Set と
+                    // シークレットフォルダの照合・並べ替え。2026-10-05 の効率の監査 C13)。
+                    guard let self, self.collectionStore.itemMembershipRevision != self.lastRecordedCollectionRevision else { return }
+                    self.recordCollectionBooks()
+                }
+            }
             .store(in: &metadataCorpusSubscriptions)
         smartLibraryStore.$folders
             .sink { [weak self] folders in
@@ -600,9 +607,13 @@ final class AppStores: ObservableObject {
     private func recordCollectionBooks(excluding secret: SecretFolderStore.Matcher? = nil) {
         guard preferences.libraryFeatureEnabled else { return }
         let secret = secret ?? secretFolderStore.matcher
+        lastRecordedCollectionRevision = collectionStore.itemMembershipRevision
         metadataCorpusStore.recordCollectionBooks(
             collectionStore.allRegisteredBookIDs().filter { !secret.contains(path: $0) })
     }
+
+    /// 最後にコレクションの本を写し取ったときの本の顔ぶれの番号(`CollectionStore.itemMembershipRevision`)。
+    private var lastRecordedCollectionRevision: UInt64?
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
     /// ウインドウごとの一覧(ファイルブラウザ・サイドパネル)は自分で受ける。ここはアプリで 1 つのもの:
@@ -630,7 +641,7 @@ final class AppStores: ObservableObject {
             // (移した本は新しいパスで当たる)。関わらない変更で実体の有無が変わることは無い。
             // ライブラリ機能がOFFの間は`CollectionItem`を読まない(ストアの側でも何もしない。CollectionStore.isLibraryFeatureEnabled)。
             if self.preferences.libraryFeatureEnabled,
-               change.touchesAny(of: Set(self.collectionStore.allRegisteredBookIDs().map(MountTable.normalized))) {
+               change.touchesAny(of: self.collectionStore.normalizedRegisteredBookPaths()) {
                 self.collectionStore.scheduleExistenceRefresh()
             }
             if change.touchesAny(of: Set(self.recentFiles.entries.map { MountTable.normalized($0.path) })) {

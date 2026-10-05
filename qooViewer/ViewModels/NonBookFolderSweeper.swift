@@ -36,16 +36,18 @@ enum NonBookFolderSweeper {
         guard !probes.isEmpty else { return 0 }
         // 外付けの本は、記録したボリュームの UUID と今そこにあるボリュームの UUID が同じときだけ消す(2026-09-22 の監査。
         // `/Volumes/<名前>` の名前は別のディスクでも同じになりうるので、同じ名前の別のディスクのフォルダを見て消しかねない)。
-        var recordedVolumes: [String: Set<String>] = [:]
+        var recordedVolumesByBookID: [String: Set<String>] = [:]
         for bookID in bookIDs where MountTable.volumeRoot(of: bookID) != nil {
             let identifiers = [metadataStore.metadata(forBookID: bookID)?.fileNodeIdentifier,
                                layoutStore.bookLayoutSettings(forBookID: bookID)?.fileNodeIdentifier]
                 + collectionStore.items(forBookID: bookID).map(\.fileNodeIdentifier)
                 + favoritesStore.existingFavorites(forBookID: bookID).map(\.fileNodeIdentifier)
-            recordedVolumes[bookID] = Set(identifiers.compactMap { $0?.volumeUUID })
+            recordedVolumesByBookID[bookID] = Set(identifiers.compactMap { $0?.volumeUUID })
         }
-        // ファイルに触る(ブックマークの解決は繋がっていないボリュームで秒単位止まる)ので、メインの外で。
-        let targets = await Task.detached(priority: .utility) {
+        // ファイルに触る(ブックマークの解決は繋がっていないボリュームで秒単位止まる)ので、メインの外で。FileIO の上で(CLAUDE.md の
+        // FileIO の約束。以前は Task.detached。2026-10-05 の効率の監査)。
+        let recordedVolumes = recordedVolumesByBookID
+        let targets = await FileIO.perform(qos: .utility) {
             let mounts = MountTable.current()
             var currentVolumes: [String: String?] = [:]
             return probes.filter { probe in
@@ -59,7 +61,7 @@ enum NonBookFolderSweeper {
                 }
                 return probe.isNonBookFolderAtRecordedPath()
             }.map(\.bookID)
-        }.value
+        }
         guard !targets.isEmpty else { return 0 }
         BookSavedDataEraser(
             favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,

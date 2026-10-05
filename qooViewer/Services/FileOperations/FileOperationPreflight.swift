@@ -284,10 +284,7 @@ nonisolated enum MoveVerification {
     static func stamp(of url: URL) -> Stamp? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
-        return Stamp(
-            inode: UInt64(info.st_ino), device: info.st_dev, size: Int64(info.st_size),
-            modifiedSeconds: info.st_mtimespec.tv_sec, modifiedNanoseconds: info.st_mtimespec.tv_nsec
-        )
+        return Stamp(info)
     }
 
     /// 運ぶ前の姿 `before` と比べて、元が書き換えられたとみなすか。
@@ -358,5 +355,15 @@ nonisolated enum MoveVerification {
             summary.bytes += Int64(values?.fileSize ?? 0)
         }
         return summary
+    }
+}
+
+extension MoveVerification.Stamp {
+    /// lstat の結果から(呼び出し側が既に lstat していれば、もう 1 回問い合わせない。ZipCompressor.add)。
+    nonisolated init(_ info: stat) {
+        self.init(
+            inode: UInt64(info.st_ino), device: info.st_dev, size: Int64(info.st_size),
+            modifiedSeconds: info.st_mtimespec.tv_sec, modifiedNanoseconds: info.st_mtimespec.tv_nsec
+        )
     }
 }
