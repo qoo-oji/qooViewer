@@ -2106,7 +2106,7 @@ private struct SidePanelPagesSectionView: View {
     /// 通過した行も生成される)するだけで、訪れた行の数だけ画像が積み上がる。予算(128MB)を
     /// 超えたら一覧を`.id(epoch)`で作り直してまとめて解放する(仕組みと実測の詳細は
     /// LazyCellImageBudgetの型コメント参照)。ScrollViewは残るのでスクロール位置は保たれる。
-    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024)
 
     /// 帳簿の下限セル数。行の高さは固定(サムネイル72pt+間隔)なので、現実的な最大サイズの
     /// ディスプレイでも画面内は30行に届かない。その3倍強を固定値で持てば、作り直し直後の

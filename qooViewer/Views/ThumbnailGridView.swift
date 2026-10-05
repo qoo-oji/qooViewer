@@ -83,7 +83,7 @@ struct ThumbnailGridView: View {
     /// 作り直してまとめて解放する(仕組みと実測の詳細はLazyCellImageBudgetの型コメント参照)。
     /// 作り直してもScrollViewは残るのでスクロール位置は保たれ、画面内のセルだけが
     /// 読み直される(多くはgridThumbnailCacheから即座に復元される)。
-    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 256 * 1024 * 1024)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 256 * 1024 * 1024)
 
     /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。列幅は「最初の1枚」では
     /// なく、ここに溜めた**複数ページの中央値**から決める。先頭だけ横長のカバーがある本

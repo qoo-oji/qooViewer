@@ -110,6 +110,10 @@ struct LazyCellImageBudget {
     }
 
     /// ビューが持つ形(型コメント「使い方」)。`@State` を付けずに持つ(中に `@State` を持つ `DynamicProperty`)。
+    ///
+    /// **持つプロパティに `private` を付けない。** 初期値つきの `private var` は、Xcode 26.6(Swift 6.2)ではそのビューの
+    /// メンバーごとのイニシャライザを private にし、ほかのファイルから作れなくなる(CI の macos-26 だけが落ちた ―― 2026-10-05。
+    /// Xcode 27 では通る。`@State private var` は包みなので当たらない)。
     struct ViewState: DynamicProperty {
         /// 数える部分。参照型なので、数えても `@State` の値は変わらない(描き直しを呼ばない)。
         private final class Ledger {

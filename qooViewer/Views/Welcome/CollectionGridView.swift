@@ -39,7 +39,7 @@ struct CollectionGridView: View {
     /// 画面外に残ってよいカバーの総量。
     private static let coverByteBudget = 64 * 1024 * 1024
 
-    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget)
     /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
     @State private var gridSize: CGSize = .zero
     /// リネーム・削除の対象。**モデルの参照ではなくidで持つ。**`@Model`のクラスは
