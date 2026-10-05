@@ -1112,20 +1112,34 @@ final class AppState: ObservableObject {
     /// 表示している側**が持つ: 開く要求に一時コピーが入っていれば引き受け(`adoptTemporaryCopies`)、表示中の本・直前の本(「直前の本へ戻る」
     /// の行き先)・読み込み中の本のどれでもなくなったら消す(`releaseUnusedTemporaryCopies`)。ウインドウを閉じたら残りも消す(deinit)。
     /// どれも消し損ねても、一時フォルダはアプリの終了時(と次の起動)に片付く(`TemporaryFileStore`)。
+    ///
+    /// 引き受けるのは本の中身ブラウザが**渡したもの**と、ほかの窓が持っているものだけで、消すのは最後の持ち主が手放したときだけ
+    /// (`TemporaryCopyRegistry`。2026-10-05 の監査 A7-2 ―― 以前はパスが一時フォルダの下かだけで引き受けたので、同じ一時コピーを 2 つの窓で
+    /// 開くと先に移った窓が消し、一時フォルダそのものを落とすと丸ごと消した)。
     private var ownedTemporaryCopies: Set<String> = []
     /// 読み込み中の要求に入っている一時コピー(まだ表示中の本ではないが、消してはいけない)。
     private var openingTemporaryCopies: Set<String> = []
+    /// 一時コピーの持ち主の数(アプリで 1 つ。テストは自前のものを入れる)。
+    var temporaryCopies: TemporaryCopyRegistry = .shared
 
     deinit {
         securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
-        Self.removeTemporaryCopies(ownedTemporaryCopies)
+        // 持ち主の数はメインの上(deinit はどの糸で走るか決まっていない)。最後の持ち主だったものだけ消す。
+        let owned = ownedTemporaryCopies
+        guard !owned.isEmpty else { return }
+        let registry = temporaryCopies
+        Task { @MainActor in
+            Self.removeTemporaryCopies(owned.filter { registry.release($0) })
+        }
     }
 
     /// 開く要求に入っている一時コピーを引き受け、読み込み中として控える(`ownedTemporaryCopies` のコメント)。前の要求の分は控えから外れる。
     private func adoptTemporaryCopies(of request: BookOpenRequest) {
         let copies = Set(request.urls.filter(MangaBook.isTemporaryCopy).map { MountTable.normalized($0.path) })
         openingTemporaryCopies = copies
-        ownedTemporaryCopies.formUnion(copies)
+        for copy in copies where !ownedTemporaryCopies.contains(copy) {
+            if temporaryCopies.adopt(copy) { ownedTemporaryCopies.insert(copy) }
+        }
         releaseUnusedTemporaryCopies()
     }
 
@@ -1139,7 +1153,8 @@ final class AppState: ObservableObject {
         let unused = ownedTemporaryCopies.subtracting(inUse)
         guard !unused.isEmpty else { return }
         ownedTemporaryCopies.subtract(unused)
-        Self.removeTemporaryCopies(unused)
+        // ほかの窓も持っている一時コピーは消さない(TemporaryCopyRegistry)。
+        Self.removeTemporaryCopies(unused.filter { temporaryCopies.release($0) })
     }
 
     /// 一時コピーを消す(FileIO の上で。待たない)。

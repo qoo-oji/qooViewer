@@ -226,6 +226,12 @@ final class FolderAccessStore: ObservableObject {
         bookmarks.removeAll { redundant.contains($0) }
         bookmarks.append(newData)
         defaults.set(bookmarks, forKey: Self.defaultsKey)
+        // 取り除いた許可の裏の解決も捨てる(2026-10-05 の監査 A4-F1)。残すと遅れて返った解決が採られ(`adoptResolvedFolder` は
+        // 同じフォルダが開いていれば対応だけ足す)、新しい許可を取り消しても「ほかの許可が同じフォルダを開いている」として閉じず、
+        // 環境設定の一覧には無いのにフォルダが終了まで開いたままになった。
+        for data in redundant {
+            if let recorded = Self.recordedPath(of: data) { pendingResolutions.removeValue(forKey: recorded)?.cancel() }
+        }
         close(paths: Set(redundant.compactMap { resolvedPathByBookmark[$0] ?? Self.recordedPath(of: $0) }))
         // 新しい許可だけを解決して開く(利用者が今パネルで選んだフォルダなので応答する。呼び出し側とテストは、戻った時点で
         // `isPathCovered` が新しい答えを返すことを当てにしている)。
@@ -381,6 +387,9 @@ final class FolderAccessStore: ObservableObject {
                 // 待つ間に取り消された許可(`remove(_:)` が pendingResolutions から外す)は開かない。
                 guard let self, self.resolutionGeneration == generation,
                       self.pendingResolutions.removeValue(forKey: key) != nil else { return }
+                // 待つ間に取り除かれた・置き換えられたブックマーク(`add` の「配下で不要」など)は開かない(A4-F1。上の外し忘れが
+                // あっても、保存されていない許可でフォルダを開かない)。
+                guard self.rawBookmarks().contains(data) else { return self.rebuildGrants() }
                 guard let entry else { return self.rebuildGrants() }
                 self.adoptResolvedFolder(entry.url, from: data, entry: entry)
             }

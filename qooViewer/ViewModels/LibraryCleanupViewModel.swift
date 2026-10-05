@@ -194,6 +194,10 @@ final class LibraryCleanupViewModel: ObservableObject {
             selectedBookIDs.removeAll()
             filter = .all
             searchText = ""
+            // 閉じたウインドウのために確かめ続けない(開き直したら全部やり直す)。
+            existenceScanTask?.cancel()
+            existenceScanTask = nil
+            isCheckingExistence = false
         }
     }
 
@@ -253,6 +257,8 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// 世代を見ないと、先に始まった古いスキャンが後から完了して新しい結果を上書きしたり、
     /// まだ走行中なのに進捗表示だけ消えたりする。
     private var existenceScanGeneration = 0
+    /// 走っている実在判定(新しい判定を始めた・ウインドウを閉じたら取り消す。scheduleExistenceScan のコメント)。
+    private var existenceScanTask: Task<Void, Never>?
 
     /// 実在判定を非同期に走らせる。DBから読める材料の収集だけをメインアクターで行い、
     /// 重いブックマーク解決と存在確認はメインアクターの外で実行する。
@@ -275,12 +281,14 @@ final class LibraryCleanupViewModel: ObservableObject {
         existenceScanGeneration &+= 1
         let generation = existenceScanGeneration
         isCheckingExistence = true
-        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
-        // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        Task.detached(priority: .utility) { [weak self] in
-            let result = Self.evaluateAll(probes)
-            guard let self else { return }
-            await self.applyExistence(result, generation: generation)
+        // 判定は FileIO の上で(2026-10-05 の監査 A4-F2。CLAUDE.md の FileIO の約束)。以前は `Task.detached` で、応答しない共有の上の本の
+        // 解決が協調スレッドを塞いだうえ、開き直すたびに全件の判定を新しく始めて前のものを止めなかった ―― 開き直すたびに 1 本ずつ塞がり、
+        // コア数ほど開き直すとアプリの async 処理が止まりえた。前の判定は取り消す(結果は世代で捨てていたので、見え方は変わらない)。
+        existenceScanTask?.cancel()
+        existenceScanTask = Task { [weak self] in
+            let result = await FileIO.perform(qos: .utility) { Self.evaluateAll(probes) }
+            guard let self, !Task.isCancelled else { return }
+            self.applyExistence(result, generation: generation)
         }
     }
 
@@ -320,6 +328,8 @@ final class LibraryCleanupViewModel: ObservableObject {
     private nonisolated static func evaluateAll(_ probes: [ExistenceProbe]) -> [String: FileExistence] {
         var result: [String: FileExistence] = [:]
         for probe in probes {
+            // 取り消された(新しい判定を始めた・閉じた)ら残りは確かめない。返す途中の結果は呼ぶ側が捨てる。
+            if Cancellation.isRequestedInCurrentScope { break }
             switch probe.evaluateAtRecordedPath() {
             case .exists: result[probe.bookID] = .exists
             case .missing: result[probe.bookID] = .missing

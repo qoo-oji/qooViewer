@@ -66,6 +66,8 @@ final class BookContentsBrowserState: ObservableObject {
     /// へ移る(2026-10-04 の監査 SP-4、実測)。以前は渡した後もここで持ち、本が替わった直後にこの状態(古い本のもの)が解放されて消して
     /// いたので、開いたばかりの一時コピーの本のページが真っ黒になった(新しい本の読み手が書庫を開くのと削除が競争した)。
     private var temporaryFileURLs: [URL] = []
+    /// 渡した一時コピーの持ち主の数(アプリで 1 つ。テストは自前のものを入れる)。
+    var temporaryCopies: TemporaryCopyRegistry = .shared
 
     /// 本のページの鍵(読み込んだときの全ページ。除外したページも入る)。今のページの並び(`bookPages`)に無くここにある画像の行は、
     /// **除外したページ**(`resolveImageClick` の `.excludedPage`)。
@@ -708,7 +710,10 @@ final class BookContentsBrowserState: ObservableObject {
     /// 「新しい本として開く」で書き出した一時ファイルを、開く側へ渡す(以後ここでは消さない)。開く側の `AppState` が引き受ける
     /// (`AppState.ownedTemporaryCopies`。`temporaryFileURLs` のコメント)。書き出したものでなければ何もしない。
     func handOffTemporaryFile(_ url: URL) {
+        guard temporaryFileURLs.contains(url) else { return }
         temporaryFileURLs.removeAll { $0 == url }
+        // 渡したものだけが、窓が引き受けて消してよい一時コピーになる(TemporaryCopyRegistry。2026-10-05 の監査 A7-2)。
+        temporaryCopies.handOff(url)
     }
 
     private func localizedErrorMessage(for error: Error, fallback: String.LocalizationValue) -> String {
