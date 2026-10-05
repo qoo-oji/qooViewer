@@ -294,4 +294,34 @@ struct PageLoaderTests {
         await loader.updateBook(reordered)
         #expect(PageColorReader.number(in: try #require(await loader.pageImage(at: 0))) == 4)
     }
+
+    // MARK: - 原寸大(2026-10-05 の監査 A3-2)
+
+    @Test("原寸大の読み直しは、元の寸法が表示用を超えるときだけ。埋め込み画像の無い PDF のページは表示用のまま(以前は約 1.1 GB を描いた)")
+    func actualSizeRereadsOnlyLargerSources() async throws {
+        // 表示用の上限より小さい画像のフォルダの本。
+        let source = try await makeSource("loader-actual", pageCount: 1)
+        let loader = makeLoader(source.book)
+        defer { Task { await loader.releaseAllResources() } }
+        #expect(await loader.actualSizeImage(at: 0) == nil)
+        #expect(await loader.actualSizeImage(at: 5) == nil)
+
+        // ベクターだけ(画像を 1 枚も持たない)の A4 の PDF。表示用は長辺 4096 で、書き出しの上限で描き直すと 14142×20000 になる。
+        let temporary = try TemporaryDirectory("loader-actual-pdf")
+        let pdf = temporary.file("vector.pdf")
+        var mediaBox = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let consumer = try #require(CGDataConsumer(url: pdf as CFURL))
+        let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 100, y: 100, width: 300, height: 400))
+        context.endPDFPage()
+        context.closePDF()
+        let book = try await FixtureBook.load(pdf)
+        let pdfLoader = makeLoader(book)
+        defer { Task { await pdfLoader.releaseAllResources() } }
+        let display = try #require(await pdfLoader.pageImage(at: 0))
+        #expect(max(display.width, display.height) == Int(ImageDecoder.pageMaxPixelSize))
+        #expect(await pdfLoader.actualSizeImage(at: 0) == nil)
+    }
 }

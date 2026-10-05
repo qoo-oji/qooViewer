@@ -1824,6 +1824,12 @@ final class ViewerViewModel: ObservableObject {
         return await pageLoader.fullResolutionImage(at: index)
     }
 
+    /// 「原寸大」のウインドウに出す、表示用より大きい元の寸法の画像(PageLoader.actualSizeImage)。表示用と同じなら nil。
+    func actualSizeImage(at index: Int) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.actualSizeImage(at: index)
+    }
+
     /// 保存データの変更の知らせ(`.bookmarksDidChange` / `.layoutDataDidChange`)がこの本に関わるか。`"bookID"` があればその本だけ、
     /// 付け替えの知らせ(`BookRelocationPlan.relocatedBookIDsUserInfoKey`)ならそこに入っている本だけ、どちらも無い知らせ
     /// (全件のリセット・読み込み)はすべての本に関わる。

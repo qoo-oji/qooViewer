@@ -204,17 +204,24 @@ struct AddBooksPanel: View {
 
     /// 1 回ぶんを足し終えたら、その間に積まれた分を続けて足す(H-7)。待つ間にライブラリ機能が切られていたら足さずに捨てる
     /// (パネルを出したままでも、切った後に登録しない ―― 選ぶパネルの戻りと同じ確かめ)。
-    private func finishAdding() {
+    ///
+    /// 積まれた分は**今の回と同じ入れ先へ**足す(`into`。今の回で作ったコレクションの id も入っている ―― 2026-10-05 の監査 A6-F1。以前は
+    /// 続けて足すときに入れ先をバインディングから読み直したので、待つ間にパネルを閉じて別のコレクションで開き直すと、そちらへ入った)。
+    private func finishAdding(into: WelcomeLibraryState.AddBooksTarget) {
         isAdding = false
         let next = queuedURLs
         queuedURLs = []
         guard !next.isEmpty, preferences.libraryFeatureEnabled else { return }
-        add(next)
+        add(next, into: into)
     }
 
     /// 落とされた/選ばれたURLから本だけを拾って登録する。棚(本の並んだフォルダ)は中の本へ
     /// 展開する(CollectionDropClassifier.booksToAdd参照)。
-    private func add(_ urls: [URL]) {
+    ///
+    /// 入れ先は**落とされた時点のもの**(`into` が無ければ今のパネルの対象)を控えて使う(2026-10-05 の監査 A6-F1)。振り分けを待つ間に
+    /// パネルが閉じられ、別のコレクションの「本を追加」が開いても、落とされたコレクションへ入れる。パネルへの書き戻し(作った
+    /// コレクションの id)は、パネルの対象が同じ(`AddBooksTarget.id`)ときだけ。
+    private func add(_ urls: [URL], into given: WelcomeLibraryState.AddBooksTarget? = nil) {
         guard !urls.isEmpty else { return }
         // 足している最中なら積んでおき、終わってから足す(queuedURLs のコメント)。
         guard !isAdding else {
@@ -224,59 +231,74 @@ struct AddBooksPanel: View {
         isAdding = true
         let order = preferences.siblingBookOrder
         let locale = locale
+        let dropTarget = given ?? target
         Task {
-            defer { finishAdding() }
-            let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
-            let books = CollectionDropClassifier.booksToAdd(from: classified)
-            let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
-            guard !books.isEmpty else {
-                notice = WelcomeDropHandling.noBooksMessage(locale: locale)
-                return
-            }
-            // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
-            let pending = await CollectionStore.makePendingItems(for: books)
-            // シークレットフォルダの本は入れない(makePendingItems が外す)。入れなかったことを知らせる。
-            let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
-            if skippedSecret > 0 { notice = CollectionStore.secretBooksNotAddedMessage(count: skippedSecret, locale: locale) }
-            guard !pending.isEmpty else { return }
-
-            let added: [CollectionItem]
-            if let collection {
-                added = collectionStore.add(pending, to: collection)
-            } else if target.collectionID != nil {
-                // 入れ先のコレクションが(別のウインドウで)消えた。**新しく作らない**(監査 H-9。以前は nil を「まだ作っていない」と
-                // 区別せず、同じ名前で作り直していた ―― 後で ⌘Z で戻すと「C 2」が並んだ)。足さずに知らせる。
-                notice = WelcomeDropHandling.collectionGoneMessage(locale: locale)
-                return
-            } else if let library = collectionStore.library(withID: target.libraryID),
-                      let created = collectionStore.createCollection(
-                          name: target.name, in: library, items: pending
-                      ) {
-                target.collectionID = created.id
-                // 名前を決めるときに選ばれていた自動登録フォルダを、行ができたこの時点で
-                // 書き込む(AddBooksTarget.autoFolderのコメント参照)。
-                if let autoFolder = target.autoFolder {
-                    collectionStore.setAutoFolder(autoFolder, for: created)
-                }
-                added = collectionStore.items(in: created, sort: .dateAddedAscending)
-            } else {
-                added = []
-            }
-            // 入った順に積む。既に入っていた本はadd(_:to:)が弾いて返さないので、ここには来ない。
-            addedItemIDs.append(contentsOf: added.map(\.id))
-            coverExtractor.enqueue(added)
-            // 入れなかったものを知らせる(本でない・既に入っていた)。全部入ったら消す。
-            var parts: [String] = []
-            if skipped > 0 { parts.append(WelcomeDropHandling.skippedMessage(skipped, locale: locale)) }
-            let duplicates = pending.count - added.count
-            if duplicates == 1 {
-                parts.append(String(localized: "1 book was already in the collection.", language: locale))
-            } else if duplicates > 1 {
-                parts.append(String(
-                    format: String(localized: "%lld books were already in the collection.", language: locale), duplicates
-                ))
-            }
-            notice = parts.isEmpty ? nil : parts.joined(separator: " ")
+            let finalTarget = await addBooks(urls, into: dropTarget, order: order, locale: locale)
+            finishAdding(into: finalTarget)
         }
+    }
+
+    /// `add(_:into:)` の本体。足し終えた後の入れ先(作ったコレクションの id を埋めたもの)を返す。
+    private func addBooks(
+        _ urls: [URL], into dropTarget: WelcomeLibraryState.AddBooksTarget, order: SiblingBookOrder, locale: Locale
+    ) async -> WelcomeLibraryState.AddBooksTarget {
+        var into = dropTarget
+        let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
+        let books = CollectionDropClassifier.booksToAdd(from: classified)
+        let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
+        guard !books.isEmpty else {
+            notice = WelcomeDropHandling.noBooksMessage(locale: locale)
+            return into
+        }
+        // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
+        let pending = await CollectionStore.makePendingItems(for: books)
+        // シークレットフォルダの本は入れない(makePendingItems が外す)。入れなかったことを知らせる。
+        let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
+        if skippedSecret > 0 { notice = CollectionStore.secretBooksNotAddedMessage(count: skippedSecret, locale: locale) }
+        guard !pending.isEmpty else { return into }
+
+        // 待つ間にこのパネル(同じ対象)が別の回でコレクションを作っていれば、それへ入れる。
+        let isPanelTarget = target.id == into.id
+        if isPanelTarget, into.collectionID == nil, let created = target.collectionID { into.collectionID = created }
+        let collection = into.collectionID.flatMap { collectionStore.collection(withID: $0) }
+        let added: [CollectionItem]
+        if let collection {
+            added = collectionStore.add(pending, to: collection)
+        } else if into.collectionID != nil {
+            // 入れ先のコレクションが(別のウインドウで)消えた。**新しく作らない**(監査 H-9。以前は nil を「まだ作っていない」と
+            // 区別せず、同じ名前で作り直していた ―― 後で ⌘Z で戻すと「C 2」が並んだ)。足さずに知らせる。
+            notice = WelcomeDropHandling.collectionGoneMessage(locale: locale)
+            return into
+        } else if let library = collectionStore.library(withID: into.libraryID),
+                  let created = collectionStore.createCollection(
+                      name: into.name, in: library, items: pending
+                  ) {
+            into.collectionID = created.id
+            if isPanelTarget { target.collectionID = created.id }
+            // 名前を決めるときに選ばれていた自動登録フォルダを、行ができたこの時点で
+            // 書き込む(AddBooksTarget.autoFolderのコメント参照)。
+            if let autoFolder = into.autoFolder {
+                collectionStore.setAutoFolder(autoFolder, for: created)
+            }
+            added = collectionStore.items(in: created, sort: .dateAddedAscending)
+        } else {
+            added = []
+        }
+        // 入った順に積む。既に入っていた本はadd(_:to:)が弾いて返さないので、ここには来ない。
+        addedItemIDs.append(contentsOf: added.map(\.id))
+        coverExtractor.enqueue(added)
+        // 入れなかったものを知らせる(本でない・既に入っていた)。全部入ったら消す。
+        var parts: [String] = []
+        if skipped > 0 { parts.append(WelcomeDropHandling.skippedMessage(skipped, locale: locale)) }
+        let duplicates = pending.count - added.count
+        if duplicates == 1 {
+            parts.append(String(localized: "1 book was already in the collection.", language: locale))
+        } else if duplicates > 1 {
+            parts.append(String(
+                format: String(localized: "%lld books were already in the collection.", language: locale), duplicates
+            ))
+        }
+        notice = parts.isEmpty ? nil : parts.joined(separator: " ")
+        return into
     }
 }

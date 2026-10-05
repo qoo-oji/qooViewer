@@ -1005,6 +1005,32 @@ actor PageLoader {
         return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
     }
 
+    /// 「原寸大」のウインドウ(ViewerView.showActualSizeWindow)向け: 表示用(4096px 上限)より大きい元の寸法で読み直した画像。
+    /// **表示用と同じにしかならないときは nil**(呼ぶ側は表示用をそのまま使う)。
+    ///
+    /// - 画像ファイル: ヘッダーの寸法(pageSize(at:))が表示用の上限を超えるときだけ、書き出しと同じ上限(exportMaxPixelSize)で読む。
+    /// - PDF: **埋め込み画像の解像度**までだけ(スキャンの PDF の「原寸」はそれ)。埋め込み画像の無いページ(ベクター・文字だけ)は nil。
+    ///   2026-10-05 の監査 A3-2: 以前は fullResolutionImage で読み直していたので、PDF の表示用は長辺がちょうど 4096 になって毎回読み直しの
+    ///   条件を満たし、埋め込み画像の無いページでは倍率が抑えられず(pdfRenderScale)、A4 で 14142×20000(約 1.1 GB)を
+    ///   クリックのたび・ウインドウ 1 枚ごとに作っていた ―― 拡大鏡の 8000 でもメモリ逼迫で落ちたと記録のある大きさの倍以上。
+    func actualSizeImage(at index: Int) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let source = book.pages[index].source
+        if case .pdf(let container, let pageIndex) = source {
+            guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1),
+                  PDFImageExtractor.largestEmbeddedImagePixelSize(of: pdfPage) != nil,
+                  let fullScale = pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.exportMaxPixelSize),
+                  let displayScale = pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.pageMaxPixelSize),
+                  fullScale > displayScale
+            else { return nil }
+            return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+        }
+        guard let size = await pageSize(at: index),
+              CGFloat(max(size.width, size.height)) > ImageDecoder.pageMaxPixelSize
+        else { return nil }
+        return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+    }
+
     /// 拡大して見るとき(拡大鏡=ルーペ、およびピンチイン・ピンチアウトによる拡大)向け:
     /// 通常の表示用(pageImage、4096px上限)より高解像度の
     /// ImageDecoder.highResolutionMaxPixelSize(8000px)を上限にデコードする。fullResolutionImage

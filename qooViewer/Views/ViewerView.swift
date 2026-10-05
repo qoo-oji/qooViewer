@@ -4735,8 +4735,9 @@ struct ViewerView: View {
     ///
     /// 表示用の画像は ImageDecoder.pageMaxPixelSize(4096px)へ縮めてあるので、それに届いている画像は元の大きさで
     /// 読み直してから出す(2026-10-04 の監査 V-17。以前は表示用をそのまま渡し、4096px を超える画像では「原寸大」が
-    /// 縮小版だった ―― MANUAL §19)。読み直しは「見開きを結合して書き出す」と同じ fullResolutionImage(書き出しと同じ上限)で、
-    /// ページは鍵で引き直す(待つ間に並びが変わっても、押したページを出す)。読めなければ表示用を出す。
+    /// 縮小版だった ―― MANUAL §19)。読み直しは actualSizeImage(元の寸法が表示用を超える画像だけ。PDF は埋め込み画像の
+    /// 解像度まで ―― 2026-10-05 の監査 A3-2、同メソッドのコメント)で、ページは鍵で引き直す(待つ間に並びが変わっても、
+    /// 押したページを出す)。読めない・表示用と同じなら表示用を出す。
     private func showActualSizeWindow(forLeftPage: Bool) {
         let orderedSlots = orderedCurrentSlots
         guard !orderedSlots.isEmpty else { return }
@@ -4755,7 +4756,7 @@ struct ViewerView: View {
                 backgroundColor = appearance.effectiveBackgroundColor] in
             var fullImage: CGImage?
             if let viewModel, let pageIndex = viewModel.pageIndex(forPageKey: pageKey) {
-                fullImage = await viewModel.fullResolutionImage(at: pageIndex)
+                fullImage = await viewModel.actualSizeImage(at: pageIndex)
             }
             Self.openActualSizeWindow(
                 image: fullImage ?? image, backgroundColor: backgroundColor,
