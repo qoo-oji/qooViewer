@@ -39,7 +39,7 @@ struct CollectionGridView: View {
     /// 画面外に残ってよいカバーの総量。
     private static let coverByteBudget = 64 * 1024 * 1024
 
-    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
+    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget)
     /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
     @State private var gridSize: CGSize = .zero
     /// リネーム・削除の対象。**モデルの参照ではなくidで持つ。**`@Model`のクラスは
@@ -325,7 +325,7 @@ struct CollectionGridView: View {
                     isEnabled: true,
                     minimumHeight: gridSize.height,
                     selection: $state.selectedCollectionIDs,
-                    shownIDs: Set(collections.map(\.id)),
+                    shownIDs: { Set(collections.map(\.id)) },
                     mode: .replacing,
                     onBackgroundClick: {
                         state.selectedCollectionIDs = []
@@ -477,6 +477,7 @@ struct CollectionGridView: View {
             size: state.tileSize,
             nameFontSize: appearance.collectionTileNameFontSize,
             badgeSize: appearance.collectionTileBadgeSize,
+            itemCount: collectionStore.itemCount(in: collection),
             onImageRetained: { image, cellCount in
                 cellImageBudget.note(
                     retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount

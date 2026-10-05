@@ -22,16 +22,21 @@ struct ViewerView: View {
     /// 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」から
     /// 「今読んでいる本」を特定するために、このウインドウがキーウインドウになったことを
     /// 通知する(setUpWindowObservers参照)。
-    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    ///
+    /// この 5 つ(と下の 4 つ)は操作の中で使うだけで、body では読まない。**購読しない**(UnobservedStores。2026-10-05 の効率の
+    /// 監査 B9 ―― `@EnvironmentObject` で持っていたので、どこかで本を開くたびの履歴の記録・メタデータの書き込み・ウインドウの
+    /// 切り替えのたびに、全ウインドウのビューアの body が評価し直されていた)。
+    @Environment(\.unobservedStores) private var unobservedStores
+    private var launchCoordinator: LaunchCoordinator { UnobservedStores.required(unobservedStores.launchCoordinator) }
     /// 右クリックの「本の書き出し」(exportOpenBook参照)が使う3つのストア。
     /// initで受け取っているlayoutStore/metadataStoreと同じインスタンスだが、あちらは
     /// ViewerViewModelを組み立てるためだけに素通ししていて、このビュー自身は保持していない。
-    @EnvironmentObject private var bookmarkStore: BookmarkStore
-    @EnvironmentObject private var layoutStore: LayoutStore
-    @EnvironmentObject private var metadataStore: BookMetadataStore
+    private var bookmarkStore: BookmarkStore { UnobservedStores.required(unobservedStores.bookmarkStore) }
+    private var layoutStore: LayoutStore { UnobservedStores.required(unobservedStores.layoutStore) }
+    private var metadataStore: BookMetadataStore { UnobservedStores.required(unobservedStores.metadataStore) }
     /// 書き出し後の後始末で、書き出した本を履歴から取り除くために使う
     /// (環境設定「レイアウト」の「履歴: 削除」)。
-    @EnvironmentObject private var recentFilesStore: RecentFilesStore
+    private var recentFilesStore: RecentFilesStore { UnobservedStores.required(unobservedStores.recentFiles) }
     /// 同じく後始末で、書き出した本の読書位置以外の保存データを消すために使う。
     /// 読書位置(BookReadingState)だけはViewerViewModelが行(readingState)を握っているため、
     /// ここからは触らずviewModel.discardReadingState()に任せる。

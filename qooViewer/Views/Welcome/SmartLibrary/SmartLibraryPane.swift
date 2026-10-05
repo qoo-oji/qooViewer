@@ -919,7 +919,7 @@ struct SmartLibraryContent: View {
     /// 画面外の表紙を手放すための帳簿(型コメントは CollectionGridView「画面外のカバーを手放す」)。2026-09-22 の監査で指摘:
     /// ここだけ帳簿が無く、表紙の CGImage はセルの `@State` に残る ―― 絵は提供役の mmap 領域を共有するので、提供役の
     /// メモリの上限(96 MB)で追い出されても本体は残り、2,439 冊を端まで流すと 1.7 GB ほどがペインを閉じるまで残る計算だった。
-    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: Self.coverByteBudget)
+    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: Self.coverByteBudget)
     /// グリッドの見えている大きさ(帳簿の下限セル数を見積もるためだけ)。
     @State private var gridSize: CGSize = .zero
     /// グリッドを描いている `NSScrollView` の入れ物(ホイール1ノッチのスクロール量。`HomeWheelScroll`)。
@@ -1269,7 +1269,7 @@ struct SmartLibraryContent: View {
                         get: { state.selection.ids },
                         set: { state.setSelection($0, cursor: state.selection.cursor) }
                     ),
-                    shownIDs: Set(state.gridItems.map(\.id)),
+                    shownIDs: { Set(state.gridItemIDs) },
                     mode: .replacing,
                     onBackgroundClick: {
                         state.clearSelection()

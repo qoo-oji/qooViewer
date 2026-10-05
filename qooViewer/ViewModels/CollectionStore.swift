@@ -395,9 +395,13 @@ final class CollectionStore: ObservableObject {
         // 対象のために 5〜6 回、選んだセルごとの右クリックメニューでも)ので、控えから返す(`itemsMemo` のコメント)。
         let kept = query == nil ? nil : keptBookID
         let key = ItemsMemoKey(
-            collectionID: collection.id, sort: sort, terms: query?.terms, keptBookID: kept, revision: revision,
-            fileDatesRevision: fileDatesRevision, titleToken: titleResolver.stateToken
+            collectionID: collection.id, sort: sort, terms: query?.terms, keptBookID: kept, itemOrderRevision: itemOrderRevision,
+            fileDatesRevision: fileDatesRevision, titleToken: Self.usesTitles(sort: sort, query: query) ? titleResolver.stateToken : ""
         )
+        if itemsMemoRevision != itemOrderRevision {
+            itemsMemo.removeAll()
+            itemsMemoRevision = itemOrderRevision
+        }
         if let memoized = itemsMemo[key] { return memoized }
         let result: [CollectionItem]
         if let query {
@@ -415,29 +419,39 @@ final class CollectionStore: ObservableObject {
     /// (名前順なら `localizedStandardCompare` と SwiftData の読み出し)をする。描き直しは表紙を 1 冊抽出するたび・選ぶたび・
     /// 検索の 1 文字ごとに起きるので、数千冊のコレクションではメインを 1 回あたり数百ミリ秒使っていた。
     ///
-    /// 答えを変えうるものはすべて鍵に入れる: 中身・名前(`revision`。行の追加・削除・名前・付け替えは必ず saveAndNotify を
-    /// 通る)、日付(`fileDatesRevision`)、タイトルと検索の文字列(`BookTitleResolver.stateToken`)、並び順と検索語。
-    /// 控えは**次のランループで捨てる**(同じ描き直しの中の繰り返しだけを省く ―― 抱え続けない・鍵に入れ忘れたものがあっても
-    /// 古い並びが残り続けない)。
+    /// 答えを変えうるものはすべて鍵に入れる: 中身・名前・追加日時・付け替え(`itemOrderRevision`。どれも `saveAndNotify` か
+    /// `invalidateLookupCaches` を通る)、日付(`fileDatesRevision`)、タイトルと検索の文字列(`BookTitleResolver.stateToken`。
+    /// タイトル順か検索中だけ ―― 名前順の並びはメタデータで変わらない)、並び順と検索語。
+    ///
+    /// **寿命は `itemOrderRevision`**(2026-10-05 の効率の監査 B8。札の先頭の控え `leadingItems` と同じ)。以前は鍵に `revision` を入れ、
+    /// 控えを次のランループで捨てていた。`revision` は表紙を 1 冊抽出するたびにも進むので、選ぶ・矢印キー・表紙の大きさのスライダーの
+    /// 1 コマ・抽出の 1 冊のたびに、数千冊のコレクションを全部並べ直していた(1 回数百ミリ秒)。抽出の結果(`isCoverResult`)は並びも
+    /// 検索の当たりも変えない。並びが変わりうる変更の後は控えを全部捨てる(消えた行を指す控えを持ち続けない)。検索語ごとに増えるので
+    /// 数に上限を設ける。
     private struct ItemsMemoKey: Hashable {
         let collectionID: UUID
         let sort: FavoritesSortOption
         let terms: [String]?
         let keptBookID: String?
-        let revision: UInt64
+        let itemOrderRevision: UInt64
         let fileDatesRevision: UInt64
         let titleToken: String
     }
     private var itemsMemo: [ItemsMemoKey: [CollectionItem]] = [:]
-    private var isItemsMemoClearScheduled = false
+    private var itemsMemoRevision: UInt64 = 0
+    private static let itemsMemoLimit = 16
 
     private func rememberItems(_ items: [CollectionItem], for key: ItemsMemoKey) {
+        if itemsMemo.count >= Self.itemsMemoLimit { itemsMemo.removeAll() }
         itemsMemo[key] = items
-        guard !isItemsMemoClearScheduled else { return }
-        isItemsMemoClearScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.itemsMemo.removeAll()
-            self?.isItemsMemoClearScheduled = false
+    }
+
+    /// 並び・検索の当たりがタイトル(`BookTitleResolver`)で変わるか。
+    private static func usesTitles(sort: FavoritesSortOption, query: LibrarySearchQuery?) -> Bool {
+        if query != nil { return true }
+        switch sort {
+        case .titleAscending, .titleDescending: return true
+        default: return false
         }
     }
 
@@ -448,13 +462,55 @@ final class CollectionStore: ObservableObject {
     func collections(
         in library: BookLibrary, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
     ) -> [BookCollection] {
-        let all = collections(in: library, sort: sort)
-        guard let query else { return all }
-        return all.filter { collection in
-            query.matches(normalized: LibrarySearchQuery.normalized(collection.name))
-                || containsItem(in: collection, matching: query)
+        // 本棚の body は 1 回の描き直しでこれを 7 回前後呼び(見出し・件数・すべて選択・格子・マーキー・右クリックの相手)、検索中は
+        // 名前の当たらないコレクションの全冊を照らす。`items(in:sort:matching:)` と同じ寿命で控える(2026-10-05 の効率の監査 B8)。
+        let key = CollectionsMemoKey(
+            libraryID: library.id, sort: sort, terms: query?.terms, itemOrderRevision: itemOrderRevision,
+            titleToken: query == nil ? "" : titleResolver.stateToken
+        )
+        if collectionsMemoRevision != itemOrderRevision {
+            collectionsMemo.removeAll()
+            collectionsMemoRevision = itemOrderRevision
         }
+        if let memoized = collectionsMemo[key] { return memoized }
+        let all = collections(in: library, sort: sort)
+        let result = query.map { query in
+            all.filter { collection in
+                query.matches(normalized: LibrarySearchQuery.normalized(collection.name))
+                    || containsItem(in: collection, matching: query)
+            }
+        } ?? all
+        if collectionsMemo.count >= Self.itemsMemoLimit { collectionsMemo.removeAll() }
+        collectionsMemo[key] = result
+        return result
     }
+
+    /// `collections(in:sort:matching:)` の控えの鍵(`ItemsMemoKey` と同じ考え方。名前・並び・先頭/末尾の指定・出し入れはどれも
+    /// `itemOrderRevision` を進める)。
+    private struct CollectionsMemoKey: Hashable {
+        let libraryID: UUID
+        let sort: FavoritesSortOption
+        let terms: [String]?
+        let itemOrderRevision: UInt64
+        let titleToken: String
+    }
+    private var collectionsMemo: [CollectionsMemoKey: [BookCollection]] = [:]
+    private var collectionsMemoRevision: UInt64 = 0
+
+    /// コレクションの冊数(札・見出し・インスペクタ)。`collection.items.count` は対多の関連を丸ごと読み出すので、出し入れの
+    /// 番号(`itemOrderRevision`)が同じ間は控える(2026-10-05 の効率の監査 B8)。
+    func itemCount(in collection: BookCollection) -> Int {
+        if itemCountMemoRevision != itemOrderRevision {
+            itemCountMemo.removeAll()
+            itemCountMemoRevision = itemOrderRevision
+        }
+        if let count = itemCountMemo[collection.id] { return count }
+        let count = collection.items.count
+        itemCountMemo[collection.id] = count
+        return count
+    }
+    private var itemCountMemo: [UUID: Int] = [:]
+    private var itemCountMemoRevision: UInt64 = 0
 
     /// このコレクションの中に、検索に一致する本が1冊でもあるか。
     ///

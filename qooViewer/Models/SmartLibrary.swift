@@ -128,12 +128,23 @@ nonisolated struct SmartShelfConditions: Codable, Hashable, Sendable {
 
     /// その本が条件に合うか。条件が 1 つも無ければ全部が合う(「すべての本」と同じ)。
     func matches(_ book: SmartBook, now: Date = Date()) -> Bool {
-        let usable = rules.filter(\.isUsable)
-        guard !usable.isEmpty else { return true }
+        matcher(now: now)(book)
+    }
+
+    /// `matches` を多くの本に当てるための形(2026-10-05 の効率の監査 A2)。使える条件の選り分けと、条件の文字の畳み込みを 1 回だけ
+    /// して、本ごとには本の値だけを見る(以前は本ごとに両方をやり直していた)。答えは `matches` と同じ(`matches` もこれを使う)。
+    func matcher(now: Date) -> (SmartBook) -> Bool {
+        let usable = rules.filter(\.isUsable).map { $0.matcher(now: now) }
+        guard !usable.isEmpty else { return { _ in true } }
         switch match {
-        case .all: return usable.allSatisfy { $0.matches(book, now: now) }
-        case .any: return usable.contains { $0.matches(book, now: now) }
+        case .all: return { book in usable.allSatisfy { $0(book) } }
+        case .any: return { book in usable.contains { $0(book) } }
         }
+    }
+
+    /// 答えが時刻で変わるか(「何日以内」の条件を使っている)。変わらなければ、分が変わっても数え直さなくてよい。
+    var dependsOnTime: Bool {
+        rules.contains { $0.isUsable && $0.field.valueType == .days }
     }
 }
 
@@ -165,22 +176,35 @@ nonisolated struct SmartShelfRule: Codable, Hashable, Identifiable, Sendable {
     }
 
     func matches(_ book: SmartBook, now: Date) -> Bool {
-        switch field.valueType {
-        case .text:
+        matcher(now: now)(book)
+    }
+
+    /// 多くの本に当てるための形(`SmartShelfConditions.matcher`)。文字の条件は、条件の文字を 1 回だけ畳む。
+    func matcher(now: Date) -> (SmartBook) -> Bool {
+        guard field.valueType == .text else { return { book in self.matchesNonText(book, now: now) } }
+        let field = field
+        let op = op
+        let query = LibrarySearchQuery.normalized(text.trimmingCharacters(in: .whitespaces))
+        return { book in
             let values = field.textValues(of: book)
-            let query = LibrarySearchQuery.normalized(text.trimmingCharacters(in: .whitespaces))
-            let normalized = values.map(LibrarySearchQuery.normalized)
             switch op {
-            case .contains: return normalized.contains { $0.contains(query) }
-            case .notContains: return !normalized.contains { $0.contains(query) }
-            case .equals: return normalized.contains(query)
-            case .notEquals: return !normalized.contains(query)
-            case .beginsWith: return normalized.contains { $0.hasPrefix(query) }
-            case .endsWith: return normalized.contains { $0.hasSuffix(query) }
+            case .contains: return values.contains { LibrarySearchQuery.normalized($0).contains(query) }
+            case .notContains: return !values.contains { LibrarySearchQuery.normalized($0).contains(query) }
+            case .equals: return values.contains { LibrarySearchQuery.normalized($0) == query }
+            case .notEquals: return !values.contains { LibrarySearchQuery.normalized($0) == query }
+            case .beginsWith: return values.contains { LibrarySearchQuery.normalized($0).hasPrefix(query) }
+            case .endsWith: return values.contains { LibrarySearchQuery.normalized($0).hasSuffix(query) }
             case .isEmpty: return values.allSatisfy(\.isEmpty)
             case .isNotEmpty: return values.contains { !$0.isEmpty }
             default: return false
             }
+        }
+    }
+
+    private func matchesNonText(_ book: SmartBook, now: Date) -> Bool {
+        switch field.valueType {
+        case .text:
+            return false
         case .number:
             guard let value = field.numberValue(of: book) else { return false }
             let n = Double(number)
@@ -449,8 +473,8 @@ nonisolated struct SmartFacetSelection: Hashable, Sendable {
 }
 
 nonisolated enum SmartFacets {
-    /// 欄の値ごとの冊数(値の順。「(空)」は最後)。
-    static func counts(_ books: [SmartBook], field: SmartFacetField) -> [(value: SmartFacetValue, count: Int)] {
+    /// 欄の値ごとの冊数(値の順。「(空)」は最後)。本は並びでなくてもよい(写しを作らずに数える。2026-10-05 の効率の監査 A2)。
+    static func counts<Books: Sequence<SmartBook>>(_ books: Books, field: SmartFacetField) -> [(value: SmartFacetValue, count: Int)] {
         var counts: [String: Int] = [:]
         var empty = 0
         for book in books {
@@ -587,6 +611,66 @@ nonisolated enum SmartSortKey: String, Codable, CaseIterable, Hashable, Sendable
 nonisolated enum SmartSort {
     /// 並べ替える。シリーズは シリーズ名 → 巻(StackNest と同じ 2 段)。同じ値はファイル名の順。
     static func sorted(_ books: [SmartBook], by key: SmartSortKey, ascending: Bool) -> [SmartBook] {
+        sortedIndices(books, by: key, ascending: ascending).map { books[$0] }
+    }
+
+    /// `sorted` の並びを、`books` の位置で返す。比べるたびに本から値を作り直さないよう、比べる値(題・著者のつなぎ・巻など)を
+    /// 1 冊 1 回だけ作ってから並べる(2026-10-05 の効率の監査 A2。題が空の本は `displayTitle` がパスから名前を作り直すので、
+    /// 比べるたびだと 1 回 3µs ほど)。比べ方と同じ値のときの順(並べる前の順を保つ)は以前と同じ。
+    static func sortedIndices(_ books: [SmartBook], by key: SmartSortKey, ascending: Bool) -> [Int] {
+        struct Key {
+            var text = ""
+            var volume = 0.0
+            var date: Date?
+            let fileName: String
+        }
+        func volume(_ book: SmartBook) -> Double {
+            book.metadata.volumeSort ?? Double(book.metadata.volume) ?? .greatestFiniteMagnitude
+        }
+        let keys = books.map { book -> Key in
+            var k = Key(fileName: book.fileName)
+            switch key {
+            case .title: k.text = book.displayTitle
+            case .fileName: k.text = book.fileName
+            case .authors: k.text = book.metadata.authors.joined(separator: "、")
+            case .series:
+                k.text = book.metadata.series.isEmpty ? book.displayTitle : book.metadata.series
+                k.volume = volume(book)
+            case .dateAdded: k.date = book.dateAdded
+            case .lastRead: k.date = book.lastRead
+            case .dateModified: k.date = book.modificationDate
+            }
+            return k
+        }
+        func text(_ a: String, _ b: String) -> ComparisonResult { a.localizedStandardCompare(b) }
+        func date(_ a: Date?, _ b: Date?) -> ComparisonResult {
+            switch (a, b) {
+            case let (a?, b?): return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            case (nil, nil): return .orderedSame
+            // 日付の無い本は、向きに関わらず後ろ(下の反転の前に向きを見て入れ替える)。
+            case (nil, _): return ascending ? .orderedDescending : .orderedAscending
+            case (_, nil): return ascending ? .orderedAscending : .orderedDescending
+            }
+        }
+        return Array(books.indices).sorted { i, j in
+            let a = keys[i], b = keys[j]
+            var result: ComparisonResult
+            switch key {
+            case .title, .fileName, .authors: result = text(a.text, b.text)
+            case .series:
+                result = text(a.text, b.text)
+                if result == .orderedSame {
+                    result = a.volume == b.volume ? .orderedSame : (a.volume < b.volume ? .orderedAscending : .orderedDescending)
+                }
+            case .dateAdded, .lastRead, .dateModified: result = date(a.date, b.date)
+            }
+            if result == .orderedSame { return text(a.fileName, b.fileName) == .orderedAscending }
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    /// 以前の形(本どうしを直接比べる)。`sortedIndices` と答えが同じことをテストが確かめる。
+    static func sortedComparingBooks(_ books: [SmartBook], by key: SmartSortKey, ascending: Bool) -> [SmartBook] {
         func text(_ a: String, _ b: String) -> ComparisonResult { a.localizedStandardCompare(b) }
         func date(_ a: Date?, _ b: Date?) -> ComparisonResult {
             switch (a, b) {

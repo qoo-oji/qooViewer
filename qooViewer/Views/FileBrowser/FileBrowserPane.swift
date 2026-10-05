@@ -21,21 +21,25 @@ import UniformTypeIdentifiers
 struct FileBrowserPane: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
-    @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
-    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 操作の口(`connectActions`)へ参照を渡すだけのストア。**購読しない**(UnobservedStores。2026-10-05 の効率の監査 B9 ――
+    /// `@EnvironmentObject` で持っていたので、表紙の抽出・メタデータの書き込み・ブックマークの変更のたびにペインが組み直され、
+    /// ツリー・リスト・パスバーの `updateNSView` まで走っていた)。
+    @Environment(\.unobservedStores) private var unobservedStores
+    private var folderAccess: FolderAccessStore { UnobservedStores.required(unobservedStores.folderAccess) }
+    private var launchCoordinator: LaunchCoordinator { UnobservedStores.required(unobservedStores.launchCoordinator) }
     // 既存機能との接続(段階 8。FileBrowserLibraryActions.swift)。
-    @EnvironmentObject private var collectionStore: CollectionStore
-    @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
-    @EnvironmentObject private var bookmarkStore: BookmarkStore
-    @EnvironmentObject private var layoutStore: LayoutStore
-    @EnvironmentObject private var metadataStore: BookMetadataStore
+    private var collectionStore: CollectionStore { UnobservedStores.required(unobservedStores.collectionStore) }
+    private var coverExtractor: CollectionCoverExtractor { UnobservedStores.required(unobservedStores.coverExtractor) }
+    private var bookmarkStore: BookmarkStore { UnobservedStores.required(unobservedStores.bookmarkStore) }
+    private var layoutStore: LayoutStore { UnobservedStores.required(unobservedStores.layoutStore) }
+    private var metadataStore: BookMetadataStore { UnobservedStores.required(unobservedStores.metadataStore) }
     /// アイコン表示の絵(`revision` と `includesVideo` を値でアイコン表示へ渡す。FileBrowserIconView のコメント)。
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
-    @EnvironmentObject private var autoRenameStore: AutoRenameStore
-    @EnvironmentObject private var autoRenameService: AutoRenameService
-    @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
-    @EnvironmentObject private var secretFolderStore: SecretFolderStore
+    private var autoRenameStore: AutoRenameStore { UnobservedStores.required(unobservedStores.autoRenameStore) }
+    private var autoRenameService: AutoRenameService { UnobservedStores.required(unobservedStores.autoRenameService) }
+    private var smartLibraryStore: SmartLibraryStore { UnobservedStores.required(unobservedStores.smartLibraryStore) }
+    private var secretFolderStore: SecretFolderStore { UnobservedStores.required(unobservedStores.secretFolderStore) }
     /// ホイール1ノッチのスクロール量(環境設定「外観」→「ホーム」→「スクロール」。HomeWheelScroll参照)。
     /// ウインドウごとの揃い(ノーマル/シークレット)を ContentView が入れ替えている(CLAUDE.md)。
     @EnvironmentObject private var appearance: AppearanceSettings

@@ -105,5 +105,20 @@
     2 つの起動後の掃除を FileIO の上へ。
   - テスト 1941 件すべて成功(手元、署名あり)。
 - 段 2: A2、B7、B8、B9。
+  - A2: `SmartLibraryViewState.recompute` を `books` の位置で絞る形にし、棚ごとの当たり(時刻で変わる条件が無ければ分を問わない)・
+    ブラウザの値と冊数(入力が同じなら数えず、代入もしない)・全冊の並び(`SmartSort.sortedIndices` ―― 比べる値を 1 冊 1 回だけ作る)を
+    控える。同じ本の一覧が届いたら控えを捨てない。棚の条件は文字を 1 回だけ畳む(`SmartShelfConditions.matcher`)。`gridItemIDs` は
+    並びが変わったときに作る。選択が空なら `pruneSelection` は何もしない。帯の相手(`shownIDs`)は引き始めたときに求める。
+    テスト `sortedIndicesMatchComparingBooks`(以前の比べ方と同じ並び)・`recomputeWithMemosMatchesDirectComputation`(棚・絞り込み・
+    ブラウザ・検索・並べ方をどう変えても、控えずに計算した答えと同じ)。
+  - B7: `LazyCellImageBudget.ViewState`(`DynamicProperty`。数える部分は参照型、世代だけ `@State`)。6 つの一覧が使う。
+  - B8: コレクションの中の一覧の控えの寿命を `itemOrderRevision` に(`leadingItems` と同じ。タイトルの鍵はタイトル順か検索中だけ)、
+    本棚のコレクションの一覧も同じ寿命で控える、冊数(`itemCount(in:)`)、右クリックの「1 つだけか」は 2 冊見つけたところで止め、
+    相手は押したときに求める、帯の相手は引き始めたときに。
+  - B9: `UnobservedStores`(購読しない口)。ContentView(コレクション・ブックマーク・レイアウト・メタデータ・履歴・フォルダの許可・
+    起動の調整役)、ViewerView(5 つ)、FileBrowserPane(11 個)。ContentView の題とホームのメニューの値は、名前・並び・所属の写し
+    (`HomeMenuDirectoryStore`)を購読して追う。FileBrowserPane の `appState` は購読のまま(シークレットかどうかを読む ―― 値で渡す
+    組み替えは見送り)。
+  - テスト 1943 件すべて成功(手元、署名あり)。実機での描き直しの回数の比較はしていない。
 - 段 3: A3 の辞書引き、A5、B10〜B13。
 - 段 4: A1、A6(実測してから)。

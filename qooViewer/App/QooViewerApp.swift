@@ -655,6 +655,18 @@ struct QooViewerApp: App {
             // (CollectionAddingContext の型コメント)。
             .environmentObject(stores.homeMenuDirectory)
             .environment(\.collectionAdding, collectionAddingContext)
+            // 描画では読まないストアを購読せずに渡す(UnobservedStores。2026-10-05 の効率の監査 B9)。
+            .environment(\.unobservedStores, unobservedStores)
+    }
+
+    /// 購読せずに渡すストア(UnobservedStores)。
+    private var unobservedStores: UnobservedStores {
+        UnobservedStores(
+            collectionStore: collectionStore, coverExtractor: collectionCoverExtractor, bookmarkStore: bookmarkStore,
+            layoutStore: layoutStore, metadataStore: metadataStore, recentFiles: recentFiles, folderAccess: folderAccess,
+            launchCoordinator: launchCoordinator, autoRenameStore: autoRenameStore, autoRenameService: autoRenameService,
+            smartLibraryStore: smartLibraryStore, secretFolderStore: secretFolderStore
+        )
     }
 
     /// 「コレクションに登録」に要るもの(CollectionAddingContext)。

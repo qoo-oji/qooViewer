@@ -1,5 +1,6 @@
-import Foundation
 import CoreGraphics
+import Foundation
+import SwiftUI
 
 /// LazyVStack/LazyVGrid/Listのセルが`@State`で保持した画像の合計量を数え、予算を超えたら
 /// コンテナを作り直させる(`epoch`を進める)ための帳簿。ページ一覧グリッド
@@ -34,6 +35,10 @@ import CoreGraphics
 /// GB単位になりうる(グリッドの拡大サムネイルは1枚1〜3MB)。
 ///
 /// ■ 使い方
+/// - ビューは `LazyCellImageBudget.ViewState` を(`@State` を付けずに)持つ。帳簿を値型の `@State` で持つと、セルが絵を 1 枚
+///   持つたびに帳簿の値が変わり、帳簿を持つビュー(一覧全体)の body が評価し直されていた(2026-10-05 の効率の監査 B7。ページ一覧を
+///   開くだけで、見えているセルの数 × 見えているセルの数の評価)。`ViewState` は数える部分を参照型に入れ、画面を作り直す世代
+///   (`epoch`)だけを `@State` に持つので、作り直すときだけ描き直される
 /// - コンテナに`.id(budget.epoch)`を付ける
 /// - セルが画像を@Stateへ入れたときに`note(retaining:)`(または`note(retainedBytes:)`)を呼ぶ
 /// - 予算超過でepochが進んだら、SwiftUIがコンテナごと作り直して帳簿は自然に0から数え直しになる
@@ -102,5 +107,30 @@ struct LazyCellImageBudget {
         let columns = max(1, Int((visibleSize.width - padding * 2 + spacing) / max(cellWidth + spacing, 1)))
         let rows = Int((visibleSize.height / max(cellHeight + spacing, 1)).rounded(.up)) + 2
         return max(columns * rows * max(cellsPerItem, 1) * 3, 64)
+    }
+
+    /// ビューが持つ形(型コメント「使い方」)。`@State` を付けずに持つ(中に `@State` を持つ `DynamicProperty`)。
+    struct ViewState: DynamicProperty {
+        /// 数える部分。参照型なので、数えても `@State` の値は変わらない(描き直しを呼ばない)。
+        private final class Ledger {
+            var budget: LazyCellImageBudget
+            init(_ budget: LazyCellImageBudget) { self.budget = budget }
+        }
+
+        @State private var ledger: Ledger
+        @State private var currentEpoch = 0
+
+        init(byteBudget: Int) {
+            _ledger = State(initialValue: Ledger(LazyCellImageBudget(byteBudget: byteBudget)))
+        }
+
+        /// `.id()`に渡す世代(`LazyCellImageBudget.epoch`)。進んだときだけ描き直される。
+        var epoch: Int { currentEpoch }
+
+        /// `LazyCellImageBudget.note(retaining:cellCount:minimumCellCount:)` と同じ。予算を超えたときだけ世代を進める。
+        func note(retaining image: CGImage, cellCount: Int = 1, minimumCellCount: Int) {
+            ledger.budget.note(retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount)
+            if ledger.budget.epoch != currentEpoch { currentEpoch = ledger.budget.epoch }
+        }
     }
 }

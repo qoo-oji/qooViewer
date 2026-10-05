@@ -60,6 +60,9 @@ struct CollectionTile: View {
     var badgeSize: CollectionTileBadgeSize = .small
     /// 札の下に名前を出すか(インスペクタは絵のすぐ下に自分の見出しを出すので出さない。2026-09-30)。
     var showsName = true
+    /// 冊数(右下のバッジ)。呼び出し側が控えた値(`CollectionStore.itemCount(in:)`)。nil なら関連から数える
+    /// (`collection.items.count` は対多の関連を丸ごと読み出すので、札ごと・描き直しごとに読まない。2026-10-05 の効率の監査 B8)。
+    var itemCount: Int?
     /// 保持した画像を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。第2引数は
     /// **その1枚が何セル分に相当するか** ―― 焼いた札の絵は1枚で中身のカバー全部を兼ねる。
     var onImageRetained: ((CGImage, Int) -> Void)?
@@ -172,7 +175,7 @@ struct CollectionTile: View {
             // カバーの明暗によらず形が読める。明暗の外観で色を変えない ―― 地と文字の色が外観で
             // 変わらない部品なので、縁も合わせて固定にする。
             .overlay(alignment: .bottomTrailing) {
-                Text("\(collection.items.count)")
+                Text("\(itemCount ?? collection.items.count)")
                     .font(.system(size: badgeSize.fontSize))
                     .monospacedDigit()
                     .padding(.horizontal, badgeSize.horizontalPadding)

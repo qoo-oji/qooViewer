@@ -348,13 +348,14 @@ private struct HomeInspectorCollectionView: View {
                 size: side,
                 badgeSize: appearance.collectionTileBadgeSize,
                 showsName: false,
+                itemCount: collectionStore.itemCount(in: collection),
                 onClick: {}
             )
             .frame(width: side)
             .allowsHitTesting(false)
             HomeInspectorTitle(
                 name: collection.name,
-                subtitle: String(format: String(localized: "%lld books", language: locale), collection.items.count)
+                subtitle: String(format: String(localized: "%lld books", language: locale), collectionStore.itemCount(in: collection))
             )
             HomeInspectorInfoSection(rows: rows)
                 .frame(maxWidth: .infinity, alignment: .leading)

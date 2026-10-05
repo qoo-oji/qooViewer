@@ -171,7 +171,9 @@ final class SmartLibraryViewState: ObservableObject {
     /// 並べる本(すべての絞り込みと並べ替えの後)。
     @Published private(set) var visibleBooks: [SmartBook] = []
     /// グリッドの枠(束ねていなければ 1 冊ずつ、束ねていれば束と 1 冊、シリーズを開いていればその中の本)。
-    @Published private(set) var gridItems: [SmartGridItem] = []
+    @Published private(set) var gridItems: [SmartGridItem] = [] {
+        didSet { gridItemIDs = gridItems.map(\.id) }
+    }
     /// ブラウザの欄ごとの、値と冊数(ほかの欄の選択で絞った本から数える)。
     @Published private(set) var facetValues: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
     /// スマートシェルフごとの冊数(左ペインに出す)。nil のキーは「すべての本」。
@@ -216,20 +218,51 @@ final class SmartLibraryViewState: ObservableObject {
     /// 絞り込み・並べ替えに使う本(`sourceBooks` に著者の設定を当てたもの。`usesFirstAuthorOnly`)。
     private var books: [SmartBook] = [] {
         didSet {
-            // 本が変われば、棚の数え・検索の文字列の控えは作り直す(`shelfResults` / `searchHaystacks`)。
-            shelfResults = nil
+            // 本が変われば、棚の数え・ブラウザの冊数・並び・検索の文字列の控えは作り直す(`recompute` の控え)。
+            booksVersion &+= 1
+            shelfMatches = nil
+            facetMemo = nil
+            sortedOrder = nil
             searchHaystacks = nil
         }
     }
     private var shelves: [SmartShelf] = [] {
-        didSet { if shelves != oldValue { shelfResults = nil } }
+        didSet {
+            guard shelves != oldValue else { return }
+            shelfMatches = nil
+            facetMemo = nil
+        }
     }
     private var recomputeTask: Task<Void, Never>?
 
-    /// スマートシェルフごとの数と、選んでいるシェルフの本(`recompute`。2026-09-25 の監査)。本・シェルフ・時刻(分)が同じ間は数え直さない。
-    /// 検索の 1 文字・ボタンの 1 つ・並べ方を変えるたびに、全シェルフの条件を全冊に当て直していた(条件の文字は本ごとに畳み直す)。
-    /// 「何日以内」の条件があるので、分が変われば数え直す。
-    private var shelfResults: (minute: Int, selectedShelfID: UUID?, counts: [UUID?: Int], selectedBooks: [SmartBook])?
+    // MARK: 作り直しの控え(`recompute`)
+    //
+    // 2026-09-25 の監査で棚の数えと検索の文字列を控えたが、まだ操作のたびに全冊ぶんやり直していた(2026-10-05 の効率の監査 A2。
+    // 5 万冊で、検索の 1 文字ごとにブラウザの冊数の数え直し約 0.23 秒と全冊の並べ替え約 0.37 秒、棚を選び替えるたびに全部の棚の数え直し、
+    // ホームへ戻るたびに同じ本の一覧でも全部を捨てた)。どれも入力が同じなら答えが同じ計算なので、入力を鍵に控える。
+    // 本は `books` の位置(番号)で扱う(絞り込みの途中で本の写しを作らない)。
+
+    /// `books` を入れ替えた回数(控えの鍵)。
+    private var booksVersion = 0
+    /// スマートシェルフごとの、条件に合う本の位置(`books` の順)。本・シェルフが同じ間は数え直さない。時刻で答えが変わる条件
+    /// (何日以内)を持つシェルフがあるときだけ、分が変わったら数え直す(`minute` が nil なら分を問わない)。選んでいるシェルフを
+    /// 替えても数え直さない(以前は鍵に入っていて、棚を選び替えるたびに全部の棚を数え直していた)。
+    private var shelfMatches: (minute: Int?, matched: [UUID: [Int]])?
+    /// ブラウザの欄ごとの値と冊数の控えの鍵(`facetValues` を作ったときの入力)。
+    private struct FacetMemoKey: Equatable {
+        let booksVersion: Int
+        let selectedShelfID: UUID?
+        let shelfMinute: Int?
+        /// 絞り込みに日数の条件があるときだけ(無ければ分を問わない)。
+        let minute: Int?
+        let quickFilter: SmartQuickFilter
+        let facetSelection: SmartFacetSelection
+        let facetFields: [SmartFacetField]
+    }
+    private var facetMemo: FacetMemoKey?
+    /// 全冊を今の並べ方で並べた位置(`books` の位置)。絞り込んだ本はこの並びから取り出す(並べ替えは安定なので、絞ってから
+    /// 並べた以前と同じ並び)。
+    private var sortedOrder: (key: SmartSortKey, ascending: Bool, order: [Int])?
     /// 検索に当てる文字列(本ごと。`recompute`)。本が変わるまで使い回す(打つたびに全冊の欄を畳み直していた)。
     private var searchHaystacks: [String: String]?
 
@@ -256,8 +289,12 @@ final class SmartLibraryViewState: ObservableObject {
 
     /// 本の一覧・保存したスマートシェルフが変わった(画面から渡す)。
     func update(books: [SmartBook], shelves: [SmartShelf]) {
-        sourceBooks = books
-        self.books = Self.applyingAuthorSetting(books, firstAuthorOnly: usesFirstAuthorOnly)
+        // 同じ本の一覧なら(ホームへ戻ったときの `onAppear` など)、控えを捨てない(2026-10-05 の効率の監査 A2。配列の比較は、
+        // 同じバッファなら一瞬)。
+        if books != sourceBooks {
+            sourceBooks = books
+            self.books = Self.applyingAuthorSetting(books, firstAuthorOnly: usesFirstAuthorOnly)
+        }
         self.shelves = shelves
         // 消されたスマートシェルフを選んでいたら「すべての本」へ。
         if let id = selectedShelfID, !shelves.contains(where: { $0.id == id }) { selectedShelfID = nil }
@@ -312,8 +349,9 @@ final class SmartLibraryViewState: ObservableObject {
 
     // MARK: 選択
 
-    /// 並びの識別子(選択の計算に渡す順)。
-    var gridItemIDs: [String] { gridItems.map(\.id) }
+    /// 並びの識別子(選択の計算に渡す順)。並びが変わったときに 1 度だけ作る(クリック・矢印キーのたびに全部の識別子を
+    /// 作り直していた。2026-10-05 の効率の監査 A2)。
+    private(set) var gridItemIDs: [String] = []
 
     /// いま画面に出ていて選べるものの識別子: 並び(`gridItemIDs`)と、**リスト表示で開いている束の中の本の行**。
     ///
@@ -337,6 +375,8 @@ final class SmartLibraryViewState: ObservableObject {
     /// (グリッドへ移ったときに、選んでいた本の入った束が選ばれて見える ―― 選択がただ消えるより、どこにいたかが分かる)。
     /// 並びの変化・表示形式の切り替え・リストの束の開閉で呼ぶ(docs/14「選択の決まり」)。
     func pruneSelection() {
+        // 何も選んでいなければ絞るものが無い(並びの全部の識別子と Set を作らない。2026-10-05 の効率の監査 A2)。
+        guard !selection.isEmpty || selection.anchor != nil || selection.cursor != nil else { return }
         let selectable = selectableItemIDs
         let present = Set(selectable)
         let prefix = SmartGridItem.bookIDPrefix
@@ -538,31 +578,51 @@ final class SmartLibraryViewState: ObservableObject {
         }
     }
 
-    /// 並べる本を作り直す(型コメントの順に絞る)。
+    /// 並べる本を作り直す(型コメントの順に絞る)。入力が同じ部分は控えから(「作り直しの控え」)。
     func recompute(now: Date = Date()) {
         let minute = Int((now.timeIntervalSinceReferenceDate / 60).rounded(.down))
-        var current: [SmartBook]
-        if let cached = shelfResults, cached.minute == minute, cached.selectedShelfID == selectedShelfID {
-            current = cached.selectedBooks
-        } else {
+        // 1. スマートシェルフ(全部の棚の冊数と、棚ごとの本の位置)。
+        let shelfMinute: Int? = shelves.contains(where: { $0.conditions.dependsOnTime }) ? minute : nil
+        if shelfMatches == nil || shelfMatches?.minute != shelfMinute {
+            var matched: [UUID: [Int]] = [:]
+            for shelf in shelves {
+                let matches = shelf.conditions.matcher(now: now)
+                matched[shelf.id] = books.indices.filter { matches(books[$0]) }
+            }
+            shelfMatches = (shelfMinute, matched)
+            facetMemo = nil
             var counts: [UUID?: Int] = [nil: books.count]
-            for shelf in shelves { counts[shelf.id] = books.lazy.filter { shelf.conditions.matches($0, now: now) }.count }
+            for shelf in shelves { counts[shelf.id] = matched[shelf.id]?.count ?? 0 }
             if counts != shelfCounts { shelfCounts = counts }
-            current = selectedShelf.map { shelf in books.filter { shelf.conditions.matches($0, now: now) } } ?? books
-            shelfResults = (minute, selectedShelfID, counts, current)
         }
+        var current: [Int] = selectedShelf.flatMap { shelfMatches?.matched[$0.id] } ?? Array(books.indices)
         shelfBookCount = current.count
-        if quickFilter.isActive { current = current.filter { quickFilter.matches($0, now: now) } }
+        // 2. 絞り込み。
+        if quickFilter.isActive { current = current.filter { quickFilter.matches(books[$0], now: now) } }
+        // 3. ブラウザ(欄ごとの値と冊数は、ほかの欄の選択で絞った本から数える)。入力が同じなら数え直さない。
         let selection = facetSelection
-        var values: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
-        for field in facetFields {
-            values[field] = SmartFacets.counts(current.filter { selection.matches($0, except: field) }, field: field)
+        let facetKey = FacetMemoKey(
+            booksVersion: booksVersion, selectedShelfID: selectedShelfID, shelfMinute: shelfMinute,
+            minute: quickFilter.addedWithinDays != nil || quickFilter.readWithinDays != nil ? minute : nil,
+            quickFilter: quickFilter, facetSelection: selection, facetFields: facetFields
+        )
+        if facetMemo != facetKey {
+            var values: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
+            for field in facetFields {
+                // ほかの欄に選択が無ければ、絞らずに数える(写しを作らない)。
+                let narrowedByOthers = selection.values.contains { $0.key != field && !$0.value.isEmpty }
+                let indices = narrowedByOthers ? current.filter { selection.matches(books[$0], except: field) } : current
+                values[field] = SmartFacets.counts(indices.lazy.map { self.books[$0] }, field: field)
+            }
+            facetValues = values
+            facetMemo = facetKey
         }
-        facetValues = values
-        if selection.isActive { current = current.filter { selection.matches($0) } }
+        if selection.isActive { current = current.filter { selection.matches(books[$0]) } }
+        // 4. 検索。
         if let query = LibrarySearchQuery(searchText) {
             var haystacks = searchHaystacks ?? [:]
-            current = current.filter { book in
+            current = current.filter { index in
+                let book = books[index]
                 let haystack = haystacks[book.id] ?? Self.searchHaystack(of: book)
                 haystacks[book.id] = haystack
                 return query.matches(normalized: haystack)
@@ -571,10 +631,21 @@ final class SmartLibraryViewState: ObservableObject {
         }
         // インスペクタで直している本は、絞り込みから外れても残す(`bookKeptWhileEditing`。監査 SL-3)。
         let kept = bookKeptWhileEditing
-        if let kept, !current.contains(where: { $0.id == kept }), let book = books.first(where: { $0.id == kept }) {
-            current.append(book)
+        if let kept, !current.contains(where: { books[$0].id == kept }), let index = books.firstIndex(where: { $0.id == kept }) {
+            current.append(index)
         }
-        visibleBooks = SmartSort.sorted(current, by: sortKey, ascending: sortAscending)
+        // 5. 並べ替え: 全冊の並びを控え、そこから絞った本を取り出す。
+        if sortedOrder == nil || sortedOrder?.key != sortKey || sortedOrder?.ascending != sortAscending {
+            sortedOrder = (sortKey, sortAscending, SmartSort.sortedIndices(books, by: sortKey, ascending: sortAscending))
+        }
+        let order = sortedOrder?.order ?? []
+        if current.count == books.count {
+            visibleBooks = order.map { books[$0] }
+        } else {
+            var isShown = [Bool](repeating: false, count: books.count)
+            for index in current { isShown[index] = true }
+            visibleBooks = order.compactMap { isShown[$0] ? books[$0] : nil }
+        }
         if let openedGroup {
             // 束の中は シリーズ → 巻 の順(束の並びと同じ)。絞り込みで 1 冊も残らなければ空のまま(戻れば束の一覧)。
             // 直している本は、束の鍵(著者・シリーズ)を書き換えても残す(上と同じ)。
@@ -597,12 +668,11 @@ final class SmartLibraryViewState: ObservableObject {
             pendingScrollReset = false
             scrollResetSerial += 1
         }
-        let order = gridItemIDs
         // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。
         pruneSelection()
         if let pending = pendingSelectionID {
             pendingSelectionID = nil
-            if order.contains(pending) {
+            if gridItemIDs.contains(pending) {
                 self.selection.select(pending)
                 revealSerial += 1
                 revealRequest = RevealRequest(id: pending, serial: revealSerial)

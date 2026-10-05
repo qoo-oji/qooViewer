@@ -274,6 +274,20 @@ extension View {
         mode: MarqueeSelection.Mode = .additive,
         onBackgroundClick: (() -> Void)? = nil
     ) -> some View {
+        marqueeSelectable(
+            marquee, isEnabled: isEnabled, minimumHeight: minimumHeight, selection: selection,
+            shownIDs: { shownIDs }, mode: mode, onBackgroundClick: onBackgroundClick
+        )
+    }
+
+    /// `shownIDs` を帯を引き始めたときに求める版(2026-10-05 の効率の監査 A2)。並ぶものが多い一覧(スマートライブラリの 5 万冊)で、
+    /// 描き直しのたびに全部の id の Set を作らないため。帯の相手は引き始めた時点の並び(今と同じか、それより新しい)。
+    func marqueeSelectable<ID: Hashable>(
+        _ marquee: MarqueeSelection, isEnabled: Bool, minimumHeight: CGFloat,
+        selection: Binding<Set<ID>>, shownIDs: @escaping () -> Set<ID>,
+        mode: MarqueeSelection.Mode = .additive,
+        onBackgroundClick: (() -> Void)? = nil
+    ) -> some View {
         modifier(
             MarqueeSelectable(
                 marquee: marquee, isEnabled: isEnabled, minimumHeight: minimumHeight,
@@ -289,7 +303,7 @@ private struct MarqueeSelectable<ID: Hashable>: ViewModifier {
     let isEnabled: Bool
     let minimumHeight: CGFloat
     @Binding var selection: Set<ID>
-    let shownIDs: Set<ID>
+    let shownIDs: () -> Set<ID>
     let mode: MarqueeSelection.Mode
     let onBackgroundClick: (() -> Void)?
 
@@ -329,7 +343,7 @@ private struct MarqueeSelectable<ID: Hashable>: ViewModifier {
                     marquee.begin(
                         at: value.startLocation,
                         selection: Set(selection.map(AnyHashable.init)),
-                        shown: Set(shownIDs.map(AnyHashable.init)),
+                        shown: Set(shownIDs().map(AnyHashable.init)),
                         mode: mode,
                         apply: { selection = Set($0.compactMap { $0.base as? ID }) }
                     )

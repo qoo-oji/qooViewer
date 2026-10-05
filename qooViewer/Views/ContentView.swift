@@ -10,17 +10,21 @@ struct ContentView: View {
     /// 必ず「何も開いていない」状態(WelcomeView)から始まる。
     @StateObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
-    @EnvironmentObject private var recentFiles: RecentFilesStore
-    @EnvironmentObject private var folderAccess: FolderAccessStore
+    /// 描画では読まないストア(UnobservedStores。購読しない ―― 2026-10-05 の効率の監査 B9)。題とホームのメニューの値が読む
+    /// コレクションの名前は、名前・並び・所属が変わったときだけ知らせる写し(`homeMenuDirectory`)を購読して追う。
+    @Environment(\.unobservedStores) private var unobservedStores
+    @EnvironmentObject private var homeMenuDirectory: HomeMenuDirectoryStore
+    private var recentFiles: RecentFilesStore { UnobservedStores.required(unobservedStores.recentFiles) }
+    private var folderAccess: FolderAccessStore { UnobservedStores.required(unobservedStores.folderAccess) }
     @EnvironmentObject private var favoritesStore: FavoritesStore
-    @EnvironmentObject private var bookmarkStore: BookmarkStore
-    @EnvironmentObject private var layoutStore: LayoutStore
+    private var bookmarkStore: BookmarkStore { UnobservedStores.required(unobservedStores.bookmarkStore) }
+    private var layoutStore: LayoutStore { UnobservedStores.required(unobservedStores.layoutStore) }
     /// 書誌メタデータ。ツールバーのファイル名表示を登録済みのタイトル・著者に差し替えるため、
     /// ViewerView経由でViewerViewModelへ渡す。
-    @EnvironmentObject private var metadataStore: BookMetadataStore
-    @EnvironmentObject private var collectionStore: CollectionStore
+    private var metadataStore: BookMetadataStore { UnobservedStores.required(unobservedStores.metadataStore) }
+    private var collectionStore: CollectionStore { UnobservedStores.required(unobservedStores.collectionStore) }
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
-    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    private var launchCoordinator: LaunchCoordinator { UnobservedStores.required(unobservedStores.launchCoordinator) }
     /// シークレットフォルダ(2026-10-03)。ここで読むのは、以前の除外フォルダから移したことの 1 度きりの知らせだけ。
     @EnvironmentObject private var secretFolderStore: SecretFolderStore
     @Environment(\.openSettings) private var openSettings
@@ -241,8 +245,11 @@ struct ContentView: View {
         return preferences.privateWindowTitle(for: base)
     }
 
-    /// 本を開いていないときのタイトル。`collectionStore` は環境オブジェクトなので、名前の変更でも作り直される。
+    /// 本を開いていないときのタイトル。名前の変更では `homeMenuDirectory`(名前・並び・所属の写し)が知らせるので作り直される
+    /// (`collectionStore` は購読しない。表紙を 1 冊抽出するたびの知らせで全ウインドウを組み直さないため ―― 2026-10-05 の
+    /// 効率の監査 B9)。
     private var welcomeTitle: String {
+        _ = homeMenuDirectory.directory
         // ライブラリとコレクションの名前を使うのは本棚のときだけ。ほかのモード(ライブラリ機能が OFF の間はここに固定される)では
         // 行を引かない(2026-09-21 の監査 docs/plans/feature-toggle-audit.md §4 ―― 以前はタイトルを評価するたびに引いて、結果は捨てていた)。
         let showsShelf = welcomeLibrary.mode == .shelf

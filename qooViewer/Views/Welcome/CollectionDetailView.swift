@@ -58,7 +58,7 @@ struct CollectionDetailView: View {
     private static let gridPadding: CGFloat = 24
     private static let coverByteBudget = 96 * 1024 * 1024
 
-    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
+    private var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget)
     /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
     @State private var gridSize: CGSize = .zero
     @State private var isRenaming = false
@@ -175,7 +175,7 @@ struct CollectionDetailView: View {
         VStack(spacing: 0) {
             header
             if items.isEmpty {
-                if searchQuery != nil, !collection.items.isEmpty {
+                if searchQuery != nil, collectionStore.itemCount(in: collection) > 0 {
                     WelcomeNoMatchesMessage(textKey: "No books match the search.")
                 } else {
                     emptyMessage
@@ -378,9 +378,9 @@ struct CollectionDetailView: View {
             // いることと、どれだけ残っているかが見出しだけで読める。
             Group {
                 if searchQuery != nil {
-                    Text("\(items.count) / \(collection.items.count)")
+                    Text("\(items.count) / \(collectionStore.itemCount(in: collection))")
                 } else {
-                    Text("\(collection.items.count)")
+                    Text("\(collectionStore.itemCount(in: collection))")
                 }
             }
             .font(.caption)
@@ -505,7 +505,7 @@ struct CollectionDetailView: View {
                     isEnabled: true,
                     minimumHeight: gridSize.height,
                     selection: $state.selectedItemIDs,
-                    shownIDs: Set(items.map(\.id)),
+                    shownIDs: { Set(items.map(\.id)) },
                     mode: .replacing,
                     onBackgroundClick: {
                         state.selectedItemIDs = []
@@ -638,11 +638,12 @@ struct CollectionDetailView: View {
         // Finder などへ運ぶと本がコピーされる(2026-09-23、利用者の指示。HomeBookTransfer.swift の冒頭)。
         .homeBookDragSource { beginDrag(from: item) }
         .contextMenu {
-            let targets = contextTargets(for: item)
+            // 相手(表示中 ∩ 選択)は押したときに求める。メニューの中身はセルの body と一緒に組まれるので、ここで求めると
+            // すべて選択の後は見えているセルの数 × 全冊の絞り込みになった(2026-10-05 の効率の監査 B8)。
             // 1冊を相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
             // 2026-09-09)。押せてしまうと、右クリックした1冊だけに効くのか選んだ全部に効くのかが
             // 画面から読めない。まとめてできるのは「コレクションから削除」だけ。
-            let isSingle = targets.count == 1
+            let isSingle = isSingleContextTarget(item)
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
                 onOpenIn: { destination in
@@ -662,7 +663,7 @@ struct CollectionDetailView: View {
             Divider()
             // 「コピー」(2026-09-23、利用者の指示)。選んだ本をまとめてコピーできる(Finder へ貼るとコピーになる)。
             // 編集モードを条件にしない(棚をいじる操作ではない)。シークレットウインドウでも使える(何も記録しない)。
-            Button("Copy") { copy(targets) }
+            Button("Copy") { copy(contextTargets(for: item)) }
             Divider()
             // 「Finderで開く」(ユーザー要望 2026-09-09)。**編集モードを条件にしない** ――
             // 棚をいじる操作ではなく、その本がどこにあるかを見るだけの操作なので。
@@ -714,7 +715,7 @@ struct CollectionDetailView: View {
                 Divider()
                 Button("Remove from Collection", role: .destructive) {
                     // 確認は出さない(⌘Z で取り消せる。どの入り口も同じ扱い)。
-                    removeItems(targets.map(\.id))
+                    removeItems(contextTargets(for: item).map(\.id))
                 }
             }
         }
@@ -875,6 +876,18 @@ struct CollectionDetailView: View {
     /// **選んである本を右クリックしたなら、選んだぶん全部。選択の外を右クリックしたなら、
     /// その1冊だけ**(選択は変えない)。これでゴミ箱と右クリックの「コレクションから削除」が
     /// 同じものを相手にする ―― 以前は右クリックだけが常に1冊きりだった。
+    /// `contextTargets(for:)` がちょうど 1 冊か。選んだ本を 2 冊見つけたところで止める(全冊を絞らない)。
+    private func isSingleContextTarget(_ item: CollectionItem) -> Bool {
+        let selected = state.selectedItemIDs
+        guard selected.count > 1, selected.contains(item.id) else { return true }
+        var found = 0
+        for other in items where selected.contains(other.id) {
+            found += 1
+            if found > 1 { return false }
+        }
+        return found == 1
+    }
+
     private func contextTargets(for item: CollectionItem) -> [CollectionItem] {
         guard state.selectedItemIDs.count > 1,
               state.selectedItemIDs.contains(item.id)

@@ -333,6 +333,110 @@ struct SmartLibraryTests {
         #expect(SmartSort.sorted(books, by: .lastRead, ascending: true).map(\.id) == ["/b/old.zip", "/b/new.zip", "/b/none.zip"])
     }
 
+    /// 決まった種から作る架空の本の一覧(並べ替え・絞り込みの控えが、控えない計算と同じ答えを返すかを確かめる)。
+    private func generatedBooks(count: Int, seed: UInt64) -> [SmartBook] {
+        var state = seed
+        func next(_ bound: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        let titles = ["", "月の庭", "雪の庭", "風の町", "Alpha", "alpha", "Beta 2", "Beta 10"]
+        let series = ["", "月の庭", "風の町", "Alpha"]
+        let authors = [[], ["著者A"], ["著者B"], ["著者A", "著者C"], ["著者C"]]
+        let genres = ["", "ジャンル1", "ジャンル2"]
+        return (0..<count).map { index in
+            book(
+                "/b/\(["c", "a", "b"][next(3)])\(next(40)).zip-\(index).zip", title: titles[next(titles.count)],
+                authors: authors[next(authors.count)], genre: genres[next(genres.count)], series: series[next(series.count)],
+                volume: next(3) == 0 ? "" : "\(next(12))", added: next(4) == 0 ? nil : Double(next(60)),
+                read: next(3) == 0 ? nil : Double(next(60))
+            )
+        }
+    }
+
+    @Test("位置で並べる版(sortedIndices)は、本どうしを比べる以前の版と同じ並びを返す(2026-10-05 の効率の監査)")
+    func sortedIndicesMatchComparingBooks() {
+        let books = generatedBooks(count: 300, seed: 7)
+        for key in SmartSortKey.allCases {
+            for ascending in [true, false] {
+                #expect(SmartSort.sorted(books, by: key, ascending: ascending).map(\.id)
+                        == SmartSort.sortedComparingBooks(books, by: key, ascending: ascending).map(\.id))
+            }
+        }
+    }
+
+    @Test("控えを使う作り直しは、棚・絞り込み・ブラウザ・検索・並べ方をどう変えても、控えずに計算した並びと冊数を返す(2026-10-05 の効率の監査)")
+    func recomputeWithMemosMatchesDirectComputation() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        let books = generatedBooks(count: 400, seed: 11)
+        let shelves = [
+            SmartShelf(name: "棚1", conditions: SmartShelfConditions(rules: [SmartShelfRule(field: .title, op: .contains, text: "庭")])),
+            SmartShelf(name: "棚2", conditions: SmartShelfConditions(match: .any, rules: [
+                SmartShelfRule(field: .lastRead, op: .within, number: 20), SmartShelfRule(field: .genre, op: .equals, text: "ジャンル2"),
+            ])),
+        ]
+        state.update(books: books, shelves: shelves)
+        func expectMatchesDirect(_ label: String) {
+            state.recompute(now: now)
+            var current = state.selectedShelf.map { shelf in books.filter { shelf.conditions.matches($0, now: now) } } ?? books
+            #expect(state.shelfBookCount == current.count, "\(label)")
+            if state.quickFilter.isActive { current = current.filter { state.quickFilter.matches($0, now: now) } }
+            for field in state.facetFields {
+                let counted = SmartFacets.counts(current.filter { state.facetSelection.matches($0, except: field) }, field: field)
+                #expect(state.facetValues[field]?.map(\.value) == counted.map(\.value), "\(label)")
+                #expect(state.facetValues[field]?.map(\.count) == counted.map(\.count), "\(label)")
+            }
+            current = current.filter { state.facetSelection.matches($0) }
+            if let query = LibrarySearchQuery(state.searchText) {
+                current = current.filter { book in
+                    query.matches(normalized: LibrarySearchQuery.normalized(
+                        ([book.fileName, book.metadata.title] + book.metadata.authors
+                            + [book.metadata.series, book.metadata.genre, book.metadata.source, book.metadata.event,
+                               book.metadata.info])
+                            .filter { !$0.isEmpty }.joined(separator: "\n")))
+                }
+            }
+            let expected = SmartSort.sortedComparingBooks(current, by: state.sortKey, ascending: state.sortAscending)
+            #expect(state.visibleBooks.map(\.id) == expected.map(\.id), "\(label)")
+            #expect(state.shelfCounts[nil] == books.count, "\(label)")
+            for shelf in shelves {
+                #expect(state.shelfCounts[shelf.id] == books.filter { shelf.conditions.matches($0, now: now) }.count, "\(label)")
+            }
+        }
+        expectMatchesDirect("初め")
+        state.selectedShelfID = shelves[0].id
+        expectMatchesDirect("棚1")
+        state.searchText = "庭"
+        expectMatchesDirect("検索")
+        state.searchText = "月の"
+        expectMatchesDirect("検索の打ち直し")
+        state.selectedShelfID = shelves[1].id
+        expectMatchesDirect("棚2")
+        state.toggleFacet(.value("著者A"), in: .authors)
+        expectMatchesDirect("ブラウザ")
+        state.searchText = ""
+        state.sortKey = .series
+        expectMatchesDirect("シリーズで並べる")
+        state.sortAscending = false
+        expectMatchesDirect("逆向き")
+        state.quickFilter.readWithinDays = 30
+        expectMatchesDirect("絞り込み")
+        state.selectedShelfID = nil
+        state.sortKey = .lastRead
+        expectMatchesDirect("すべての本")
+        // 同じ本の一覧が届いても(ホームへ戻った)、答えは同じ。
+        state.update(books: books, shelves: shelves)
+        expectMatchesDirect("同じ一覧")
+        // 本が変われば控えは作り直す。
+        let changed = Array(books.dropFirst(50))
+        state.update(books: changed, shelves: shelves)
+        state.recompute(now: now)
+        #expect(state.shelfCounts[nil] == changed.count)
+        #expect(Set(state.visibleBooks.map(\.id)).isSubset(of: Set(changed.map(\.id))))
+    }
+
     // MARK: 選択(2026-09-22)
 
     @Test("クリックは 1 つ、⌘ で足す/外す、⇧ で起点からの範囲(前の範囲は置き換える)")
