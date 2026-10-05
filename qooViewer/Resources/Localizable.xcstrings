@@ -4,70 +4,6 @@
     "" : {
 
     },
-    "Information Unavailable" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Information Unavailable"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "情報を取得できません"
-          }
-        }
-      }
-    },
-    "“%1$@” couldn’t be opened. %2$@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%1$@” couldn’t be opened. %2$@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%1$@」を開けませんでした。%2$@"
-          }
-        }
-      }
-    },
-    "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションとその中の本、スマートライブラリのアイコン表示(グリッド)に効きます(スマートライブラリのリスト表示には効きません)。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
-          }
-        }
-      }
-    },
-    "This book is in a secret folder, so its cover can’t be changed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book is in a secret folder, so its cover can’t be changed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本のため、表紙は変えられません。"
-          }
-        }
-      }
-    },
     " (off)" : {
       "localizations" : {
         "en" : {
@@ -129,376 +65,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページ)"
-          }
-        }
-      }
-    },
-    "The volume that holds “%@” isn’t connected. Connect it and try again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume that holds “%@” isn’t connected. Connect it and try again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」があるボリュームが接続されていません。接続してからもう一度お試しください。"
-          }
-        }
-      }
-    },
-    "“%@” is in the Trash. It was removed from the history." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is in the Trash. It was removed from the history."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はゴミ箱の中にあります。履歴から削除しました。"
-          }
-        }
-      }
-    },
-    "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」が見つかりませんでした。移動または削除された可能性があるため、履歴から削除しました。"
-          }
-        }
-      }
-    },
-    "The Book Couldn’t Be Opened" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The Book Couldn’t Be Opened"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を開けませんでした"
-          }
-        }
-      }
-    },
-    "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
-          }
-        }
-      }
-    },
-    "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本の場所を読めませんでした。フォルダへのアクセス権が外れている(環境設定 ▸ フォルダのアクセス権)か、今はその場所を読めない状態です。"
-          }
-        }
-      }
-    },
-    "The file or folder could not be found. It may have been moved or deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The file or folder could not be found. It may have been moved or deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
-          }
-        }
-      }
-    },
-    "“%@” couldn’t be used as the cover." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” couldn’t be used as the cover."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」をカバーにできませんでした。"
-          }
-        }
-      }
-    },
-    "The bookmark was deleted before the new name was saved." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The bookmark was deleted before the new name was saved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前を保存する前に、そのブックマークは削除されていました。"
-          }
-        }
-      }
-    },
-    "“%@” is in a secret folder, so it wasn’t added to the smart library." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is in a secret folder, so it wasn’t added to the smart library."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
-          }
-        }
-      }
-    },
-    "%lld folders are in secret folders, so they weren’t added to the smart library." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld folders are in secret folders, so they weren’t added to the smart library."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 個のフォルダはシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
-          }
-        }
-      }
-    },
-    "Nothing is saved in a private window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing is saved in a private window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットウインドウでは何も保存しません。"
-          }
-        }
-      }
-    },
-    "Nothing is saved for books in secret folders." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing is saved for books in secret folders."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本については何も保存しません。"
-          }
-        }
-      }
-    },
-    "Nothing is saved for this book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing is saved for this book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本については何も保存しません。"
-          }
-        }
-      }
-    },
-    "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "」に割り当てられています(この表示モードでも使われる基本の設定)。両方が当てはまるときは、画面の左右を指定した方が優先されます。"
-          }
-        }
-      }
-    },
-    "1 book is open in a viewer, so its saved data is kept. Close it first to delete it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 book is open in a viewer, so its saved data is kept. Close it first to delete it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
-          }
-        }
-      }
-    },
-    "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
-          }
-        }
-      }
-    },
-    "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのデータを削除しました。qooViewerは10秒後に終了します。もう一度起動し直してください。"
-          }
-        }
-      }
-    },
-    "Cancelling…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancelling…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "中止しています…"
-          }
-        }
-      }
-    },
-    "Export Cancelled" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export Cancelled"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出しを中止しました"
-          }
-        }
-      }
-    },
-    "Exporting saved data… It continues even if you close this window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exporting saved data… It continues even if you close this window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存データを書き出しています… このウインドウを閉じても続きます。"
-          }
-        }
-      }
-    },
-    "Importing saved data… It continues even if you close this window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importing saved data… It continues even if you close this window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存データを読み込んでいます… このウインドウを閉じても続きます。"
-          }
-        }
-      }
-    },
-    "Shown in the File menu's Open Recent and in the side panel's History mode. Lowering it deletes the oldest history as soon as you release the slider. This can't be undone." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shown in the File menu's Open Recent and in the side panel's History mode. Lowering it deletes the oldest history as soon as you release the slider. This can't be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルメニューの「最近使った項目を開く」と、サイドパネルの「履歴」に表示されます。下げると、スライダーを離したときに古い履歴からすぐに削除されます。元に戻すことはできません。"
           }
         }
       }
@@ -568,6 +134,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "」のファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
+          }
+        }
+      }
+    },
+    "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” in the basic settings, which this display mode also uses. When both apply, the one that names a side of the screen wins."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」に割り当てられています(この表示モードでも使われる基本の設定)。両方が当てはまるときは、画面の左右を指定した方が優先されます。"
           }
         }
       }
@@ -780,6 +362,22 @@
         }
       }
     },
+    "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」が見つかりませんでした。移動または削除された可能性があるため、履歴から削除しました。"
+          }
+        }
+      }
+    },
     "“%@” couldn’t be opened" : {
       "localizations" : {
         "en" : {
@@ -844,6 +442,22 @@
         }
       }
     },
+    "“%@” couldn’t be used as the cover." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be used as the cover."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をカバーにできませんでした。"
+          }
+        }
+      }
+    },
     "“%@” expands to far more than its size, which is typical of a damaged or malicious archive, so it wasn’t extracted." : {
       "localizations" : {
         "en" : {
@@ -893,6 +507,22 @@
         }
       }
     },
+    "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はmacOSが必要とするフォルダなので、移動・名前の変更・削除はできません。"
+          }
+        }
+      }
+    },
     "“%@” is a volume or contains one, so it can’t be deleted." : {
       "localizations" : {
         "en" : {
@@ -921,6 +551,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」はボリュームなので移動できません。"
+          }
+        }
+      }
+    },
+    "“%@” is in a secret folder, so it wasn’t added to the smart library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is in a secret folder, so it wasn’t added to the smart library."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” is in the Trash. It was removed from the history." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is in the Trash. It was removed from the history."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はゴミ箱の中にあります。履歴から削除しました。"
           }
         }
       }
@@ -1033,6 +695,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」は読み出し専用のボリュームにあります。"
+          }
+        }
+      }
+    },
+    "“%@” is open in qooViewer, so it wasn’t replaced." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is open in qooViewer, so it wasn’t replaced."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はqooViewerで開いているため、置き換えませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はqooViewerで開いているため、元の名前に戻しませんでした。本を閉じてから、もう一度試してください。"
           }
         }
       }
@@ -1181,6 +875,22 @@
         }
       }
     },
+    "“%1$@” couldn’t be opened. %2$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” couldn’t be opened. %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を開けませんでした。%2$@"
+          }
+        }
+      }
+    },
     "“%1$@” was copied to the destination, but the original couldn’t be removed, so both were kept. %2$@" : {
       "localizations" : {
         "en" : {
@@ -1225,6 +935,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%1$@」は展開すると %2$@ を超えるため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「自動」は、下の ① と ② を両方満たす本を、このルールセットで読みます。どのルールセットにも当たらない本や、2 つ以上に当たって絞れない本は、デフォルトのルールセット「%@」で読みます。"
           }
         }
       }
@@ -1326,22 +1053,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「X ex」「X SP」"
-          }
-        }
-      }
-    },
-    "%lld books in secret folders were not added." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld books in secret folders were not added."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本 %lld 冊は登録しませんでした。"
           }
         }
       }
@@ -2043,6 +1754,39 @@
         }
       }
     },
+    "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books are open in a viewer, so their saved data is kept. Close them first to delete it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
+          }
+        }
+      }
+    },
+    "%lld books in secret folders were not added." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld books in secret folders were not added."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本 %lld 冊は登録しませんでした。"
+          }
+        }
+      }
+    },
     "%lld books matched no file name format" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2121,6 +1865,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 件"
+          }
+        }
+      }
+    },
+    "%lld folders are in secret folders, so they weren’t added to the smart library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld folders are in secret folders, so they weren’t added to the smart library."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 個のフォルダはシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
           }
         }
       }
@@ -2415,6 +2175,22 @@
         }
       }
     },
+    "%lld weren't imported because their books are in secret folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld weren't imported because their books are in secret folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件は、シークレットフォルダの本なので読み込みませんでした。"
+          }
+        }
+      }
+    },
     "%lld weren't imported because their books have moved since the zip was loaded. Choose the zip again to match them anew." : {
       "localizations" : {
         "en" : {
@@ -2578,6 +2354,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "0%なら既定の見た目のままです。\n100%にすると色で塗りつぶされ、すりガラスは完全に隠れます。"
+          }
+        }
+      }
+    },
+    "1 book is open in a viewer, so its saved data is kept. Close it first to delete it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 book is open in a viewer, so its saved data is kept. Close it first to delete it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 冊はビューアで開いているため、保存データを残します。削除するには先に閉じてください。"
           }
         }
       }
@@ -4225,504 +4018,6 @@
         }
       }
     },
-    "Appearance Settings…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Appearance Settings…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "外観の設定…"
-          }
-        }
-      }
-    },
-    "Always Open in a Private Window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Always Open in a Private Window"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "常にシークレットウインドウで開く"
-          }
-        }
-      }
-    },
-    "As a Tab in a Private Window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "As a Tab in a Private Window"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットウインドウのタブ"
-          }
-        }
-      }
-    },
-    "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダとそのサブフォルダの本は、どこから開いても履歴・保存データ・メタデータを残しません。その本を表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
-          }
-        }
-      }
-    },
-    "Delete the Saved Data and History of the Books in This Folder…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete the Saved Data and History of the Books in This Folder…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダの本の保存データと履歴を削除…"
-          }
-        }
-      }
-    },
-    "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ノーマルのウインドウからシークレットフォルダの本を開くと、どこから開いても代わりにシークレットウインドウで開きます。ノーマルのウインドウは表示中のものをそのまま残します。オフのときは、ノーマルのウインドウがその本を表示している間だけシークレットウインドウの見た目になります。"
-          }
-        }
-      }
-    },
-    "Choose folders whose books should leave no history, saved data or metadata." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose folders whose books should leave no history, saved data or metadata."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴・保存データ・メタデータを残さない本のフォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Delete the saved data and history of the books in this folder?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete the saved data and history of the books in this folder?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダの本の保存データと履歴を削除しますか?"
-          }
-        }
-      }
-    },
-    "Excluded folders are now secret folders" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluded folders are now secret folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダはシークレットフォルダになりました"
-          }
-        }
-      }
-    },
-    "In Place of the Book in a Private Window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "In Place of the Book in a Private Window"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットウインドウの本と入れ替え"
-          }
-        }
-      }
-    },
-    "In a New Private Window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "In a New Private Window"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しいシークレットウインドウ"
-          }
-        }
-      }
-    },
-    "No secret folders yet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No secret folders yet."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダはまだありません。"
-          }
-        }
-      }
-    },
-    "Open Settings…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Settings…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "環境設定を開く…"
-          }
-        }
-      }
-    },
-    "Open In" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open In"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開き先"
-          }
-        }
-      }
-    },
-    "Opening" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opening"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開き方"
-          }
-        }
-      }
-    },
-    "Private window appearance" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Private window appearance"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットウインドウの外観"
-          }
-        }
-      }
-    },
-    "Remove from Secret Folders" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove from Secret Folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダから外す"
-          }
-        }
-      }
-    },
-    "Secret Folder Settings…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Secret Folder Settings…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの設定…"
-          }
-        }
-      }
-    },
-    "Restores the opening settings on this page. Your secret folders are not affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores the opening settings on this page. Your secret folders are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面の開き方の設定を初期設定に戻します。シークレットフォルダの一覧は変わりません。"
-          }
-        }
-      }
-    },
-    "Same as normal windows" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Same as normal windows"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ノーマルウインドウと同じ"
-          }
-        }
-      }
-    },
-    "Saved data remains for %1$lld books, and the history has %2$lld books." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saved data remains for %1$lld books, and the history has %2$lld books."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存データが残っている本 %1$lld 冊・履歴 %2$lld 冊"
-          }
-        }
-      }
-    },
-    "Secret Folders" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Secret Folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダ"
-          }
-        }
-      }
-    },
-    "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メタデータの登録から除外していたフォルダは、シークレットフォルダになりました。中の本は履歴・保存データ・メタデータを残さず、表示している間はウインドウがシークレットウインドウと同じ見た目になります。フォルダは 環境設定 ▸ シークレットフォルダ で変えられます。"
-          }
-        }
-      }
-    },
-    "Secret Folders: %d folder(s) added." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Secret Folders: %d folder(s) added."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダ: %d件を追加しました。"
-          }
-        }
-      }
-    },
-    "The cover of a book in a secret folder can't be changed, because it would have to be saved." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The cover of a book in a secret folder can't be changed, because it would have to be saved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本は、カバー画像を変更できません(指定を保存する必要があるためです)。"
-          }
-        }
-      }
-    },
-    "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld 冊の保存データと、履歴の %2$lld 冊を削除します。本そのものは削除しません。この操作は取り消せません。"
-          }
-        }
-      }
-    },
-    "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本のため、履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
-          }
-        }
-      }
-    },
-    "This book is in a secret folder, so its metadata is not saved." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book is in a secret folder, so its metadata is not saved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本のため、メタデータを保存しません。"
-          }
-        }
-      }
-    },
-    "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本を表示している間、ウインドウはシークレットウインドウの外観になります。シークレットウインドウに固有の外観を適用していなければ(環境設定 ▸ 外観)、見分けられるのはタイトルのシークレットウインドウの目印だけです。"
-          }
-        }
-      }
-    },
-    "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を開く場所です。「シークレットウインドウのタブ」と「シークレットウインドウの本と入れ替え」は、いちばん手前のシークレットウインドウを使います(入れ替えは、そのウインドウで表示中の本を閉じます)。シークレットウインドウが無ければ、新しいシークレットウインドウで開きます。"
-          }
-        }
-      }
-    },
-    "While a Book in a Secret Folder Is Shown" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "While a Book in a Secret Folder Is Shown"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本を表示している間"
-          }
-        }
-      }
-    },
     "after %lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -4854,6 +4149,7 @@
       }
     },
     "All data has been deleted. qooViewer will now quit — please reopen it." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4865,6 +4161,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべてのデータを削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
+          }
+        }
+      }
+    },
+    "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのデータを削除しました。qooViewerは10秒後に終了します。もう一度起動し直してください。"
           }
         }
       }
@@ -5011,6 +4323,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "常に末尾に表示"
+          }
+        }
+      }
+    },
+    "Always Open in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always Open in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常にシークレットウインドウで開く"
           }
         }
       }
@@ -5242,6 +4570,22 @@
         }
       }
     },
+    "Appearance Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観の設定…"
+          }
+        }
+      }
+    },
     "Appearance to Edit" : {
       "localizations" : {
         "en" : {
@@ -5341,6 +4685,7 @@
       }
     },
     "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5352,6 +4697,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションとその中の本、スマートライブラリに効きます。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
+          }
+        }
+      }
+    },
+    "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to collections and their books, and to the smart library’s icon view (not its list view). When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションとその中の本、スマートライブラリのアイコン表示(グリッド)に効きます(スマートライブラリのリスト表示には効きません)。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
           }
         }
       }
@@ -5658,6 +5019,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "これらの %lld 項目を削除してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "As a Tab in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As a Tab in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウのタブ"
           }
         }
       }
@@ -6499,6 +5876,38 @@
         }
       }
     },
+    "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダとそのサブフォルダの本は、どこから開いても履歴・保存データ・メタデータを残しません。その本を表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
+          }
+        }
+      }
+    },
+    "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in secret folders opened from a normal window open in a private window instead, wherever they are opened from. The normal window keeps what it shows. When off, a normal window looks like a private window only while it shows such a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルのウインドウからシークレットフォルダの本を開くと、どこから開いても代わりにシークレットウインドウで開きます。ノーマルのウインドウは表示中のものをそのまま残します。オフのときは、ノーマルのウインドウがその本を表示している間だけシークレットウインドウの見た目になります。"
+          }
+        }
+      }
+    },
     "Books in the target folders you add on the left appear here." : {
       "localizations" : {
         "en" : {
@@ -6658,6 +6067,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "別の作品が、1 つのシリーズにまとまる"
+          }
+        }
+      }
+    },
+    "Books this rule set was chosen for are read with the default rule set from now on." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books this rule set was chosen for are read with the default rule set from now on."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このルールセットを選んでいた本は、これからはデフォルトのルールセットで読まれます。"
           }
         }
       }
@@ -7004,6 +6430,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "キャンセル"
+          }
+        }
+      }
+    },
+    "Cancelling…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelling…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中止しています…"
           }
         }
       }
@@ -7813,6 +7255,22 @@
         }
       }
     },
+    "Choose folders whose books should leave no history, saved data or metadata." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose folders whose books should leave no history, saved data or metadata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴・保存データ・メタデータを残さない本のフォルダを選んでください。"
+          }
+        }
+      }
+    },
     "Choose how far this layout change should apply." : {
       "localizations" : {
         "en" : {
@@ -7857,23 +7315,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本のページから選ぶ…"
-          }
-        }
-      }
-    },
-    "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メタデータの編集ウインドウを開くと、その本の名前がここに並びます。このルールセットで解析できない名前がひと目で分かります。"
           }
         }
       }
@@ -8525,6 +7966,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクション"
+          }
+        }
+      }
+    },
+    "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション・ブックマーク・ページレイアウト設定・メタデータとその規則・読書位置・スマートライブラリ・ファイルブラウザのよく使う項目と自動リネームの規則・環境設定(シークレットフォルダを含む)を、qooViewerだけが読み戻せるJSONファイル1つにまとめます。コレクション表紙は含まれません ―― そちらは下の項目から出し入れします。"
           }
         }
       }
@@ -10798,6 +10255,38 @@
         }
       }
     },
+    "Delete the saved data and history of the books in this folder?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the saved data and history of the books in this folder?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの本の保存データと履歴を削除しますか?"
+          }
+        }
+      }
+    },
+    "Delete the Saved Data and History of the Books in This Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the Saved Data and History of the Books in This Folder…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの本の保存データと履歴を削除…"
+          }
+        }
+      }
+    },
     "Delete this format" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12876,6 +12365,22 @@
         }
       }
     },
+    "Excluded folders are now secret folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluded folders are now secret folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除外フォルダはシークレットフォルダになりました"
+          }
+        }
+      }
+    },
     "Excluded text" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13051,6 +12556,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "形式ごとの書き出し"
+          }
+        }
+      }
+    },
+    "Export Cancelled" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Cancelled"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しを中止しました"
           }
         }
       }
@@ -13391,6 +12912,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDFファイルを書き出し中…"
+          }
+        }
+      }
+    },
+    "Exporting saved data… It continues even if you close this window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting saved data… It continues even if you close this window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データを書き出しています… このウインドウを閉じても続きます。"
           }
         }
       }
@@ -13793,22 +13330,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書位置・ページレイアウト・メタデータ(SwiftDataのストアとそのログ)です。"
-          }
-        }
-      }
-    },
-    "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collections, bookmarks, page layout settings, metadata and its rules, reading positions, the smart library, the file browser’s favorite locations and Auto Rename rules, and your settings (including secret folders), as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクション・ブックマーク・ページレイアウト設定・メタデータとその規則・読書位置・スマートライブラリ・ファイルブラウザのよく使う項目と自動リネームの規則・環境設定(シークレットフォルダを含む)を、qooViewerだけが読み戻せるJSONファイル1つにまとめます。コレクション表紙は含まれません ―― そちらは下の項目から出し入れします。"
           }
         }
       }
@@ -14525,23 +14046,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダを上に表示"
-          }
-        }
-      }
-    },
-    "Books this rule set was chosen for are read with the default rule set from now on." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books this rule set was chosen for are read with the default rule set from now on."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このルールセットを選んでいた本は、これからはデフォルトのルールセットで読まれます。"
           }
         }
       }
@@ -16179,6 +15683,38 @@
         }
       }
     },
+    "Importing saved data… It continues even if you close this window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importing saved data… It continues even if you close this window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データを読み込んでいます… このウインドウを閉じても続きます。"
+          }
+        }
+      }
+    },
+    "In a New Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In a New Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいシークレットウインドウ"
+          }
+        }
+      }
+    },
     "In a series of their own, “X Compilation”" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16247,19 +15783,18 @@
         }
       }
     },
-    "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”." : {
-      "extractionState" : "manual",
+    "In Place of the Book in a Private Window" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“Automatic” reads a book with this rule set when the book meets both ① and ② below. A book that no rule set takes, or that more than one takes, is read with the default rule set, “%@”."
+            "value" : "In Place of the Book in a Private Window"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「自動」は、下の ① と ② を両方満たす本を、このルールセットで読みます。どのルールセットにも当たらない本や、2 つ以上に当たって絞れない本は、デフォルトのルールセット「%@」で読みます。"
+            "value" : "シークレットウインドウの本と入れ替え"
           }
         }
       }
@@ -16442,6 +15977,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "情報"
+          }
+        }
+      }
+    },
+    "Information Unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Information Unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報を取得できません"
           }
         }
       }
@@ -18977,6 +18528,22 @@
         }
       }
     },
+    "Move and Copy of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move and Copy of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目の移動とコピー"
+          }
+        }
+      }
+    },
     "Move Between Books in the Browser's Sort Order" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19396,6 +18963,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 項目を移動しています…"
+          }
+        }
+      }
+    },
+    "Moving and copying %lld items…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moving and copying %lld items…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目を移動・コピーしています…"
           }
         }
       }
@@ -20016,6 +19599,22 @@
         }
       }
     },
+    "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの編集ウインドウに、このルールセットで読む本がまだ無いため、参考としてすべての本を読んでいます。本ごとのルールセットは自動で選ばれるほか、右クリックの「ファイル名の解析ルール」で選べます。"
+          }
+        }
+      }
+    },
     "No book matches the current filter or search text." : {
       "localizations" : {
         "en" : {
@@ -20060,23 +19659,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "まだブックマークがありません"
-          }
-        }
-      }
-    },
-    "No books yet" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No books yet"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本がまだありません"
           }
         }
       }
@@ -20169,6 +19751,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並べる本がありません"
+          }
+        }
+      }
+    },
+    "No books yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No books yet"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本がまだありません"
           }
         }
       }
@@ -20515,6 +20114,22 @@
         }
       }
     },
+    "No secret folders yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No secret folders yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダはまだありません。"
+          }
+        }
+      }
+    },
     "No Selection" : {
       "localizations" : {
         "en" : {
@@ -20704,6 +20319,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "画像として読めません"
+          }
+        }
+      }
+    },
+    "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「シークレットモードで起動」がオンの間は使えません(何も記録しないので、開き直す前回の本がありません)。"
           }
         }
       }
@@ -20934,6 +20565,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "まだ何もありません"
+          }
+        }
+      }
+    },
+    "Nothing is saved for books in secret folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved for books in secret folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本については何も保存しません。"
+          }
+        }
+      }
+    },
+    "Nothing is saved for this book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved for this book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本については何も保存しません。"
+          }
+        }
+      }
+    },
+    "Nothing is saved in a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved in a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウでは何も保存しません。"
           }
         }
       }
@@ -21506,6 +21185,23 @@
         }
       }
     },
+    "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Edit Metadata and the names of its books appear here, so you can see which ones this rule set fails to read."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの編集ウインドウを開くと、その本の名前がここに並びます。このルールセットで解析できない名前がひと目で分かります。"
+          }
+        }
+      }
+    },
     "Open File in Same Folder" : {
       "localizations" : {
         "en" : {
@@ -21566,6 +21262,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴から開く"
+          }
+        }
+      }
+    },
+    "Open In" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open In"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開き先"
           }
         }
       }
@@ -21730,6 +21442,22 @@
         }
       }
     },
+    "Open Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定を開く…"
+          }
+        }
+      }
+    },
     "Open With" : {
       "localizations" : {
         "en" : {
@@ -21758,6 +21486,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開く…"
+          }
+        }
+      }
+    },
+    "Opening" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開き方"
           }
         }
       }
@@ -23071,6 +22815,22 @@
         }
       }
     },
+    "Private window appearance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private window appearance"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの外観"
+          }
+        }
+      }
+    },
     "Private Window Title Prefix" : {
       "localizations" : {
         "en" : {
@@ -23432,6 +23192,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「"
+          }
+        }
+      }
+    },
+    "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本の場所を読めませんでした。フォルダへのアクセス権が外れている(環境設定 ▸ フォルダのアクセス権)か、今はその場所を読めない状態です。"
           }
         }
       }
@@ -24592,6 +24368,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴から削除"
+          }
+        }
+      }
+    },
+    "Remove from Secret Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Secret Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダから外す"
           }
         }
       }
@@ -25847,6 +25639,22 @@
         }
       }
     },
+    "Restores the opening settings on this page. Your secret folders are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores the opening settings on this page. Your secret folders are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面の開き方の設定を初期設定に戻します。シークレットフォルダの一覧は変わりません。"
+          }
+        }
+      }
+    },
     "Result" : {
       "localizations" : {
         "en" : {
@@ -26306,6 +26114,22 @@
         }
       }
     },
+    "Same as normal windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Same as normal windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルウインドウと同じ"
+          }
+        }
+      }
+    },
     "Save" : {
       "localizations" : {
         "en" : {
@@ -26351,6 +26175,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存データ"
+          }
+        }
+      }
+    },
+    "Saved data remains for %1$lld books, and the history has %2$lld books." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved data remains for %1$lld books, and the history has %2$lld books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データが残っている本 %1$lld 冊・履歴 %2$lld 冊"
           }
         }
       }
@@ -26709,6 +26550,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダを検索"
+          }
+        }
+      }
+    },
+    "Secret Folder Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folder Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの設定…"
+          }
+        }
+      }
+    },
+    "Secret Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダ"
+          }
+        }
+      }
+    },
+    "Secret Folders: %d folder(s) added." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Folders: %d folder(s) added."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダ: %d件を追加しました。"
           }
         }
       }
@@ -27721,6 +27610,7 @@
       }
     },
     "Shown in the File menu's Open Recent and in the side panel's History mode." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -27732,6 +27622,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルメニューの「最近使った項目を開く」と、サイドパネルの「履歴」に表示されます。"
+          }
+        }
+      }
+    },
+    "Shown in the File menu's Open Recent and in the side panel's History mode. Lowering it deletes the oldest history as soon as you release the slider. This can't be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown in the File menu's Open Recent and in the side panel's History mode. Lowering it deletes the oldest history as soon as you release the slider. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルメニューの「最近使った項目を開く」と、サイドパネルの「履歴」に表示されます。下げると、スライダーを離したときに古い履歴からすぐに削除されます。元に戻すことはできません。"
           }
         }
       }
@@ -29233,6 +29139,22 @@
         }
       }
     },
+    "The Book Couldn’t Be Opened" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Book Couldn’t Be Opened"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開けませんでした"
+          }
+        }
+      }
+    },
     "The book has been exported." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -29263,6 +29185,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本の実体が見つかりません"
+          }
+        }
+      }
+    },
+    "The bookmark was deleted before the new name was saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The bookmark was deleted before the new name was saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を保存する前に、そのブックマークは削除されていました。"
           }
         }
       }
@@ -29519,6 +29457,22 @@
         }
       }
     },
+    "The cover of a book in a secret folder can't be changed, because it would have to be saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cover of a book in a secret folder can't be changed, because it would have to be saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本は、カバー画像を変更できません(指定を保存する必要があるためです)。"
+          }
+        }
+      }
+    },
     "The decoded page images kept in memory have stayed above the “Page images kept in memory” setting for several seconds. The cache should evict older pages as soon as the limit is reached." : {
       "localizations" : {
         "en" : {
@@ -29680,6 +29634,22 @@
         }
       }
     },
+    "The file or folder could not be found. It may have been moved or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file or folder could not be found. It may have been moved or deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
+          }
+        }
+      }
+    },
     "The file or folder for “" : {
       "localizations" : {
         "en" : {
@@ -29760,6 +29730,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウインドウで初めてファイルブラウザに切り替えたときに表示するフォルダです。そのあとは、ウインドウごとに最後にいたフォルダを表示します。"
+          }
+        }
+      }
+    },
+    "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの登録から除外していたフォルダは、シークレットフォルダになりました。中の本は履歴・保存データ・メタデータを残さず、表示している間はウインドウがシークレットウインドウと同じ見た目になります。フォルダは 環境設定 ▸ シークレットフォルダ で変えられます。"
           }
         }
       }
@@ -29936,6 +29922,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最後の拡張子が入力と完全に一致したときだけ置き換えます(例: zip → cbz)。この規則でフォルダは変更されません。"
+          }
+        }
+      }
+    },
+    "The location of “%@” didn’t respond. Try again later." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The location of “%@” didn’t respond. Try again later."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」のある場所が応答しませんでした。しばらくしてからもう一度お試しください。"
           }
         }
       }
@@ -30465,6 +30467,23 @@
         }
       }
     },
+    "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The saved data of %1$lld books and %2$lld books in the history are deleted. The books themselves are not deleted. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 冊の保存データと、履歴の %2$lld 冊を削除します。本そのものは削除しません。この操作は取り消せません。"
+          }
+        }
+      }
+    },
     "The saved rules could not be read, so they cannot be changed one by one. Correct them in the JSON pane, or reset all the rules: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30544,6 +30563,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「X side A」「X side B」のシリーズ名は「X」になります"
+          }
+        }
+      }
+    },
+    "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほかの所で設定が変わりました。「現在の設定に戻す」で変わった内容を表示し、「適用」でこの内容に置き換えます。"
           }
         }
       }
@@ -30770,6 +30806,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「"
+          }
+        }
+      }
+    },
+    "The volume that holds “%@” isn’t connected. Connect it and try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds “%@” isn’t connected. Connect it and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」があるボリュームが接続されていません。接続してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
           }
         }
       }
@@ -31148,6 +31216,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本はすでに「"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so its cover can’t be changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so its cover can’t be changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、表紙は変えられません。"
+          }
+        }
+      }
+    },
+    "This book is in a secret folder, so its metadata is not saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is in a secret folder, so its metadata is not saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本のため、メタデータを保存しません。"
           }
         }
       }
@@ -33689,6 +33805,22 @@
         }
       }
     },
+    "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where to open the book. As a Tab and In Place of the Book use the frontmost private window (In Place of the Book closes the book it shows); without one, a new private window opens."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開く場所です。「シークレットウインドウのタブ」と「シークレットウインドウの本と入れ替え」は、いちばん手前のシークレットウインドウを使います(入れ替えは、そのウインドウで表示中の本を閉じます)。シークレットウインドウが無ければ、新しいシークレットウインドウで開きます。"
+          }
+        }
+      }
+    },
     "Where:" : {
       "localizations" : {
         "en" : {
@@ -33857,6 +33989,22 @@
         }
       }
     },
+    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(ホームのインスペクタで表紙を右クリック、またはメタデータの編集ウインドウで表紙をクリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
+          }
+        }
+      }
+    },
     "Which series a book whose title holds a compilation word joins" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -33904,6 +34052,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "どの語がどの数かは一覧が決めます。巻数(表示)は名前に書いてある語のまま残ります"
+          }
+        }
+      }
+    },
+    "While a Book in a Secret Folder Is Shown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a Book in a Secret Folder Is Shown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本を表示している間"
+          }
+        }
+      }
+    },
+    "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a book in a secret folder is shown, its window uses the appearance of private windows. Unless private windows have their own appearance (Settings ▸ Appearance), only the private window mark in the title tells them apart."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本を表示している間、ウインドウはシークレットウインドウの外観になります。シークレットウインドウに固有の外観を適用していなければ(環境設定 ▸ 外観)、見分けられるのはタイトルのシークレットウインドウの目印だけです。"
           }
         }
       }
@@ -34678,6 +34858,22 @@
         }
       }
     },
+    "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を変更するアクセス権がないため、「%2$@」は移動も削除もできません。何も削除していません。"
+          }
+        }
+      }
+    },
     "You don’t have permission to write to “%@”." : {
       "localizations" : {
         "en" : {
@@ -34949,199 +35145,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "巻・話・号 …"
-          }
-        }
-      }
-    },
-    "“%@” is open in qooViewer, so it wasn’t replaced." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is open in qooViewer, so it wasn’t replaced."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はqooViewerで開いているため、置き換えませんでした。"
-          }
-        }
-      }
-    },
-    "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%1$@」を変更するアクセス権がないため、「%2$@」は移動も削除もできません。何も削除していません。"
-          }
-        }
-      }
-    },
-    "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はmacOSが必要とするフォルダなので、移動・名前の変更・削除はできません。"
-          }
-        }
-      }
-    },
-    "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is open in qooViewer, so its original name wasn’t restored. Close the book, then try again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はqooViewerで開いているため、元の名前に戻しませんでした。本を閉じてから、もう一度試してください。"
-          }
-        }
-      }
-    },
-    "%lld weren't imported because their books are in secret folders." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld weren't imported because their books are in secret folders."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld件は、シークレットフォルダの本なので読み込みませんでした。"
-          }
-        }
-      }
-    },
-    "Move and Copy of %lld Items" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move and Copy of %lld Items"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 項目の移動とコピー"
-          }
-        }
-      }
-    },
-    "Moving and copying %lld items…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moving and copying %lld items…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 項目を移動・コピーしています…"
-          }
-        }
-      }
-    },
-    "The location of “%@” didn’t respond. Try again later." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The location of “%@” didn’t respond. Try again later."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」のある場所が応答しませんでした。しばらくしてからもう一度お試しください。"
-          }
-        }
-      }
-    },
-    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in the inspector on Home, or click its cover in the Edit Metadata window. Has no effect with Match the Image or Add Margins."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(ホームのインスペクタで表紙を右クリック、またはメタデータの編集ウインドウで表紙をクリック)。「実際の画像に合わせる」や「余白を付ける」のときは効きません。"
-          }
-        }
-      }
-    },
-    "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not available while Start in Private Mode is on: nothing is recorded then, so there is no last book to reopen."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「シークレットモードで起動」がオンの間は使えません(何も記録しないので、開き直す前回の本がありません)。"
-          }
-        }
-      }
-    },
-    "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No book in Edit Metadata is read with this rule set yet, so all of its books are shown for reference. Each book's rule set is chosen automatically, or with File Name Parsing Rules in its context menu."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メタデータの編集ウインドウに、このルールセットで読む本がまだ無いため、参考としてすべての本を読んでいます。本ごとのルールセットは自動で選ばれるほか、右クリックの「ファイル名の解析ルール」で選べます。"
-          }
-        }
-      }
-    },
-    "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The settings were changed elsewhere. “Back to the current settings” shows them; “Apply” replaces them with this text."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ほかの所で設定が変わりました。「現在の設定に戻す」で変わった内容を表示し、「適用」でこの内容に置き換えます。"
           }
         }
       }

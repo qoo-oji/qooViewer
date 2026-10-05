@@ -2234,6 +2234,19 @@ final class ViewerViewModel: ObservableObject {
         addBookmark(atIndex: currentIndex)
     }
 
+    /// `indices` のページに**表示している**ブックマーク(`bookmarks`)を、ストアの行で返す(ビューアのトグルの削除側。削除はストアの
+    /// 行に対して行う ―― ViewerView.toggleCurrentPageBookmark のコメント)。
+    ///
+    /// 番号だけでストアの全行から拾ってはいけない(2026-10-05 の監査 A3-1)。除外したページのブックマークは今の並びに鍵が無いので番号が
+    /// 据え置かれ(BookmarkStore.resolveKeys)、詰まった並びの同じ番号 ―― 隣の別のページ ―― と重なる。V-4 でそれらを表示から外した
+    /// 後もトグルだけは番号で拾っていたので、見た目は「追加」なのに、押すと見えていないページのブックマークを消していた。表示している
+    /// 一覧から id を取り、その行だけを相手にする。
+    func storedBookmarksShown(atPageIndices indices: [Int], in bookmarkStore: BookmarkStore) -> [Bookmark] {
+        let shownIDs = Set(bookmarks.filter { indices.contains($0.pageIndex) }.map(\.id))
+        guard !shownIDs.isEmpty else { return [] }
+        return bookmarkStore.bookmarks(forBookID: book.id).filter { shownIDs.contains($0.id) }
+    }
+
     /// 指定したページインデックスにブックマークを追加する。見開き表示中、クリック位置
     /// (コンテキストメニュー)や環境設定(SpreadBookmarkTargetBehavior)に応じて、起点ページ
     /// (currentIndex)ではなく相方ページ(currentIndex + 1)を対象にしたい場合があるため、

@@ -4507,8 +4507,7 @@ struct ViewerView: View {
     private func toggleCurrentPageBookmark() {
         guard let bookmarkStore = appState.bookmarkStore else { return }
         let candidateIndices = [viewModel.currentIndex, partnerPageIndex].compactMap { $0 }
-        let toDelete = bookmarkStore.bookmarks(forBookID: viewModel.book.id)
-            .filter { candidateIndices.contains($0.pageIndex) }
+        let toDelete = viewModel.storedBookmarksShown(atPageIndices: candidateIndices, in: bookmarkStore)
             .sorted { $0.pageIndex < $1.pageIndex }
 
         if !toDelete.isEmpty {
@@ -4575,7 +4574,7 @@ struct ViewerView: View {
     /// ブックマークされてしまう不具合の修正)。
     private func toggleBookmark(atIndex index: Int) {
         guard let bookmarkStore = appState.bookmarkStore else { return }
-        if let existing = bookmarkStore.bookmarks(forBookID: viewModel.book.id).first(where: { $0.pageIndex == index }) {
+        if let existing = viewModel.storedBookmarksShown(atPageIndices: [index], in: bookmarkStore).first {
             let name = existing.name
             DataUndoStack.deleteBookmarks([existing], in: bookmarkStore, recordingOn: appState.dataUndo)
             showToast(bookmarkRemovalToastMessage(for: [name]))

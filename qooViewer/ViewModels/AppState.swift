@@ -1078,6 +1078,9 @@ final class AppState: ObservableObject {
     /// そのままloadingProgressへ書くと、消したはずのオーバーレイが復活する。
     /// ViewerViewのactiveViewerTokenと同じ、使い捨てトークンで順序の逆転を解く。
     private var openToken = UUID()
+    /// 走っている読み込みが取った「表示中の本のぶん」の控え(`StateBeforeOpen`)。読み込みが済む・やめる・本を閉じると nil。
+    /// 読み込みの途中で次の読み込みを始めたら、新しい読み込みはこれを引き継ぐ(`open(request:)` の beforeOpen のコメント)。
+    private var loadRestorePoint: StateBeforeOpen?
     /// 窓を作った要求(ContentView の initialRequest)の読み込みの識別子(`open(request:isInitialRequest:)`)。シークレットウインドウへ
     /// 回したとき、元の窓を閉じてよいのは**この読み込みから回したときだけ**(PrivateRedirect.closesUnusedWindow)。
     private var initialOpenToken: UUID?
@@ -1368,8 +1371,14 @@ final class AppState: ObservableObject {
         // 棚を読み替えた先の本が別のウインドウで開いていて読み込みをやめるとき(下の Task)に、今の本のぶんへ戻すための控え
         // (2026-09-23 の 3 回目の監査の低: 以前はセキュリティスコープ・一覧の並び・着地指定を新しい本のものへ替えた後でやめるので、
         // 表示中の本のスコープが閉じ、「次の本」も今の本の一覧をたどれなくなった)。
-        let beforeOpen = StateBeforeOpen(scopedURLs: securityScopedBookURLs, sequence: bookSequence,
-                                         initialEdge: pendingInitialEdge, startsSlideshow: pendingStartsSlideshow)
+        //
+        // **読み込みの途中で次の読み込みを始めたら、前の読み込みが取った控えを引き継ぐ**(2026-10-05 の監査 A2-1)。今のスコープ・並びは
+        // 途中だった本のもの(上で替えてある)で、表示中の本のものではない ―― 以前はそれを控えたので、読み込み中に「次の本」をもう一度
+        // 押して次の本も開けなかったとき、表示中の本のスコープが閉じたまま(まだ読んでいないページが読めない)、並びも途中の本の位置に
+        // なった。
+        let beforeOpen = loadRestorePoint ?? StateBeforeOpen(scopedURLs: securityScopedBookURLs, sequence: bookSequence,
+                                                             initialEdge: pendingInitialEdge, startsSlideshow: pendingStartsSlideshow)
+        loadRestorePoint = beforeOpen
         // 「次の本の最初のページへ」等の着地指定は、実際に読み込みを始めるここで毎回置き換える
         // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
@@ -1423,6 +1432,8 @@ final class AppState: ObservableObject {
             var attempted = request.primaryURL
             // 一覧の並びで EPUB を飛ばしたら、着いた位置(開けたときの bookSequence)。
             var landedSequence: BookSequence?
+            // EPUB を飛ばした先の本のために開けたスコープ(R7-1)。開けたときだけ、要求の URL のぶんを閉じてよい(下の成功側)。
+            var landedScope: URL?
             var sequenceSteps = step?.sequence
             do {
                 var loaded: MangaBook
@@ -1522,6 +1533,7 @@ final class AppState: ObservableObject {
                             // 閉じて返ってくる。上で開いたのは要求の URL(飛ばした EPUB)のぶんだけなので、ブックマークが唯一の
                             // 許可の本だと読めなかった。
                             if let self { candidateScope = self.adoptCandidateScope(next, replacing: candidateScope, token: token) }
+                            landedScope = candidateScope
                         }
                     }
                 } else {
@@ -1666,6 +1678,7 @@ final class AppState: ObservableObject {
                                                                 knownIdentifier: identifier)
                     }
                     self.currentBook = book
+                    self.loadRestorePoint = nil
                     self.errorMessage = nil
                     // 次の本・一覧の並びで EPUB を飛ばして開いたなら、控える要求も実際に開いた本(と並びの位置)にする ―― 元の要求は
                     // 開けなかった EPUB を指す(「直前の本へ戻る」・ウインドウの値がそれを開き直してしまう)。棚の読み替えは
@@ -1679,7 +1692,12 @@ final class AppState: ObservableObject {
                     // 次の本・前の本で飛ばして別の本を開いたなら、飛ばした本(要求の URL)のスコープはもう要らない(R7-1)。
                     // 表示中の本のぶんだけを持つ(securityScopedBookURLs のコメント)。棚の読み替え(step が無い)は、棚の
                     // フォルダのスコープで中の本を読むので残す。
-                    if step != nil, let attempted, attempted != request.primaryURL {
+                    //
+                    // 閉じるのは**着いた本のスコープを開けたときだけ**(2026-10-05 の監査 A2-2)。次の本の先が棚で、その中の本を
+                    // (飛ばさずに・または棚の中の兄弟へ飛ばして)開いたときは、要求の URL ―― 棚のフォルダ ―― のスコープで中の本を
+                    // 読んでいる。以前は「試した本が要求と違う」だけで閉じ、ブックマークが唯一の許可の棚では、読み込んだ後のページが
+                    // 読めなくなった。
+                    if step != nil, let attempted, attempted != request.primaryURL, landedScope != nil {
                         self.releaseScopes(of: request.urls)
                     }
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
@@ -1739,6 +1757,7 @@ final class AppState: ObservableObject {
                         return
                     }
                     self.currentBook = nil
+                    self.loadRestorePoint = nil
                     // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
                     self.lastBookAwaitsHomeSelection = false
                     self.clearSiblingBooks()
@@ -1763,7 +1782,13 @@ final class AppState: ObservableObject {
     func cancelOpen() {
         // 利用者が中止した ―― 待っている入口(この窓で先に頼まれていたもの)の結果も、もう要らない(開く意図を進める。R6-1)。
         noteOpenRequest(fulfilling: nil)
-        abandonLoad()
+        // 本を表示している窓なら、スコープ・並び・着地の指定も表示中の本のぶんへ戻す(2026-10-05 の監査 A2-1。以前は読み込みをやめる
+        // だけで、表示中の本のスコープは新しい本を読み始めたときに閉じたままになった)。
+        if currentBook != nil, let loadRestorePoint {
+            restoreState(loadRestorePoint)
+        } else {
+            abandonLoad()
+        }
     }
 
     /// 走っている読み込みをやめる(中止・棚を読み替えた先を別の窓へ譲る・失敗して今の本へ戻す)。**開く意図は進めない** ――
@@ -1772,6 +1797,7 @@ final class AppState: ObservableObject {
     private func abandonLoad() {
         openTask?.cancel()
         openTask = nil
+        loadRestorePoint = nil
         openToken = UUID()
         loadingProgress = nil
         openingTemporaryCopies = []
@@ -2091,6 +2117,8 @@ final class AppState: ObservableObject {
         // 開く意図は進めない(R6-1)。閉じるのはスライドショーの末尾・書き出しの後の動作のように、利用者がその場で頼んでいない
         // こともある ―― 待っている入口(利用者が頼んだ本)をそれで捨てさせない(以前の照合でも、閉じても待っている入口は開いた)。
         openTask?.cancel()
+        // 戻る先(表示中の本)が無くなる。下でスコープもすべて閉じる。
+        loadRestorePoint = nil
         bookSequence = nil
         passedOverBook = nil
         // 閉じて戻ったホームには、直前の本を選ばせてよい(lastBookAwaitsHomeSelection のコメント)。

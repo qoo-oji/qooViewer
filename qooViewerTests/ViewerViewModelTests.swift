@@ -387,6 +387,9 @@ struct ViewerViewModelTests {
         // 以前は番号 4 のまま残り、詰まった並びの番号 4(6 ページ目)に印・一覧・トグルが出た。
         #expect(viewer.bookmarks.isEmpty)
         #expect(harness.bookmarks(for: book).count == 1)
+        // トグルの削除側も、隠れた行を拾わない(2026-10-05 の監査 A3-1。以前は番号で拾い、6 ページ目で「追加」を押すと
+        // 5 ページ目のブックマークを消した)。
+        #expect(viewer.storedBookmarksShown(atPageIndices: [4], in: harness.library.bookmarks).isEmpty)
 
         // 6 ページ目(今の番号 4)には足せる(以前は番号の重複で黙って何もしなかった)。
         viewer.jump(toPageIndex: 4)
@@ -394,6 +397,7 @@ struct ViewerViewModelTests {
         viewer.addBookmark()
         #expect(viewer.bookmarks.map(\.pageKey) == [keys[5]])
         #expect(harness.bookmarks(for: book).count == 2)
+        #expect(viewer.storedBookmarksShown(atPageIndices: [4], in: harness.library.bookmarks).map(\.pageKey) == [keys[5]])
 
         // 除外を解けば元のブックマークも戻る(行は消していない)。
         harness.library.layouts.setPageLayoutState(for: book, pageKey: keys[4], state: nil)
