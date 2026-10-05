@@ -44,12 +44,16 @@ final class MetadataGenerator {
     /// 最後に読んだ規則。
     private(set) var rules: CompiledRules
     /// 並べている本(パスの順)。
-    private(set) var listedBookIDs: [String] = [] {
-        didSet { listedBookIDSet = Set(listedBookIDs) }
-    }
+    /// 書くのは `run()` だけ(`listedBookIDSet` と一緒に)。
+    private(set) var listedBookIDs: [String] = []
     /// `listedBookIDs` を引くための写し(本を開くたびに並びの中を線形に探さない)。
     private var listedBookIDSet: Set<String> = []
-    private(set) var proposals: [String: BookProposal] = [:]
+    private(set) var proposals: [String: BookProposal] = [:] {
+        didSet { proposalValues = [:] }
+    }
+    /// 読み(`proposals`)を DB へ書く形にしたもの(`write`。読みが変わるまで使い回す ―― 2026-10-05 の効率の監査 B12。以前は回のたびに
+    /// 並べている全冊ぶん作り直していた)。`proposals` を差し替えたら捨てる(差分の回は `run` が変わった本だけを残して作り直させる)。
+    private var proposalValues: [String: BookMetadataValues] = [:]
     /// 索引に渡した入力(名前・ルールセット・確定した内容)。
     private(set) var inputs: [String: BookInput] = [:]
     /// 一度でも読み終えたか。
@@ -169,10 +173,13 @@ final class MetadataGenerator {
     func relocate(using change: FileSystemChange) {
         let displaced = change.displacedPathSet
         guard !displaced.isEmpty else { return }
+        // 付け替えは索引から、「その場所から無くなったか」は移った元・消えた項目の集合から引く(どちらも組を全部なめない。
+        // `displaces` と `mayAffect` は同じ答え。2026-10-05 の効率の監査 A3)。
+        let relocator = change.relocator()
         func moved(_ id: String) -> String? {
             guard FileSystemChange.mayAffect(id, displaced: displaced) else { return id }
-            if let path = change.relocatedPath(for: id) { return path }
-            return change.displaces(id) ? nil : id
+            if let path = relocator.relocatedPath(for: id) { return path }
+            return nil
         }
         verified = Set(verified.compactMap(moved))
         absent = Set(absent.compactMap(moved))
@@ -315,12 +322,18 @@ final class MetadataGenerator {
             return
         }
         let previousListed = listedBookIDSet
-        changed.formUnion(Set(listed).symmetricDifference(previousListed))
+        let listedSet = Set(listed)
+        changed.formUnion(listedSet.symmetricDifference(previousListed))
         inputs = next.byID
         overridden = Set(next.byID.keys.filter { records[$0]?.ruleSet != nil })
+        // 書く形の控えは、読みが変わらなかった本のぶんを残す(全部を作り直した回は残さない)。
+        var keptValues = isFull ? [:] : proposalValues
+        for id in changed { keptValues[id] = nil }
         proposals = nextProposals
+        proposalValues = keptValues
         self.rules = rules
         listedBookIDs = listed
+        listedBookIDSet = listedSet
 
         await write(listed: listed, snapshot: records, deleted: deleted)
         reregistering.subtract(reregisteringNow)
@@ -335,7 +348,13 @@ final class MetadataGenerator {
         var entries: [BookMetadataStore.BatchEntry] = []
         for id in listed {
             guard let proposal = proposals[id] else { continue }
-            let values = BookMetadataValues(proposal.metadata).trimmed
+            let values: BookMetadataValues
+            if let cached = proposalValues[id] {
+                values = cached
+            } else {
+                values = BookMetadataValues(proposal.metadata).trimmed
+                proposalValues[id] = values
+            }
             switch (snapshot[id], current[id]) {
             case (nil, nil):
                 guard !values.isEmpty, !deleted.contains(id) else { continue }

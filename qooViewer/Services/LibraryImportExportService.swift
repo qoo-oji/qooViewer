@@ -282,16 +282,37 @@ enum LibraryImportExportService {
     /// 手がかりが無い/見つからない場合のみ、従来通りbookID(パス)に基づく解決(ブックマーク由来・
     /// レイアウト由来のどちらかのセキュリティスコープ付きブックマーク、それも無ければ
     /// LayoutStore.resolvedURL(forBookID:)自身が持つ生パスへのフォールバック)にフォールバックする。
+    ///
+    /// - Parameter indexes: 識別子で引く索引(`FileNodeIndexes`)。行を書き換えない段でだけ渡す。nil なら全行から(答えは同じ)。
     private static func resolveURL(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
-        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        indexes: FileNodeIndexes? = nil
     ) -> URL? {
         if let fileNodeIdentifier {
-            if let url = favoritesStore.resolvedURL(matching: fileNodeIdentifier) { return url }
-            if let url = layoutStore.resolvedURL(matching: fileNodeIdentifier) { return url }
-            if let url = bookmarkStore.resolvedURL(matching: fileNodeIdentifier) { return url }
+            if let url = favoritesStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.favorites) { return url }
+            if let url = layoutStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.layouts) { return url }
+            if let url = bookmarkStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.bookmarks) { return url }
         }
         return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+    }
+
+    /// 識別子で行を引く索引を、取り込みの 1 段ぶん作ったもの(2026-10-05 の効率の監査 A5)。以前は 1 件ごとに各ストアの全行を
+    /// なめ直し(読み込むメタデータの行数 × ほかのストアの行数)、メインを止めた。**その段の間、お気に入り・レイアウト・ブックマーク・
+    /// コレクションの行を書き換えないときだけ**使う(メタデータ・読書位置の取り込み、コレクションの取り込みの手がかり集め)。
+    private struct FileNodeIndexes {
+        let favorites: FileNodeIndex<FavoriteBook>
+        let layouts: FileNodeIndex<BookLayoutSettings>
+        let bookmarks: FileNodeIndex<Bookmark>
+        var collections: FileNodeIndex<CollectionItem>?
+
+        @MainActor
+        init(favoritesStore: FavoritesStore, layoutStore: LayoutStore, bookmarkStore: BookmarkStore, collectionStore: CollectionStore? = nil) {
+            favorites = favoritesStore.fileNodeIndex()
+            layouts = layoutStore.fileNodeIndex()
+            bookmarks = bookmarkStore.fileNodeIndex()
+            collections = collectionStore?.fileNodeIndex()
+        }
     }
 
     /// bookIDの本を実際に読み込む(URL解決 + セキュリティスコープの開始/終了 + BookLoader)。
@@ -752,12 +773,15 @@ enum LibraryImportExportService {
     ) {
         let existing = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         var byBookID = Dictionary(existing.map { ($0.bookID, $0) }, uniquingKeysWith: { first, _ in first })
+        // この段は読書位置の行しか書かないので、識別子の索引を 1 度だけ作って使う(FileNodeIndexes)。
+        let indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
         for entry in entries {
             // 他のカテゴリと同じく、ファイルノード識別子での照合を優先する(別の端末・移動後で
             // パスが変わっていても引き継げる)。
             let resolvedURL = resolveURL(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                indexes: indexes
             )
             let bookID = resolvedURL?.path ?? entry.bookID
             // フォルダの本のページの鍵は絶対パスなので、本が別のパスで見つかったら鍵も付け替える(PageKeyRelocation。ブックマーク・
@@ -818,12 +842,15 @@ enum LibraryImportExportService {
         var batch: [BookMetadataStore.BatchEntry] = []
         batch.reserveCapacity(entries.count)
         var sourceImported = Set<String>()
+        // 書き込みはループの後の upsertAll だけなので、識別子の索引を 1 度だけ作って使う(FileNodeIndexes)。
+        let indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
         for entry in entries {
             // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
             // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。
             let resolvedURL = resolveURL(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                indexes: indexes
             )
             let bookID = resolvedURL?.path ?? entry.bookID
             // 「足す」は、利用者が手を入れた行を変えない ―― 画面の約束は「既存のものは変えない」。置き換えるのはファイル名の読み
@@ -863,20 +890,20 @@ enum LibraryImportExportService {
     private static func bookLocatorHints(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        collectionStore: CollectionStore
+        collectionStore: CollectionStore, indexes: FileNodeIndexes? = nil
     ) -> BookLocatorHints {
         var bookmarks: [Data] = []
         if let fileNodeIdentifier {
-            bookmarks += favoritesStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
-            bookmarks += layoutStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
-            bookmarks += bookmarkStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+            bookmarks += favoritesStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.favorites)
+            bookmarks += layoutStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.layouts)
+            bookmarks += bookmarkStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.bookmarks)
         }
         bookmarks += bookmarkStore.bookmarks(forBookID: bookID).compactMap(\.bookmarkData)
         if let data = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData {
             bookmarks.append(data)
         }
         if let fileNodeIdentifier {
-            bookmarks += collectionStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+            bookmarks += collectionStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.collections)
         }
         return BookLocatorHints(bookID: bookID, bookmarks: bookmarks)
     }
@@ -948,6 +975,10 @@ enum LibraryImportExportService {
         //     飛ばすことがあるので、順に読み出す形にするとそこから先が1冊ずつずれる。
         var hints: [BookLocatorHints] = []
         var startIndexByCollection: [CollectionPosition: Int] = [:]
+        // 手がかり集めは読むだけなので、識別子の索引を 1 度だけ作って使う(FileNodeIndexes)。
+        let indexes = FileNodeIndexes(
+            favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore, collectionStore: collectionStore
+        )
         for (libraryIndex, exportedLibrary) in libraries.enumerated() {
             for (collectionIndex, exportedCollection) in exportedLibrary.collections.enumerated() {
                 startIndexByCollection[CollectionPosition(library: libraryIndex, collection: collectionIndex)] = hints.count
@@ -955,7 +986,7 @@ enum LibraryImportExportService {
                     hints.append(bookLocatorHints(
                         bookID: book.bookID, fileNodeIdentifier: book.fileNodeIdentifier,
                         favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
-                        layoutStore: layoutStore, collectionStore: collectionStore
+                        layoutStore: layoutStore, collectionStore: collectionStore, indexes: indexes
                     ))
                 }
             }

@@ -91,19 +91,21 @@ final class MetadataCorpusStore {
     func relocate(using change: FileSystemChange) {
         let displaced = change.displacedPathSet
         guard !displaced.isEmpty else { return }
+        // 付け替えは索引から(MetadataGenerator.relocate と同じ。2026-10-05 の効率の監査 A3)。
+        let relocator = change.relocator()
         func moved(_ ids: [String]) -> [String] {
             ids.compactMap { id in
-                // 関係の無い本は深さぶんの確かめだけで素通り(FileSystemChange.mayAffect)。
+                // 関係の無い本は深さぶんの確かめだけで素通り(FileSystemChange.mayAffect)。移った元・消えた項目の下にあって
+                // 付け替わらなかった本は、消えた項目の下(`displaces` と同じ答え)。
                 guard FileSystemChange.mayAffect(id, displaced: displaced) else { return id }
-                if let path = change.relocatedPath(for: id) { return path }
-                return change.displaces(id) ? nil : id
+                return relocator.relocatedPath(for: id)
             }
         }
         var next = record
         next.collectionBookIDs = Array(Set(moved(record.collectionBookIDs))).sorted()
         var smart: [String: [String]] = [:]
         for (root, ids) in record.smartLibrary {
-            let newRoot = FileSystemChange.mayAffect(root, displaced: displaced) ? change.relocatedPath(for: root) ?? root : root
+            let newRoot = FileSystemChange.mayAffect(root, displaced: displaced) ? relocator.relocatedPath(for: root) ?? root : root
             smart[newRoot, default: []].append(contentsOf: moved(ids))
         }
         next.smartLibrary = smart.mapValues { Array(Set($0)).sorted() }

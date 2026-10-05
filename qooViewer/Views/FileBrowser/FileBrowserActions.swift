@@ -11,6 +11,9 @@ import SwiftUI
 /// `dismantleNSView`で手放す。
 @MainActor
 final class FileBrowserActions {
+    /// 最後に求めたドロップの判定と、その材料(`dropDecision(urls:into:allowsMove:modifiers:)`)。
+    var dropDecisionMemo: (key: DropDecisionMemoKey, decision: FileBrowserDropDecision)?
+
     weak var state: FileBrowserState?
     weak var appState: AppState?
     weak var launchCoordinator: LaunchCoordinator?

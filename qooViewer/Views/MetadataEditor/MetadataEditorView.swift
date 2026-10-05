@@ -306,9 +306,10 @@ final class MetadataEditorModel {
                 // 灰色だけを合わせる。この変更で移った本は灰色にしない(行は付け替えの知らせで新しいパスへ移る ―― 灰色にすると、
                 // 移した先の行まで灰色で運ばれる)。アプリの外で動いていた本は灰色のまま残る(窓を開き直したときの全冊の確かめが付け替える)。
                 let displaced = change.displacedPathSet
+                let relocator = change.relocator()
                 let missing = Set(located.filter { bookID, location in
                     location.result == .missing
-                        && !(FileSystemChange.mayAffect(bookID, displaced: displaced) && change.relocatedPath(for: bookID) != nil)
+                        && !(FileSystemChange.mayAffect(bookID, displaced: displaced) && relocator.relocatedPath(for: bookID) != nil)
                 }.map(\.0))
                 guard let workspace else { return }
                 workspace.setMissing(missing.filter(workspace.contains), among: Set(bookIDs))

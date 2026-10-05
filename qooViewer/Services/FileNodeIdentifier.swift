@@ -110,3 +110,25 @@ struct FileNodeIdentifier: Hashable, Codable {
         hasher.combine(inodeNumber)
     }
 }
+
+/// 行を iノード番号で引くための索引(保存データの読み込みが、識別子の数だけ全行をなめ直さないため。2026-10-05 の効率の監査 A5)。
+/// `==` は iノード番号の一致を求める(上の `==` のコメント)ので、同じ番号の行だけを候補にすれば答えは全行から探したときと同じ。
+/// 候補の並びは作ったときの全行の並びのまま(最初に当たった行を採る所の答えも変わらない)。**作ってから行を足した・消した・識別子を
+/// 書き換えた後は使わない**(作り直す)。
+struct FileNodeIndex<Row> {
+    private let rowsByInode: [Int64: [Row]]
+
+    init(_ rows: [Row], inode: (Row) -> Int64?) {
+        var index: [Int64: [Row]] = [:]
+        for row in rows {
+            guard let number = inode(row) else { continue }
+            index[number, default: []].append(row)
+        }
+        rowsByInode = index
+    }
+
+    /// `identifier` と同じ iノード番号の行(識別子の比べ方は呼び出し側で)。
+    func rows(withInode identifier: FileNodeIdentifier) -> [Row] {
+        rowsByInode[identifier.inodeNumber] ?? []
+    }
+}

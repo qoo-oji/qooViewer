@@ -68,6 +68,11 @@ final class FolderChangeWatcher {
         /// 項目が作られた・消えた・名前が変わった(中身の書き換えだけではない)。入っているフォルダの変更日が変わる種類の変化
         /// (ファイルブラウザの右ペインが、直下のフォルダの行の日付と並びを直すために見る。2026-09-19 の監査の L1)。
         var isStructuralChange: Bool = false
+        /// **ファイル**の中身・属性だけが変わった(作られた・消えた・名前が変わった、ではなく、フォルダでも、見直しの指示でもない)。
+        /// フォルダしか出さないファイルブラウザのツリーは、これでは何も変わらない(2026-10-05 の効率の監査 B13。ダウンロード中など書き込みが
+        /// 続く間、ツリーが 0.3 秒ごとに開いている行を読み直していた)。フラグは積み重なって届くので、少しでも別の種類が混ざれば false
+        /// (読み直す側に倒れる)。
+        var isFileModificationOnly: Bool = false
     }
 
     private let onChange: @Sendable ([Event]) -> Void
@@ -345,11 +350,16 @@ private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info,
     let directoryFlag = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir)
     let arrivalFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed)
     let structuralFlags = arrivalFlags | FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)
+    let fileFlag = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsFile)
+    // ファイルの書き換えだけではないことを表すもの(見直しの指示・構造の変化・フォルダ・見張りの根・マウント)。
+    let notOnlyFileModification = rescanFlags | structuralFlags | directoryFlag
+        | FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount | kFSEventStreamEventFlagUnmount)
     box.handle(admitted.map {
         FolderChangeWatcher.Event(
             path: String(cString: pointers[$0]), mustScanSubdirectories: eventFlags[$0] & rescanFlags != 0,
             isDirectoryCreatedOrRenamed: eventFlags[$0] & directoryFlag != 0 && eventFlags[$0] & arrivalFlags != 0,
-            isStructuralChange: eventFlags[$0] & structuralFlags != 0
+            isStructuralChange: eventFlags[$0] & structuralFlags != 0,
+            isFileModificationOnly: eventFlags[$0] & fileFlag != 0 && eventFlags[$0] & notOnlyFileModification == 0
         )
     })
 }

@@ -285,6 +285,10 @@ struct FileBrowserIconView: NSViewRepresentable {
         /// 絵の出せる種類かの判定に使うマウント表(読み直しのたびに写す。ファイルシステムには触れない)。
         private var mountTable = MountTable.current()
         private var isApplyingSelection = false
+        /// 最後に表へ写した選択の番号(`FileBrowserState.selectionRevision`)。選択が変わっていなければ写し直さない(2026-10-05 の
+        /// 効率の監査 B10。以前は `updateNSView` のたび ―― 状態のどの値が変わっても ―― 全行をなめて選択を組み立てていた。1 万件の
+        /// フォルダでクリック 1 回に 2 回)。表を読み直したときは必ず写す。
+        private var appliedSelectionRevision: Int?
         private let menuBuilder = FileBrowserMenuBuilder()
         /// 名前を編集している項目とそのセル。
         /// 編集中の項目(始めた時点の姿)と、そのセル。
@@ -426,7 +430,9 @@ struct FileBrowserIconView: NSViewRepresentable {
             } else if refreshingThumbnails {
                 refreshVisibleThumbnails()
             }
-            applySelection(from: state)
+            if needsReload || state.selectionRevision != appliedSelectionRevision {
+                applySelection(from: state)
+            }
             if let request = state.scrollRequest, request != appliedScroll {
                 appliedScroll = request
                 if let index = entries.firstIndex(where: { $0.id == request.id }) { scrollToItem(index) }
@@ -446,6 +452,7 @@ struct FileBrowserIconView: NSViewRepresentable {
 
         private func applySelection(from state: FileBrowserState) {
             guard let collection else { return }
+            appliedSelectionRevision = state.selectionRevision
             let wanted = Set(entries.indices.filter { state.selection.contains(entries[$0].id) }.map { IndexPath(item: $0, section: 0) })
             guard wanted != collection.selectionIndexPaths else { return }
             isApplyingSelection = true
@@ -565,6 +572,8 @@ struct FileBrowserIconView: NSViewRepresentable {
             guard !isApplyingSelection, let collection, let state else { return }
             let ids = Set(collection.selectionIndexPaths.compactMap { entries.indices.contains($0.item) ? entries[$0.item].id : nil })
             if ids != state.selection { state.selection = ids }
+            // 一覧が選んだものを状態へ書いた(一覧はもうその選択を見せている)。
+            appliedSelectionRevision = state.selectionRevision
         }
 
         // MARK: 出し口

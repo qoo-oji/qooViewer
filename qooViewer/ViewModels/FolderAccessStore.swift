@@ -55,6 +55,7 @@ final class FolderAccessStore: ObservableObject {
     @Published private(set) var entries: [Entry] = [] {
         didSet {
             guard entries != oldValue else { return }
+            entryComponents = nil
             rebuildGrants()
             accessChanged.send()
         }
@@ -293,8 +294,21 @@ final class FolderAccessStore: ObservableObject {
     /// 指定したURLが、既に許可済みのいずれかのフォルダ自身か、その配下(子孫)に
     /// 含まれているかどうか。含まれていれば、改めてアクセスを許可し直す必要はない。
     func isPathCovered(_ url: URL) -> Bool {
-        entries.contains { isAncestor($0.url, of: url) }
+        // 許可したフォルダの側は控えから、確かめる側は 1 回だけ揃える(2026-10-05 の効率の監査 B11。以前は許可 1 件ごとに両側を
+        // `standardizedFileURL` から揃え直していて、全冊の存在確認の材料集めでは「冊数 × 許可の数 × 2」回になった)。答えは同じ。
+        let target = normalizedComponents(url)
+        let ancestors: [[String]]
+        if let entryComponents {
+            ancestors = entryComponents
+        } else {
+            ancestors = entries.map { normalizedComponents($0.url) }
+            entryComponents = ancestors
+        }
+        return ancestors.contains { $0.count <= target.count && target.starts(with: $0) }
     }
+
+    /// `entries` の各フォルダを揃えた構成要素(`isPathCovered`)。`entries` が変わったら捨てる。
+    private var entryComponents: [[String]]?
 
     /// ancestorが、target自身かtargetの祖先フォルダであるかどうかを、パスの構成要素同士を
     /// 比較して判定する(単純な文字列の前方一致では、「/Users/foo」が「/Users/foobar」にも

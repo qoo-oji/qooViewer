@@ -16,6 +16,36 @@ struct MetadataGeneratorTests {
     private let second = "/書庫/[架空工房] 月の庭 2.zip"
     private let third = "/書庫/[架空工房] 月の庭 3.zip"
 
+    @Test("allRecords の控えは、書いた本の項目だけを差し替えても、全行から作り直したときと同じ(2026-10-05 の効率の監査)")
+    func allRecordsStayInStepWithWrites() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let store = library.metadata
+        func values(_ title: String) -> BookMetadataValues { BookMetadataValues(title: title, authors: ["架空作者"]) }
+        _ = store.upsert(bookID: first, values: values("月の庭 1"))
+        _ = store.upsert(bookID: second, values: values("月の庭 2"))
+        func expectFresh(_ label: String) {
+            let memo = store.allRecords()
+            let rebuilt = Dictionary(uniqueKeysWithValues: store.registeredBookIDs.compactMap { id in
+                store.record(forBookID: id).map { (id, $0) }
+            })
+            #expect(memo == rebuilt, "\(label)")
+        }
+        expectFresh("初め")
+        // 1 冊の書き込み(saveAndNotify)。
+        _ = store.upsert(bookID: first, values: values("月の庭 1 改"))
+        expectFresh("1 冊を直した")
+        // まとめての書き込み(upsertAll): 足す・直す・外す。
+        store.upsertAll([
+            .init(bookID: third, values: values("月の庭 3"), sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+            .init(bookID: second, values: values("月の庭 2 改"), sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+            .init(bookID: first, values: nil, sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+        ])
+        expectFresh("まとめて足す・直す・外す")
+        #expect(store.allRecords()[first] == nil)
+        #expect(store.allRecords()[third]?.values.title == "月の庭 3")
+    }
+
     @Test("記録した本の一覧(スマートライブラリ・コレクション)は、確かめずに並べて登録する。機能の ON/OFF に関わらない")
     func recordedBooksAreRegistered() async throws {
         let library = try InMemoryLibrary()

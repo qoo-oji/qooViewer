@@ -253,6 +253,10 @@ struct FileBrowserListView: NSViewRepresentable {
         private var isFinishingEdit = false
         /// 状態から表へ選択を写している最中(その通知を状態へ書き戻さない)。
         private var isApplyingSelection = false
+        /// 最後に表へ写した選択の番号(`FileBrowserState.selectionRevision`)。選択が変わっていなければ写し直さない(2026-10-05 の
+        /// 効率の監査 B10。以前は `updateNSView` のたび ―― 状態のどの値が変わっても ―― 全行をなめて選択を組み立てていた。1 万件の
+        /// フォルダでクリック 1 回に 2 回)。表を読み直したときは必ず写す。
+        private var appliedSelectionRevision: Int?
         private var isApplyingSort = false
         private let menuBuilder = FileBrowserMenuBuilder()
         /// 名前のクリックから編集を始める予約(型コメント「名前の変更」)。
@@ -385,7 +389,9 @@ struct FileBrowserListView: NSViewRepresentable {
                 table.reloadData()
                 isApplyingSelection = false
             }
-            applySelection(from: state)
+            if needsReload || state.selectionRevision != appliedSelectionRevision {
+                applySelection(from: state)
+            }
             if let request = state.scrollRequest, request != appliedScroll {
                 appliedScroll = request
                 if let row = entries.firstIndex(where: { $0.id == request.id }) {
@@ -535,6 +541,7 @@ struct FileBrowserListView: NSViewRepresentable {
 
         private func applySelection(from state: FileBrowserState) {
             guard let table else { return }
+            appliedSelectionRevision = state.selectionRevision
             var indexes = IndexSet()
             for (row, entry) in entries.enumerated() where state.selection.contains(entry.id) {
                 indexes.insert(row)
@@ -724,6 +731,8 @@ struct FileBrowserListView: NSViewRepresentable {
             guard !isApplyingSelection, let table, let state else { return }
             let ids = Set(table.selectedRowIndexes.compactMap { entries.indices.contains($0) ? entries[$0].id : nil })
             if ids != state.selection { state.selection = ids }
+            // 表が選んだものを状態へ書いた(表はもうその選択を見せている)。
+            appliedSelectionRevision = state.selectionRevision
         }
 
         /// 名前の列は先頭から動かさず、ほかの列も名前の列より前へは入れない(Finder と同じ)。

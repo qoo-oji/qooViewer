@@ -234,7 +234,7 @@ final class BookMetadataStore: ObservableObject {
             }
         }
         if registered != registeredBookIDs { registeredBookIDs = registered }
-        revision &+= 1
+        advanceRevision(changing: changedBookIDs)
         // どの本かを特定しない通知として1回だけ投げる(全件リセットと同じ形。
         // 購読側は"bookID"が無い通知を「本を問わず対象」として扱う。BookMetadata.swift参照)。
         // 1 冊だけのときは、その本の通知にする(開いている本のビューアが、自分の本かどうかを見分けられるように)。
@@ -704,10 +704,28 @@ final class BookMetadataStore: ObservableObject {
         } else {
             registeredBookIDs.remove(bookID)
         }
-        revision &+= 1
+        advanceRevision(changing: [bookID])
         NotificationCenter.default.post(
             name: .bookMetadataDidChange, object: self, userInfo: ["bookID": bookID]
         )
+    }
+
+    /// `revision` を進める。`allRecords()` の控えが今の `revision` のものなら、書いた本の項目だけを差し替えて新しい `revision` の
+    /// 控えにする(2026-10-05 の効率の監査 B12。以前は 1 欄直すたび・メタデータ生成が 500 件書くたびに、次の `allRecords()` が全行を
+    /// 作り直した ―― 5 万行で約 0.5 秒、1 回の直しで 2 回以上)。差し替えた項目は全部を作り直したときと同じ値(`record` は行から作る)。
+    /// 控えが古い(ほかの口で `revision` が進んだ後まだ作っていない)なら何もしない(次の `allRecords()` が全部作る)。
+    private func advanceRevision(changing bookIDs: [String]) {
+        let isMemoFresh = cachedRecords?.revision == revision
+        revision &+= 1
+        guard isMemoFresh, var records = cachedRecords?.records else {
+            cachedRecords = nil
+            return
+        }
+        // 控えから手放してから書き換える(辞書を写さずにその場で直す)。
+        cachedRecords = nil
+        let byBookID = metadataByBookID()
+        for bookID in bookIDs { records[bookID] = byBookID[bookID]?.record }
+        cachedRecords = (revision, records)
     }
 
     private func logSaveFailure(_ detail: String) {

@@ -122,6 +122,18 @@ extension FileDropPlan.Modifiers {
     }
 }
 
+/// ドロップの判定の材料(`FileBrowserActions.dropDecisionMemo`)。
+struct DropDecisionMemoKey: Equatable {
+    let urls: [URL]
+    let destination: URL?
+    let isInternal: Bool
+    let allowsMove: Bool
+    let modifiers: Int
+    let externalAction: FileBrowserExternalDropAction
+    let allowsFileChanges: Bool
+    let mounts: [MountTable.Entry]
+}
+
 extension NSDragOperation {
     /// ドラッグ元が移動を許しているか。⌘ を押すと AppKit はマスクを generic だけに絞るので、generic も移動に数える。
     var allowsFileMove: Bool {
@@ -150,13 +162,25 @@ extension FileBrowserActions {
     ) -> FileBrowserDropDecision {
         let internalItems = FileBrowserDragTracker.items
         let mountTable = MountTable.current()
-        return FileBrowserDropDecision.make(
-            urls: internalItems ?? urls, destination: destination, isInternal: internalItems != nil,
-            allowsMove: allowsMove, modifiers: modifiers ?? .current,
+        // ドラッグの間、受け口はカーソルが動くたび(止まっていても周期的に)これを求める。材料がすべて前と同じなら前の答えを返す
+        // (2026-10-05 の効率の監査 B13。以前は運ぶ項目の全部について、パスの正規化とボリュームの判定を毎回やり直していた ――
+        // 1000 件で 1 回数 ms を毎秒数十回)。材料には判定が読むものを全部入れる(マウント表も)。
+        let key = DropDecisionMemoKey(
+            urls: internalItems ?? urls, destination: destination, isInternal: internalItems != nil, allowsMove: allowsMove,
+            modifiers: (modifiers ?? .current).rawValue,
             externalAction: preferences?.fileBrowserExternalDropAction ?? .openInViewer,
-            allowsFileChanges: allowsFileChanges,
+            allowsFileChanges: allowsFileChanges, mounts: mountTable.entries
+        )
+        if let memo = dropDecisionMemo, memo.key == key { return memo.decision }
+        let decision = FileBrowserDropDecision.make(
+            urls: key.urls, destination: destination, isInternal: key.isInternal,
+            allowsMove: allowsMove, modifiers: FileDropPlan.Modifiers(rawValue: key.modifiers),
+            externalAction: key.externalAction,
+            allowsFileChanges: key.allowsFileChanges,
             isOnSameVolume: mountTable.areOnSameVolume
         )
+        dropDecisionMemo = (key, decision)
+        return decision
     }
 
     /// 判定を実行する。`urls` は本として開くときに使う(移動・コピーは判定に入っている)。

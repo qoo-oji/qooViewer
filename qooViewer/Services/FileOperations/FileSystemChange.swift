@@ -109,6 +109,66 @@ nonisolated struct FileSystemChange: Sendable, Equatable {
         return best.to + current.dropFirst(best.from.count)
     }
 
+    /// 多くのパスを付け替えるときの口(2026-10-05 の効率の監査 A3)。`relocatedPath(for:)` は呼ぶたびに組を全部なめるので、選択の全部・
+    /// 記録のある全冊に当てると「パスの数 × 組の数」になった(一括リネームの 2000 件で、選択の付け替えだけでメイン 2〜4 秒)。
+    /// 移った元のパス → 組の番号の索引を 1 度だけ作り、1 つのパスにはその祖先(パスの深さぶん)を引いて答える。答えは
+    /// `relocatedPath(for:)` と同じ(テスト `relocatorMatchesRelocatedPath`)。
+    func relocator() -> Relocator { Relocator(self) }
+
+    nonisolated struct Relocator: Sendable {
+        /// 移った元のパス → その組の番号(起きた順)。
+        private let indicesByFrom: [String: [Int]]
+        private let froms: [String]
+        private let tos: [String]
+        private let isSimultaneous: Bool
+
+        fileprivate init(_ change: FileSystemChange) {
+            froms = change.relocations.map { FileSystemChange.path(of: $0.from) }
+            tos = change.relocations.map { FileSystemChange.path(of: $0.to) }
+            isSimultaneous = change.relocationsAreSimultaneous
+            var index: [String: [Int]] = [:]
+            for (position, from) in froms.enumerated() { index[from, default: []].append(position) }
+            indicesByFrom = index
+        }
+
+        /// `FileSystemChange.relocatedPath(for:)` と同じ答え。
+        func relocatedPath(for path: String) -> String? {
+            guard !indicesByFrom.isEmpty else { return nil }
+            var current = MountTable.normalized(path)
+            if isSimultaneous {
+                // いちばん深く当たる組(同じ元が並べば先のもの)を 1 つだけ。祖先を深い方から見るので、最初に当たったものがそれ。
+                guard let position = firstMatch(for: current, after: -1) else { return nil }
+                return tos[position] + current.dropFirst(froms[position].count)
+            }
+            // 起きた順に当てる: 今のパスの祖先が元である組のうち、前に当てた組より後のいちばん前のものを、無くなるまで繰り返す
+            // (組を順になめて当てていく `relocatedPath(for:)` と同じ ―― 次に当たる組は、その時点のパスの祖先が元のものだけ)。
+            var last = -1
+            var changed = false
+            while let position = firstMatch(for: current, after: last, earliest: true) {
+                current = tos[position] + current.dropFirst(froms[position].count)
+                last = position
+                changed = true
+            }
+            return changed ? current : nil
+        }
+
+        /// `path`(normalized 済み)の祖先(自分を含む、"/" まで)のうち、元に当たる組の番号。`earliest` なら全部の祖先から番号の
+        /// いちばん小さいもの(`after` より後)、そうでなければ最も深い祖先の、いちばん前の番号。
+        private func firstMatch(for path: String, after: Int, earliest: Bool = false) -> Int? {
+            var best: Int?
+            var ancestor = path
+            while true {
+                if let positions = indicesByFrom[ancestor], let first = positions.first(where: { $0 > after }) {
+                    if !earliest { return first }
+                    if best.map({ first < $0 }) ?? true { best = first }
+                }
+                guard ancestor != "/", let slash = ancestor.lastIndex(of: "/") else { break }
+                ancestor = slash == ancestor.startIndex ? "/" : String(ancestor[..<slash])
+            }
+            return best
+        }
+    }
+
     /// 移った元・消えた項目のパス(`mayAffect` に渡す。多くのパスを付け替えるとき、1 度だけ作る)。
     var displacedPathSet: Set<String> {
         Set((relocations.map(\.from) + removed).map(Self.path(of:)))

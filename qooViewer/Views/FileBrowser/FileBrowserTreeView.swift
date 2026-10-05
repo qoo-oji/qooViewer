@@ -339,7 +339,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // グループの見出しは開いた状態で始める(中の行は閉じている ―― 型コメント)。
             for group in groups { outline.expandItem(group) }
             reloadVolumes()
-            watcher = FolderChangeWatcher(onChangedPaths: { [weak self] paths in
+            watcher = FolderChangeWatcher(onEvents: { [weak self] events in
+                // ファイルの書き換えだけの知らせでは読み直さない(ツリーにはフォルダしか出ないので何も変わらない。
+                // `FolderChangeWatcher.Event.isFileModificationOnly`。2026-10-05 の効率の監査 B13)。
+                let paths = events.filter { !$0.isFileModificationOnly }.map(\.path)
+                guard !paths.isEmpty else { return }
                 // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
                 Task { @MainActor [weak self] in self?.handleExternalChange(paths) }
             })
@@ -942,7 +946,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                         // 三角のための問い合わせは、子を読むこの 1 回にまとめる(行を描くたびに調べない)。
                         // **ネットワーク越しでは調べない**(子の数だけ往復する)。マウント表はファイルシステムに触らない。
                         let probes = !MountTable.current().isRemote(url)
-                        return try FileBrowserListing.entries(in: url, includesHidden: includesHidden)
+                        return try FileBrowserListing.entries(in: url, includesHidden: includesHidden, foldersOnly: true)
                             .filter(\.isNavigableFolder)
                             .map { ($0, probes ? DirectoryProbe.hasSubdirectory(at: $0.url, includesHidden: includesHidden) : nil) }
                     }

@@ -29,6 +29,36 @@ struct FileSystemChangeTests {
         #expect(!change.displaces("/w/c"))
     }
 
+    @Test("索引で引く付け替え(relocator)は、組を順になめる relocatedPath と同じ答えを返す(起きた順・同じ時点の写しの両方。2026-10-05 の効率の監査)")
+    func relocatorMatchesRelocatedPath() {
+        var seed: UInt64 = 42
+        func next(_ bound: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(bound))
+        }
+        let names = ["a", "b", "c", "ab", "a b", "d"]
+        func randomPath() -> String {
+            let depth = 1 + next(4)
+            return "/" + (0..<depth).map { _ in names[next(names.count)] }.joined(separator: "/")
+        }
+        for round in 0..<200 {
+            let relocations = (0..<(1 + next(8))).map { _ in
+                FileSystemChange.Relocation(from: URL(fileURLWithPath: randomPath()), to: URL(fileURLWithPath: randomPath()))
+            }
+            var change = FileSystemChange(relocations: relocations)
+            change.relocationsAreSimultaneous = round % 2 == 1
+            let relocator = change.relocator()
+            for _ in 0..<30 {
+                let path = randomPath() + (next(3) == 0 ? "/" : "")
+                #expect(relocator.relocatedPath(for: path) == change.relocatedPath(for: path), "\(relocations) \(path)")
+            }
+            #expect(relocator.relocatedPath(for: "/") == change.relocatedPath(for: "/"))
+        }
+        // 根(/)そのものが移ったとき(起こりえないが、祖先の辿りの終わりを確かめる)。
+        let root = FileSystemChange(relocations: [.init(from: URL(fileURLWithPath: "/"), to: URL(fileURLWithPath: "/x"))])
+        #expect(root.relocator().relocatedPath(for: "/a/b") == root.relocatedPath(for: "/a/b"))
+    }
+
     @Test("読み直すのは、直下が変わった・直下のフォルダの中身が変わった・自身か祖先が無くなったフォルダだけ")
     func requiresReloadCoversChildrenGrandchildrenAndDisplacement() {
         let change = FileSystemChange(

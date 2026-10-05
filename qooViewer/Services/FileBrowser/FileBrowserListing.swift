@@ -142,7 +142,10 @@ nonisolated enum FileBrowserListing {
     /// ArchiveExtractor.temporaryFolderPrefix・FileOperationService.replaceHolderPrefix・書き出しの一時ファイルに共通)。
     static let appWorkingItemPrefix = ".qooViewer-"
 
-    static func entries(in folder: URL, includesHidden: Bool = false) throws -> [FileBrowserEntry] {
+    /// - Parameter foldersOnly: 中へ移動できるフォルダ(`isNavigableFolder`)の行だけを組み立てる(ツリーの子。ファイルの行は種類の
+    ///   問い合わせまでして作ってから捨てていた ―― 2026-10-05 の効率の監査 B13)。返る行は、全部を組み立ててから `isNavigableFolder` で
+    ///   絞ったものと同じ。
+    static func entries(in folder: URL, includesHidden: Bool = false, foldersOnly: Bool = false) throws -> [FileBrowserEntry] {
         var rootError: Error?
         let folderPath = MountTable.normalized(folder.path)
         guard let enumerator = FileManager.default.enumerator(
@@ -166,6 +169,12 @@ nonisolated enum FileBrowserListing {
             count += 1
             if count % 256 == 0, Cancellation.isRequestedInCurrentScope { throw CancellationError() }
             if includesHidden, Self.isHiddenEvenWhenShowingHidden(url.lastPathComponent) { continue }
+            if foldersOnly {
+                // `makeEntry` と同じ決め方(先読み済みの値。読めなければ URL の綴り)。
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                let isDirectory = values?.isDirectory ?? url.hasDirectoryPath
+                guard isDirectory, !(values?.isPackage ?? false) else { continue }
+            }
             result.append(makeEntry(url, kindCache: &kindCache))
         }
         if let rootError { throw rootError }

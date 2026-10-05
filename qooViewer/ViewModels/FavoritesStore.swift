@@ -157,7 +157,16 @@ final class FavoritesStore: ObservableObject {
     /// 書き込まない)であるため、insert/deleteのたびにinvalidateFavoritesLookupCaches()で
     /// 無効化しておけば、常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる。
     private var cachedFolders: [FavoriteFolder]?
-    private var cachedBooks: [FavoriteBook]?
+    private var cachedBooks: [FavoriteBook]? {
+        didSet { cachedBooksByBookID = nil }
+    }
+    /// bookID → その本のお気に入り(`cachedBooks` の並びのまま)。`cachedBooks` と一緒に捨てる。
+    ///
+    /// 2026-10-05 の効率の監査 B11: `existingFavorites(forBookID:)` は本ごとに全件を絞っていたので、全冊の存在確認の材料集め
+    /// (`BookExistenceProbe.make`。起動後の掃除・メタデータの編集ウインドウを開くたび)が「知っている本 × お気に入り」をメインで
+    /// 読んでいた。bookID を書き換える所(`reconcileBookIDIfMoved`・`applyBookRelocation`)はどれも後で `reload()` を通り、
+    /// `cachedBooks` ごと捨てる。
+    private var cachedBooksByBookID: [String: [FavoriteBook]]?
 
     /// メニューが開かれる直前に一覧を再読み込みするための監視トークン。
     /// (RecentFilesStoreと同じ理由: 整理画面や他のウインドウでの変更を、メニューを開くたびに
@@ -715,7 +724,10 @@ final class FavoritesStore: ObservableObject {
     /// 指定したbookIDで既に登録されているお気に入り一覧(全フォルダ横断)。同じ理由で
     /// 全件取得+filterに統一する。
     func existingFavorites(forBookID bookID: String) -> [FavoriteBook] {
-        allFavoriteBooks().filter { $0.bookID == bookID }
+        if let cachedBooksByBookID { return cachedBooksByBookID[bookID] ?? [] }
+        let index = Dictionary(grouping: allFavoriteBooks(), by: \.bookID)
+        cachedBooksByBookID = index
+        return index[bookID] ?? []
     }
 
     /// ユーザー要望: JSONインポート時、bookID(パス)が食い違っていても同じファイル
@@ -981,12 +993,18 @@ final class FavoritesStore: ObservableObject {
     /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
     /// 解決と存在確認をメインアクターの外でまとめて行うための材料
     /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
-    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
-        allFavoriteBooks().filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
+    /// - Parameter index: `fileNodeIndex()` で作った索引(BookmarkStore の同名のコメント)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier, index: FileNodeIndex<FavoriteBook>? = nil) -> [Data] {
+        (index?.rows(withInode: identifier) ?? allFavoriteBooks()).filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
     }
 
-    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
-        for favorite in allFavoriteBooks() where favorite.fileNodeIdentifier == identifier {
+    /// 識別子で引くための索引(BookmarkStore の同名のコメント)。
+    func fileNodeIndex() -> FileNodeIndex<FavoriteBook> {
+        FileNodeIndex(allFavoriteBooks(), inode: { $0.fileNodeIdentifier?.inodeNumber })
+    }
+
+    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<FavoriteBook>? = nil) -> URL? {
+        for favorite in index?.rows(withInode: identifier) ?? allFavoriteBooks() where favorite.fileNodeIdentifier == identifier {
             if let url = resolvedURL(for: favorite) { return url }
         }
         return nil

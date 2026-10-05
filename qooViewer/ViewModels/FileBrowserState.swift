@@ -520,8 +520,14 @@ final class FileBrowserState: ObservableObject {
     }
 
     private var allEntries: [FileBrowserEntry] = [] {
-        didSet { normalizedNamesCache = nil }
+        didSet {
+            normalizedNamesCache = nil
+            allEntriesOrder = nil
+        }
     }
+    /// `allEntries` がどのフォルダの一覧を、どの並べ方で並べたものか(`reload` が、中身が前と同じなら並べ直さずに前の並びを使うため。
+    /// 2026-10-05 の効率の監査 B13)。「最近の項目」(並べない)と空の一覧では nil。
+    private var allEntriesOrder: (folder: URL?, sort: FolderBrowserSort)?
     /// `allEntries` の名前を照合用に畳んだもの(同じ並び)。絞り込みを始めたときに 1 度だけ作る(`filteredAllEntries`)。
     private var normalizedNamesCache: [String]?
 
@@ -910,6 +916,10 @@ final class FileBrowserState: ObservableObject {
         // `apply` がメインで並べ直す。
         let sort = self.sort
         let includesHidden = showsHiddenFiles
+        // 同じフォルダを同じ並べ方で並べた前の一覧(読み直しても中身が同じなら、その並びをそのまま使う ―― 2026-10-05 の効率の
+        // 監査 B13。並べ替えは名前の比較で数万件なら数百ミリ秒〜秒単位の CPU で、読み直しのほとんどは中身が変わっていない回)。
+        let previousSorted: [FileBrowserEntry]? = allEntriesOrder.map { $0.folder == folder && $0.sort == sort } == true
+            ? allEntries : nil
         isLoading = true
         needsReloadAfterLoad = false
         inFlightFolderID = .some(location.selectionKey)
@@ -931,7 +941,8 @@ final class FileBrowserState: ObservableObject {
             } else if let folder {
                 do {
                     let listed = try await FileIO.perform { () -> ([FileBrowserEntry], Bool) in
-                        let entries = sort.sorted(try FileBrowserListing.entries(in: folder, includesHidden: includesHidden))
+                        let read = try FileBrowserListing.entries(in: folder, includesHidden: includesHidden)
+                        let entries = Self.sameEntries(read, as: previousSorted) ?? sort.sorted(read)
                         return (entries, (try? FileOperationPreflight.checkWritable(folder)) != nil)
                     }
                     outcome = .success(listed.0)
@@ -1093,6 +1104,7 @@ final class FileBrowserState: ObservableObject {
             // 一覧は同じでも、リンクの先は動いたかもしれない(resolveLinkTargets のコメント。監査 FBU-2)。
             resolveLinkTargets()
         }
+        allEntriesOrder = isShowingRecents || allEntries.isEmpty ? nil : (currentFolder, sort)
         settleRenameRequest()
         // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
         // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。
@@ -1203,9 +1215,23 @@ final class FileBrowserState: ObservableObject {
     private func resort() {
         guard !allEntries.isEmpty, !isShowingRecents else { return }
         let sorted = sort.sorted(allEntries)
-        guard sorted.map(\.id) != allEntries.map(\.id) else { return }
+        guard sorted.map(\.id) != allEntries.map(\.id) else {
+            allEntriesOrder = (currentFolder, sort)
+            return
+        }
         allEntries = sorted
+        allEntriesOrder = (currentFolder, sort)
         applyFilter()
+    }
+
+    /// 読んだ項目 `read` が、前の一覧 `previous` と同じ項目の集まり(値もすべて同じ)なら `previous`(その並び)を返す。違えば nil。
+    /// 並べ方が全順序(名前 → パスで必ず決まる。FolderBrowserSort.compare)なので、同じ集まりを並べた答えは前の並びと同じ。
+    nonisolated static func sameEntries(_ read: [FileBrowserEntry], as previous: [FileBrowserEntry]?) -> [FileBrowserEntry]? {
+        guard let previous, previous.count == read.count else { return nil }
+        let byID = Dictionary(read.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard byID.count == read.count else { return nil }
+        for entry in previous where byID[entry.id] != entry { return nil }
+        return previous
     }
 
     private func applyFilter() {
@@ -1326,8 +1352,9 @@ final class FileBrowserState: ObservableObject {
         // 移動で「選択の件数 × 組の数」になった。2026-10-05 の効率の監査 A3)。
         if !change.relocations.isEmpty {
             let displaced = change.displacedPathSet
+            let relocator = change.relocator()
             let relocatedSelection = Set(selection.map { path in
-                FileSystemChange.mayAffect(path, displaced: displaced) ? change.relocatedPath(for: path) ?? path : path
+                FileSystemChange.mayAffect(path, displaced: displaced) ? relocator.relocatedPath(for: path) ?? path : path
             })
             if relocatedSelection != selection { selection = relocatedSelection }
         }

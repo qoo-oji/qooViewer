@@ -79,9 +79,10 @@ nonisolated struct BookRelocationPlan: Sendable {
         // `relocatedPath`(組の数ぶん回る)を当てていたので、2 万冊 × 2000 件の一括リネームで数十秒ぶんの CPU を使った
         // (2026-10-05 の効率の監査 A3)。
         let displaced = change.displacedPathSet
+        let relocator = change.relocator()
         for old in knownBookIDs {
             guard FileSystemChange.mayAffect(old, displaced: displaced),
-                  let new = change.relocatedPath(for: old), new != old else { continue }
+                  let new = relocator.relocatedPath(for: old), new != old else { continue }
             bookIDs[old] = new
             let oldURL = URL(fileURLWithPath: old), newURL = URL(fileURLWithPath: new)
             var isDirectory: ObjCBool = false
@@ -187,9 +188,12 @@ nonisolated struct BookRelocationNotice: Sendable {
 
     /// 付け替えに使った変更(`relocations` だけを見る)。
     let change: FileSystemChange
+    /// `change` の付け替えの索引(受け手は握っている bookID の数だけ引くので、1 回ごとに組を全部なめない。2026-10-05 の効率の監査 A3)。
+    private let relocator: FileSystemChange.Relocator
 
     init(change: FileSystemChange) {
         self.change = change
+        relocator = change.relocator()
     }
 
     /// 知らせから取り出す。この型の知らせでなければ nil。
@@ -200,7 +204,7 @@ nonisolated struct BookRelocationNotice: Sendable {
 
     /// `bookID` の本(またはその入ったフォルダ)が移っていれば、移った先の bookID。移っていなければ nil。
     func newBookID(for bookID: String) -> String? {
-        guard let new = change.relocatedPath(for: bookID), new != bookID else { return nil }
+        guard let new = relocator.relocatedPath(for: bookID), new != bookID else { return nil }
         return new
     }
 

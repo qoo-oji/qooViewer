@@ -351,12 +351,19 @@ final class LayoutStore: ObservableObject {
     /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
     /// 解決と存在確認をメインアクターの外でまとめて行うための材料
     /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
-    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
-        allBookLayoutSettings().filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
+    /// - Parameter index: `fileNodeIndex()` で作った索引(BookmarkStore の同名のコメント)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier, index: FileNodeIndex<BookLayoutSettings>? = nil) -> [Data] {
+        (index?.rows(withInode: identifier) ?? allBookLayoutSettings())
+            .filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
     }
 
-    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
-        for settings in allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
+    /// 識別子で引くための索引(BookmarkStore の同名のコメント)。
+    func fileNodeIndex() -> FileNodeIndex<BookLayoutSettings> {
+        FileNodeIndex(allBookLayoutSettings(), inode: { $0.fileNodeIdentifier?.inodeNumber })
+    }
+
+    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<BookLayoutSettings>? = nil) -> URL? {
+        for settings in index?.rows(withInode: identifier) ?? allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
             guard let data = settings.bookmarkData else { continue }
             if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
                 return url

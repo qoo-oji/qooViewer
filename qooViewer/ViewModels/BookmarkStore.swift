@@ -438,12 +438,19 @@ final class BookmarkStore: ObservableObject {
     /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
     /// 解決と存在確認をメインアクターの外でまとめて行うための材料
     /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
-    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
-        allBookmarks().filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
+    /// - Parameter index: `fileNodeIndex()` で作った索引(多くの識別子を続けて引くとき。保存データの読み込み ―― 全行をなめ直さない。
+    ///   2026-10-05 の効率の監査 A5)。作ってから行を書き換えていない間だけ渡す。nil なら全行から。答えと順は同じ。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier, index: FileNodeIndex<Bookmark>? = nil) -> [Data] {
+        (index?.rows(withInode: identifier) ?? allBookmarks()).filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
     }
 
-    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
-        for bookmark in allBookmarks() where bookmark.fileNodeIdentifier == identifier {
+    /// 識別子で引くための索引(`bookmarkDataCandidates(matching:index:)` のコメント)。
+    func fileNodeIndex() -> FileNodeIndex<Bookmark> {
+        FileNodeIndex(allBookmarks(), inode: { $0.fileNodeIdentifier?.inodeNumber })
+    }
+
+    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<Bookmark>? = nil) -> URL? {
+        for bookmark in index?.rows(withInode: identifier) ?? allBookmarks() where bookmark.fileNodeIdentifier == identifier {
             guard let data = bookmark.bookmarkData else { continue }
             if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
                 return url

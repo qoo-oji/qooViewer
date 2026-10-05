@@ -1383,8 +1383,14 @@ final class CollectionStore: ObservableObject {
 
     /// ファイルノード識別子が一致する登録のブックマーク(解決はしない)。取り込みが、解決と存在確認を
     /// メインアクターの外でまとめて行うための材料(LibraryImportExportService.applyCollections)。
-    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
-        allItems().filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
+    /// - Parameter index: `fileNodeIndex()` で作った索引(BookmarkStore の同名のコメント)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier, index: FileNodeIndex<CollectionItem>? = nil) -> [Data] {
+        (index?.rows(withInode: identifier) ?? allItems()).filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
+    }
+
+    /// 識別子で引くための索引(BookmarkStore の同名のコメント)。
+    func fileNodeIndex() -> FileNodeIndex<CollectionItem> {
+        FileNodeIndex(allItems(), inode: { $0.fileNodeIdentifier?.inodeNumber })
     }
 
     /// ファイルノード識別子が一致する登録から、現在の実際のURLを解決する
