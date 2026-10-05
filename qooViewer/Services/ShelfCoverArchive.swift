@@ -200,7 +200,7 @@ nonisolated enum ShelfCoverArchive {
 
         // manifestを先に読む(あれば、名前ではなくこちらで正確に照合できる)。
         if let manifestPath = paths.first(where: { lastComponent($0) == manifestFileName }),
-           let data = try? reader.data(at: manifestPath) {
+           let data = boundedData(reader, at: manifestPath, limit: maxEntryBytes) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             if let manifest = try? decoder.decode(Manifest.self, from: data), manifest.version == 1 {
@@ -213,11 +213,7 @@ nonisolated enum ShelfCoverArchive {
             // manifest自身・Finderの残骸・隠しファイルは表紙ではない。
             guard name != manifestFileName, !isAppleDoubleEntry(path), !isHiddenArchiveEntry(path)
             else { continue }
-            if let size = reader.entryUncompressedSize(at: path), size > maxEntryBytes {
-                result.ignored.append(name)
-                continue
-            }
-            guard let data = try? reader.data(at: path), !data.isEmpty else {
+            guard let data = boundedData(reader, at: path, limit: maxEntryBytes), !data.isEmpty else {
                 result.ignored.append(name)
                 continue
             }
@@ -240,6 +236,26 @@ nonisolated enum ShelfCoverArchive {
         return result
     }
 
+    /// `path` の中身を**伸長しながら数えて** `limit` バイトまで読む。超えた・読めなければ nil(2026-10-05 の監査の範囲外の指摘)。
+    ///
+    /// 索引の申告サイズ(`entryUncompressedSize`)は細工されたzipでは実際と食い違う。以前は申告だけを見てから `data(at:)` で丸ごと
+    /// 読んでいて、manifest は申告すら見ていなかった ―― 小さく申告して大きく伸びるエントリ1つで、上限に関係なくメモリを食い尽くせた
+    /// (NestedArchiveResolver の書き出しが「展開しながら数える」のと同じ理由。ArchiveReading.extract のコメント)。
+    private static func boundedData(_ reader: ArchiveReading, at path: String, limit: Int64) -> Data? {
+        if let size = reader.entryUncompressedSize(at: path), size > limit { return nil }
+        struct TooLarge: Error {}
+        var data = Data()
+        do {
+            try reader.readEntry(at: path) { chunk in
+                guard Int64(data.count) + Int64(chunk.count) <= limit else { throw TooLarge() }
+                data.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return data
+    }
+
     /// 取り込むエントリだけを読み直す(read(zipAt:maxPixelSize:)が返したImportedEntry.pathで指す)。
     /// **必ずメインアクターの外から呼ぶこと。**
     ///
@@ -251,10 +267,7 @@ nonisolated enum ShelfCoverArchive {
         let reader = try makeArchiveReader(for: url)
         var result: [String: Data] = [:]
         for path in paths {
-            if let size = reader.entryUncompressedSize(at: path), size > maxEntryBytes { continue }
-            guard let data = try? reader.data(at: path), !data.isEmpty,
-                  Int64(data.count) <= maxEntryBytes
-            else { continue }
+            guard let data = boundedData(reader, at: path, limit: maxEntryBytes), !data.isEmpty else { continue }
             result[path] = data
         }
         return result

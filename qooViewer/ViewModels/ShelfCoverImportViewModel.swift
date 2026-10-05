@@ -276,7 +276,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 }
                 do {
                     let wasReencoded = try await sources.layoutStore.setShelfCoverImage(
-                        forBookID: bookID, sourceURL: resolveURL(forBookID: bookID), data: data
+                        forBookID: bookID, sourceURL: await sourceURLForNewRow(forBookID: bookID), data: data
                     )
                     imported += 1
                     importedRowIDs.insert(row.id)
@@ -323,12 +323,18 @@ final class ShelfCoverImportViewModel: ObservableObject {
         for index in rows.indices where importedRowIDs.contains(rows[index].id) { rows[index].selectedBookID = nil }
     }
 
-    /// 行を作り直すときの本のURL(BookLayoutSettingsの行がまだ無い本のため)。
-    /// 手がかりの並びはMetadataEditorViewModel.resolveURL(forBookID:)と同じ。
-    private func resolveURL(forBookID bookID: String) -> URL? {
-        sources.bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
-            ?? sources.layoutStore.resolvedURL(forBookID: bookID)
-            ?? sources.metadataStore.resolvedURL(forBookID: bookID)
+    /// 行を作るときの本のURL(BookLayoutSettingsの行がまだ無い本のため。行があれば使われないので解かない)。
+    /// 手がかりの並び(ブックマーク → レイアウト → メタデータ)は以前と同じで、**解くのは FileIO の上で期限つき**
+    /// (`StoredBookLocator`。2026-10-05 の監査の範囲外の指摘 ―― 以前は表紙 1 枚ごとにメインでブックマークを解き、応答しない共有の
+    /// 上の本が多いと読み込みの間メインが止まった)。解けなければ nil(行は手がかり無しで作る ―― 以前の nil と同じ)。
+    private func sourceURLForNewRow(forBookID bookID: String) async -> URL? {
+        guard sources.layoutStore.bookLayoutSettings(forBookID: bookID) == nil else { return nil }
+        let material = StoredBookLocator.material(
+            forBookID: bookID, bookmarkStore: sources.bookmarkStore, layoutStore: sources.layoutStore,
+            metadataStore: sources.metadataStore
+        )
+        guard case .found(let url) = await StoredBookLocator.resolve(material, purpose: .background) else { return nil }
+        return url
     }
 
     // MARK: - 表示用

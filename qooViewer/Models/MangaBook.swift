@@ -130,7 +130,7 @@ struct MangaBook: Identifiable, Hashable {
     var isTransient: Bool { origin == .imageFiles }
 
     /// 入れ子の書庫を一時フォルダへ書き出したものを開いた本か(サイドパネルの中身ブラウザの「新しい本として開く」。
-    /// `BookContentsBrowserState.materializedURL`)。パスはこの起動の間しか無いので、保存データ・履歴・前回の本・メタデータに
+    /// `BookContentsBrowserState.resolveImageClick`)。パスはこの起動の間しか無いので、保存データ・履歴・前回の本・メタデータに
     /// 残してはいけない(2026-09-22 の監査: 以前は普通の本として記録し、UUID の名前のメタデータの行や開けない履歴が残った)。
     var isTemporaryCopy: Bool { Self.isTemporaryCopy(sourceURL) }
 

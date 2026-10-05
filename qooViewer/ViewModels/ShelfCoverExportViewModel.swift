@@ -140,9 +140,11 @@ final class ShelfCoverExportViewModel: ObservableObject {
         }
 
         let locale = preferences.effectiveLocale
-        let outcome = await Task.detached {
+        // ブロッキングする書き込みは FileIO の上で(CLAUDE.md の FileIO の約束。2026-10-05 の監査の範囲外の指摘 ―― 以前は Task.detached で、
+        // 保存先が応答しない共有だと協調スレッドを塞いだ。読み込み側の `readEntries` と揃えた)。
+        let outcome = await FileIO.perform {
             Result { try ShelfCoverArchive.write(entries: entries, to: url) }
-        }.value
+        }
         switch outcome {
         case .success(let result):
             didSucceed = result.skipped.isEmpty

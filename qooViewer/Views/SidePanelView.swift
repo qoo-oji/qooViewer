@@ -361,6 +361,7 @@ struct SidePanelView: View {
                         bookSourceURL: bookSourceURL,
                         bookmarkedPageIndices: bookmarkedPageIndices,
                         allowsBookmarking: allowsLibraryEditing,
+                        openIntentOwner: openIntentOwner,
                         onOpen: onOpen,
                         onJumpToPage: onJumpToPage,
                         onExportPage: onExportPage,
@@ -1054,6 +1055,8 @@ private struct BookContentsSectionView: View {
     var bookmarkedPageIndices: Set<Int>
     /// falseならブックマークの項目をグレーアウトする(SidePanelView.allowsLibraryEditing参照)。
     var allowsBookmarking: Bool
+    /// 入れ子の書庫を書き出してから開くときの、開く意図の相手(SidePanelView.openIntentOwner と同じ。観察しない)。
+    weak var openIntentOwner: AppState?
     var onOpen: (URL) -> Void
     var onJumpToPage: (Int) -> Void
     var onExportPage: ((Int) -> Void)?
@@ -1332,9 +1335,23 @@ private struct BookContentsSectionView: View {
     }
 
     private func handleImageClick(_ entry: BookInternalBrowsing.Entry) {
-        switch state.resolveImageClick(on: entry, bookPages: bookPages) {
+        // 入れ子の書庫は裏で書き出してから開く(BookContentsBrowserState.resolveImageClick)。待つ間に別の本が頼まれていたら開かない
+        // (後から頼んだ方が勝つ。AppState.OpenIntent)。意図は書き出しを始めたと分かってから取る(ページへ飛ぶだけのクリックで、
+        // 待っているほかの入口を降ろさない)。
+        let pendingIntent = PendingOpenIntent()
+        let state = state
+        let onOpen = onOpen
+        let result = state.resolveImageClick(on: entry, bookPages: bookPages) { [weak owner = openIntentOwner] url in
+            guard let intent = pendingIntent.intent, owner?.isStillWanted(intent) == true else { return }
+            // 一時コピーの寿命は開く側(AppState)へ移す(下の .openAsNewBook と同じ)。
+            state.handOffTemporaryFile(url)
+            onOpen(url)
+        }
+        switch result {
         case .jumpToPage(let index):
             onJumpToPage(index)
+        case .materializingNewBook:
+            pendingIntent.intent = openIntentOwner?.beginOpenIntent()
         case .openAsNewBook(let url):
             // 入れ子の書庫を書き出した一時コピーなら、寿命は開く側(AppState)へ移す。この状態は本が替わった直後に解放されるので、
             // 持ったままだと開いたばかりの本のファイルを消す(2026-10-04 の監査 SP-4、実測: ページが真っ黒になった)。
@@ -2708,4 +2725,9 @@ struct SidebarVisualEffectView: NSViewRepresentable {
     }
 }
 
-
+/// 本の中身ブラウザで入れ子の書庫を書き出して開くときの、開く意図の入れ物(`BookContentsSectionView.handleImageClick`)。書き出しを
+/// 始めたと分かってから入れ、書き出しが済んだときに読む。
+@MainActor
+private final class PendingOpenIntent {
+    var intent: AppState.OpenIntent?
+}

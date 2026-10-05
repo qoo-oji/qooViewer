@@ -297,8 +297,7 @@ nonisolated enum DirectoryBrowser {
         }
     }
 
-    /// マウント中のボリュームのURL一覧。isVolumeRootからも使うため、Entryの組み立て
-    /// (属性の読み取り)を伴わない形で切り出してある。
+    /// マウント中のボリュームのURL一覧(ボリュームの一覧を作る `mountedVolumeEntries` だけが使う。FileIO の上で)。
     private static func mountedVolumeURLs() -> [URL] {
         FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeNameKey],
@@ -308,10 +307,15 @@ nonisolated enum DirectoryBrowser {
 
     /// goUp()で「ボリューム一覧へ戻る」べきタイミングの判定に使う。対象がボリュームのルート
     /// 自身(またはファイルシステムのルート"/")であるかどうか。
+    ///
+    /// **マウント表だけで答える**(`MountTable`。ファイルシステムに触れない ―― 2026-10-05 の監査の範囲外の指摘)。以前は
+    /// `mountedVolumeURLs(includingResourceValuesForKeys:)` をメインで呼んでいて、ボリュームの名前を問い合わせるので、応答しない
+    /// 共有がマウントされていると「1 階層上へ」で止まった。Finder に出さないマウント(`MNT_DONTBROWSE`)はボリューム一覧に並ばない
+    /// (`.skipHiddenVolumes` と同じ)ので、その上はボリューム一覧でなく親フォルダへ上がる。
     static func isVolumeRoot(_ url: URL) -> Bool {
-        let standardized = url.standardizedFileURL
-        if standardized.path == "/" { return true }
-        return mountedVolumeURLs().contains { $0.standardizedFileURL == standardized }
+        let path = MountTable.normalized(url.standardizedFileURL.path)
+        if path == "/" { return true }
+        return MountTable.current().entries.contains { !$0.isHiddenFromBrowsing && MountTable.normalized($0.mountPoint) == path }
     }
 }
 

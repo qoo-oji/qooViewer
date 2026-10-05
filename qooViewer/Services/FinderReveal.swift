@@ -102,7 +102,7 @@ nonisolated enum PageFileAccess {
     /// それでも一時ディレクトリの判定を残してあるのは、サイドパネルの本の中身ブラウザから
     /// 「新しい本として開く」で開いた本があるため ―― あの経路だけは、入れ子の書庫を独立した
     /// 一時ファイルへ書き出したうえで、そのURLを本のsourceURLにする
-    /// (BookContentsBrowserState.materializedURL参照)。その一時ファイルをFinderで示しても
+    /// (BookContentsBrowserState.resolveImageClick参照)。その一時ファイルをFinderで示しても
     /// ユーザーには何の意味も無いので、代わりに本そのものを指す。
     static func revealTargetURL(for page: PageRef, bookSourceURL: URL?) -> URL {
         let candidate: URL

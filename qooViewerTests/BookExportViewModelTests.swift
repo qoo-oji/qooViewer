@@ -390,6 +390,29 @@ struct BookExportViewModelTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
 
+    @Test("前に落ちた書き出しの一時ファイルは、次にそのフォルダへ書き出すときに片付ける。新しいもの・名前の形が違うものは残す(2026-10-05 の監査)")
+    func staleTemporaryFilesAreSweptFromTheDestination() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        let folder = try env.temporary.directory("out")
+        let prefix = BookExportViewModel.temporaryFilePrefix
+        let stale = folder.appendingPathComponent("\(prefix)\(UUID().uuidString).cbz")
+        let fresh = folder.appendingPathComponent("\(prefix)\(UUID().uuidString).epub")
+        let lookalike = folder.appendingPathComponent("\(prefix)notes.cbz")
+        let userFile = folder.appendingPathComponent("book.cbz")
+        for url in [stale, fresh, lookalike, userFile] { try Data("x".utf8).write(to: url) }
+        let old = Date().addingTimeInterval(-2 * BookExportViewModel.staleTemporaryFileAge)
+        for url in [stale, lookalike, userFile] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        }
+
+        await BookExportViewModel.sweepStaleTemporaryFiles(in: folder)
+        #expect(!FileManager.default.fileExists(atPath: stale.path))
+        #expect(FileManager.default.fileExists(atPath: fresh.path), "走っているかもしれない書き出しの一時ファイルを消した")
+        #expect(FileManager.default.fileExists(atPath: lookalike.path), "名前の形が違うファイルを消した")
+        #expect(FileManager.default.fileExists(atPath: userFile.path))
+    }
+
     @Test("同じ ViewModel で書き出しが走っている間は、2 本目を始めない(1 本目の状態と待ちを壊さない。2026-10-05 の監査 A5-1)")
     func aSecondExportDoesNotStartWhileOneRuns() async throws {
         let env = try Environment()

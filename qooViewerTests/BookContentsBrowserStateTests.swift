@@ -78,4 +78,53 @@ struct BookContentsBrowserStateTests {
         #expect(browser.entries.map(\.displayName) == listed)
         #expect(!browser.canGoBack)
     }
+
+    /// 2026-10-05 の監査(範囲外の指摘)。書庫・入れ子の書庫を開くこと・入れ子の書庫の書き出しは裏で行い、走っている間は入口が断る。
+    @Test("入れ子の書庫を新しい本として開くための書き出しは裏で行い、済んだら知らせる。渡さなかった一時ファイルは手放すと消える")
+    func nestedArchivesAreMaterializedInTheBackground() async throws {
+        let nestedBook = try await FixtureBook.load(fixture: "nested/nested-zip-in-zip.cbz")
+        // 1 章目のページを本のページから外す ―― その画像の行は「本のページでもない画像」になり、押すと章の書庫を新しい本として開く。
+        var partial = nestedBook
+        partial.pages = nestedBook.pages.filter { !$0.sortKey.hasPrefix("ch01.cbz/") }
+        let browser = try #require(await BookContentsBrowserState.make(book: partial))
+        try await waitForRows(browser, ["ch01.cbz", "ch02.cbz"])
+        let chapter = try #require(browser.entries.first { $0.displayName == "ch01.cbz" })
+        browser.navigate(chapter)
+        // 開いている最中は、もう一度押しても重ねて開かない(reader を使う仕事は一度に 1 つ)。
+        browser.navigate(chapter)
+        try await waitForRows(browser, ["001.png"])
+        #expect(browser.canGoBack)
+        let image = try #require(browser.entries.first { $0.displayName == "001.png" })
+
+        var materialized: URL?
+        let result = browser.resolveImageClick(on: image, bookPages: partial.pages) { materialized = $0 }
+        #expect(result == .materializingNewBook)
+        // 書き出している間は、ほかの画像の行も受け付けない。
+        #expect(browser.resolveImageClick(on: image, bookPages: partial.pages) == .unavailable)
+        await browser.waitUntilListed()
+        let url = try #require(materialized)
+        #expect(MangaBook.isTemporaryCopy(url))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+
+        // 渡さなかった(開かなかった)一時ファイルは、ブラウザを手放すと消える。
+        browser.releaseResources()
+        let deadline = Date().addingTimeInterval(10)
+        while FileManager.default.fileExists(atPath: url.path), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("書庫を開いている最中に手放されたら、結果を当てずに捨てる")
+    func releasingWhileOpeningDiscardsTheResult() async throws {
+        let nestedBook = try await FixtureBook.load(fixture: "nested/nested-zip-in-zip.cbz")
+        let browser = try #require(await BookContentsBrowserState.make(book: nestedBook))
+        try await waitForRows(browser, ["ch01.cbz", "ch02.cbz"])
+        let chapter = try #require(browser.entries.first { $0.displayName == "ch01.cbz" })
+        browser.navigate(chapter)
+        browser.releaseResources()
+        await browser.waitUntilListed()
+        #expect(browser.entries.isEmpty)
+        #expect(!browser.canGoBack)
+    }
 }

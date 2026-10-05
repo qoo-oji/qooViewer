@@ -309,7 +309,11 @@ ViewModel)はアプリ終了まで生きるので、以前の「開いたアク�
 
 - `ShelfCoverArchive` が zip の読み書き。**書き出しは保管庫の JPEG をバイトのまま複製するだけ**
   (復号も再エンコードもしない)。エントリ名は本の名前(`MetadataEditorViewModel.baseName`)＋連番、
-  対応表 `qooViewer-covers.json` を同梱する
+  対応表 `qooViewer-covers.json` を同梱する。書き出しの書き込みは `FileIO` の上で(2026-10-05 の監査の範囲外の指摘。以前は `Task.detached`)
+- 読み込むエントリ(manifest も)は**伸長しながら数えて**上限(`maxEntryBytes`)で打ち切る(`ShelfCoverArchive.boundedData`。2026-10-05 の
+  監査の範囲外の指摘 ―― 以前は索引の申告サイズだけを見て丸ごと読み、manifest は申告すら見ていなかったので、小さく申告して大きく伸びる
+  エントリ 1 つでメモリを食い尽くせた)。取り込みで行を作るときの本の場所は `StoredBookLocator`(FileIO の上で期限つき。以前は表紙 1 枚
+  ごとにメインでブックマークを解いた)
 - 読み込みは manifest 優先 → ファイル名で照合(`KnownBooks.matchKey` が NFC と大文字小文字を畳む)。
   母体は「メタデータの編集」と同じ `KnownBooks.collect` から**シークレットフォルダの本を除いたもの**(読み込むときと取り込む直前の両方で作る。
   2026-10-04 の監査 TW-13: 知っている本にはシークレットにする前の記録が残るので、以前はその本にも表紙を書いた)。曖昧な行は**選ばれていない状態**で出す

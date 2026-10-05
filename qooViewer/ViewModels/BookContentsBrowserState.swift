@@ -17,8 +17,13 @@ import CoreGraphics
 /// という理由もある)。
 /// ただし**最上位の書庫の一覧だけは裏で取る**(`make(book:)`)。ネットワークボリューム上の書庫では、一覧 1 回が
 /// 「エントリ数 × 往復」になりうるため(2026-09-24)。readerは一覧を取った裏の処理が手放してからメインへ渡す。
-/// **一覧(`entries`)も裏で作る**(2026-09-27、表示の切り替えの監査の 11。`reload` のコメント)。書庫・入れ子の書庫・PDF/EPUB を
-/// 開くこと(reader が要る)だけは、上の理由でメインのまま。
+/// **一覧(`entries`)も裏で作る**(2026-09-27、表示の切り替えの監査の 11。`reload` のコメント)。
+/// **書庫・入れ子の書庫・PDF/EPUB を開くこと、入れ子の書庫を一時ファイルへ書き出すことも裏で**(2026-10-05 の監査の範囲外の指摘。以前は
+/// メインのまま同期に行い、入れ子の書庫の取り出し ―― 数百 MB の書き出しもありうる ―― の間、ネットワークボリュームの上の本では往復の
+/// 間ずっと、アプリごと止まった)。reader はスレッド安全ではないので、**reader を使う仕事は一度に 1 つ**(`readerWorkTask`)で、走って
+/// いる間はメインは reader に触らない ―― 入口(`navigate`・`resolveImageClick`・`revealCurrentPage`)は一覧を作っている最中と同じく
+/// 断る・待たせる(`isListingPending`)。受け渡しは `ReaderHandoff`(`PreparedRootHandoff` と同じ約束)。解決役(`resolver`)も同じ
+/// 理由で、走っている間に `releaseResources` が来たら、手放すのは仕事が終わってから(`isReleased`)。
 @MainActor
 final class BookContentsBrowserState: ObservableObject {
     @Published private(set) var entries: [BookInternalBrowsing.Entry] = []
@@ -75,6 +80,12 @@ final class BookContentsBrowserState: ObservableObject {
 
     /// 一覧を作っている最中の仕事(`reload`)。
     private var listingTask: Task<Void, Never>?
+    /// reader を使う仕事(書庫・PDF/EPUB を開く・入れ子の書庫を書き出す)が裏で走っている間(型コメント)。
+    private var readerWorkTask: Task<Void, Never>?
+    /// `releaseResources` が呼ばれた。裏で reader を使う仕事が走っていれば、その結果は捨て、解決役はそれが終わってから手放す。
+    private var isReleased = false
+    /// 戻る・進むの回数。裏で踏み込んでいる間に利用者が戻る・進むを押したら、踏み込んだ結果は当てない(`finishNavigate`)。
+    private var historyMoveSerial = 0
     /// 今のページを含む階層を裏で探している最中の仕事(`revealCurrentPage`)。
     private var revealTask: Task<Void, Never>?
     private var revealToken: UUID?
@@ -221,8 +232,19 @@ final class BookContentsBrowserState: ObservableObject {
         revealTask = nil
         revealToken = nil
         pendingRevealSortKeys = nil
-        resolver.purgeAll()
+        isReleased = true
+        // 裏で reader を使う仕事が走っていれば、解決役はそれが終わってから手放す(`finishReaderWork`。型コメント)。
+        if readerWorkTask == nil { resolver.purgeAll() }
         removeIndependentTemporaryFiles()
+    }
+
+    /// 裏で reader を使う仕事が終わった(`readerWorkTask` の後始末)。`releaseResources` が待つ間に呼ばれていたら、解決役を手放して
+    /// true(呼ぶ側は結果を捨てる)。
+    private func finishReaderWork() -> Bool {
+        readerWorkTask = nil
+        guard isReleased else { return false }
+        resolver.purgeAll()
+        return true
     }
 
     deinit {
@@ -315,12 +337,13 @@ final class BookContentsBrowserState: ObservableObject {
         applyPendingReveal()
     }
 
-    /// 一覧を作っている・階層を探している最中か(出ている `entries` が今の階層のものとは限らない)。
-    private var isListingPending: Bool { listingTask != nil || revealTask != nil }
+    /// 一覧を作っている・階層を探している・裏で reader を使っている最中か(出ている `entries` が今の階層のものとは限らない。
+    /// reader を使う仕事は一度に 1 つ ―― 型コメント)。
+    private var isListingPending: Bool { listingTask != nil || revealTask != nil || readerWorkTask != nil }
 
-    /// 一覧・階層探しが済むまで待つ(テストが、踏み込んだ・戻った後の一覧を確かめるため)。
+    /// 一覧・階層探し・reader を使う仕事が済むまで待つ(テストが、踏み込んだ・戻った後の一覧を確かめるため)。
     func waitUntilListed() async {
-        while let task = listingTask ?? revealTask {
+        while let task = listingTask ?? revealTask ?? readerWorkTask {
             await task.value
         }
     }
@@ -332,19 +355,46 @@ final class BookContentsBrowserState: ObservableObject {
         // 一覧を作っている最中は、出ている行は前の階層のもの(一覧は裏で作る。reload のコメント)。その行の行き先を今の階層から
         // 開くと食い違うので、押しても何もしない(ローカルの本ならほんの一瞬)。
         guard !isListingPending else { return }
-        do {
-            guard let next = try openContainer(target, from: currentLevel, locator: currentLocator) else { return }
+        // 開くのは裏で(型コメント)。reader は箱で渡し、終わるまでメインは触らない。
+        let input = ReaderHandoff(value: (target: target, level: currentLevel, locator: currentLocator, resolver: resolver))
+        let serial = historyMoveSerial
+        readerWorkTask = Task { [weak self] in
+            let output = await FileIO.perform {
+                ReaderHandoff(value: Result {
+                    try Self.openContainer(
+                        input.value.target, from: input.value.level, locator: input.value.locator, resolver: input.value.resolver
+                    )
+                })
+            }
+            self?.finishNavigate(output.value, historyMoveSerial: serial)
+        }
+    }
+
+    private func finishNavigate(_ result: Result<(BookEntryLevel, ArchiveLocator?)?, Error>, historyMoveSerial serial: Int) {
+        guard !finishReaderWork() else { return }
+        // 待つ間に戻る・進むで階層を離れていたら、離れた階層の子へは入らない(踏み込みを取りやめたのと同じ)。
+        guard serial == historyMoveSerial else {
+            applyPendingReveal()
+            return
+        }
+        switch result {
+        case .success(let next?):
             backStack.append((currentLevel, currentLocator))
             forwardStack.removeAll()
             currentLevel = next.0
             currentLocator = next.1
             reload()
-        } catch {
+            return
+        case .success(nil):
+            break
+        case .failure(let error):
             // 階層は動いていないので、一覧(と navigationErrorMessage)には触らない(SP-6。stepInFailure のコメント)。
             stepInFailure = ViewerNotice(
                 message: localizedErrorMessage(for: error, fallback: "This item could not be opened.")
             )
         }
+        // 待つ間に頼まれた「今のページを見せる」(一覧を作り直さなかったので、ここで当てる)。
+        applyPendingReveal()
     }
 
     /// navigateTargetを、levelを起点として開く。navigate(_:)とresolveLevel(forMatchKey:)
@@ -352,8 +402,10 @@ final class BookContentsBrowserState: ObservableObject {
     /// 噛み合わない場合(.archiveVirtualFolder/.nestedArchiveEntryはlevelが.archiveで
     /// あることが前提)はnilを返す(navigate(_:)側は元々この場合何もしなかったので、
     /// その挙動を保つ)。
-    private func openContainer(
-        _ target: BookInternalBrowsing.NavigateTarget, from level: BookEntryLevel, locator: ArchiveLocator?
+    /// **裏で呼ぶ**(reader を使う。型コメント)ので nonisolated。解決役は呼ぶ側の 1 つを渡す。
+    private nonisolated static func openContainer(
+        _ target: BookInternalBrowsing.NavigateTarget, from level: BookEntryLevel, locator: ArchiveLocator?,
+        resolver: NestedArchiveResolver
     ) throws -> (BookEntryLevel, ArchiveLocator?)? {
         // .imageFileListの階層はコンテナを1件も含まない(navigateTargetが常にnil)ため、
         // ここへ辿り着くことはない。
@@ -392,7 +444,7 @@ final class BookContentsBrowserState: ObservableObject {
                         )
                     }
                     // EPUBはzipコンテナなので、ネストした書庫と全く同じ取り出し方で開ける。
-                    let child = try self.resolver.openTransient(nested, parentReader: parentArchive.reader)
+                    let child = try resolver.openTransient(nested, parentReader: parentArchive.reader)
                     return .epub(try EpubStructureResolver.resolve(reader: child.reader))
                 },
                 nested
@@ -417,7 +469,7 @@ final class BookContentsBrowserState: ObservableObject {
             else { return nil }
             return try openNestedArchive(
                 entryPath: entryPath, parentArchive: parentArchive, parentLocator: locator,
-                parentMatchKeyPrefix: parentMatchKeyPrefix
+                parentMatchKeyPrefix: parentMatchKeyPrefix, resolver: resolver
             )
         }
     }
@@ -425,7 +477,7 @@ final class BookContentsBrowserState: ObservableObject {
     /// PDF/EPUBの中身の階層を組み立てる。行の名前とmatchKeyは、BookLoaderがページを
     /// 作るときと**同じ式**で組み立てる(BookLoader.documentPageSortKey / PDFContainer.
     /// pageDisplayName)。ここが食い違うと、ダブルクリックしても本のページとして認識されない。
-    private func documentLevel(
+    private nonisolated static func documentLevel(
         fileName: String, matchKeyPrefix: String, resolve: () throws -> ResolvedDocument
     ) rethrows -> BookEntryLevel {
         let pages: [BookDocumentPage]
@@ -449,13 +501,14 @@ final class BookContentsBrowserState: ObservableObject {
     }
 
     /// documentLevelが受け取る、解決済みのPDF/EPUB。
-    private enum ResolvedDocument {
+    private nonisolated enum ResolvedDocument {
         case pdf(CGPDFDocument?, PDFContainer)
         case epub(EpubStructure)
     }
 
     func goBack() {
         guard let (level, locator) = backStack.popLast() else { return }
+        historyMoveSerial &+= 1
         forwardStack.append((currentLevel, currentLocator))
         currentLevel = level
         currentLocator = locator
@@ -464,6 +517,7 @@ final class BookContentsBrowserState: ObservableObject {
 
     func goForward() {
         guard let (level, locator) = forwardStack.popLast() else { return }
+        historyMoveSerial &+= 1
         backStack.append((currentLevel, currentLocator))
         currentLevel = level
         currentLocator = locator
@@ -550,14 +604,43 @@ final class BookContentsBrowserState: ObservableObject {
         case .found:
             applyResolvedLevel(path: Array(levels.dropLast()), final: last, entries: walk.entries, sortKeys: sortKeys)
         case .needsContainer(let target):
-            // ここから先は reader が要る(書庫・PDF・EPUB を開く)。従来どおりメインで辿る。
-            guard let next = try? openContainer(target, from: last.0, locator: last.1),
-                  let resolved = resolveLevel(forMatchKey: sortKeys[0], from: next, path: levels)
-            else { return }
-            applyResolvedLevel(path: resolved.path, final: resolved.final, entries: resolved.entries, sortKeys: sortKeys)
+            // ここから先は reader が要る(書庫・PDF・EPUB を開く)。それも裏で辿る(型コメント)。待つ間に階層が動いたら(世代が
+            // 進んだら)当てない。
+            let input = ReaderHandoff(value: (
+                target: target, last: last, levels: levels, resolver: resolver, pageOrder: pageOrder, matchKey: sortKeys[0]
+            ))
+            readerWorkTask = Task { [weak self] in
+                let output = await FileIO.perform {
+                    let value = input.value
+                    let next = try? Self.openContainer(
+                        value.target, from: value.last.0, locator: value.last.1, resolver: value.resolver
+                    )
+                    return ReaderHandoff(value: next.flatMap {
+                        Self.resolveLevel(
+                            forMatchKey: value.matchKey, from: $0, path: value.levels,
+                            pageOrder: value.pageOrder, resolver: value.resolver
+                        )
+                    })
+                }
+                self?.finishContainerReveal(output.value, sortKeys: sortKeys, generation: generation)
+            }
         case .notFound:
             return
         }
+    }
+
+    /// 裏で書庫・PDF・EPUB を開いて辿った結果を当てる(`finishReveal` の `.needsContainer`)。
+    private func finishContainerReveal(
+        _ resolved: (
+            path: [(BookEntryLevel, ArchiveLocator?)], final: (BookEntryLevel, ArchiveLocator?),
+            entries: [BookInternalBrowsing.Entry]
+        )?,
+        sortKeys: [String], generation: Int
+    ) {
+        guard !finishReaderWork() else { return }
+        defer { applyPendingReveal() }
+        guard listingGeneration == generation, let resolved else { return }
+        applyResolvedLevel(path: resolved.path, final: resolved.final, entries: resolved.entries, sortKeys: sortKeys)
     }
 
     /// 探し当てた階層へ切り替える。一覧は探すときに作ったものを使う(同じ並び順で作ってあるので、取り直さない)。
@@ -598,9 +681,10 @@ final class BookContentsBrowserState: ObservableObject {
     /// 2026-09-27 から、ルートからの前半(reader の要らない容器)は `BookInternalBrowsing.walk` が裏で辿り、ここは書庫・PDF・EPUB を
     /// 開いた先(`start`。`path` はそこまでの段)から続きを辿る。最後の段の一覧も返す(切り替えるときに取り直さない)。
     /// 容器の中に入っているかの判定は `BookInternalBrowsing.matchKey(_:isContainedIn:)`(裏の `walk` と共用)。
-    private func resolveLevel(
+    /// **裏で呼ぶ**(reader を使う)ので nonisolated。並び順と解決役は呼ぶ側のものを渡す。
+    private nonisolated static func resolveLevel(
         forMatchKey matchKey: String, from start: (BookEntryLevel, ArchiveLocator?),
-        path initialPath: [(BookEntryLevel, ArchiveLocator?)]
+        path initialPath: [(BookEntryLevel, ArchiveLocator?)], pageOrder: [String: Int], resolver: NestedArchiveResolver
     ) -> (
         path: [(BookEntryLevel, ArchiveLocator?)], final: (BookEntryLevel, ArchiveLocator?),
         entries: [BookInternalBrowsing.Entry]
@@ -618,7 +702,7 @@ final class BookContentsBrowserState: ObservableObject {
             guard let container = levelEntries.first(where: {
                 $0.isContainer && BookInternalBrowsing.matchKey(matchKey, isContainedIn: $0.matchKey)
             }), let target = container.navigateTarget,
-                let next = try? openContainer(target, from: level, locator: locator) else { return nil }
+                let next = try? openContainer(target, from: level, locator: locator, resolver: resolver) else { return nil }
             path.append((level, locator))
             level = next.0
             locator = next.1
@@ -632,6 +716,9 @@ final class BookContentsBrowserState: ObservableObject {
     enum ImageClickResult: Equatable {
         case jumpToPage(Int)
         case openAsNewBook(URL)
+        /// 入れ子の書庫を一時ファイルへ書き出してから新しい本として開く。書き出しは裏で行い、済んだら `whenMaterialized` を呼ぶ
+        /// (書き出せなければ呼ばない)。呼ぶ側は待つ間に別の本が頼まれていないか確かめてから開く。
+        case materializingNewBook
         /// レイアウトで除外したページ。行き先が無い(呼び出し側は鳴らす)。
         case excludedPage
         case unavailable
@@ -652,17 +739,53 @@ final class BookContentsBrowserState: ObservableObject {
     /// なったアーカイブ/フォルダ自体を新しい本として開く指示を返す(入れ子なら一時ファイルへ書き出す ―― 渡す側は `handOffTemporaryFile`)。
     /// クリックした画像そのものへ厳密にジャンプすることまではスコープに含めない(AppState.openにページ指定を通す仕組みが無く、影響範囲が
     /// 大きくなるための意図的な割り切り)。
-    func resolveImageClick(on entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> ImageClickResult {
+    ///
+    /// 入れ子の書庫の書き出しは**裏で**(型コメント。以前はメインで同期に書き出し、数百 MB の書庫ではその間アプリごと止まった)。
+    /// 書き出せたら `whenMaterialized` を呼ぶ(書き出した一時ファイルは渡すまでこの状態が持つ ―― 呼ぶ側が開くなら `handOffTemporaryFile`)。
+    func resolveImageClick(
+        on entry: BookInternalBrowsing.Entry, bookPages: [PageRef],
+        whenMaterialized: @escaping @MainActor (URL) -> Void = { _ in }
+    ) -> ImageClickResult {
         guard entry.isImage else { return .unavailable }
         if let index = pageIndex(ofMatchKey: entry.matchKey, in: bookPages) {
             return .jumpToPage(index)
         }
         if bookPageKeys.contains(entry.matchKey) { return .excludedPage }
-        // 一覧を作っている最中は、行と今の階層(currentLocator)が食い違う(navigate のコメント)。
-        guard !isListingPending, let locator = currentLocator, let url = materializedURL(for: locator) else {
-            return .unavailable
+        // 一覧を作っている最中は、行と今の階層(currentLocator)が食い違う(navigate のコメント)。reader を使う仕事が走っている
+        // 間も、書き出し(親の reader を使う)を始めない。
+        guard !isListingPending, let locator = currentLocator else { return .unavailable }
+        guard locator.isNested else { return .openAsNewBook(locator.rootURL) }
+        let input = ReaderHandoff(value: (locator: locator, resolver: resolver))
+        readerWorkTask = Task { [weak self] in
+            let output = await FileIO.perform {
+                ReaderHandoff(value: try? input.value.resolver.materializeToIndependentFile(input.value.locator))
+            }
+            guard let url = output.value else {
+                self?.finishMaterializing(nil)
+                return
+            }
+            guard let self else {
+                // 窓(この状態)がもう無い。書き出したものを残さない。
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            if self.finishMaterializing(url) { whenMaterialized(url) }
         }
-        return .openAsNewBook(url)
+        return .materializingNewBook
+    }
+
+    /// 裏の書き出しが終わった(`resolveImageClick`)。書き出したものはこの状態が持ち、使ってよければ true。`releaseResources` が待つ間に
+    /// 呼ばれていたら、書き出したものも消して false。
+    @discardableResult
+    private func finishMaterializing(_ url: URL?) -> Bool {
+        let released = finishReaderWork()
+        guard let url else { return false }
+        if released {
+            Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: url) }
+            return false
+        }
+        temporaryFileURLs.append(url)
+        return true
     }
 
     /// ネストしたアーカイブエントリへ踏み込む。
@@ -682,29 +805,15 @@ final class BookContentsBrowserState: ObservableObject {
     /// parentMatchKeyPrefixは踏み込む前の階層のmatchKeyPrefix。BookLoaderの
     /// nestedSortKeyPrefix(= sortKeyPrefix.map { "\($0)/\(path)" } ?? path)と全く同じ式で、
     /// この新しい階層のmatchKeyPrefixを組み立てる。
-    private func openNestedArchive(
+    private nonisolated static func openNestedArchive(
         entryPath: String, parentArchive: OpenArchive, parentLocator: ArchiveLocator,
-        parentMatchKeyPrefix: String?
+        parentMatchKeyPrefix: String?, resolver: NestedArchiveResolver
     ) throws -> (BookEntryLevel, ArchiveLocator?) {
         let locator = parentLocator.appending(entryPath)
         let archive = try resolver.openTransient(locator, parentReader: parentArchive.reader)
         let allPaths = try archive.reader.listFilePaths()
         let matchKeyPrefix = parentMatchKeyPrefix.map { "\($0)/\(entryPath)" } ?? entryPath
         return (.archive(archive: archive, allPaths: allPaths, prefix: "", matchKeyPrefix: matchKeyPrefix), locator)
-    }
-
-    /// 「新しい本として開く」ために、今いる階層の書庫を実ファイルとして用意する
-    /// (AppState.open(url:)が実ファイルのURLを必要とするため)。
-    ///
-    /// 入れ子でなければ元のファイルをそのまま返す。入れ子の場合は、解決役が持っている
-    /// 一時ファイルを流用せず**独立したコピー**を書き出す ―― 向こうの寿命はLRUの追い出しに
-    /// 握られており、受け取った側(新しく開かれた本)がいつまで使うか分からないため。
-    /// 書き出したぶんは、開く側へ渡すまでこの状態オブジェクトが持つ(temporaryFileURLs)。
-    private func materializedURL(for locator: ArchiveLocator) -> URL? {
-        guard locator.isNested else { return locator.rootURL }
-        guard let url = try? resolver.materializeToIndependentFile(locator) else { return nil }
-        temporaryFileURLs.append(url)
-        return url
     }
 
     /// 「新しい本として開く」で書き出した一時ファイルを、開く側へ渡す(以後ここでは消さない)。開く側の `AppState` が引き受ける
@@ -728,6 +837,12 @@ private nonisolated enum PreparedRoot {
     case folder(URL)
     /// 本そのものの書庫(開いた状態)と、その一覧。
     case archive(URL, OpenArchive, [String])
+}
+
+/// reader を使う仕事の材料と結果を、メインと裏の間で受け渡す箱(`BookContentsBrowserState` の型コメント)。`PreparedRootHandoff` と同じ
+/// 約束 ―― 渡した側は、受け取った側が返すまでその reader(と解決役)に触らない(`readerWorkTask` が走っている間は入口が断る)。
+private nonisolated struct ReaderHandoff<Value>: @unchecked Sendable {
+    let value: Value
 }
 
 /// 裏で用意した最上位の階層を、メインへ渡すための箱(`BookContentsBrowserState.make(book:)`)。

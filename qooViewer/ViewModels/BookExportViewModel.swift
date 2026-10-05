@@ -788,6 +788,20 @@ class BookExportViewModel: ObservableObject {
                 .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) }
     }
 
+    /// 書き出す本の場所(`exportOne`)。開いている本の URL があればそれ。ほかは保存データの手がかり(ブックマーク → レイアウト →
+    /// メタデータ → コレクション、どれも無ければ記録したパス)を **FileIO の上で期限つき**で解く(`StoredBookLocator`。2026-10-05 の監査の
+    /// 範囲外の指摘 ―― 以前は `resolveURL(forBookID:)` で 1 冊ごとにメインでブックマークを解き、応答しない共有の上の本では書き出しの
+    /// 間メインが止まった)。ゴミ箱の中まで追った場所は見つからない扱い(ほかの入口と同じ)。
+    private func resolveSourceURL(forBookID bookID: String) async -> URL? {
+        if let direct = directSourceURLs[bookID] { return direct }
+        let material = StoredBookLocator.material(
+            forBookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            metadataStore: metadataStore, collectionStore: collectionStore
+        )
+        guard case .found(let url) = await StoredBookLocator.resolve(material, purpose: .background) else { return nil }
+        return url
+    }
+
     /// 上のdirect分。exportOpenBook(_:displayState:to:)が呼ばれたときだけ埋まる。
     private var directSourceURLs: [String: URL] = [:]
 
@@ -934,6 +948,8 @@ class BookExportViewModel: ObservableObject {
         didFinish = false
         relocationsDuringExport = []
         defer { relocationsDuringExport = [] }
+        // 前に落ちた書き出しの一時ファイルを片付ける(`sweepStaleTemporaryFiles` のコメント)。
+        await Self.sweepStaleTemporaryFiles(in: destinationFolder)
 
         for target in targets {
             guard !isCancelled else { break }
@@ -977,7 +993,7 @@ class BookExportViewModel: ObservableObject {
         // と数えた。A5-2)。
         let row = followingRelocations(target, since: noticesApplied)
         let noticesBeforeLoading = relocationsDuringExport.count
-        guard let sourceURL = resolveURL(forBookID: row.bookID) else {
+        guard let sourceURL = await resolveSourceURL(forBookID: row.bookID) else {
             throw SimpleError(message: String(localized: "The original file/folder couldn't be found.", language: preferences.effectiveLocale))
         }
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
@@ -1075,7 +1091,9 @@ class BookExportViewModel: ObservableObject {
             .appendingPathComponent("\(row.displayName).\(outputFileExtension)")
         // 本を読んでいる間に取り消されたら、ここで止める(TW-4)。
         try Task.checkCancellation()
-        if FileManager.default.fileExists(atPath: destinationFileURL.path) {
+        // 出力先への問い合わせ・置き換えは FileIO の上で(2026-10-05 の監査の範囲外の指摘。以前はメインで、保存先が応答しない共有だと
+        // その間アプリごと止まった)。
+        if await Self.fileExists(destinationFileURL) {
             let decision = await askOverwriteDecision(for: row.displayName)
             guard decision == .overwrite else { throw ExportSkippedByUser() }
         }
@@ -1095,26 +1113,70 @@ class BookExportViewModel: ObservableObject {
         // (PDFExporterが「壊れたファイルだけが残る」不具合を直したときと同じ考え方を、
         //  3つの形式すべてに効く1か所へ寄せたもの)。
         let temporaryURL = destinationFolder.appendingPathComponent(
-            ".qooViewer-export-\(UUID().uuidString).\(outputFileExtension)"
+            "\(Self.temporaryFilePrefix)\(UUID().uuidString).\(outputFileExtension)"
         )
         do {
             try await export(prepared, to: temporaryURL)
             // 書き終えた直後に取り消されていても、出力先へは置かない(取り消した本の後片付けへ進ませないのと揃える。TW-4)。
             try Task.checkCancellation()
         } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
+            await Self.removeTemporaryFile(temporaryURL)
             throw error
         }
         do {
-            if FileManager.default.fileExists(atPath: destinationFileURL.path) {
-                _ = try FileManager.default.replaceItemAt(destinationFileURL, withItemAt: temporaryURL)
-            } else {
-                try FileManager.default.moveItem(at: temporaryURL, to: destinationFileURL)
+            try await FileIO.perform {
+                if FileManager.default.fileExists(atPath: destinationFileURL.path) {
+                    _ = try FileManager.default.replaceItemAt(destinationFileURL, withItemAt: temporaryURL)
+                } else {
+                    try FileManager.default.moveItem(at: temporaryURL, to: destinationFileURL)
+                }
             }
         } catch {
-            try? FileManager.default.removeItem(at: temporaryURL)
+            await Self.removeTemporaryFile(temporaryURL)
             throw error
         }
+    }
+
+    /// 書き出しの一時ファイルの名前の頭(出力先のフォルダに隠しファイルとして作る。`write` のコメント)。
+    nonisolated static let temporaryFilePrefix = ".qooViewer-export-"
+
+    /// 一時ファイルの残りとみなすまでの時間(`sweepStaleTemporaryFiles`)。走っているほかの書き出し(別のウインドウ)の一時ファイルを
+    /// 消さないよう、十分に長く取る。
+    nonisolated static let staleTemporaryFileAge: TimeInterval = 24 * 60 * 60
+
+    /// 出力先のフォルダに残った、前の書き出しの一時ファイル(`temporaryFilePrefix` + UUID + 拡張子の隠しファイル)を消す(2026-10-05 の
+    /// 監査の範囲外の指摘)。書き出しの途中でアプリが落ちる・強制終了されると、一時ファイルは消す機会が無く、保存先に隠れたまま残って
+    /// いた(数百 MB のこともある)。起動時にはそのフォルダへの許可が無いので、**次にそのフォルダへ書き出すとき**に片付ける。消すのは
+    /// 名前の形が合い、`staleTemporaryFileAge` より古いものだけ。FileIO の上で。
+    nonisolated static func sweepStaleTemporaryFiles(in folder: URL, now: Date = Date()) async {
+        await FileIO.perform(qos: .utility) {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
+            for name in names where isTemporaryFileName(name) {
+                let url = folder.appendingPathComponent(name)
+                guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      now.timeIntervalSince(modified) > staleTemporaryFileAge
+                else { continue }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    /// `write` が作る一時ファイルの名前か(頭・UUID・拡張子が合うものだけ。利用者のファイルを消さない)。
+    nonisolated static func isTemporaryFileName(_ name: String) -> Bool {
+        guard name.hasPrefix(temporaryFilePrefix) else { return false }
+        let rest = name.dropFirst(temporaryFilePrefix.count)
+        let stem = (String(rest) as NSString).deletingPathExtension
+        let ext = (String(rest) as NSString).pathExtension.lowercased()
+        // 拡張子は BookExportFormat の 3 形式(fileExtension)。
+        return UUID(uuidString: stem) != nil && ["cbz", "epub", "pdf"].contains(ext)
+    }
+
+    private nonisolated static func fileExists(_ url: URL) async -> Bool {
+        await FileIO.perform { FileManager.default.fileExists(atPath: url.path) }
+    }
+
+    private nonisolated static func removeTemporaryFile(_ url: URL) async {
+        await FileIO.perform { try? FileManager.default.removeItem(at: url) }
     }
 
     /// 出力ファイルへ書き出す言語タグ(EPUBのdc:language、CBZのComicInfo.xmlのLanguageISO)。
