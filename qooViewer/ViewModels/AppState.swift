@@ -2053,7 +2053,12 @@ final class AppState: ObservableObject {
     /// 窓を作ると頼んだ時点の意図の番号(上の決まりの「窓を作った要求」。2026-10-04 のレビューの RC-2)。キーは要求の値
     /// (WindowGroup の値と同じ。同じ値の窓が既にあれば SwiftUI はそれを前へ出すだけなので、後から頼んだ方で上書きしてよい ――
     /// そのとき残る行は、同じ値の次の窓が作られるときに上書きされる)。
-    private static var windowCreatingIntentSerials: [BookOpenRequest: UInt64] = [:]
+    ///
+    /// **古い行は捨てる**(2026-10-05 の監査 A2-3)。行が消えるのは作った窓が最初の要求を開いたときだけなので、窓が作られなかった
+    /// (同じ値の窓を前へ出しただけ)・出る前に閉じられたときは残り続けた。値は要求ごと(一覧の並び `BookSequence` も入る)なので、
+    /// 頼むたびに積もる。窓は頼んでから 1 秒もかからずに最初の要求を開くので、`windowCreatingIntentLifetime` を過ぎた行は要らない。
+    private static var windowCreatingIntentSerials: [BookOpenRequest: (serial: UInt64, notedAt: ContinuousClock.Instant)] = [:]
+    private static let windowCreatingIntentLifetime: Duration = .seconds(60)
 
     /// 待ってから開く入口が、待ち始めるときに呼ぶ(この窓で先に頼まれていた入口の結果を捨てさせる)。
     func beginOpenIntent() -> OpenIntent {
@@ -2072,7 +2077,9 @@ final class AppState: ObservableObject {
     /// 呼ぶ(RC-2)。
     static func noteWindowCreatingRequest(_ request: BookOpenRequest) {
         openIntentClock += 1
-        windowCreatingIntentSerials[request] = openIntentClock
+        let now = ContinuousClock.now
+        windowCreatingIntentSerials = windowCreatingIntentSerials.filter { now - $0.value.notedAt < windowCreatingIntentLifetime }
+        windowCreatingIntentSerials[request] = (openIntentClock, now)
     }
 
     /// 窓を作った要求を開く(`open(request:isInitialRequest: true)`)。頼んだ時点の番号を引き取る。控えが無ければ(窓を作る所を
@@ -2080,7 +2087,7 @@ final class AppState: ObservableObject {
     private func noteInitialRequest(_ request: BookOpenRequest) {
         let serial: UInt64
         if let noted = Self.windowCreatingIntentSerials.removeValue(forKey: request) {
-            serial = noted
+            serial = noted.serial
         } else {
             Self.openIntentClock += 1
             serial = Self.openIntentClock

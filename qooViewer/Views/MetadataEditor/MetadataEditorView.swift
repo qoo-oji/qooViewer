@@ -283,7 +283,12 @@ final class MetadataEditorModel {
         let serial = existenceSerial
         let task = Task { [weak self, weak workspace] in
             defer { self?.existenceTasks[serial] = nil }
-            await previous?.value
+            // 前の確かめを待つのは期限まで(2026-10-05 の監査 A6-F3)。前の確かめが応答しない共有(hard の NFS)で戻らないと、以前は後から
+            // 並んだ確かめが全部いつまでも待ち、ファイルの変更のたびに 1 つずつ積もって、灰色の行も直らなくなった。期限を過ぎたら
+            // 並びを諦めて自分の確かめを進める(遅れて届く前の答えが後から当たっても、次の確かめで直る)。
+            if let previous {
+                _ = try? await FileIO.withDeadline(Self.previousExistenceCheckWait) { await previous.value }
+            }
             // 確かめの材料(本ごとに 5 つのストアのブックマークとアクセス権の判定)は、この Task の中で作る(表示の切り替えの
             // 監査の 17、2026-09-27)。以前は open の中でメインのまま全冊ぶん作ってから返っていたので、組み上がった一覧を
             // 描くのがその分遅れた。確かめ自体はもともと画面の外で、結果が届くのは後なので、材料を作る時が少し後になるだけ。
@@ -317,6 +322,9 @@ final class MetadataEditorModel {
         existenceTasks[serial] = task
         lastExistenceTask = task
     }
+
+    /// 一部の確かめが、前に始めた確かめを待つ上限(`checkExistence` のコメント)。
+    private static let previousExistenceCheckWait: Duration = .seconds(10)
 
     /// 走っている実在の確かめをすべて取り消す(全冊の確かめを始め直すとき・閉じるとき。R4-4)。
     private func cancelExistenceChecks() {
@@ -789,19 +797,14 @@ struct MetadataBookTableView: View {
     /// 出している確かめの窓(1 つの `.alert` で出す。body のコメント)。
     @State private var tableAlert: TableAlert?
 
-    enum TableAlert: Identifiable {
+    /// `.alert(_:isPresented:presenting:)` へ渡すだけなので `Identifiable` にしない(2026-10-05 の監査 A6-F2。以前は id を選んだ全件の
+    /// パスの並べ替えと連結で作っていて、5 万冊を選んだ確かめでは数 MB の文字列を描き直しのたびにメインで作った)。
+    enum TableAlert {
         /// メタデータを削除する。
         case delete(Set<String>)
         /// メタデータを再生成する(ロックしていない本。ツールバーのボタンと同じ確かめ ―― 2026-10-04 の監査 MD-10。以前は
         /// 右クリックだけ確かめずに直した欄を捨てていた。どちらも取り消せる)。
         case regenerate(Set<String>)
-
-        var id: String {
-            switch self {
-            case .delete(let ids): "delete-\(ids.sorted().joined())"
-            case .regenerate(let ids): "regenerate-\(ids.sorted().joined())"
-            }
-        }
     }
 
     private var alertTitle: String {

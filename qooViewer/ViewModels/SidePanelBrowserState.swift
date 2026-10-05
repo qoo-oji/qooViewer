@@ -385,11 +385,19 @@ final class SidePanelBrowserState: ObservableObject {
             .filter { $0.isDirectory && !$0.containsImageFile && $0.containsSubdirectory }
             .map(\.url)
             .filter { DirectoryProbe.mayReadChild($0, of: directory) }
-        guard !candidates.isEmpty, !MountTable.current().isRemote(directory) else { return }
+        let mounts = MountTable.current()
+        guard !candidates.isEmpty, !mounts.isRemote(directory) else { return }
+        // 行ごとにも見る(2026-10-05 の監査 A7-3): ローカルのフォルダの中の行がネットワークのマウントポイント(autofs・自前のマウント先)
+        // のこともある。表示中のフォルダだけ見ていたので、その中を読みに行き、応答しない hard の NFS では FileIO の糸が戻らなかった。
+        let localCandidates = candidates.filter { !mounts.isRemote($0) }
+        guard !localCandidates.isEmpty else { return }
         chapterProbeTask = Task { [weak self] in
             var found: Set<String> = []
-            for url in candidates {
-                guard !Task.isCancelled else { return }
+            for url in localCandidates {
+                // 窓が閉じた(この状態が解放された)・別のフォルダへ移ったら、残りは調べない(以前は self を見ず、閉じた窓のぶんも最後まで
+                // 調べた。A7-3)。
+                // 強参照にしない(調べている間も窓を放せるように)。
+                guard !Task.isCancelled, self?.currentDirectory == directory else { return }
                 if await FileIO.perform({ ShelfFolderResolver.isSingleBookFolder(url) }) { found.insert(url.path) }
             }
             guard !Task.isCancelled, let self, self.currentDirectory == directory else { return }

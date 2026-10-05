@@ -98,20 +98,41 @@ final class SidePanelLibraryTreeModel: ObservableObject {
         rebuild()
     }
 
+    /// 知らせからの作り直しの間隔の下限(`scheduleRebuild`)。
+    nonisolated static let minimumRebuildInterval: Duration = .milliseconds(250)
+    private var lastRebuild: ContinuousClock.Instant?
+
+    /// 知らせを受けて作り直す。1 ランループ待ち、**前の作り直しから `minimumRebuildInterval` 経っていなければその分も待つ**
+    /// (2026-10-05 の監査 A7-1)。作り直しは開いているライブラリのコレクションを並べ直し・数え、開いているコレクションの本の名前を
+    /// 求める(タイトルのときは命名規則で読む)メインの仕事で、表紙の抽出 1 枚ごと・メタデータの書き込みの 1 まとまりごとに来る
+    /// 知らせのたびに走ると、読んでいる間ずっと蔵書の量に比例した仕事が続いた。開閉・設定の変化(`update`)は待たない。
     private func scheduleRebuild() {
         guard !isRebuildScheduled else { return }
         isRebuildScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.isRebuildScheduled = false
-                self.rebuild()
-            }
+        let wait: Duration
+        if let lastRebuild {
+            let elapsed = ContinuousClock.now - lastRebuild
+            wait = elapsed < Self.minimumRebuildInterval ? Self.minimumRebuildInterval - elapsed : .zero
+        } else {
+            wait = .zero
+        }
+        let work: @MainActor @Sendable () -> Void = { [weak self] in
+            guard let self else { return }
+            self.isRebuildScheduled = false
+            self.rebuild()
+        }
+        if wait == .zero {
+            DispatchQueue.main.async(execute: work)
+        } else {
+            let (seconds, attoseconds) = wait.components
+            let delay = Double(seconds) + Double(attoseconds) / 1e18
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         }
     }
 
     private func rebuild() {
         rebuildCount += 1
+        lastRebuild = ContinuousClock.now
         let next: [Row]
         if let store, let inputs {
             next = Self.makeRows(store: store, inputs: inputs)

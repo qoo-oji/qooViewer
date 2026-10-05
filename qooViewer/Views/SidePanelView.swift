@@ -938,6 +938,9 @@ struct SidePanelView: View {
     /// 開く意図は**控えるだけで進めない**(`openIntentWithoutClaiming`。AppState.OpenIntent の決まり)。移動は「開く」指示では
     /// なく、画像が無ければ何も開かない ―― 意図を進めると、先に頼まれて確かめを待っている本(コレクション・履歴)を、画像の無い
     /// フォルダへ移っただけで捨てさせてしまう。
+    /// `moveAndShowImages` が「直下に画像があるか」の確かめを待つ上限。
+    private static let imageCheckDeadline: Duration = .seconds(30)
+
     private func moveAndShowImages(_ move: () -> Void) {
         move()
         guard let directory = folderState.currentDirectory, !isCurrentBookFolder(directory),
@@ -945,9 +948,13 @@ struct SidePanelView: View {
         let folderState = folderState
         let onBrowseToFolder = onBrowseToFolder
         let owner = openIntentOwner
-        Task { @MainActor [weak owner] in
-            let hasImages = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(directory) }
-            guard hasImages, folderState.currentDirectory?.path == directory.path,
+        // 待つのは期限まで、窓の状態は弱く持つ(2026-10-05 の監査 A7-4。以前は応答しない hard の NFS で確かめが戻らないと、閉じた窓の
+        // 状態と AppState を放さず、戻る・進む・上へのたびに 1 本ずつ積もった)。期限を過ぎたら画像が無いのと同じく何も開かない。
+        Task { @MainActor [weak owner, weak folderState] in
+            let hasImages = (try? await FileIO.withDeadline(Self.imageCheckDeadline) {
+                await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(directory) }
+            }) ?? false
+            guard hasImages, let folderState, folderState.currentDirectory?.path == directory.path,
                   owner?.isStillWanted(intent) == true
             else { return }
             folderState.skipNextAnchorOnce(for: directory)

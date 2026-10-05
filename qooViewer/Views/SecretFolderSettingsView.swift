@@ -27,6 +27,8 @@ struct SecretFolderSettingsView: View {
 
     /// フォルダごとの、保存データのある本(数え直すのは画面が出たとき・一覧が変わったとき・消したとき。描くたびには数えない)。
     @State private var savedBookIDsByFolder: [String: [String]] = [:]
+    /// 知らせを受けて待っている数え直し(`scheduleRecount`)。
+    @State private var recountTask: Task<Void, Never>?
     /// 削除を確かめているフォルダ。
     @State private var deleting: String?
 
@@ -93,13 +95,20 @@ struct SecretFolderSettingsView: View {
         .onChange(of: secretFolders.folders) { _, _ in recount() }
         // ほかのウインドウで保存データが消えた・増えたら数え直す(2026-10-04 の監査 ST-8。以前は表示したとき・一覧の変化・自分の削除の
         // 後だけで、別の窓で消しても冊数とゴミ箱の淡色が古いままだった)。
-        .onReceive(NotificationCenter.default.publisher(for: .bookmarksDidChange)) { _ in recount() }
-        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in recount() }
-        .onReceive(NotificationCenter.default.publisher(for: .bookMetadataDidChange)) { _ in recount() }
+        //
+        // 知らせからの数え直しはまとめる(2026-10-05 の監査 A4-F3)。数え直しは全部の保存データを集めてフォルダごとに絞るメインの仕事で、
+        // 保存データの読み込みは本ごとに知らせを 2 つずつ出すので、この画面を出したままだと「本の数 × 知っている本の数」になった。
+        .onReceive(NotificationCenter.default.publisher(for: .bookmarksDidChange)) { _ in scheduleRecount() }
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in scheduleRecount() }
+        .onReceive(NotificationCenter.default.publisher(for: .bookMetadataDidChange)) { _ in scheduleRecount() }
         .onReceive(NotificationCenter.default.publisher(for: .collectionsDidChange)) { note in
             // 表紙の抽出・実在の確かめの知らせは保存データの増減ではない(CollectionStore を購読しないのと同じ理由で数え直さない)。
             if note.userInfo?[Notification.Name.collectionsDidChangeIsCoverResultKey] as? Bool == true { return }
-            recount()
+            scheduleRecount()
+        }
+        .onDisappear {
+            recountTask?.cancel()
+            recountTask = nil
         }
         // 履歴は数え直さずに描くたびに見る(件数は環境設定の保持件数まで)。
         .alert(
@@ -189,7 +198,19 @@ struct SecretFolderSettingsView: View {
         return recentFiles.entries.filter { secret.contains(path: $0.path) }
     }
 
+    /// 知らせが続く間は待ち、止んでから 1 度だけ数え直す(上の `.onReceive` のコメント)。
+    private func scheduleRecount() {
+        recountTask?.cancel()
+        recountTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            recount()
+        }
+    }
+
     private func recount() {
+        recountTask?.cancel()
+        recountTask = nil
         let folders = secretFolders.folders
         guard !folders.isEmpty else {
             savedBookIDsByFolder = [:]

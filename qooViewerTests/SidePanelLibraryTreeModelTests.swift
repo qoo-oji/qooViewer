@@ -27,9 +27,10 @@ struct SidePanelLibraryTreeModelTests {
         Issue.record("条件が満たされない")
     }
 
-    /// 後から来る知らせが無いことを確かめるために、少しだけ待つ。
+    /// 後から来る知らせが無いことを確かめるために、少しだけ待つ(知らせからの作り直しは前の作り直しから間を空ける ――
+    /// `minimumRebuildInterval`。2026-10-05 の監査 A7-1 ―― ので、その分も待つ)。
     private func settle() async {
-        for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(5)) }
+        try? await Task.sleep(for: SidePanelLibraryTreeModel.minimumRebuildInterval + .milliseconds(50))
     }
 
     private func inputs(
@@ -69,6 +70,15 @@ struct SidePanelLibraryTreeModelTests {
         library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
         await settle()
         #expect(publishCount == 0, "表紙の状態だけで行を作り直して知らせた")
+
+        // 続けて来る知らせは間を空けてまとめて作り直す(2026-10-05 の監査 A7-1。以前は知らせの数だけ作り直した)。
+        let rebuildsBefore = model.rebuildCount
+        for _ in 0..<20 {
+            library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        await settle()
+        #expect(model.rebuildCount - rebuildsBefore <= 5, "知らせのたびに作り直した")
 
         let third = try #require(CollectionStore.makePendingItem(for: try makeBookFolder(temporary, named: "c-book")))
         _ = library.collections.add([third], to: collection)
