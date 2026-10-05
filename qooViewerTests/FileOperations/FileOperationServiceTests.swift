@@ -948,6 +948,48 @@ struct FileOperationServiceTests {
         #expect(!other)
     }
 
+    /// 2026-10-05 の監査 A1-2。本は実在のパスで開いていて、ファイルブラウザはリンクを経たフォルダに居る。
+    @Test("「置き換える」の守りは、親のシンボリックリンクを経た綴りでも開いている本を見つける。項目そのもののリンクは本ではない")
+    func openBookOverlapResolvesSymlinkedParents() async throws {
+        let shelf = try temporary.directory("RealShelf")
+        let book = shelf.appendingPathComponent("book.zip")
+        try Data("b".utf8).write(to: book)
+        let link = temporary.url.appendingPathComponent("LinkedShelf")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: shelf)
+        let linkToBook = shelf.appendingPathComponent("alias.zip")
+        try FileManager.default.createSymbolicLink(at: linkToBook, withDestinationURL: book)
+
+        let bookPath = book.path
+        let linkedBook = link.appendingPathComponent("book.zip")
+        let (viaLink, folderViaLink, theLinkItself, other) = await FileIO.perform {
+            (
+                FileOperationService.replacedItemOverlaps(linkedBook, anyOf: [bookPath]),
+                // 開いている本の側がリンクの綴りでも同じ。
+                FileOperationService.replacedItemOverlaps(shelf, anyOf: [linkedBook.path]),
+                FileOperationService.replacedItemOverlaps(linkToBook, anyOf: [bookPath]),
+                FileOperationService.replacedItemOverlaps(link.appendingPathComponent("other.zip"), anyOf: [bookPath])
+            )
+        }
+        #expect(viaLink, "リンクを経た綴りの開いている本を見逃した")
+        #expect(folderViaLink, "リンクを経た綴りで開いた本を含むフォルダを見逃した")
+        #expect(!theLinkItself, "置き換えで消えるのはリンクで、本ではない")
+        #expect(!other)
+    }
+
+    @Test("消せないフォルダの下調べは、フォルダの中のファイルを積まずに見つける(2026-10-05 の監査 A1-4)")
+    func unremovableFolderSearchSkipsFiles() throws {
+        let root = try temporary.directory("tree")
+        for index in 0..<50 { try Data().write(to: root.appendingPathComponent("f\(index).jpg")) }
+        let inner = root.appendingPathComponent("inner", isDirectory: true)
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        let entries = try FileOperationService.directoryEntries(atPath: root.path)
+        #expect(entries.filter { $0.type == UInt8(DT_DIR) }.map(\.name) == ["inner"])
+        #expect(FileOperationService.firstUnremovableFolder(under: root) == nil)
+        chmod(inner.path, 0o555)
+        defer { chmod(inner.path, 0o755) }
+        #expect(FileOperationService.firstUnremovableFolder(under: root)?.path == inner.path)
+    }
+
     @Test("起動ボリュームにはゴミ箱がある")
     func bootVolumeHasATrash() async {
         let url = temporary.url

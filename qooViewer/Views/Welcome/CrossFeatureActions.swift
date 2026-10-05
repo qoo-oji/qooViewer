@@ -156,7 +156,9 @@ enum SmartLibraryTargetAdding {
     static func secretRefusedMessage(_ refused: [URL], locale: Locale) -> String {
         refused.count == 1
             ? String(format: String(localized: "“%@” is in a secret folder, so it wasn’t added to the smart library.", language: locale),
-                     FileManager.default.displayName(atPath: refused[0].path))
+                     // 名前はパスの文字列から(`displayName(atPath:)` はファイルに触る ―― メインで、応答しない共有の上の
+                     // シークレットフォルダなら止まる。2026-10-05 の監査 A1-5。フォルダの名前なので拡張子を隠す違いも無い)。
+                     refused[0].lastPathComponent)
             : String(format: String(localized: "%lld folders are in secret folders, so they weren’t added to the smart library.",
                                     language: locale), refused.count)
     }

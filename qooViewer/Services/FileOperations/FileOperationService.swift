@@ -286,9 +286,10 @@ actor FileOperationService {
         // FileBrowserOperations.remove ―― でも断るが、ここが最後の砦)。**親を変える許可は見ない**: ゴミ箱へ送るのは改名なので、
         // 許可が無ければ何も動かずに失敗する(完全削除のように中身だけが消えることは無い)。判定を足すと、ペーストボード・履歴越しに
         // 項目だけの許可で送れていたものまで断りかねない(`removalRefusal` のコメント)。
-        let refusals = Dictionary(uniqueKeysWithValues: items.compactMap { item in
+        // 同じ URL が 2 度来ても落ちない(2026-10-05 の監査 A1-3。`uniqueKeysWithValues` は重なりで止まる。今は入口が先に断るので届かない)。
+        let refusals = Dictionary(items.compactMap { item in
             Self.isProtectedLocation(item) ? (item, FileOperationError.protectedLocation(item)) : nil
-        })
+        }, uniquingKeysWith: { first, _ in first })
         for item in items {
             if let refusal = refusals[item] { outcome.failures.append(FailedItem(url: item, reason: refusal.localizedDescription)) }
         }
@@ -1043,18 +1044,23 @@ actor FileOperationService {
 
     /// フォルダの中の名前を `readdir` で(`.` と `..` を除き、**`._*` も含めて**)。開けなければ errno で投げる。
     nonisolated static func directoryEntryNames(atPath path: String) throws -> [String] {
+        try directoryEntries(atPath: path).map(\.name)
+    }
+
+    /// `directoryEntryNames` に `readdir` の種類(`d_type`: `DT_DIR`・`DT_REG`・`DT_LNK`… 分からないボリュームでは `DT_UNKNOWN`)を添えたもの。
+    nonisolated static func directoryEntries(atPath path: String) throws -> [(name: String, type: UInt8)] {
         guard let directory = opendir(path) else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: path])
         }
         defer { closedir(directory) }
-        var names: [String] = []
+        var entries: [(name: String, type: UInt8)] = []
         while let entry = readdir(directory) {
             let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
                 String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
             }
-            if name != ".", name != ".." { names.append(name) }
+            if name != ".", name != ".." { entries.append((name, entry.pointee.d_type)) }
         }
-        return names
+        return entries
     }
 
     /// 別ボリュームへ写した元を消す前に、写した後に元が変わっていないかをどう確かめるか(`removeTransferredSource`)。
@@ -1206,15 +1212,21 @@ actor FileOperationService {
     /// `item`(フォルダなら中のフォルダも)のうち、中身を消せない最初のフォルダ(読めない・書けない・入れない)。無ければ nil。
     /// **リンクの先へは入らない**(lstat。`removeItem` はリンク自体しか消さない)。名前は `readdir` で取る(`._*` も。`directoryEntryNames`)。
     /// 自分のスタックで歩く(深い木でスレッドのスタックを使い切らない)。
+    ///
+    /// 積むのは**フォルダ(と種類の分からないもの)だけ**(`readdir` の `d_type`。2026-10-05 の監査 A1-4)。以前はファイルも全部積んで 1 つずつ
+    /// lstat していたので、100 万項目の平らなフォルダでは全部のパスを一度に抱えた(100〜200 MB)。種類の分からないボリュームでは今までどおり
+    /// lstat で見分ける。
     nonisolated static func firstUnremovableFolder(under item: URL) -> URL? {
         var pending = [item.path]
         while let path = pending.popLast() {
             var info = stat()
             guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { continue }
-            guard access(path, R_OK | W_OK | X_OK) == 0, let names = try? directoryEntryNames(atPath: path) else {
+            guard access(path, R_OK | W_OK | X_OK) == 0, let entries = try? directoryEntries(atPath: path) else {
                 return URL(fileURLWithPath: path)
             }
-            pending.append(contentsOf: names.map { (path as NSString).appendingPathComponent($0) })
+            for entry in entries where entry.type == UInt8(DT_DIR) || entry.type == UInt8(DT_UNKNOWN) {
+                pending.append((path as NSString).appendingPathComponent(entry.name))
+            }
         }
         return nil
     }
@@ -1324,11 +1336,63 @@ actor FileOperationService {
     /// (`overlaps` の旧版)だったので、開いている本(ディスクの綴り)と別の項目に見え、開いている本を退避のうえゴミ箱(ゴミ箱の無い場所では
     /// 完全削除)へ送った ―― FBA-1 で防ぎたかった結果そのもの。綴りが畳んで一致したら実体(`FileIdentity`)で確かめるので、区別する
     /// ボリュームの別の項目(`a.zip` と `A.zip`)は断らない。
+    ///
+    /// **親のシンボリックリンクを解いた綴りでも比べる**(2026-10-05 の監査 A1-2)。本を Finder から開き(実在のパス)、ファイルブラウザでは
+    /// リンクを経たフォルダ(「フォルダへ移動」で打ったリンク、`/tmp` と `/private/tmp`)に居ると、同じ項目が別の綴りで届き、上の畳みでは
+    /// 当たらなかった。解くのは親だけ(項目そのものがリンクなら、置き換えで消えるのはリンクで本ではない)。開いている本の親は同じものが
+    /// 多い(画像を直接開いた本は最大 1000 枚が同じフォルダ)ので、解くのは親ごとに 1 回。
+    ///
+    /// 比べる前に綴りと畳んだ鍵を 1 度だけ作る(A1-1。以前は組ごとに 6 回の正規化と 2 回の畳みを繰り返し、衝突 1 件あたり開いているページ
+    /// 1000 枚ごとに約 2.4 ms かかった)。鍵で当たった組だけ `isSameItemOrInside` で実体を確かめる。
     nonisolated static func replacedItemOverlaps(_ target: URL, anyOf paths: [String]) -> Bool {
-        paths.contains { other in
+        guard !paths.isEmpty else { return false }
+        var resolvedParents: [String: String] = [:]
+        let targetForms = comparisonForms(of: target, resolvedParents: &resolvedParents)
+        for other in paths {
             let open = URL(fileURLWithPath: other, isDirectory: false)
-            return isSameItemOrInside(open, target) || isSameItemOrInside(target, open)
+            for openForm in comparisonForms(of: open, resolvedParents: &resolvedParents) {
+                for targetForm in targetForms where openForm.mayOverlap(targetForm) {
+                    if isSameItemOrInside(openForm.url, targetForm.url) || isSameItemOrInside(targetForm.url, openForm.url) {
+                        return true
+                    }
+                }
+            }
         }
+        return false
+    }
+
+    /// `replacedItemOverlaps` が比べる 1 つの綴り(書いてあるとおり / 親のリンクを解いたもの)と、その比べるための形。
+    private nonisolated struct ComparisonForm {
+        let url: URL
+        let spelled: String
+        let key: String
+
+        init(_ url: URL) {
+            self.url = url
+            spelled = FileOperationService.spelledOutsideDataVolume(url.path)
+            key = FileOperationService.comparisonKey(spelled)
+        }
+
+        /// どちらかがもう一方そのもの・その中でありうるか(畳んだ鍵で。外れなら確かめるまでもなく重ならない)。
+        func mayOverlap(_ other: ComparisonForm) -> Bool {
+            MountTable.path(key, isAtOrUnder: other.key) || MountTable.path(other.key, isAtOrUnder: key)
+        }
+    }
+
+    /// `url` の綴り: 書いてあるとおりと、親のシンボリックリンクを解いたもの(違うときだけ)。**ファイルに触る**(親の realpath)。
+    private nonisolated static func comparisonForms(of url: URL, resolvedParents: inout [String: String]) -> [ComparisonForm] {
+        let written = ComparisonForm(url)
+        let parent = url.deletingLastPathComponent().path
+        let resolvedParent: String
+        if let cached = resolvedParents[parent] {
+            resolvedParent = cached
+        } else {
+            resolvedParent = URL(fileURLWithPath: parent, isDirectory: true).resolvingSymlinksInPath().path
+            resolvedParents[parent] = resolvedParent
+        }
+        let resolved = URL(fileURLWithPath: resolvedParent, isDirectory: true).appendingPathComponent(url.lastPathComponent)
+        guard MountTable.normalized(resolved.path) != MountTable.normalized(url.path) else { return [written] }
+        return [written, ComparisonForm(resolved)]
     }
 
     /// `inner` が `outer` そのものかその中か。**ファイルに触る**(FileIO の上で)。綴りどおりに当たれば真。綴りの違いを畳んで当たったら

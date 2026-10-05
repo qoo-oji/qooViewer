@@ -193,7 +193,7 @@ extension FileBrowserActions {
                     // 「本なので足せない」と言うのは本だったフォルダだけ。シークレットフォルダも一緒に選んでいたら、それは別の理由
                     // として添える(以前は選んだフォルダの名前を全部並べ、シークレットフォルダも「本」と書いた。2026-10-04 の
                     // レビューの R6-5)。
-                    let names = result.refusedBooks.map { nameByURL[$0] ?? FileManager.default.displayName(atPath: $0.path) }
+                    let names = result.refusedBooks.map { nameByURL[$0] ?? $0.lastPathComponent }
                     self.state?.operations.presenter?.showProblem(Self.bookFolderCannotBeSmartTarget(
                         names: names, secretRefused: result.refusedSecret, locale: locale
                     ))
