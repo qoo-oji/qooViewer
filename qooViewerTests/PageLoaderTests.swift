@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 @testable import qooViewer
@@ -43,6 +44,45 @@ struct PageLoaderTests {
         for index in 0..<source.book.pages.count {
             let image = try #require(await loader.pageImage(at: index))
             #expect(PageColorReader.number(in: image) == index + 1)
+        }
+    }
+
+    @Test(
+        "rar の本の下調べは書庫を 1 回だけ読み通し、1 ページずつ求めたときと同じ寸法を返す(2026-10-05 の効率の監査)",
+        arguments: ["rar/rar-solid.cbr", "rar/rar-flat.cbr", "rar/rar-with-dirs.cbr", "rar/rar-japanese-names.cbr"]
+    )
+    func rarWholeBookScanMatchesPageSizes(fixture: String) async throws {
+        let book = try await FixtureBook.load(fixture: fixture)
+        let scanning = makeLoader(book)
+        let direct = makeLoader(book)
+        defer {
+            Task { await scanning.releaseAllResources() }
+            Task { await direct.releaseAllResources() }
+        }
+        await scanning.beginWholeBookScan()
+        var scanned: [[Int]] = []
+        for index in book.pages.indices {
+            let size = await scanning.scanPage(at: index)
+            scanned.append(size.map { [$0.width, $0.height] } ?? [])
+        }
+        await scanning.endWholeBookScan()
+        var expected: [[Int]] = []
+        for index in book.pages.indices {
+            let size = await direct.pageSize(at: index)
+            expected.append(size.map { [$0.width, $0.height] } ?? [])
+        }
+        #expect(scanned == expected)
+        #expect(!expected.contains([]))
+
+        // 読み通しの答えは、エントリを 1 件ずつ取り出して全体から求めた寸法と同じ。
+        let url = Fixtures.url(fixture)
+        let reader = try makeArchiveReader(kind: .rar, url: url)
+        let paths = Set(try reader.listFilePaths())
+        let all = try PageLoader.readRarPageSizes(url: url, wanted: paths) { _ in }
+        for path in paths {
+            let data = try reader.data(at: path)
+            let size = ImageDecoder.pixelSize(of: data)
+            #expect(all[path].map { [$0.width, $0.height] } == size.map { [$0.width, $0.height] }, "\(path)")
         }
     }
 
@@ -293,6 +333,54 @@ struct PageLoaderTests {
         reordered.pages = source.book.pages.reversed()
         await loader.updateBook(reordered)
         #expect(PageColorReader.number(in: try #require(await loader.pageImage(at: 0))) == 4)
+    }
+
+    // MARK: - 拡大用・原寸大の画像(2026-10-05 の効率の監査 A6)
+
+    /// `image` の (x, y)(上が 0)の色を 8bit の RGB で。
+    private func rgb(of image: CGImage, x: Int, y: Int) -> [UInt8] {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(
+            data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
+        return Array(pixel[0..<3])
+    }
+
+    @Test("拡大用・原寸大の画像は表示用のバッファ経由で作られ、寸法と色は ImageIO で直に読んだものと同じ")
+    func highResolutionImagesComeFromPixelBuffers() async throws {
+        let temporary = try TemporaryDirectory("loader-highres")
+        let directory = temporary.file("book")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // 表示用の上限(4096)を超える横長の画像: 左半分が赤、右半分が青。
+        let width = 5000, height = 600
+        let context = try #require(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: width / 2, y: 0, width: width / 2, height: height))
+        let source = try #require(context.makeImage())
+        let url = directory.appendingPathComponent("p01.png")
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, source, nil)
+        #expect(CGImageDestinationFinalize(destination))
+
+        let book = try await FixtureBook.load(directory)
+        let loader = makeLoader(book)
+        defer { Task { await loader.releaseAllResources() } }
+        let data = try Data(contentsOf: url)
+        let direct = try #require(ImageDecoder.decode(data, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize))
+        for image in [try #require(await loader.highResolutionImage(at: 0)), try #require(await loader.actualSizeImage(at: 0))] {
+            #expect(image.width == direct.width && image.height == direct.height)
+            #expect(image.width == width)
+            for x in [10, width / 2 - 10, width / 2 + 10, width - 10] {
+                #expect(rgb(of: image, x: x, y: 300) == rgb(of: direct, x: x, y: 300))
+            }
+        }
     }
 
     // MARK: - 原寸大(2026-10-05 の監査 A3-2)

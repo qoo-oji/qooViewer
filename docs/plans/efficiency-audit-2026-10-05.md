@@ -136,3 +136,13 @@
     読み直さない(`FolderChangeWatcher.Event.isFileModificationOnly`)、ツリーの子はフォルダの行だけ組み立てる。
   - テスト 1945 件すべて成功(手元、署名あり)。
 - 段 4: A1、A6(実測してから)。
+  - A1: 先に測った。合成した 80 ページ・163MB の cbr(ページは雑音の PNG)で、unrar の口を直に呼ぶと 1 件ずつの取り出しは
+    ソリッドで 42.1 秒・ソリッドでないもので 0.08 秒、読み通しは 1.05 秒・0.04 秒。アプリの中(テストホスト)で同じソリッドの本の
+    下調べを測ると、以前の形(全ページに `pageSize(at:)`)79.8 秒、読み通し(`PageLoader.startRarScanIfNeeded`)2.1 秒。読み通しは
+    専用の reader で FileIO の上で、寸法は分かった順に actor へ渡し、`scanPage(at:)` は届くのを待つ。テスト
+    `rarWholeBookScanMatchesPageSizes`(4 つの rar のフィクスチャで、1 ページずつ求めた寸法・エントリ全体から求めた寸法と同じ)。
+  - A6: 拡大用(`highResolutionImage`)・原寸大(`actualSizeImage`)を `decodedPixelsWithoutSlot`(表示用と同じバッファ経由。
+    同時実行数の枠は今までどおり取らない)で作る。テスト `highResolutionImagesComeFromPixelBuffers`(寸法と色は ImageIO で直に
+    読んだものと同じ)。**実機での footprint の比較はしていない**(ピンチ拡大の操作を自動で行えない)。根拠は `PagePixelBuffer` の
+    型コメントの実測(表示中の 3 倍 → 1 倍)と同じ仕組み。
+  - テスト 1947 件すべて成功(手元、署名あり)。

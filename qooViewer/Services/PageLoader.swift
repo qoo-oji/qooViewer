@@ -132,6 +132,10 @@ actor PageLoader {
     private var isWholeBookScanActive = false
     /// 下調べ専用のreader(ルートが7zの本だけ。scanReaderIfAvailable参照)。下調べの間だけ持つ。
     private var scanReader: ArchiveReading?
+    /// ルートが rar の本の下調べの読み通し(`startRarScanIfNeeded`)が走っている間 true。
+    private var isRarScanRunning = false
+    /// 読み通しを止める旗(下調べの終わり・本を閉じたとき)。
+    private var rarScanCancellation: Cancellation?
     /// loadPersistedPageSizesで寸法が1つでも戻ってきたか(=この本の下調べは初回ではない)。
     /// 初回の下調べだけは、寸法が既に分かっているページも読む(scanPage参照)。
     private var hadPersistedPageSizes = false
@@ -346,6 +350,7 @@ actor PageLoader {
         pdfDocuments.removeAll()
         inMemoryPDFKeys.removeAll()
         scanReader = nil
+        rarScanCancellation?.request()
         headerInfoCache.removeAll()
         // 下調べが途中だった場合でも、ここまでに分かった寸法は次回のために書き戻しておく。
         Task { await self.persistPageSizesIfNeeded() }
@@ -759,12 +764,158 @@ actor PageLoader {
     /// 終わったら(途中でやめる場合も)endWholeBookScan()を呼ぶこと。
     func beginWholeBookScan() {
         isWholeBookScanActive = true
+        startRarScanIfNeeded()
     }
 
-    /// 下調べ専用のreaderを手放す(辞書ぶんのメモリが戻る)。
+    /// 下調べ専用のreaderを手放す(辞書ぶんのメモリが戻る)。rar の読み通しが走っていれば止める。
     func endWholeBookScan() {
         isWholeBookScanActive = false
         scanReader = nil
+        rarScanCancellation?.request()
+    }
+
+    // MARK: rar の本の下調べ(2026-10-05 の効率の監査 A1)
+
+    /// **ルートが rar の本は、寸法の分からないページの寸法を、書庫を書庫順に 1 回だけ読み通して集める**。
+    ///
+    /// rar には「エントリの先頭だけを伸長する」口が無く(`ArchiveReading.dataPrefix` の既定 = エントリ全体)、unrar の 1 件ずつの
+    /// 取り出しは毎回書庫を開き直して見出しを先頭から辿る。ソリッドの rar では読み飛ばすエントリも伸長するので、下調べがページごとに
+    /// `pageSize(at:)` を呼ぶと、本全体で書庫の大きさの 2 乗の伸長になり、その間 PageLoader の actor を握ってページ送りを待たせた
+    /// (2026-10-05 の実測: 合成した 80 ページ・163MB のソリッドの cbr で、1 件ずつの取り出し 42.1 秒、読み通し 1.05 秒。ソリッドでない
+    /// cbr では 0.08 秒と 0.04 秒)。展開(`ArchiveExtractor`)が 2026-09-14 に `readEntriesInArchiveOrder` へ移ったのと同じ理由。
+    ///
+    /// - 読み通しは専用の reader で、FileIO の上で(actor を握らない。表示用の reader の位置も動かさない)。
+    /// - 寸法は 7z・zip の下調べと同じく先頭 128KB から(足りなければ伸ばし、エントリの終わりで全体から ―― 以前の全体から求めた
+    ///   答えと同じ)。分かった順に actor へ渡す。`scanPage(at:)` は、読み通しの間は寸法が届くのを待つ(1 件ずつ取り出さない)。
+    /// - 同じ名前のエントリが 2 つあれば先のもの(`RarArchiveReader.entryByFileName` と同じ)。入れ子の書庫のページ・読めなかった
+    ///   ページは今までどおり `pageSize(at:)`。
+    private func startRarScanIfNeeded() {
+        guard !isRarScanRunning, !isReleased else { return }
+        var pageIDsByEntry: [String: [String]] = [:]
+        var rootURL: URL?
+        for page in book.pages {
+            guard pageSizeCache[page.id] == nil, case .archive(let locator, let entryPath) = page.source, !locator.isNested,
+                  archiveKind(forFileName: locator.rootURL.lastPathComponent) == .rar
+            else { continue }
+            if rootURL == nil { rootURL = locator.rootURL }
+            guard locator.rootURL == rootURL else { continue }
+            pageIDsByEntry[entryPath, default: []].append(page.id)
+        }
+        guard let rootURL, !pageIDsByEntry.isEmpty else { return }
+        let wanted = Set(pageIDsByEntry.keys)
+        let entries = pageIDsByEntry
+        let cancellation = Cancellation()
+        rarScanCancellation = cancellation
+        isRarScanRunning = true
+        let report: @Sendable ([String: RarPageSize]) -> Void = { [weak self] batch in
+            Task { await self?.noteRarScanSizes(batch, pageIDsByEntry: entries) }
+        }
+        Task { [weak self] in
+            let all = await FileIO.perform(cancellation: cancellation, qos: .utility) {
+                (try? PageLoader.readRarPageSizes(url: rootURL, wanted: wanted, report: report)) ?? [:]
+            }
+            await self?.finishRarScan(all, pageIDsByEntry: entries, cancellation: cancellation)
+        }
+    }
+
+    private func noteRarScanSizes(_ sizes: [String: RarPageSize], pageIDsByEntry: [String: [String]]) {
+        guard !isReleased else { return }
+        for (entryPath, size) in sizes {
+            for pageID in pageIDsByEntry[entryPath] ?? [] {
+                guard let page = book.pages.first(where: { $0.id == pageID }), pageSizeCache[pageID] == nil else { continue }
+                notePageSize((size.width, size.height), for: page)
+            }
+        }
+    }
+
+    /// 読み通しが終わった(止めた・失敗したときも)。途中で渡した分は Task で届くので、届き損ねがないよう全部をもう一度当ててから終える。
+    private func finishRarScan(
+        _ sizes: [String: RarPageSize], pageIDsByEntry: [String: [String]], cancellation: Cancellation
+    ) {
+        noteRarScanSizes(sizes, pageIDsByEntry: pageIDsByEntry)
+        guard rarScanCancellation === cancellation else { return }
+        isRarScanRunning = false
+        rarScanCancellation = nil
+    }
+
+    /// 読み通しが走っていて、このページがその相手なら、寸法が届くまで(読み通しが終わるまで)待つ。届いた寸法を返す。
+    private func waitForRarScan(_ page: PageRef) async -> (width: Int, height: Int)? {
+        guard isRarScanRunning, case .archive(let locator, _) = page.source, !locator.isNested,
+              archiveKind(forFileName: locator.rootURL.lastPathComponent) == .rar
+        else { return nil }
+        while isRarScanRunning, pageSizeCache[page.id] == nil, !isReleased, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return pageSizeCache[page.id]
+    }
+
+    nonisolated struct RarPageSize: Sendable {
+        let width: Int
+        let height: Int
+    }
+
+    /// `url` の rar を書庫順に 1 回だけ読み通し、`wanted` のエントリの寸法を求める(`startRarScanIfNeeded`)。**ブロッキングする**
+    /// (FileIO の上で)。分かった寸法は `report` へ 16 件ずつも渡す。止めるのは `Cancellation`(FileIO の旗)。
+    nonisolated static func readRarPageSizes(
+        url: URL, wanted: Set<String>, report: @escaping @Sendable ([String: RarPageSize]) -> Void
+    ) throws -> [String: RarPageSize] {
+        final class State {
+            var sizes: [String: RarPageSize] = [:]
+            var batch: [String: RarPageSize] = [:]
+            var seen = Set<String>()
+            /// 読んでいる途中のエントリ(寸法がまだ分からないもの)。
+            var pending: (path: String, buffer: Data)?
+            var nextProbe = 0
+
+            func record(_ path: String, _ size: (width: Int, height: Int), report: ([String: RarPageSize]) -> Void) {
+                let value = RarPageSize(width: size.width, height: size.height)
+                sizes[path] = value
+                batch[path] = value
+                if batch.count >= 16 {
+                    report(batch)
+                    batch = [:]
+                }
+            }
+
+            /// 前のエントリを読み終えた: まだ分かっていなければ全体から求める。
+            func finishPending(report: ([String: RarPageSize]) -> Void) {
+                guard let pending else { return }
+                self.pending = nil
+                if let size = ImageDecoder.pixelSize(of: pending.buffer) { record(pending.path, size, report: report) }
+            }
+        }
+        let state = State()
+        let reader = try makeArchiveReader(kind: .rar, url: url)
+        do {
+            try reader.readEntriesInArchiveOrder { path in
+                state.finishPending(report: report)
+                if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
+                guard wanted.contains(path), state.seen.insert(path).inserted else { return nil }
+                state.pending = (path, Data())
+                state.nextProbe = headerProbeByteCount
+                return { chunk in
+                    if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
+                    guard var pending = state.pending else { return }
+                    state.pending = nil
+                    pending.buffer.append(chunk)
+                    if pending.buffer.count >= state.nextProbe {
+                        if let size = ImageDecoder.pixelSize(of: pending.buffer) {
+                            // 分かった。残りのチャンクは捨てる(`pending` を空にしておく)。
+                            state.record(pending.path, size, report: report)
+                            return
+                        }
+                        state.nextProbe = pending.buffer.count * 2
+                    }
+                    state.pending = pending
+                }
+            }
+            state.finishPending(report: report)
+        } catch {
+            // 途中まで分かった寸法は使う(止めた・壊れた書庫。残りのページは `pageSize(at:)`)。
+            state.finishPending(report: report)
+        }
+        if !state.batch.isEmpty { report(state.batch) }
+        return state.sizes
     }
 
     /// 下調べ用: pageSize(at:)と同じ寸法を返すが、**ルートが7zの本**では表示用とは別の専用reader
@@ -806,6 +957,8 @@ actor PageLoader {
               let reader = scanReaderIfAvailable(for: locator)
         else {
             if let cachedSize { return cachedSize }
+            // ルートが rar の本は、読み通しから寸法が届くのを待つ(1 件ずつ取り出さない。`startRarScanIfNeeded`)。
+            if let size = await waitForRarScan(page) { return size }
             return await pageSize(at: index)
         }
 
@@ -1037,12 +1190,13 @@ actor PageLoader {
                   let displayScale = pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.pageMaxPixelSize),
                   fullScale > displayScale
             else { return nil }
-            return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+            return await decodedPixelsWithoutSlot(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)?.makeImage()
         }
         guard let size = await pageSize(at: index),
               CGFloat(max(size.width, size.height)) > ImageDecoder.pageMaxPixelSize
         else { return nil }
-        return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+        // 表示用のバッファ経由で(`decodedPixelsWithoutSlot` のコメント。原寸大のウインドウは 1 枚あたり数百 MB になりうる)。
+        return await decodedPixelsWithoutSlot(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)?.makeImage()
     }
 
     /// 拡大して見るとき(拡大鏡=ルーペ、およびピンチイン・ピンチアウトによる拡大)向け:
@@ -1065,7 +1219,10 @@ actor PageLoader {
         if await highResolutionMatchesPageImage(at: index) {
             return await pageImage(at: index)
         }
-        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
+        // 表示用のバッファ経由で(`decodedPixelsWithoutSlot` のコメント)。
+        return await decodedPixelsWithoutSlot(
+            for: book.pages[index].source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize
+        )?.makeImage()
     }
 
     /// highResolutionImage(at:)の結果がpageImage(at:)と同じ寸法になるか(同メソッドのコメント参照)。
@@ -1274,7 +1431,15 @@ actor PageLoader {
             }
         }
         guard !Task.isCancelled else { return nil }
+        return await decodedPixelsWithoutSlot(for: source, maxPixelSize: maxPixelSize)
+    }
 
+    /// `decodedPixels` の中身(同時実行数の枠を取らない)。拡大用・原寸大の画像(`highResolutionImage` / `actualSizeImage`)も
+    /// これで作る ―― 以前はそれらだけ ImageIO の CGImage(`decodedImage`)をそのまま渡していて、表示すると CoreAnimation が
+    /// 写しとテクスチャを別に持ち続け、その CGImage が生きている間 3 倍のメモリを占めた(`PagePixelBuffer` の型コメントの実測。
+    /// 見開きのピンチ拡大で 1GB 級。2026-10-05 の効率の監査 A6)。出るピクセルは通常の表示と同じ経路のもの。枠を取らないのは
+    /// 以前と同じ(利用者が拡大を始めたときの 1 枚を、先読みの後ろに並ばせない)。
+    private func decodedPixelsWithoutSlot(for source: PageSource, maxPixelSize: CGFloat) async -> PagePixelBuffer? {
         // コントラスト補正が要る場合だけは、補正がCGImageを相手にするため従来どおり
         // CGImage経由(decodedImage)にする。それ以外はCGImageを経由せずバッファへ直接描く:
         // PDFはページ描画を、画像ファイルはデコード結果を、そのままバッファへ落とす
