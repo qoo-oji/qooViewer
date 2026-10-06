@@ -279,10 +279,11 @@ final class RecentFilesStore: ObservableObject {
             return .failure(.volumeNotConnected)
         }
         let bookmark = entry.bookmark
+        let recordedPath = entry.path
         let probe: OpeningProbe
         do {
             probe = try await FileIO.withDeadline(CollectionItemOpenProbe.limit) {
-                await FileIO.perform { Self.probeForOpening(bookmark) }
+                await FileIO.perform { Self.probeForOpening(bookmark, recordedPath: recordedPath) }
             }
         } catch {
             return .failure(.timedOut)
@@ -294,6 +295,8 @@ final class RecentFilesStore: ObservableObject {
             return .failure(.inTrash)
         case .missing:
             return .failure(.missing)
+        case .unreachable:
+            return .failure(.timedOut)
         }
     }
 
@@ -306,16 +309,40 @@ final class RecentFilesStore: ObservableObject {
     private enum OpeningProbe: Sendable {
         case found(URL)
         case inTrash
-        /// 解決できない・実体が無い。
+        /// 解決できない・実体が無い(OS が「無い」と答えた)。
         case missing
+        /// 応答しない・読めない(無いとは言い切れない)。
+        case unreachable
     }
 
     /// **ブロッキングする**(ブックマークの解決とボリュームへの問い合わせ)。FileIO の上で呼ぶ。
-    nonisolated private static func probeForOpening(_ bookmark: Data) -> OpeningProbe {
-        guard let url = resolvedURL(from: bookmark) else { return .missing }
+    nonisolated private static func probeForOpening(_ bookmark: Data, recordedPath: String) -> OpeningProbe {
+        // 「無い」と言うのは、OS がその名前のものは無いと答えたとき(ENOENT / ENOTDIR)と、繋がっていないボリュームのときだけ
+        // (`LastBookPresence`)。以前は解決の失敗も `fileExists` の false も理由を見ずに「無い」とし、マウントが残ったまま
+        // 応答しない共有の本は約 30 秒後に「見つかりません」になって**履歴の行が消えた**(2026-10-06 の応答性の点検 R2-3)。
+        // 応答しない・読めないは「応答しません」(行を残す)。
+        guard let url = resolvedURL(from: bookmark) else {
+            return respondsAsMissing(URL(filePath: recordedPath)) ? .missing : .unreachable
+        }
         if BookLocationResolver.isInTrash(url) { return .inTrash }
-        guard fileExists(at: url) else { return .missing }
+        guard fileExists(at: url) else {
+            return respondsAsMissing(url) ? .missing : .unreachable
+        }
         return .found(url)
+    }
+
+    /// 見つからなかった場所を stat し直して、「無い」と言ってよいか。**応答しない・読めない(ETIMEDOUT・EIO など)だけを「応答しません」に
+    /// する** ―― 無い(ENOENT / ENOTDIR)はもちろん、許可が無い(EPERM / EACCES。サンドボックスはスコープの無いパスの stat を断ることが
+    /// ある)も以前どおり「無い」(行を取り除く。コードレビュー ―― 許可の無さを「応答しません」にすると、消した本の行がいつまでも残る)。
+    nonisolated private static func respondsAsMissing(_ url: URL) -> Bool {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        var info = stat()
+        if stat(url.path, &info) == 0 { return true }
+        switch errno {
+        case ENOENT, ENOTDIR, EPERM, EACCES: return true
+        default: return false
+        }
     }
 
     /// 履歴の項目を開けなかった理由(`resolveForOpening(_:)`)。
@@ -414,15 +441,27 @@ final class RecentFilesStore: ObservableObject {
         then body: @escaping @MainActor (URL, AppState.OpenIntent?) -> Void
     ) -> Task<Void, Never> {
         let intent = replacesBook ? appState?.beginOpenIntent() : nil
-        return resolveForOpening(
+        // 確かめの間は窓の札を出す(2026-10-06 の応答性の点検 R2。以前は最長 45 秒、何も出ず、吹き出しは押した瞬間に閉じていた)。
+        // 札の「中止」で打ち切られたら、新しいタブ・ウインドウへ開くものも結果を捨てる(置き換えるものは開く意図で捨てる)。
+        let wait = appState?.beginOpenWait(intent: intent)
+        let task = resolveForOpening(
             entry, locale: appState?.preferences?.effectiveLocale ?? AppLanguage.currentLocale,
             report: appState.map { appState in { appState.postViewerNotice($0) } },
             stillWanted: { [weak appState] in
+                // 窓が閉じた(appState が無い)ときは打ち切らない ―― 新しいタブ・ウインドウへ開く頼みは、頼んだ窓が無くても開く。
+                if let wait, appState?.isOpenWaitCancelled(wait) == true { return false }
                 guard let intent else { return true }
                 return appState?.isStillWanted(intent) == true
             },
             then: { url in body(url, intent) }
         )
+        if let appState, let wait {
+            Task { @MainActor [weak appState] in
+                await task.value
+                appState?.endOpenWait(wait)
+            }
+        }
+        return task
     }
 
     /// セキュリティスコープを開いたうえで実体の有無を確認する。

@@ -257,10 +257,23 @@ struct FileBrowserProgressBar: View {
                 Divider()
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(activity.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        HStack(spacing: 6) {
+                            Text(activity.title)
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            // 後ろに並んでいる操作(2026-10-06 の応答性の点検 R6-1)。
+                            if operations.queuedOperationCount > 0 {
+                                Text(String(
+                                    format: String(localized: "%lld more waiting", language: locale),
+                                    operations.queuedOperationCount
+                                ))
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                            }
+                        }
                         if let fraction = activity.progress.fraction {
                             ProgressView(value: fraction)
                                 .progressViewStyle(.linear)

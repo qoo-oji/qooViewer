@@ -379,10 +379,28 @@ final class CollectionCoverExtractor: ObservableObject {
     // MARK: - 待ち行列
 
     /// 抽出を予約する。既に並んでいる/抽出中のものは無視する。
-    func enqueue(_ items: [CollectionItem]) {
+    ///
+    /// - Parameter atFront: 列の先頭へ入れる(既に並んでいれば先頭へ移す)。利用者が表紙を選び直した本(`handleLayoutChange`)は、
+    ///   大量の登録・保存データの読み込みの直後でも列の末尾で数分〜数十分待たせない(2026-10-06 の応答性の点検 R6-5。以前は
+    ///   今の表紙を下地へ戻したまま末尾に並び、既に並んでいた本も前へ出なかった)。
+    func enqueue(_ items: [CollectionItem], atFront: Bool = false) {
         // ライブラリ機能がOFFの間は積まない(本は`.pending`のまま残り、ONへ戻ったときのrefill()が拾う)。
         guard isLibraryFeatureEnabled else { return }
         var didAppend = false
+        if atFront {
+            var front: [UUID] = []
+            for item in items where !inFlightItemIDs.contains(item.id) && !resolvingItemIDs.contains(item.id) {
+                guard !front.contains(item.id) else { continue }
+                front.append(item.id)
+            }
+            guard !front.isEmpty else { return }
+            let moving = Set(front)
+            queue.removeAll { moving.contains($0) }
+            queue.insert(contentsOf: front, at: 0)
+            queuedIDs.formUnion(front)
+            startIfNeeded()
+            return
+        }
         for item in items where !queuedIDs.contains(item.id) && !inFlightItemIDs.contains(item.id)
             && !resolvingItemIDs.contains(item.id) {
             queue.append(item.id)
@@ -477,9 +495,10 @@ final class CollectionCoverExtractor: ObservableObject {
                 // 取り消された(`cancelAll()`で世代が進んだ)抽出は、後始末に触らない。
                 guard extractor.runGeneration == generation else { break }
                 // 抽出中に作り直しを頼まれていたら、もう一度積む(redoAfterExtractionのコメント)。
+                // 作り直しは利用者が選び直した本なので、列の先頭へ(R6-5。以前は末尾へ積み直し、列が長いと待たせた)。
                 if extractor.redoAfterExtraction.remove(itemID) != nil,
                    !extractor.queuedIDs.contains(itemID) {
-                    extractor.queue.append(itemID)
+                    extractor.queue.insert(itemID, at: 0)
                     extractor.queuedIDs.insert(itemID)
                 }
                 // OFF の間に変わった本の作り直しの控え(isLibraryFeatureEnabled のコメント)。積み直したぶんは、それが終わってから。
@@ -625,12 +644,15 @@ final class CollectionCoverExtractor: ObservableObject {
     // MARK: - やり直しの契機
 
     /// レイアウトの変更通知。カバーに関わる値が実際に変わっている本だけをやり直す。
-    private func handleLayoutChange(bookID: String?) {
+    ///
+    /// - Parameter prioritizes: 作り直す本を列の先頭へ入れる(本を名指しした知らせ ―― 利用者が表紙を選び直した)。bookID の無い知らせ
+    ///   (レイアウトの読み込み・全削除・付け替え)の本は末尾へ(大量の本が先頭へ逆順に割り込まないように。コードレビュー)。
+    private func handleLayoutChange(bookID: String?, prioritizes: Bool = true) {
         // bookID の無い知らせ(レイアウトの全削除・付け替え・読み込み)では、控えのある本を全部比べる(2026-09-22 の監査。以前は
         // 捨てていて、表紙の指定を全部消しても棚の表紙が古いままだった)。比べるのは DB の値だけで、ファイルには触らない。
         guard let bookID else {
             for id in signatures.keys.sorted() where signatures[id] != signature(forBookID: id) {
-                handleLayoutChange(bookID: id)
+                handleLayoutChange(bookID: id, prioritizes: false)
             }
             return
         }
@@ -656,7 +678,8 @@ final class CollectionCoverExtractor: ObservableObject {
         for item in items where inFlightItemIDs.contains(item.id) || resolvingItemIDs.contains(item.id) {
             redoAfterExtraction.insert(item.id)
         }
-        enqueue(items)
+        // 利用者が選び直した本は列の先頭へ(`enqueue` の atFront)。
+        enqueue(items, atFront: prioritizes)
     }
 
     /// 撤去した環境設定「並び順をFinderに揃える」を**OFFで使っていた人**の表紙を、起動時に一度だけ

@@ -101,6 +101,11 @@ nonisolated enum ShelfFolderResolver {
               isDirectory.boolValue,
               let listing = try? DirectoryBrowser.listing(in: url, sort: order.sort)
         else { return .neither }
+        return role(of: listing)
+    }
+
+    /// 読み終えた一覧から立ち位置を決める(同じフォルダを何度も読まないための版。`DroppedBooks`。2026-10-06 の応答性の点検 R2-6)。
+    static func role(of listing: DirectoryBrowser.Listing) -> FolderRole {
         if isSingleBook(listing) { return .book }
         // 規則3: 直下に本のファイルがあるフォルダが棚。
         guard listing.entries.contains(where: { !$0.isDirectory }) else { return .neither }

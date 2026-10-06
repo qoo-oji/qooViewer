@@ -149,12 +149,14 @@ final class FolderChangeWatcher {
         // メインアクターにいるうちに読み取っておく(下は外で走る)。
         let latency = Self.latency
 
-        let created = await Task.detached(priority: .utility) {
+        // ストリームの生成は応答しない共有の上のパスで約 30 秒ブロックする(qooLibrary の実測)ので FileIO の上で(2026-10-06 の応答性の
+        // 点検 R7。以前は `Task.detached` で、協調スレッドプールのスレッドを塞いだ)。
+        let created = await FileIO.perform(qos: .utility) {
             makeFolderChangeStream(
                 roots: requested, sinceWhen: sinceWhen, latency: latency,
                 queue: queue, reportsPaths: reportsPaths, onChange: handle
             )
-        }.value
+        }
 
         // 待っている間にパスがまた変わっていたら、作ったものは捨てる
         // (30秒前の顔ぶれを見張るストリームを据えない)。

@@ -236,6 +236,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         var isLoadingChildren = false
         /// 読んでいる最中に読み直しを頼まれた(読み終えたら 1 回だけ読み直す)。
         var needsReloadAfterLoad = false
+        /// 子を読む時間が長いので、行に回転表示を出している(`showBusyIfStillLoading`)。
+        var showsBusy = false
         /// 読み込んだときの一覧の行(フォルダの行だけ)。子の並べ替えに使う(型コメント「子の並び」)。
         var listing: FileBrowserEntry?
 
@@ -939,6 +941,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // 続く間ずっと結果を捨て続ける)。
             let mine = node.loadGeneration
             let includesHidden = self.includesHidden
+            // 読み終えるのが遅ければ、行に回転表示を出す(R5-2。`DelayedProgressIndicator` と同じく、ちらつかないよう少し待つ)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak node] in
+                guard let self, let node, node.isLoadingChildren, node.loadGeneration == mine, !node.showsBusy else { return }
+                node.showsBusy = true
+                self.applyBusy(of: node)
+            }
             node.childrenTask = Task { [weak self, weak node] in
                 let folders: [(FileBrowserEntry, Bool?)]
                 do {
@@ -955,6 +963,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 }
                 guard let self, let node else { return }
                 node.isLoadingChildren = false
+                if node.showsBusy {
+                    node.showsBusy = false
+                    self.applyBusy(of: node)
+                }
                 defer {
                     // 読んでいる間に頼まれた読み直し(またはたたんで開き直した行)を、ここで 1 回だけ。
                     if node.needsReloadAfterLoad, let outline = self.outline, outline.isItemExpanded(node) {
@@ -993,6 +1005,14 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。
                 self.scheduleWatchUpdate()
             }
+        }
+
+        /// 行の回転表示を、見えているセルへ当てる(見えていなければ、次に作るセルが `viewFor` で当てる)。
+        private func applyBusy(of node: Node) {
+            guard let outline else { return }
+            let row = outline.row(forItem: node)
+            guard row >= 0, let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileBrowserCellView else { return }
+            cell.setBusy(node.showsBusy)
         }
 
         // MARK: データ
@@ -1090,6 +1110,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 cell.configure(text: node.name, outlineWidth: outlineWidth)
             }
             cell.alphaValue = isDimmed(node) ? 0.5 : 1
+            cell.setBusy(node.showsBusy)
             return cell
         }
 

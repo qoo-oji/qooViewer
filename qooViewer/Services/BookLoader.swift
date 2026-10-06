@@ -6,7 +6,7 @@ import CoreGraphics
 /// フォルダの再帰スキャンやアーカイブの展開はファイルの数によっては時間がかかることがある。
 /// 以前はAppState(MainActor)から同期的に直接呼んでいたため、その間メインスレッドが
 /// 完全にブロックされ、操作不能な状態(レインボーカーソル)になってしまっていた。
-/// そのため実際の読み込み処理はTask.detachedでメインスレッド外に逃がし、`load`自体は
+/// そのため実際の読み込み処理はメインスレッド外(FileIO の上。2026-10-06 までは Task.detached)に逃がし、`load`自体は
 /// async化して呼び出し側(AppState)がawaitで待てるようにしている。
 /// nonisolated: Xcode 26既定のMainActor自動分離の対象外にして、どのコンテキストからでも
 /// 呼べるようにしている(詳細はArchiveReading.swift冒頭のコメント参照)。
@@ -37,24 +37,18 @@ nonisolated enum BookLoader {
         }
 
         let limits = NestedArchiveResolver.Limits.standard(inMemoryBytes: nestedArchiveMemoryLimitBytes)
-        let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
+        // 走査はブロッキングする I/O なので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。2026-10-06 の応答性の点検
+        // R7 ―― 以前は `Task.detached` で、応答しない共有の本を開くと協調スレッドプールのスレッドを 1 本塞いだ。プールが尽きると
+        // 無関係な Task まで止まり、読み込み中の札の時限(`Task.sleep`)も発火しなくなる)。呼び出し側の Task(AppState.openTask)の
+        // 中止は FileIO が中の `Cancellation` へ橋渡しし、走査は区切りごとに `checkLoadCancellation()` で見る(以前の `Task.detached` は
+        // 中止を継承しないので、手で中へ伝えていた)。
+        let book = try await FileIO.perform {
             try loadSync(from: url, limits: limits, onProgress: onProgress)
         }
-        // Task.detachedはキャンセルを**継承しない**(Swiftの仕様。PageLoader.
-        // cancellableInFlightKeysのコメントに同じ落とし穴の記録がある)。呼び出し側の
-        // Task(AppState.openTask)が中止されたことを、ここで手動で中へ伝える。
-        // これが無いと、ユーザーが「中止」を押しても巨大な入れ子本の走査が最後まで走り切る。
-        let book = try await withTaskCancellationHandler {
-            try await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        // 中止が**間に合わなかった**場合も、結果は返さず中止として扱う。上のTask.detachedは
-        // 生成した瞬間に別のスレッドで走り出すので、小さな本ならこちらがハンドラを据える前に
-        // 読み終わりうる(呼び出し側のTaskが先に中止されていると、据えた時点で中の中止が
-        // 呼ばれるが、もう止めるものが無い)。中止した読み込みが本を返すと、呼び出し側は
-        // 「中止したのに開いた」形になる。CIの並行実行で実際に踏んだ(BookLoaderBehaviorTests
-        // の中止のテストが、走査が走り切って本を返してしまい落ちた。2026-09-09)。
+        // 中止が**間に合わなかった**場合も、結果は返さず中止として扱う。走査は投入した瞬間に別のスレッドで走り出すので、
+        // 小さな本なら中止が届く前に読み終わりうる。中止した読み込みが本を返すと、呼び出し側は「中止したのに開いた」形になる。
+        // CIの並行実行で実際に踏んだ(BookLoaderBehaviorTests の中止のテストが、走査が走り切って本を返してしまい落ちた。
+        // 2026-09-09。当時は Task.detached)。
         try Task.checkCancellation()
         guard cachesPageList else { return book }
         // 読み込みに成功したページ一覧は、ここで一括してキャッシュへ書き戻す。
@@ -76,10 +70,18 @@ nonisolated enum BookLoader {
         // 呼び出し側のアクタ ―― 本を開く経路ではメイン ―― で走るので、以前はページ数ぶんの処理と stat がメインに乗っていた。
         let bookID = book.id
         Task.detached(priority: .utility) {
-            let entry = structureCacheEntry(for: book)
+            // 指紋の stat を含むので FileIO の上で(R7)。
+            let entry = await FileIO.perform(qos: .utility) { structureCacheEntry(for: book) }
             await BookPageListCache.shared.store(entry, forBookID: bookID)
         }
         return book
+    }
+
+    /// 走査の区切りごとの中止の確かめ。FileIO の上(`load` の走査)では呼び出し側から橋渡しした旗を、外では `Task.isCancelled` を見る
+    /// (`Cancellation.isRequestedInCurrentScope`。FileIO の借りたスレッドには Task の文脈が無く、`Task.checkCancellation()` は
+    /// 常に通ってしまう ―― 2026-10-06 の応答性の点検 R7 で走査を FileIO へ移したため)。
+    static func checkLoadCancellation() throws {
+        if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
     }
 
     /// 1回の読み込みのあいだだけ共有する道具一式。
@@ -163,8 +165,9 @@ nonisolated enum BookLoader {
               !entry.pages.isEmpty
         else { return nil }
         // 保存時に指紋が取れていなかった場合(nil)は照合しようがないので使わない。
+        // 指紋の stat は FileIO の上で(応答しない共有で協調スレッドを塞がない。R7)。
         guard let saved = entry.fingerprint,
-              let current = BookPageListCache.Entry.Fingerprint.current(for: url),
+              let current = await FileIO.perform(qos: .userInitiated, { BookPageListCache.Entry.Fingerprint.current(for: url) }),
               saved == current
         else { return nil }
 
@@ -316,7 +319,7 @@ nonisolated enum BookLoader {
             if isImageFile(name) {
                 pages.append(PageRef(id: fileURL.path, sortKey: fileURL.path, source: .file(fileURL)))
             } else if isArchiveFile(name) {
-                try Task.checkCancellation()
+                try checkLoadCancellation()
                 context.progress.didDiscoverArchive()
                 // 開けない・壊れている書庫は読み飛ばす(その書庫のページが無いだけで本は開く)。
                 // ただし**中止(CancellationError)だけは飲み込まずに投げ直す** ―― 以前は
@@ -339,7 +342,7 @@ nonisolated enum BookLoader {
                 }
                 pages.append(contentsOf: nestedPages)
             } else if isPDFFile(name) {
-                try Task.checkCancellation()
+                try checkLoadCancellation()
                 // 開けないPDFは読み飛ばす(書庫と同じ扱い。そのぶんのページが無いだけ)。
                 pages.append(contentsOf: pdfPages(
                     of: openPDFDocument(at: fileURL),
@@ -348,7 +351,7 @@ nonisolated enum BookLoader {
                     sortKeyPrefix: fileURL.path
                 ))
             } else if isEpubFile(name) {
-                try Task.checkCancellation()
+                try checkLoadCancellation()
                 context.progress.didDiscoverArchive()
                 // EPUBはzipコンテナなので、ディスク上のファイルをそのまま開ける
                 // (フォルダの中の書庫と同じく取り出しは要らない)。固定レイアウトの
@@ -433,7 +436,7 @@ nonisolated enum BookLoader {
         context: LoadContext
     ) throws -> [PageRef] {
         guard locator.depth <= maxNestedArchiveDepth else { return [] }
-        try Task.checkCancellation()
+        try checkLoadCancellation()
 
         let allPaths = try archive.reader.listFilePaths()
         context.progress.didFinishArchive(named: locator.archiveFileName)
@@ -484,7 +487,7 @@ nonisolated enum BookLoader {
                 // ページ数を数えるだけでもPDF全体のバイト列が要るため、入れ子の書庫と同じく
                 // 「取り出す→数える→捨てる」を1回だけ行う(CGPDFDocumentはここでは持ち帰らず、
                 // 実際に読むときにPageLoaderが自分で開き直す)。
-                try Task.checkCancellation()
+                try checkLoadCancellation()
                 context.progress.didDiscoverArchive()
                 let document = Self.pdfDocument(atEntry: path, in: archive.reader)
                 context.progress.didFinishArchive(named: (path as NSString).lastPathComponent)
@@ -498,7 +501,7 @@ nonisolated enum BookLoader {
                 // 書庫の中のEPUB。EPUB自体がzipコンテナなので、取り出し方は入れ子の書庫と
                 // 全く同じ(archiveKind(forFileName:)がepubをzipとして返す)。違うのは
                 // 中の並べ方だけで、spineが決めた順にページを組み立てる。
-                try Task.checkCancellation()
+                try checkLoadCancellation()
                 context.progress.didDiscoverArchive()
                 do {
                     let nested = locator.appending(path)
@@ -672,10 +675,10 @@ nonisolated enum BookLoader {
     /// 複数枚の本のbookIDは開くたびに変わるランダム値なので、仮に書いても二度とヒットせず
     /// ゴミが増えるだけでもある(キャッシュのキーはSHA256(bookID)のみ)。
     static func load(imageFiles urls: [URL]) async throws -> MangaBook {
-        let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
+        // 実在確認(stat)を含むので FileIO の上で(R7)。
+        try await FileIO.perform {
             try loadImageFilesSync(urls)
         }
-        return try await task.value
     }
 
     private static func loadImageFilesSync(_ urls: [URL]) throws -> MangaBook {

@@ -252,9 +252,9 @@ struct SidePanelLibraryTreeSection: View {
         return { url in BookOpenRequest(url, sequence: sequence) }
     }
 
-    /// 開く直前にブックマークを解決する(メインの外で。`openTracker`)。見つからなければ警告音だけ鳴らす ―― 理由を書き分けた
-    /// アラート(「本が見つかりません」)はウェルカム画面のコレクションの中が持っており、細い
-    /// パネルの行からは淡く描いてあることで伝える。
+    /// 開く直前にブックマークを解決する(メインの外で。`openTracker`)。見つからなければ窓の下に短く知らせる ―― 理由を
+    /// 書き分けたアラート(「本が見つかりません」)はウェルカム画面のコレクションの中が持っている。以前は警告音だけだった
+    /// (2026-10-06 の応答性の点検 R2-5)。
     ///
     /// 待った後は、ライブラリ機能が ON のままか(このツリーはライブラリ機能の一部)と、`stillWanted` があればそれを確かめる
     /// (2026-10-04 の監査 SP-10)。
@@ -263,10 +263,22 @@ struct SidePanelLibraryTreeSection: View {
         perform body: @escaping @MainActor (URL) -> Void
     ) {
         let preferences = preferences
+        let material = CollectionItemOpenProbe.Material(item)
+        let appState = appState
+        // 見つからない・応答しないときは理由を窓の下に出す(2026-10-06 の応答性の点検 R2-5。以前は待った末にビープだけだった)。
         openTracker.resolve(
-            CollectionItemOpenProbe.Material(item),
+            material,
             stillWanted: { preferences.libraryFeatureEnabled && (stillWanted?() ?? true) },
-            onNotFound: { _ in NSSound.beep() },
+            onNotFound: { [weak appState] _ in
+                appState?.postViewerNotice(String(
+                    format: String(localized: "“%@” could not be found.", language: preferences.effectiveLocale), material.title
+                ))
+            },
+            onTimedOut: { [weak appState] in
+                appState?.postViewerNotice(
+                    RecentFilesStore.OpenFailure.timedOut.message(name: material.title, locale: preferences.effectiveLocale)
+                )
+            },
             body
         )
     }

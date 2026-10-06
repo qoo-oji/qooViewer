@@ -88,7 +88,27 @@
    (下記「棚のフォルダ」)。セキュリティスコープは要求どおりフォルダのほうで開いてあるので、
    中のファイルへはそのまま到達できる。
 4. `loadingProgress` を立てて `BookLoader.load(from:)` を待つ。`BookLoadingOverlay` は 400ms
-   待ってから出る(普通の本は一瞬で開くので、無条件に出すと点滅する)。
+   待ってから出る(普通の本は一瞬で開くので、無条件に出すと点滅する)。走査は `FileIO` の上(2026-10-06 まで `Task.detached`。
+   応答しない共有で協調スレッドプールを塞いだ)。中止は FileIO が中の `Cancellation` へ橋渡しし、走査は区切りごとに
+   `BookLoader.checkLoadCancellation()` で見る(借りたスレッドでは `Task.isCancelled` が常に false)。
+
+**開く前の確かめも同じ札で覆う**(2026-10-06 の応答性の点検 R2。[plans/responsiveness-audit-2026-10-06.md](plans/responsiveness-audit-2026-10-06.md))。
+`loadingProgress` が立つ前の待ち ―― 次の本/前の本の探索(`stepToSibling`・`openInSequence`)、ドロップ・「開く…」の下調べ(`open(urls:)`)、
+履歴(`RecentFilesStore.resolveForOpening`・サイドパネルの履歴)・スマートライブラリ(`withResolvedURL`)の確かめ、起動時の前回の本の確かめ ――
+は、`AppState.beginOpenWait(_:intent:)`〜`endOpenWait`(または `waitingToOpen`)で `activeOpenWaits` に印を立て、`ContentView` は
+`loadingProgress ?? (isWaitingToOpen ? 空の進捗 : nil)` を札へ渡す。以前は入口ごとに 0〜45 秒、何も出なかった(回転表示があるのは
+コレクションの本だけだった)。決まり:
+- 印は**次の周回で**下ろす(`endOpenWait`)。確かめの後に `open(request:)` が `loadingProgress` を立てるので、札は途切れず、400ms も
+  測り直さない(以前は確かめの後にさらに 400ms 待ってから出た)。
+- この窓の本を置き換える入口は `OpenIntent` を渡す。**後から別の本が頼まれた(意図が進んだ)ら、待ちの途中でも印を下ろす**
+  (`dropSupersededOpenWaits`)―― 古い確かめの札が後から開いた本の上に残らない。
+- 札の「中止」(`cancelOpen`)は印をすべて下ろし、`openWaitsCancelledThrough` で新しいタブ・ウインドウへ開く確かめの結果も捨てさせる
+  (置き換える入口は開く意図で捨てる)。窓が閉じた(`appState` が無い)ときは打ち切らない ―― 新しいタブで開く頼みは以前どおり開く。
+- 札の文言は `OpenWait.Purpose`: 開く(既定)/場所を確かめるだけ(スマートライブラリの「Finder に表示」「コピー」など。「本を探して
+  います…」)/コレクションへ足す(ホームへのドロップ。「本を追加しています…」)。
+- 札の時限は `DispatchQueue.main.asyncAfter`(`Task.sleep` はプールが塞がると発火しない ―― 待ちが長いのはまさにその場面)。
+- 窓に属さない編集ウインドウ(ブックマーク・レイアウト、メタデータ)は `PendingBookOpens.isShowingWait` で「本を探しています…」を出し、
+  期限切れは理由を出す(以前はビープだけ)。
 5. 成功したら `reconcileBookIDIfMoved(book:)` を `FavoritesStore` / `BookmarkStore` /
    `LayoutStore` / `BookMetadataStore` / `CollectionStore` の5つで呼ぶ(同一ボリューム内の
    移動・リネームに inode で追従。コレクションはファイル名の表示もここで追従する。
@@ -125,7 +145,7 @@
 
 ## BookLoader ―― 形式ごとの分岐
 
-`BookLoader.load(from:progress:)` は `Task.detached` の中で動きます(走査と展開は遅い)。
+`BookLoader.load(from:progress:)` の走査は `FileIO` の上で動きます(走査と展開は遅い。2026-10-06 までは `Task.detached`)。
 
 | 入力 | 処理 | ページ順の由来 |
 |---|---|---|
@@ -374,7 +394,7 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
   **Foundation の `XMLDocument` の XPath は `namespace-uri()` が壊れている**ため、名前空間の
   判定は `uri` / `localName` で行う(実測で確認した Foundation の不具合)。
 - どちらも `MangaBook` 自体は目次やアウトラインを保持しないため、取り込みは
-  `ViewerViewModel.init` から `Task.detached` で読み直す(初回だけ DB へ書くので、2回目以降は
+  `ViewerViewModel.init` から `FileIO` の上で読み直す(2026-10-06 までは `Task.detached`。初回だけ DB へ書くので、2回目以降は
   早期に抜ける)。
 
 ## 隣の本(次の本へ/前の本へ、同じフォルダのファイルを開く)
@@ -408,9 +428,21 @@ cooViewer のスライドショーは手でページを送るのと同じ処理�
 `AppState.sequenceProbeLimit` = 5 秒。2026-09-22 の 2 回目の監査): 1 クリックで 1 冊を確かめる一覧と違い、ここは見つからない本を
 飛ばして残りの候補を順に試すので、以前のようにメインで確かめると「候補の数 × ネットワークの待ち」ぶん止まりえた。期限を過ぎたら
 **先へ進まずに止めて鳴らす**(飛ばすと、眠っていたディスクが起きれば開けた本を黙って越える)。繋がっていないボリューム上の
-パスはマウント表の綴りだけで飛ばす。並びは開いた時点の写しで、一覧の側で後から絞り込みを
+パスはマウント表の綴りだけで飛ばす(期限切れは 2026-10-06 から「次の本のある場所が応答しませんでした」のトースト)。並びは開いた時点の写しで、一覧の側で後から絞り込みを
 変えても開いている本の並びは変わらない。**一覧の外から本を開く(履歴・ファイルブラウザ・ドロップなど)と消え**、本を閉じても
 消える。たどって開いた本では並びを持ったまま位置だけが進む。
+
+**同じフォルダの次の本を探す間・見つからないとき**(2026-10-06 の応答性の点検 R2-1):
+- 探索(`SiblingFinder.step(after:)`。親フォルダを、子フォルダの中まで読む)は FileIO の上で、`siblingProbeLimit`(45 秒)の期限つき。
+  利用者が頼んだ一歩なら札を出す。同じ本から同じ向きの探索が走っている間は重ねない(押すたびに FileIO の糸が増えた)。中止・本を閉じると
+  重ね防止の印も下ろす。
+- 見つからない理由を返す(`SiblingFinder.Step`): 端は**ビープ**、一覧に今の本が無い・フォルダを読めない・期限切れは**理由をトースト**で
+  (以前はどれも黙って何もしなかった)。スライドショーの末尾など頼まれていない一歩は今までどおり黙る。一覧の並び(`openInSequence`)の
+  端もビープ、期限切れはトースト(以前はビープだけ)。
+- 開いたときに作った兄弟の一覧(`siblingBooks`)は使わず、押すたびに読み直す(一覧は今の本を除いて持っていて、作った後にフォルダが
+  変わりうる)。待ちは札で見せる。
+- ドロップ・「開く…」の下調べ(`DroppedBooks`)は、画像が直下にあれば名前だけの列挙で答え、それ以外は一覧を 1 回だけ作って立ち位置
+  (`ShelfFolderResolver.role(of: listing)`)に渡す(以前は同じフォルダを 2〜3 回読んだ)。
 
 **次の本・前の本が開けないとき**(2026-10-04 の監査 O-1・SP-2、決定 2):
 - **画像の本でない EPUB は飛ばして、同じ向きの次を試す**(`open(request:step:)` の `BookStep`)。同じフォルダの兄弟は `SiblingFinder` で、

@@ -11,10 +11,12 @@ struct BookLoaderBehaviorTests {
 
     /// 「中止」を押したときに、走査が最後まで走り切ってしまわないこと。
     ///
-    /// `BookLoader.load` の中身は `Task.detached` で、**キャンセルは継承されない**(Swift の仕様)。
-    /// `withTaskCancellationHandler` で手で伝えているので、そこが外れると中止が効かなくなる。
-    /// 入れ子を辿るあいだ `Task.checkCancellation` を通るフィクスチャ(3 段の入れ子)を、進み具合の
-    /// 通知の中から中止する。
+    /// `BookLoader.load` の走査は `FileIO` の上で走る(2026-10-06 まで `Task.detached`)。借りたスレッドには Task の文脈が無いので、
+    /// 中止は FileIO が中の `Cancellation` へ橋渡しし、走査は `BookLoader.checkLoadCancellation()` で見る。入れ子を辿るあいだそこを
+    /// 通るフィクスチャ(3 段の入れ子)を、進み具合の通知の中から中止する。
+    ///
+    /// このテストは、走査が走り切っても `load` の最後の `Task.checkCancellation()` で CancellationError になるので、橋渡しが外れても
+    /// 通る(2026-10-06 のコードレビュー)。橋渡しそのものは下の `loadCancellationCheckSeesTheFileIOFlag` が見る。
     ///
     /// **時間で待たないこと。** 以前は「進み具合の通知で 0.2 秒眠らせ、100ms 後に中止する」形
     /// だったが、`Thread.sleep` は協調スレッドを塞ぐため、テストが増えて並行実行が混むと
@@ -35,6 +37,20 @@ struct BookLoaderBehaviorTests {
         box.published.signal()
 
         await #expect(throws: CancellationError.self) { try await box.task?.value }
+    }
+
+    @Test("走査の中止の確かめは、FileIO の上では呼び出し側から橋渡しした旗を見る")
+    func loadCancellationCheckSeesTheFileIOFlag() async {
+        let flag = Cancellation()
+        flag.request()
+        let stopped = await FileIO.perform(cancellation: flag) { () -> Bool in
+            (try? BookLoader.checkLoadCancellation()) == nil
+        }
+        #expect(stopped)
+        let unflagged = await FileIO.perform { () -> Bool in
+            (try? BookLoader.checkLoadCancellation()) == nil
+        }
+        #expect(!unflagged)
     }
 
     // MARK: - 進み具合

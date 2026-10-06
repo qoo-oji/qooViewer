@@ -675,7 +675,7 @@ enum LibraryImportExportService {
             )
         }
         if let metadata = file.metadata, policies.metadata != .ignore {
-            applyMetadata(
+            await applyMetadata(
                 metadata, policy: policies.metadata,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 metadataStore: metadataStore, summary: &summary
@@ -694,7 +694,7 @@ enum LibraryImportExportService {
         }
         if let backupStores {
             if let states = file.readingStates, policies.readingStates != .ignore {
-                applyReadingStates(
+                await applyReadingStates(
                     states, policy: policies.readingStates, modelContext: backupStores.modelContext,
                     favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                     summary: &summary
@@ -749,6 +749,19 @@ enum LibraryImportExportService {
         return summary
     }
 
+    /// 件数ぶんのループ(保存データの読み込みの段)で、ときどきメインを譲る(2026-10-06 の応答性の点検 R4-2)。`Task.yield()` ではなく
+    /// 眠る ―― 譲った先がメインキューの同じ汲み出しの中で戻ってくると、入力・描画が挟まらない(`BookMetadataStore.upsertAllInBatches`)。
+    ///
+    /// - Returns: 譲ったか。**譲った後は、段の頭で取った行の控え(識別子の索引・行の辞書)を取り直すこと** ―― 譲っている間にほかの
+    ///   ウインドウが行を消す・作る(本を開いたビューアが読書位置の行を消し直す、など)ので、古い控えのまま使うと消えた行へ書く・
+    ///   同じ本の行を 2 つ作る(コードレビュー)。
+    @discardableResult
+    private static func yieldPeriodically(_ index: Int) async -> Bool {
+        guard index > 0, index.isMultiple(of: 200) else { return false }
+        try? await Task.sleep(for: .milliseconds(1))
+        return true
+    }
+
     /// 書き出した形(欄の `rawValue` → 値)を、ストアの形へ。知らない欄は捨てる。
     private static func decodePins(_ pins: [String: [SmartFacetValue]]) -> [SmartFacetField: [SmartFacetValue]] {
         var result: [SmartFacetField: [SmartFacetValue]] = [:]
@@ -770,12 +783,21 @@ enum LibraryImportExportService {
         _ entries: [ExportedBookReadingState], policy: ImportPolicy, modelContext: ModelContext,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         summary: inout ImportSummary
-    ) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        var byBookID = Dictionary(existing.map { ($0.bookID, $0) }, uniquingKeysWith: { first, _ in first })
-        // この段は読書位置の行しか書かないので、識別子の索引を 1 度だけ作って使う(FileNodeIndexes)。
-        let indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
-        for entry in entries {
+    ) async {
+        func fetchByBookID() -> [String: BookReadingState] {
+            let existing = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+            return Dictionary(existing.map { ($0.bookID, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        var byBookID = fetchByBookID()
+        // この段は読書位置の行しか書かないので、識別子の索引を作って使う(FileNodeIndexes)。メインを譲った後は取り直す(yieldPeriodically)。
+        var indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+        for (index, entry) in entries.enumerated() {
+            if await yieldPeriodically(index) {
+                // 譲っている間の書き込みを残すため、ここまでの分を保存してから取り直す。
+                try? modelContext.save()
+                byBookID = fetchByBookID()
+                indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+            }
             // 他のカテゴリと同じく、ファイルノード識別子での照合を優先する(別の端末・移動後で
             // パスが変わっていても引き継げる)。
             let resolvedURL = resolveURL(
@@ -831,20 +853,33 @@ enum LibraryImportExportService {
     ///
     /// - overwrite: ファイルの内容で既存の登録を置き換える。
     /// - merge: まだ登録が無い本にだけ追加する(既存の登録は一切変更しない)。
+    ///
+    /// ■ メインを長く止めない(2026-10-06 の応答性の点検 R4-2)
+    /// 以前は 1 件ごとの場所の照合と、行ごとのブックマークの作成・識別子の stat(`upsertAll` の `sourceURL`)を、await を挟まずに
+    /// メインで回していた。メタデータ生成が作った行はブックマークを持たないので、同じ Mac への復元でも行の数だけ作り、実在する本
+    /// 5000 件で 8.6 秒止まった(実測。読み込み中の回転表示も止まる)。いまは照合を区切ってメインを譲り(`yieldPeriodically`)、書き込みも
+    /// 区切り(`upsertAllInBatches`)、手がかり(ブックマークと識別子)は FileIO の上でまとめて作ってから入れる(`fillLocators` ――
+    /// メタデータの編集ウインドウの一括の操作と同じ)。
     private static func applyMetadata(
         _ entries: [ExportedBookMetadataEntry], policy: ImportPolicy,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         metadataStore: BookMetadataStore, summary: inout ImportSummary
-    ) {
+    ) async {
         // 1件ずつupsertせず、まとめてupsertAllへ渡す。1件ごとにsave()と変更通知が出ると、
         // 通知を購読しているウインドウのreload()が件数ぶん走り、件数の二乗に比例した
         // ディスクI/Oになる(BookMetadataStore.upsertAll(_:)のコメント参照)。
         var batch: [BookMetadataStore.BatchEntry] = []
         batch.reserveCapacity(entries.count)
         var sourceImported = Set<String>()
-        // 書き込みはループの後の upsertAll だけなので、識別子の索引を 1 度だけ作って使う(FileNodeIndexes)。
-        let indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
-        for entry in entries {
+        // 書き込みはループの後の upsertAll だけなので、識別子の索引を作って使う(FileNodeIndexes)。メインを譲った後は取り直す
+        // (yieldPeriodically)。
+        var indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+        // 手がかりを後から作る本(bookID → 見つかった場所)。
+        var locatorTargets: [String: URL] = [:]
+        for (index, entry) in entries.enumerated() {
+            if await yieldPeriodically(index) {
+                indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+            }
             // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
             // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。
             let resolvedURL = resolveURL(
@@ -859,14 +894,30 @@ enum LibraryImportExportService {
             if policy == .merge, let existing = metadataStore.metadata(forBookID: bookID), !existing.isParsedOnly { continue }
             // 書き出した版の欄の版のまま入れる。版の無い以前のファイル(formatVersion 4 以前・qooMeta の書き出し)の行は、
             // qooMeta の欄が無ければ以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる。importedFieldsVersion)。
-            batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,
+            batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: nil,
                                                       fieldsVersion: entry.importedFieldsVersion,
                                                       state: entry.importedState))
+            if let resolvedURL { locatorTargets[bookID] = resolvedURL }
             if entry.importedSourceMetadata == true { sourceImported.insert(bookID) }
         }
-        summary.metadataImportedBooks += metadataStore.upsertAll(batch)
-        // ファイルの書誌を取り込み済みの印(行の値とは別に持つので、upsertAll の後で立てる)。
-        metadataStore.markSourceMetadataImported(sourceImported)
+        // 「足す」は、照合の間(メインを譲っている間)に利用者が手を入れた行を変えない ―― 書く直前に確かめ直す(コードレビュー)。
+        if policy == .merge {
+            batch.removeAll { metadataStore.metadata(forBookID: $0.bookID).map { !$0.isParsedOnly } ?? false }
+        }
+        // ファイルの書誌を取り込み済みの印(行の値とは別に持つので、書いた後で立てる)は、区切りごとに立てる ―― 最後にまとめて立てると、
+        // 区切りの間にその本を開いたとき、ファイルの書誌を取り込み直してしまう(コードレビュー)。
+        summary.metadataImportedBooks += await metadataStore.upsertAllInBatches(batch) { written in
+            metadataStore.markSourceMetadataImported(Set(written.map(\.bookID)).intersection(sourceImported))
+        }
+        // 手がかりはファイルに触るので FileIO の上でまとめて作る(上の型コメント)。書いた行のうち、まだ無いものにだけ入る。
+        let written = Set(batch.map(\.bookID))
+        let targets = locatorTargets.filter { written.contains($0.key) }
+        if !targets.isEmpty {
+            let locators = await FileIO.perform(qos: .utility) {
+                targets.mapValues { BookMetadataStore.makeLocator(for: $0) }
+            }
+            metadataStore.fillLocators(locators)
+        }
 
     }
 

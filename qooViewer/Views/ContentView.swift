@@ -1093,7 +1093,11 @@ struct ContentView: View {
             // (確かめを待っているものも)を捨てさせず、何か頼まれたらこちらが降りる(AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
             let intent = appState.openIntentWithoutClaiming()
             Task { @MainActor in
-                let url = await resolveLastActiveBookURLIfUnchanged(bookmarkData: bookmarkData)
+                // 確かめの間(最長 2 秒)も読み込み中の札を出す(地だけが続かないように。2026-10-06 の応答性の点検 R2-8)。札の「中止」は
+                // 開く意図を進めるので、下の照合で降りてホームを出す。
+                let url = await appState.waitingToOpen(intent: intent) {
+                    await resolveLastActiveBookURLIfUnchanged(bookmarkData: bookmarkData)
+                }
                 guard let url, appState.currentBook == nil, appState.loadingProgress == nil, appState.isStillWanted(intent) else {
                     if appState.loadingProgress == nil, appState.currentBook == nil { awaitsInitialBook = false }
                     return
@@ -1404,7 +1408,11 @@ struct ContentView: View {
         // 読み込み中の進捗と中止(BookLoadingOverlay参照)。サイドパネルの上には
         // 被せたくないので、HStackの外ではなくこのGroupに重ねる。
         .overlay {
-            BookLoadingOverlay(progress: appState.loadingProgress) {
+            // 開く前の確かめの間も同じ札を出す(AppState.activeOpenWaits。2026-10-06 の応答性の点検 R2)。
+            BookLoadingOverlay(
+                progress: appState.loadingProgress ?? (appState.isWaitingToOpen ? BookLoadProgress() : nil),
+                purpose: appState.loadingProgress == nil ? appState.openWaitPurpose : nil
+            ) {
                 appState.cancelOpen()
             }
         }

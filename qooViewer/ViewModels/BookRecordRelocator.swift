@@ -92,9 +92,10 @@ final class BookRecordRelocator {
 
     /// 付け替えの計画を作る(手がかりの取り直しはファイルに触るので、メインアクターの外で)。
     private static func makePlan(knownBookIDs: Set<String>, change: FileSystemChange) async -> BookRelocationPlan {
-        await Task.detached(priority: .utility) {
+        // 手がかりの取り直しはボリュームに触るので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached`)。
+        await FileIO.perform(qos: .utility) {
             BookRelocationPlan.make(knownBookIDs: knownBookIDs, change: change)
-        }.value
+        }
     }
 
     /// テスト用: 計画を作り終えた直後(ストアへ当てる前)に呼ぶ。計画を作っている間にほかの画面が古い bookID へ書いた、を

@@ -119,7 +119,12 @@ final class BookContentsBrowserState: ObservableObject {
             // 常にルート階層のみ(踏み込めない)ため、そもそもここへ来ない。
             return nil
         case .folder(let url):
-            return DirectoryBrowser.displayName(for: url)
+            // パスの最後の成分(ファイルシステムに触らない)。この名前はパネルの body のたびに読まれる ―― ページ送りごと ―― ので、
+            // 以前の `DirectoryBrowser.displayName`(`resourceValues`。控えはランループ 1 周で捨てられる)は、本のある共有が応答しなく
+            // なるとページ送り 1 回で約 30 秒止めた(2026-10-06 の応答性の点検 R3-1)。本の中の章フォルダに Finder の表示名
+            // (書類 → 「書類」のような地域化)が要る場面は無い。
+            // Finder で "/" を含む名前はパスの上では ":" なので戻す(行の表示名と揃える。コードレビュー)。
+            return url.lastPathComponent.replacingOccurrences(of: ":", with: "/")
         case .archive(_, _, let prefix, let matchKeyPrefix):
             if !prefix.isEmpty {
                 // 仮想フォルダの中 ― prefixは"chapter1/nested/"のように末尾"/"付きなので、

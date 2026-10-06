@@ -34,6 +34,9 @@ import Foundation
 final class FileBrowserOperations: ObservableObject {
     /// いま走っている操作(進捗の帯)。nil なら帯を出さない。
     @Published private(set) var activity: FileBrowserActivity?
+    /// 走っている操作の後ろに並んでいる操作の数(帯に「ほか n 件が待機中」を出す。2026-10-06 の応答性の点検 R6-1 ―― 以前は長い
+    /// コピーの最中の名前の変更・新規フォルダ・ゴミ箱が、並んでいることを何も見せずに数分後に突然実行された)。
+    @Published private(set) var queuedOperationCount = 0
 
     weak var state: FileBrowserState?
     /// 確認と報告を見せる相手。ペインが出たときに本物を入れる。
@@ -102,7 +105,14 @@ final class FileBrowserOperations: ObservableObject {
         openBookCheck: [URL] = [], _ ask: (any FileBrowserOperationPresenting) async -> Answer
     ) async -> Answer? {
         guard let presenter, !isReadOnly else { return nil }
+        // 尋ねている間は前段の帯(「準備しています…」)を下げる ―― 確認の後ろで「準備しています」が出続けないように。答えを
+        // もらったら出し直す(`enqueue` の title)。
+        let hiddenPreparing = pendingActivity.flatMap { $0.id == preparingActivityID ? $0 : nil }
+        if let hiddenPreparing { endActivity(hiddenPreparing.id) }
         let answer = await ask(presenter)
+        if let hiddenPreparing, pendingActivity == nil {
+            _ = beginActivity(title: hiddenPreparing.title, cancellation: nil, id: hiddenPreparing.id)
+        }
         if isReadOnly { return nil }
         if !openBookCheck.isEmpty, refusesBecauseOpenInViewer(openBookCheck) { return nil }
         return answer
@@ -489,7 +499,7 @@ final class FileBrowserOperations: ObservableObject {
     @discardableResult
     func newFolder(in folder: URL) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
-        return enqueue { [weak self] in
+        return enqueue(title: String(localized: "Creating a New Folder…", language: AppLanguage.currentLocale)) { [weak self] in
             guard let self else { return }
             let existing = await FileIO.perform {
                 Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
@@ -511,7 +521,7 @@ final class FileBrowserOperations: ObservableObject {
     func makeAliases(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
         let items = entries.filter { !$0.isVolume }.map(\.url)
-        return enqueue { [weak self] in
+        return enqueue(title: String(localized: "Making Aliases…", language: AppLanguage.currentLocale)) { [weak self] in
             guard let self, !items.isEmpty else { return }
             let command = MakeAliasesCommand(items: items, fileOps: self.fileOps)
             let affected = Array(Set(items.map { $0.deletingLastPathComponent() }))
@@ -524,7 +534,10 @@ final class FileBrowserOperations: ObservableObject {
     func rename(_ entry: FileBrowserEntry, to newName: String) -> Task<Void, Never> {
         guard !isReadOnly else { return Task {} }
         let url = entry.url
-        return enqueue { [weak self] in
+        let renamingTitle = String(
+            format: String(localized: "Renaming “%@”…", language: AppLanguage.currentLocale), url.lastPathComponent
+        )
+        return enqueue(title: renamingTitle) { [weak self] in
             guard let self else { return }
             let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed != url.lastPathComponent, !self.refusesBecauseOpenInViewer([url]), !self.refusesProtectedLocation([url]) else { return }
@@ -731,9 +744,16 @@ final class FileBrowserOperations: ObservableObject {
     // MARK: - 下請け
 
     /// 前の操作が終わってから `work` を始める。
+    ///
+    /// - Parameter title: 順番が来てから実行(`run`)が帯を出すまでの間 ―― 確かめ・数え上げ・ロックの確認などの前段 ―― に出す帯の題
+    ///   (2026-10-06 の応答性の点検 R6-2。以前は帯を出すのが `run` だけで、別ボリュームへの移動のロックの確認(木を全部歩く)・
+    ///   ネットワーク上のゴミ箱の有無の問い合わせ・一括リネームの前のフォルダの列挙の間は何も出ず、名前の変更・新規フォルダ・
+    ///   エイリアスは実行の間も帯が出なかった)。帯は猶予(`activityRevealDelay`)を過ぎてから出るので、すぐ済む前段では出ない。
+    ///   `run` が自分の帯を出せば、その帯に替わる。
     @discardableResult
-    private func enqueue(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+    private func enqueue(title: String? = nil, _ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let previous = queueTail
+        let preparingTitle = title ?? String(localized: "Preparing…", language: AppLanguage.currentLocale)
         // **並んでいる間も自分と状態を持っておく**(2026-09-15 の 3 回目の監査)。仕事の閉包は `[weak self]` で、状態は弱く持つので、以前は
         // 走っている操作の途中でウインドウを閉じると、後ろに並んでいた操作(ペースト・取り消し)が確認も報告も無く捨てられていた
         // (`detachFromWindow` の「並んでいる操作は止めない」と食い違う)。持つのは並んだ仕事が終わるまでだけ。
@@ -741,19 +761,35 @@ final class FileBrowserOperations: ObservableObject {
         // 前の操作を待つか。待たないなら受け付けた時点で始まっている(Task へ移るのは実装の都合)。
         let waitsForPrevious = pendingWorkCount > 0
         pendingWorkCount += 1
+        updateQueuedOperationCount()
         // 並んでいる間も数える(⌘Q で、並んでいた操作も黙って捨てられないように)。
         let workToken = runningWork?.begin()
         let task = Task { @MainActor [self] in
             await previous?.value
             // 並んでいる間に読み取り専用を ON にした(ファイルブラウザ機能を OFF にした)なら始めない(型コメント「読み取り専用モード」)。
             // ここに並ぶのはどれもファイルを変える操作。
-            if !waitsForPrevious || !isReadOnly { await work() }
+            if !waitsForPrevious || !isReadOnly {
+                let preparing = beginActivity(title: preparingTitle, cancellation: nil)
+                preparingActivityID = preparing
+                await work()
+                endActivity(preparing)
+                if preparingActivityID == preparing { preparingActivityID = nil }
+            }
             pendingWorkCount -= 1
+            updateQueuedOperationCount()
             if let workToken { runningWork?.end(workToken) }
             _ = (self, state)
         }
         queueTail = task
         return task
+    }
+
+    /// 前段の帯(`enqueue` の title)の id。尋ねている間は下げる(`asking`)。
+    private var preparingActivityID: UUID?
+
+    private func updateQueuedOperationCount() {
+        let queued = max(0, pendingWorkCount - 1)
+        if queuedOperationCount != queued { queuedOperationCount = queued }
     }
 
     /// コマンドを積み場所で実行し、帯・読み直し・選択・報告までを済ませる。
@@ -789,12 +825,14 @@ final class FileBrowserOperations: ObservableObject {
         if let problem { presenter?.showProblem(problem) }
     }
 
-    private func beginActivity(title: String, cancellation: Cancellation?) -> UUID {
-        let id = UUID()
+    private func beginActivity(title: String, cancellation: Cancellation?, id: UUID = UUID()) -> UUID {
         activityCancellation = cancellation
         let delay = activityRevealDelay
         let pending = FileBrowserActivity(id: id, title: title, progress: FileOperationProgress(), isCancellable: cancellation != nil)
         pendingActivity = pending
+        // 帯が既に出ていれば(前段の帯から実行の帯へ替わる)、猶予を置かずに差し替える ―― 古い題のまま中止ボタンも無い帯を 400ms
+        // 残さない(コードレビュー)。
+        if activity != nil { activity = pending }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, let pending = self.pendingActivity, pending.id == id else { return }
@@ -820,7 +858,8 @@ final class FileBrowserOperations: ObservableObject {
     /// - Parameter relay: 報告を運んだ中継。**最初に届けた帯の操作に結び付け、別の操作の帯へは入れない**(2026-09-15 の 4 回目の監査)。
     ///   中継は 50ms 空けて渡すので、終わった操作の最後の報告が、すぐ後に始まった次の操作の帯へ入り、その数字を上書きしえた。
     private func report(_ progress: FileOperationProgress, from relay: ProgressRelay) {
-        guard var pending = pendingActivity else { return }
+        // 前段の帯(「準備しています…」)は進み具合を受けない ―― 前の操作の最後の報告が、次の操作の前段の帯に入らないように(コードレビュー)。
+        guard var pending = pendingActivity, pending.id != preparingActivityID else { return }
         if let bound = relay.activityID, bound != pending.id { return }
         relay.activityID = pending.id
         if pending.bytesStartedAt == nil, progress.completedBytes > 0 { pending.bytesStartedAt = Date() }
@@ -888,6 +927,13 @@ final class FileBrowserOperations: ObservableObject {
     }
 
     private func presentIfNeeded(_ outcome: FileUndoOutcome, isRedo: Bool) {
+        // 走っている操作の後ろに並んでいる間に一番上が変わって、何もしなかった(`FileCommandStack.undo` の `expecting`)。待たせた末に
+        // 黙らない(2026-10-06 の応答性の点検 R6-4)。
+        if outcome == .nothingToDo {
+            // テストの間は鳴らさない(CLAUDE.md「file-operation sounds are silent」)。
+            if !RuntimeEnvironment.isRunningTests { NSSound.beep() }
+            return
+        }
         guard outcome.needsAttention, let problem = FileBrowserProblem.undo(outcome, isRedo: isRedo) else { return }
         presenter?.showProblem(problem)
     }

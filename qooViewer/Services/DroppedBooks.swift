@@ -31,10 +31,18 @@ nonisolated enum DroppedBooks {
             let name = url.lastPathComponent
             return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) || isImageFile(name) ? .open : .nothing
         }
+        // 画像が直下にあれば(開くフォルダの本はほとんどこれ)、名前だけの列挙で最初の画像を見つけた時点で答える。以前はどの
+        // フォルダも、属性付きの一覧を「読めるか」「立ち位置」「奥の本」のために 2〜3 回作っていて、棚を落とすと何も出ないまま
+        // 待った(2026-10-06 の応答性の点検 R2-6)。一覧は 1 回だけ作って立ち位置に渡す(どちらでもない中間フォルダだけは、奥の本を
+        // 探すのにもう一度読む ―― `resolvedBookURL`)。
+        if DirectoryBrowser.directlyContainsImageFile(url) { return .open }
         // 読めないフォルダは「分からない」(アクセスを求める導線へ)。
-        guard (try? DirectoryBrowser.listing(in: url, sort: order.sort)) != nil else { return .open }
-        if case .book = ShelfFolderResolver.role(of: url, order: order) { return .open }
-        return ShelfFolderResolver.resolvedBookURL(for: url, order: order) == url ? .nothing : .open
+        guard let listing = try? DirectoryBrowser.listing(in: url, sort: order.sort) else { return .open }
+        switch ShelfFolderResolver.role(of: listing) {
+        case .book: return .open
+        case .shelf(let books) where !books.isEmpty: return .open
+        default: return ShelfFolderResolver.resolvedBookURL(for: url, order: order) == url ? .nothing : .open
+        }
     }
 
     struct Multiple: Equatable, Sendable {
@@ -65,9 +73,10 @@ nonisolated enum DroppedBooks {
             let name = url.lastPathComponent
             return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) ? [url] : []
         }
-        // 読めないフォルダはそのまま入れる(開いたときにアクセスを求める)。
-        guard (try? DirectoryBrowser.listing(in: url, sort: order.sort)) != nil else { return [url] }
-        switch ShelfFolderResolver.role(of: url, order: order) {
+        if DirectoryBrowser.directlyContainsImageFile(url) { return [url] }
+        // 読めないフォルダはそのまま入れる(開いたときにアクセスを求める)。一覧は 1 回だけ作る(`single` と同じ)。
+        guard let listing = try? DirectoryBrowser.listing(in: url, sort: order.sort) else { return [url] }
+        switch ShelfFolderResolver.role(of: listing) {
         case .book:
             return [url]
         case .shelf(let books) where !books.isEmpty:

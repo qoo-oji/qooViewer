@@ -537,7 +537,9 @@ final class MetadataWorkspace {
             // 本には触らない(メインで stat するため)。
             var sourceURL: URL?
             if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
-                let url = URL(fileURLWithPath: target)
+                // `URL(fileURLWithPath:)`(isDirectory 無し)はフォルダかどうかを lstat する ―― 下のネットワークの判定より前に触っていた
+                // (2026-10-06 の応答性の点検 R3-6)。パスから作るだけにする。
+                let url = URL(filePath: target)
                 if mounts == nil { mounts = MountTable.current() }
                 if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
             }

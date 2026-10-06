@@ -85,10 +85,10 @@ final class CollectionItemOpenTracker {
     /// 回転表示を出している本。確かめが短い間(ローカルの本はほぼ一瞬)に出すとちらつくので、少し待ってから立てる。
     private(set) var resolvingItemID: UUID?
     @ObservationIgnored private var currentToken: UUID?
-    @ObservationIgnored private var indicatorTask: Task<Void, Never>?
 
-    /// 回転表示を出すまでの待ち。
-    private static let indicatorDelay: Duration = .milliseconds(250)
+    /// 回転表示を出すまでの待ち。**時限は `DispatchQueue`**(協調スレッドプールが塞がると `Task.sleep` は発火しない ―― FileIO.swift の
+    /// 型コメントの実測。2026-10-06 の応答性の点検 R7-2)。
+    private static let indicatorDelay: TimeInterval = 0.25
 
     /// 1 冊を確かめてから `body`(見つかった)か `onNotFound`(見つからない)を呼ぶ。続けて別の本(同じ本でも)を頼まれたら、
     /// 前の結果は捨てる(後から押したほうが利用者の意図)。期限切れは鳴らすだけ(上の「期限」)。
@@ -97,32 +97,33 @@ final class CollectionItemOpenTracker {
     ///   同じ画面の次の頼みしか見ないので、待つ間(最長 45 秒)に**別の入口で**本を頼んだ(開く意図 `AppState.OpenIntent` が進んだ。
     ///   レビューの R6-1)、
     ///   ライブラリ機能を OFF にした、を呼ぶ側が確かめる。false なら何もしない(鳴らしもしない ―― 利用者はもう別のことをしている)。
+    ///
+    /// - Parameter onTimedOut: 期限切れのとき(既定はビープ)。窓の下に理由を出せる画面は渡す ―― 45 秒待たせた末にビープだけでは
+    ///   理由が分からない(2026-10-06 の応答性の点検 R2-5)。
     func resolve(
         _ material: CollectionItemOpenProbe.Material,
         stillWanted: (@MainActor () -> Bool)? = nil,
         onNotFound: @escaping @MainActor (BookLocation) -> Void,
+        onTimedOut: (@MainActor () -> Void)? = nil,
         _ body: @escaping @MainActor (URL) -> Void
     ) {
         let token = UUID()
         currentToken = token
-        indicatorTask?.cancel()
-        indicatorTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.indicatorDelay)
-            guard !Task.isCancelled, let self, self.currentToken == token else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.indicatorDelay) { [weak self] in
+            guard let self, self.currentToken == token else { return }
             self.resolvingItemID = material.itemID
         }
         Task { [self] in
             let outcome = await CollectionItemOpenProbe.resolve(material)
             guard currentToken == token else { return }
             currentToken = nil
-            indicatorTask?.cancel()
-            indicatorTask = nil
             resolvingItemID = nil
             if let stillWanted, !stillWanted() { return }
             switch outcome {
             case .found(let url): body(url)
             case .notFound(let location): onNotFound(location)
-            case .timedOut: NSSound.beep()
+            case .timedOut:
+                if let onTimedOut { onTimedOut() } else { NSSound.beep() }
             }
         }
     }

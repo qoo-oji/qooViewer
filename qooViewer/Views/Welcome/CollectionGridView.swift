@@ -521,7 +521,7 @@ struct CollectionGridView: View {
                     WelcomeDropHandling.addDropped(
                         urls, toCollection: collection.id, collectionStore: collectionStore,
                         coverExtractor: coverExtractor, preferences: preferences,
-                        notify: { appState?.postViewerNotice($0) }
+                        notify: { appState?.postViewerNotice($0) }, waitHost: appState
                     )
                 }
             ))

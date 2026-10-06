@@ -72,7 +72,8 @@ struct HomeInspectorBookView: View {
         switch book {
         case .fileBrowser(let entry, _, _): entry.url
         case .smart(let smartBook): URL(fileURLWithPath: smartBook.id, isDirectory: smartBook.kind == .folder)
-        case .collectionItem(_, let bookID): resolvedURL ?? URL(fileURLWithPath: bookID)
+        // `URL(fileURLWithPath:)`(isDirectory 無し)は lstat するので、body から呼ぶここではパスから作るだけ(2026-10-06 の応答性の点検 R3-13)。
+        case .collectionItem(_, let bookID): resolvedURL ?? URL(filePath: bookID)
         }
     }
 
@@ -186,7 +187,7 @@ struct HomeInspectorBookView: View {
         switch book {
         case .fileBrowser(_, let displayed, _): displayed.displayName
         case .smart(let smartBook): smartBook.fileName
-        case .collectionItem(_, let bookID): URL(fileURLWithPath: bookID).lastPathComponent
+        case .collectionItem(_, let bookID): URL(filePath: bookID).lastPathComponent
         }
     }
 

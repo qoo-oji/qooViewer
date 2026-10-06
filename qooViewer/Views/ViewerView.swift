@@ -1265,7 +1265,9 @@ struct ViewerView: View {
             // 同じ実体を指す項目が複数入っていることがあるので、一致するものをまとめて渡す。
             let path = book.sourceURL.standardizedFileURL.path
             let matches = recentFilesStore.entries.filter {
-                URL(fileURLWithPath: $0.path).standardizedFileURL.path == path
+                // パスから作るだけ(`URL(fileURLWithPath:)` は項目ごとに lstat し、応答しない共有の項目で止まった。2026-10-06 の
+                // 応答性の点検 R3-8)。
+                URL(filePath: $0.path).standardizedFileURL.path == path
             }
             recentFilesStore.remove(matches)
         }
@@ -1396,6 +1398,9 @@ struct ViewerView: View {
                     Divider()
                 }
                 pageArea
+                    // ページの絵を待っている間・読めなかったとき(2026-10-06 の応答性の点検 R1-1・R1-14)。クリックは下へ通す
+                    // (ページ送りのクリックゾーンを塞がない)。
+                    .overlay { pageImageStatusOverlay }
                     .contextMenu {
                         contextMenuContent
                     }
@@ -2865,6 +2870,30 @@ struct ViewerView: View {
                 return images.indices.contains(index) ? .image(images[index]) : nil
             }
         }
+    }
+
+    /// ページの絵を待っている間の回転表示と、読めなかったページの知らせ(`ViewerViewModel.isWaitingForPageImage` /
+    /// `unreadablePageIndex`)。ページ領域の上に浮かべるだけで、パネルの面(PanelSurface)ではない(背景は不透明な素材)。
+    @ViewBuilder
+    private var pageImageStatusOverlay: some View {
+        Group {
+            if viewModel.isWaitingForPageImage {
+                ProgressView()
+                    .controlSize(.large)
+                    .padding(18)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .transition(.opacity)
+            } else if viewModel.currentImages.isEmpty, let unreadable = viewModel.unreadablePageIndex,
+                      unreadable == viewModel.currentIndex {
+                Text("This page can’t be displayed.")
+                    .font(.callout)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+            }
+        }
+        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage)
     }
 
     private var pageArea: some View {

@@ -1550,7 +1550,7 @@ struct SmartLibraryContent: View {
 
     private func openWith(_ book: SmartBook, application: URL) {
         let locale = locale
-        withResolvedURL(for: book) { url in
+        withResolvedURL(for: book, purpose: .opening) { url in
             HomeBookOpenWith.open(url, withApplicationAt: application, scoped: false, locale: locale)
         }
     }
@@ -1773,7 +1773,7 @@ struct SmartLibraryContent: View {
 
     private func openIn(_ book: SmartBook, _ destination: BookOpenDestination) {
         let sequence = state.sequence(opening: book)
-        withResolvedURL(for: book) { url in
+        withResolvedURL(for: book, purpose: .opening) { url in
             BookWindowOpener.open(
                 BookOpenRequest(url, sequence: sequence), to: destination, from: appState,
                 launchCoordinator: launchCoordinator, openWindow: openWindow
@@ -1853,21 +1853,30 @@ struct SmartLibraryContent: View {
     /// 待った後は、スマートライブラリ機能が ON のままか(と、`stillWanted` があればそれ)を確かめる(2026-10-04 の監査 O-8 = SP-10。
     /// 以前は何も見ず、待つ間に別の本を開いても、確かめ終わった本がそれを置き換えた)。
     private func withResolvedURL(
-        for book: SmartBook, stillWanted: (@MainActor () -> Bool)? = nil, _ body: @escaping @MainActor (URL) -> Void
+        for book: SmartBook, purpose: AppState.OpenWait.Purpose = .locating, intent: AppState.OpenIntent? = nil,
+        stillWanted: (@MainActor () -> Bool)? = nil, _ body: @escaping @MainActor (URL) -> Void
     ) {
         let url = URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder)
         let path = url.path
         let preferences = preferences
         let access = folderAccess
-        Task { @MainActor in
+        let appState = appState
+        let name = book.fileName
+        // 確かめの間は窓の札を出す(2026-10-06 の応答性の点検 R2。以前は最長 45 秒、何も出なかった)。札の「中止」で打ち切られたら
+        // 結果を捨てる。
+        let wait = appState.beginOpenWait(purpose, intent: intent)
+        Task { @MainActor [weak appState] in
+            defer { appState?.endOpenWait(wait) }
             let presence = await SmartBookOpenProbe.check(paths: [path], firstAwaiting: {
                 await access.waitForPendingResolutions(covering: url)
             })?.first
-            guard preferences.smartLibraryFeatureEnabled, stillWanted?() ?? true else { return }
+            guard preferences.smartLibraryFeatureEnabled, stillWanted?() ?? true,
+                  appState?.isOpenWaitCancelled(wait) != true
+            else { return }
             switch presence {
             case .present: body(url)
             case .some(let presence): missingBook = MissingBook(path: book.id, presence: presence)
-            case nil: NSSound.beep()
+            case nil: appState?.postViewerNotice(Self.notRespondingNotice(name, locale: preferences.effectiveLocale))
             }
         }
     }
@@ -1879,14 +1888,20 @@ struct SmartLibraryContent: View {
         let paths = urls.map(\.path)
         let preferences = preferences
         let access = folderAccess
-        Task { @MainActor in
-            guard let presences = await SmartBookOpenProbe.check(paths: paths, firstAwaiting: {
+        let appState = appState
+        let name = books.first?.fileName ?? ""
+        let wait = appState.beginOpenWait(.locating)
+        Task { @MainActor [weak appState] in
+            defer { appState?.endOpenWait(wait) }
+            let presences = await SmartBookOpenProbe.check(paths: paths, firstAwaiting: {
                 await access.waitForPendingResolutions()
-            }) else {
-                NSSound.beep()
+            })
+            guard preferences.smartLibraryFeatureEnabled, appState?.isOpenWaitCancelled(wait) != true else { return }
+            guard let presences else {
+                // 期限切れ。以前はビープだけで、45 秒待たせた理由が分からなかった(R2-5。履歴の確かめと同じ文)。
+                appState?.postViewerNotice(Self.notRespondingNotice(name, locale: preferences.effectiveLocale))
                 return
             }
-            guard preferences.smartLibraryFeatureEnabled else { return }
             let found = zip(urls, presences).filter { $0.1 == .present }.map(\.0)
             if found.isEmpty {
                 if let first = books.first, let presence = presences.first {
@@ -1898,6 +1913,11 @@ struct SmartLibraryContent: View {
         }
     }
 
+    /// 確かめが期限までに返ってこなかったときの知らせ(履歴と同じ文)。
+    static func notRespondingNotice(_ name: String, locale: Locale) -> String {
+        RecentFilesStore.OpenFailure.timedOut.message(name: name, locale: locale)
+    }
+
     private func open(_ book: SmartBook) {
         // 見えている並びを渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
         let sequence = state.sequence(opening: book)
@@ -1905,7 +1925,9 @@ struct SmartLibraryContent: View {
         // 後から頼んだ方が勝つ。AppState.OpenIntent、2026-10-04 のレビューの R6-1)。
         let appState = appState
         let intent = appState.beginOpenIntent()
-        withResolvedURL(for: book, stillWanted: { [weak appState] in appState?.isStillWanted(intent) == true }) {
+        withResolvedURL(
+            for: book, purpose: .opening, intent: intent, stillWanted: { [weak appState] in appState?.isStillWanted(intent) == true }
+        ) {
             appState.open(request: BookOpenRequest($0, sequence: sequence), intent: intent)
         }
     }

@@ -797,6 +797,8 @@ struct MetadataBookTableView: View {
     /// 「コレクションに登録」の結果の知らせ(一覧の下に浮かべる)。
     @State private var toastMessage: String?
     @State private var toastDismissTask: Task<Void, Never>?
+    /// 「開く」が本の場所の解決を待っている間の表示(2026-10-06 の応答性の点検 R2-4。PendingBookOpens)。
+    @State private var pendingOpen = PendingBookOpens()
     /// 出している確かめの窓(1 つの `.alert` で出す。body のコメント)。
     @State private var tableAlert: TableAlert?
 
@@ -887,7 +889,11 @@ struct MetadataBookTableView: View {
             .allowsHitTesting(false)
             .animation(.easeInOut(duration: 0.2), value: toastMessage)
         }
-        .onDisappear { toastDismissTask?.cancel() }
+        .pendingBookOpenIndicator(pendingOpen)
+        .onDisappear {
+            toastDismissTask?.cancel()
+            pendingOpen.cancelAll()
+        }
     }
 
     private func showToast(_ message: String) {
@@ -1099,7 +1105,7 @@ struct MetadataBookTableView: View {
 extension MetadataBookTableView {
     /// 本の実体の URL。保存データのブックマークから解決し、無ければパス(対象フォルダなど、読む許可のある場所の本)。
     fileprivate func bookURL(_ book: MetadataBookRow) -> URL {
-        model.resolveURL(book.id) ?? URL(fileURLWithPath: book.id)
+        model.resolveURL(book.id) ?? URL(filePath: book.id)
     }
 
     /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(「お気に入りの編集」ウインドウから開くのと同じ)。
@@ -1109,8 +1115,10 @@ extension MetadataBookTableView {
         let material = model.locatorMaterial(forBookID: book.id)
         let name = URL(fileURLWithPath: book.id, isDirectory: false).lastPathComponent
         let locale = preferences.effectiveLocale
-        Task { @MainActor in
-            switch await StoredBookLocator.resolve(material) {
+        pendingOpen.startInNewWindow { @MainActor in
+            let outcome = await StoredBookLocator.resolve(material)
+            guard !Task.isCancelled else { return }
+            switch outcome {
             case .found(let url):
                 BookWindowOpener.open(
                     BookOpenRequest(url), to: .newNormalWindow, from: nil,
@@ -1119,7 +1127,8 @@ extension MetadataBookTableView {
             case .notFound:
                 showToast(String(format: String(localized: "“%@” could not be found.", language: locale), name))
             case .timedOut:
-                NSSound.beep()
+                // 以前はビープだけで、待たせた理由が分からなかった(R2-4)。
+                showToast(RecentFilesStore.OpenFailure.timedOut.message(name: name, locale: locale))
             }
         }
     }
@@ -1150,14 +1159,15 @@ extension MetadataBookTableView {
     /// 「Finder で表示」。実在する本は Finder で選び(`activateFileViewerSelecting` はこのアプリの読む権限を要らない)、
     /// 見つからない本(名前を変えた・消した・未接続のボリューム)は、残っているいちばん近いフォルダを開く。
     fileprivate func showInFinder(_ books: [MetadataBookRow]) {
-        let found = books.filter { !$0.isMissing }.map { URL(fileURLWithPath: $0.id) }
+        // パスから作るだけ(`URL(fileURLWithPath:)` は本ごとに lstat する。2026-10-06 の応答性の点検 R3-6)。
+        let found = books.filter { !$0.isMissing }.map { URL(filePath: $0.id) }
         if !found.isEmpty {
             NSWorkspace.shared.activateFileViewerSelecting(found)
             return
         }
         var folders: [URL] = []
         for book in books {
-            var folder = URL(fileURLWithPath: book.id).deletingLastPathComponent()
+            var folder = URL(filePath: book.id).deletingLastPathComponent()
             while folder.path != "/" && !FileManager.default.fileExists(atPath: folder.path) {
                 folder = folder.deletingLastPathComponent()
             }

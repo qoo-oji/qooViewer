@@ -172,6 +172,35 @@ final class FileBrowserCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// 行の子を読んでいる間、アイコンの位置に小さな回転表示を出す(ファイルブラウザのツリー。2026-10-06 の応答性の点検 R5-2 ――
+    /// 以前は三角を開いてから子を読み終えるまで、行が空のまま何も出なかった)。アイコンの無いセルでは何もしない。
+    /// 輪郭は付けない: 置き換えるアイコン(画像)と同じ扱い(CLAUDE.md の面の決まりの「image/thumbnail → leave it alone」)。
+    func setBusy(_ busy: Bool) {
+        guard let icon else { return }
+        if busy {
+            let spinner = busyIndicator ?? {
+                let indicator = NSProgressIndicator()
+                indicator.style = .spinning
+                indicator.controlSize = .small
+                indicator.isDisplayedWhenStopped = false
+                indicator.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(indicator)
+                NSLayoutConstraint.activate([
+                    indicator.centerXAnchor.constraint(equalTo: icon.centerXAnchor),
+                    indicator.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+                ])
+                busyIndicator = indicator
+                return indicator
+            }()
+            icon.isHidden = true
+            spinner.startAnimation(nil)
+        } else {
+            busyIndicator?.stopAnimation(nil)
+            icon.isHidden = false
+        }
+    }
+    private var busyIndicator: NSProgressIndicator?
+
     func configure(text: String, color: NSColor = .labelColor, font: NSFont = .systemFont(ofSize: 13), outlineWidth: CGFloat) {
         label.stringValue = text
         label.textColor = color

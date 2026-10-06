@@ -348,7 +348,12 @@ struct FileBrowserPane: View {
                         onWholeViewDropTargetChange: { isListDropTargeted = $0 }
                     )
                 }
-                if state.entries.isEmpty, !state.isLoading {
+                if state.entries.isEmpty, state.isLoading {
+                    // 読んでいる間(2026-10-06 の応答性の点検 R5-1。以前は移った直後の空の一覧のまま何も出ず、遅い共有では数秒〜30 秒
+                    // 「空のフォルダ」と見分けがつかなかった)。
+                    // 不透明な地に載せる(ホームの面は利用者が任意の色で塗れる。地が無いと面の色に溶ける ―― コードレビュー)。
+                    DelayedProgressIndicator(boxed: true)
+                } else if state.entries.isEmpty {
                     Group {
                         if !state.filterText.isEmpty {
                             WelcomeNoMatchesMessage(textKey: "No items match your search.")

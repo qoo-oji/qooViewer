@@ -133,7 +133,10 @@ actor (used from `PageLoader`, an actor, or from `BookLoader`'s detached tasks) 
 `nonisolated` — see the top of Services/ArchiveReading.swift. Keep this in mind when adding new
 free functions/types touched from those code paths. **Blocking file I/O goes through `FileIO`, never `Task.detached`**: a hung
 share (SMB 30 s, hard NFS forever) parks cooperative-pool threads until every async task in the app stalls (FileIO's type comment;
-the side panel listing, next/previous book and the book-contents root moved over 2026-09-27) — **and never runs synchronously on
+the side panel listing, next/previous book and the book-contents root moved over 2026-09-27; `BookLoader.load`'s scan, the sibling list,
+the viewer's TOC/metadata/ComicInfo imports, collection existence checks, drop classification, auto-folder scans and FSEvents stream
+creation on 2026-10-06 — inside FileIO `Task.isCancelled` is always false, so check `Cancellation.isRequestedInCurrentScope` /
+`BookLoader.checkLoadCancellation()`) — **and never runs synchronously on
 the main actor either** (decision 18 of the 2026-10-04 audit: e.g. `FolderAccessStore` matches grants by the path recorded in the
 bookmark data and resolves only the one just added, instead of resolving every grant on main).
 
@@ -624,6 +627,19 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   `willClose` of every window under it (`CloseWatch`) — several close paths (single-tab red button, Close Window over background tabs, the
   slideshow's Close Tab) call `close()` without checking for sheets.
   Departures from macOS conventions found so far and whether each is deliberate: `docs/plans/macos-conventions-audit-2026-09-26.md`.
+- **A wait the user can feel shows something** (2026-10-06 responsiveness audit, `docs/plans/responsiveness-audit-2026-10-06.md`):
+  anything that awaits before opening a book (probes, sibling search, drop pre-scan, history/smart-library/editor-window checks, launch
+  reopen) shows the window's `BookLoadingOverlay` through `AppState.beginOpenWait(_:intent:)` / `endOpenWait` / `waitingToOpen` (pass
+  the `OpenIntent` when it replaces this window's book, so a later request drops the stale card; the card's Cancel sets
+  `isOpenWaitCancelled` for new-tab opens) — new entry points must too; tool windows use `PendingBookOpens` + `.pendingBookOpenIndicator`,
+  lists that load use `DelayedProgressIndicator` (boxed on a paintable surface), the viewer shows its own page-wait spinner
+  (`ViewerViewModel.isWaitingForPageImage`) and "This page can't be displayed." File-browser work queued per window shows its preparing
+  stage and the queued count in the bar (`FileBrowserOperations.enqueue(title:)`). **Indicator delays use `DispatchQueue.main.asyncAfter`,
+  never `Task.sleep`** (it does not fire while the cooperative pool is saturated — exactly when the wait is long). **SwiftData to-many
+  relationships are attached/detached in bulk** (`collection.items.append(contentsOf:)` / `removeAll(where:)` before deleting): setting
+  `item.collection` or deleting one by one rewrote the inverse array each time (10k items: 7.9 s vs 0.8 s; ⌘Z of 1000/10k removals took
+  110 s with the old per-item cache invalidation). Never build a book's URL with `URL(fileURLWithPath:)` without `isDirectory:` on the main
+  actor — it lstat()s the path (swift-foundation); use `URL(filePath:)`.
 - **An entry point that refuses or fails says so** (2026-10-04 audit, group 1-6): at least a beep, normally a toast
   (`AppState.postViewerNotice`) or an alert with the reason; an enabled-looking item that silently returns is a bug (dim it with the
   action's own predicate instead). History entries are opened only through `RecentFilesStore.resolveForOpening(_:reportingTo:)` /

@@ -286,10 +286,15 @@ struct CollectionDetailView: View {
     ) {
         let material = CollectionItemOpenProbe.Material(item)
         let preferences = preferences
+        let appState = appState
         openTracker.resolve(material, stillWanted: {
             preferences.libraryFeatureEnabled && (stillWanted?() ?? true)
         }, onNotFound: { location in
             missingBook = MissingBook(id: material.itemID, title: material.title, reason: location)
+        }, onTimedOut: { [weak appState] in
+            appState?.postViewerNotice(
+                RecentFilesStore.OpenFailure.timedOut.message(name: material.title, locale: preferences.effectiveLocale)
+            )
         }, perform)
     }
 
@@ -839,7 +844,9 @@ struct CollectionDetailView: View {
     private func beginDrag(from item: CollectionItem) {
         guard !HomeBookDragSource.isDragging else { return }
         let urls = contextTargets(for: item).compactMap { target -> URL? in
-            guard let location = collectionStore.cachedLocation(for: target) else { return URL(fileURLWithPath: target.bookID) }
+            // まだ確かめていない本は記録したパスから作るだけ ―― `URL(fileURLWithPath:)`(isDirectory 無し)はここで lstat していた
+            // (2026-10-06 の応答性の点検 R3-13)。
+            guard let location = collectionStore.cachedLocation(for: target) else { return URL(filePath: target.bookID) }
             return location.url
         }
         HomeBookDragSource.begin(

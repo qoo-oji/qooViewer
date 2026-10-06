@@ -23,7 +23,32 @@ import Combine
 @MainActor
 final class SidePanelBrowserState: ObservableObject {
     /// 現在表示中のフォルダ。nilのときは最上位(ボリューム一覧)を表す。
-    @Published private(set) var currentDirectory: URL?
+    @Published private(set) var currentDirectory: URL? {
+        didSet {
+            guard currentDirectory != oldValue else { return }
+            refreshCurrentDirectoryName()
+            isListingStale = true
+            // 前の場所の案内(アクセスの許可・読めなかった文・画像だけのフォルダ)は下ろし、移った先を読む間は一覧(と回転表示)を出す
+            // (コードレビュー。残すと、見出しだけ新しくなって前の文が回転表示なしで残った)。
+            if needsFolderAccessGrant { needsFolderAccessGrant = false }
+            if listingErrorMessage != nil { listingErrorMessage = nil }
+            if currentDirectoryHasImages { currentDirectoryHasImages = false }
+        }
+    }
+    /// 一覧(`entries`)がまだ前の場所のもの(移った後、読み終えていない)。パネルは一覧を押せなくし、少し待ってから回転表示を出す
+    /// (2026-10-06 の応答性の点検 R5-3。以前は見出しだけ先に新しいフォルダになり、一覧は前のフォルダのまま押せる状態で、
+    /// 遅い共有では数秒〜数十秒、何の印も無く残った)。
+    @Published private(set) var isListingStale = false
+    /// パネルの上段の見出しに出す、現在のフォルダの名前(Finder の表示名。`DirectoryBrowser.displayName(for:)`)。nil なら
+    /// ボリューム一覧。
+    ///
+    /// **見出しの body で表示名を問い合わせない**(2026-10-06 の応答性の点検 R3-1)。以前は body の中で `resourceValues` を呼んでいて、
+    /// URL の属性値の控えはランループ 1 周で捨てられる(実測)ので、パネルの body が評価されるたび ―― ページ送りごと(パネルは
+    /// 今のページ番号を受け取る)・幅のドラッグの 1 コマごと ―― にメインでファイルシステムへ問い合わせていた。本のあるフォルダの
+    /// 共有が応答しなくなると、ステージ読みで本は読めているのに、ページ送り 1 回で約 30 秒止まった。移ったときに FileIO で 1 回だけ
+    /// 求める。求めている間はパスの最後の成分(ファイルシステムに触らない)を出す。
+    @Published private(set) var currentDirectoryName: String?
+    private var directoryNameTask: Task<Void, Never>?
     @Published private(set) var entries: [DirectoryBrowser.Entry] = []
     /// entries(in:)が権限エラーを投げた場合にtrue。空フォルダと区別し、パネル側で
     /// その場からアクセスを許可するボタンを出す判定に使う。
@@ -312,6 +337,20 @@ final class SidePanelBrowserState: ObservableObject {
         }
     }
 
+    private func refreshCurrentDirectoryName() {
+        directoryNameTask?.cancel()
+        guard let directory = currentDirectory else {
+            currentDirectoryName = nil
+            return
+        }
+        currentDirectoryName = directory.lastPathComponent.isEmpty ? directory.path : directory.lastPathComponent
+        directoryNameTask = Task { [weak self] in
+            let name = await FileIO.perform(qos: .utility) { DirectoryBrowser.displayName(for: directory) }
+            guard !Task.isCancelled, let self, self.currentDirectory == directory, self.currentDirectoryName != name else { return }
+            self.currentDirectoryName = name
+        }
+    }
+
     func reload() {
         reloadTask?.cancel()
         let directory = currentDirectory
@@ -332,6 +371,7 @@ final class SidePanelBrowserState: ObservableObject {
                 }
                 guard !Task.isCancelled else { return }
                 self.entries = result
+                if self.isListingStale, self.currentDirectory == directory { self.isListingStale = false }
                 self.currentDirectoryHasImages = hasImages
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = false
@@ -365,6 +405,7 @@ final class SidePanelBrowserState: ObservableObject {
                     }
                 }
                 self.entries = []
+                if self.isListingStale, self.currentDirectory == directory { self.isListingStale = false }
                 self.currentDirectoryHasImages = false
                 self.clearChapterBooks()
                 self.appliedSort = sort

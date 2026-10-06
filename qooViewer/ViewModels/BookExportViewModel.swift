@@ -504,10 +504,12 @@ class BookExportViewModel: ObservableObject {
         isLoadingRows = true
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let eligible = candidates.compactMap { BookURLResolver.resolvedURL($0) != nil ? $0.bookID : nil }
+        // ブックマークの解決はボリュームに触るので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached` で、期限も無く、
+        // 応答しない共有の本があると協調スレッドプールのスレッドを塞いだ)。
+        Task { [weak self] in
+            let eligible = await FileIO.perform { candidates.compactMap { BookURLResolver.resolvedURL($0) != nil ? $0.bookID : nil } }
             guard let self else { return }
-            await self.applyEligibleBookIDs(Set(eligible), generation: generation)
+            self.applyEligibleBookIDs(Set(eligible), generation: generation)
         }
     }
 

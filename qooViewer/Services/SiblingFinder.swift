@@ -27,8 +27,13 @@ nonisolated enum SiblingFinder {
     /// throwする)。呼び出し側(AppState)は「一覧が空 = このフォルダを見られない」として
     /// 「このフォルダへのアクセスを許可」の導線を出す作りになっているため。
     private static func siblingBooks(of url: URL, order: SiblingBookOrder) -> [DirectoryBrowser.Entry] {
+        readableSiblingBooks(of: url, order: order) ?? []
+    }
+
+    /// 上と同じだが、親フォルダを読めなかったら nil(「次の本へ」が、端と読めないとを言い分けるため。`step(after:order:)`)。
+    private static func readableSiblingBooks(of url: URL, order: SiblingBookOrder) -> [DirectoryBrowser.Entry]? {
         let parent = url.deletingLastPathComponent()
-        guard let entries = try? DirectoryBrowser.entries(in: parent, sort: order.sort) else { return [] }
+        guard let entries = try? DirectoryBrowser.entries(in: parent, sort: order.sort) else { return nil }
         // フォルダはそれ自体が 1 冊の本(直下に画像がある、または章ごとに画像フォルダを分けた本)のものだけを残す。棚に並ぶ本と
         // 同じ判定(ShelfFolderResolver.isBookEntry。2026-09-22 の監査 ―― 以前は章ごとの本を飛ばした)。ファイルは
         // DirectoryBrowserの時点で開ける形式に絞られているため、そのまま通す。
@@ -42,10 +47,14 @@ nonisolated enum SiblingFinder {
 
     /// siblingBookURLs(of:order:)をメインスレッド外で実行する版。
     /// 「同じフォルダのファイルを開く」メニューの一覧取得に使う。
+    ///
+    /// ブロッキングする一覧なので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。2026-10-06 の応答性の点検 R7 ――
+    /// 以前は `Task.detached` で、応答しない共有の上の本を開くたびに協調スレッドプールのスレッドを 1 本塞いだ)。一覧の途中では
+    /// 取り消しを見ないので、取り消しても読み終えるまで走る(以前と同じ。結果を捨てるのは呼び出し側)。
     static func siblingBookURLsAsync(of url: URL, order: SiblingBookOrder) async -> [URL] {
-        await Task.detached(priority: .utility) {
+        await FileIO.perform(qos: .utility) {
             siblingBookURLs(of: url, order: order)
-        }.value
+        }
     }
 
     /// 一覧の中で、currentの1つ後ろにある本。無ければnil(= 最後の本にいる、あるいはcurrentが
@@ -60,13 +69,39 @@ nonisolated enum SiblingFinder {
     }
 
     private static func url(steppingBy offset: Int, from current: URL, order: SiblingBookOrder) async -> URL? {
+        if case .found(let url) = await step(steppingBy: offset, from: current, order: order) { return url }
+        return nil
+    }
+
+    /// 「次の本へ」「前の本へ」の行き先(見つからなかった理由つき)。
+    enum Step: Sendable, Equatable {
+        case found(URL)
+        /// 一覧の端(最後の本の次・最初の本の前)。
+        case atEnd
+        /// 一覧に今の本が無い(開いた後に動いた・消えた)。
+        case notListed
+        /// 親フォルダを読めなかった(許可が無い・読めない)。
+        case unreadable
+    }
+
+    /// 一覧の中で、currentの1つ後ろ/手前にある本。見つからなければその理由(2026-10-06 の応答性の点検 R2-1 ―― 以前は端も読めない
+    /// フォルダも nil で、「次の本へ」が黙って何もしなかった)。
+    static func step(after current: URL, order: SiblingBookOrder) async -> Step {
+        await step(steppingBy: 1, from: current, order: order)
+    }
+
+    static func step(before current: URL, order: SiblingBookOrder) async -> Step {
+        await step(steppingBy: -1, from: current, order: order)
+    }
+
+    private static func step(steppingBy offset: Int, from current: URL, order: SiblingBookOrder) async -> Step {
         // FileIO で(DirectoryBrowser.listingAsync のコメント。隣のフォルダの一覧はブロッキングする I/O)。
-        let all = await FileIO.perform(qos: .utility) {
-            siblingBooks(of: current, order: order)
-        }
+        guard let all = await FileIO.perform(qos: .utility, {
+            readableSiblingBooks(of: current, order: order)
+        }) else { return .unreadable }
 
         let currentPath = identityPath(of: current)
-        guard let currentEntry = all.first(where: { identityPath(of: $0.url) == currentPath }) else { return nil }
+        guard let currentEntry = all.first(where: { identityPath(of: $0.url) == currentPath }) else { return .notListed }
 
         // 「種類の異なる本を挟まない」設定のときだけ、currentと同じ側へ絞り込む
         // (SiblingBookOrder.restrictsToSameType参照)。isDirectoryは一覧を読み込んだ時点の
@@ -74,11 +109,11 @@ nonisolated enum SiblingFinder {
         let candidates = order.restrictsToSameType
             ? all.filter { $0.isDirectory == currentEntry.isDirectory }
             : all
-        guard let index = candidates.firstIndex(where: { identityPath(of: $0.url) == currentPath }) else { return nil }
+        guard let index = candidates.firstIndex(where: { identityPath(of: $0.url) == currentPath }) else { return .notListed }
 
         let destination = index + offset
-        guard candidates.indices.contains(destination) else { return nil }
-        return candidates[destination].url
+        guard candidates.indices.contains(destination) else { return .atEnd }
+        return .found(candidates[destination].url)
     }
 
     /// 一覧の中からcurrentの位置を探すための突き合わせ用の値。

@@ -46,6 +46,7 @@ final class ViewerViewModel: ObservableObject {
         didSet {
             guard currentIndex != oldValue else { return }
             resetPinchZoom()
+            updatePageImageWait()
         }
     }
     @Published var displayMode: DisplayMode
@@ -65,6 +66,50 @@ final class ViewerViewModel: ObservableObject {
         didSet {
             guard needsHighResolutionSource else { return }
             scheduleHighResolutionSourceLoad()
+        }
+    }
+
+    // MARK: ページの絵を待っている間の表示(2026-10-06 の応答性の点検 R1-1)
+
+    /// 今のページ(`currentIndex`)の絵がまだ届かず、`pageImageWaitDelay` を過ぎた。ページ領域に回転表示を出す。
+    ///
+    /// ページ番号・進捗バーは押した瞬間に新しいページになるが、絵は読み終えるまで前のページのまま残る。ふつうの本は先読みと
+    /// 速いデコード(見開きで 0.1 秒前後)で気にならないが、ソリッドの 7z/rar で後ろへ戻る・遠くへ飛ぶ、ネットワーク上の本、
+    /// 重い PDF のページでは数秒〜30 秒、何も変わらなかった(ツールバーを隠していれば番号も見えない)。
+    @Published private(set) var isWaitingForPageImage = false
+    /// 着地したページの絵を読めなかった(そのページの番号)。ページ領域に「表示できません」を出す(R1-14。以前は地の色だけで、
+    /// 何も知らせなかった)。
+    @Published private(set) var unreadablePageIndex: Int?
+    /// `currentImages` が見せているページ(読み込んだときの `currentIndex`)。
+    private var displayedImagesIndex: Int?
+    private var pageImageWaitToken = 0
+    /// 回転表示を出すまでの待ち(本を開く札 `BookLoadingOverlay` と同じ)。ふつうのページ送りでは出さない。
+    private static let pageImageWaitDelay: TimeInterval = 0.4
+
+    /// `currentImages` に `index` のページの絵(読めなければ空)を出した。
+    private func showImages(_ images: [CGImage], forIndex index: Int) {
+        displayedImagesIndex = index
+        currentImages = images
+        let unreadable: Int? = images.isEmpty && book.pages.indices.contains(index) ? index : nil
+        if unreadablePageIndex != unreadable { unreadablePageIndex = unreadable }
+        updatePageImageWait()
+    }
+
+    /// 今のページの絵が出ていなければ、少し待ってから回転表示を立てる(出ていれば下ろす)。
+    /// **`Task.sleep` ではなく `DispatchQueue`**: 協調スレッドプールが塞がると `Task.sleep` は発火しない(FileIO.swift の型コメントの
+    /// 実測)―― 待ちが長くなるのはまさにその場面。
+    private func updatePageImageWait() {
+        guard !book.pages.isEmpty, displayedImagesIndex != currentIndex else {
+            pageImageWaitToken &+= 1
+            if isWaitingForPageImage { isWaitingForPageImage = false }
+            return
+        }
+        guard !isWaitingForPageImage else { return }
+        pageImageWaitToken &+= 1
+        let token = pageImageWaitToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pageImageWaitDelay) { [weak self] in
+            guard let self, self.pageImageWaitToken == token, self.displayedImagesIndex != self.currentIndex else { return }
+            self.isWaitingForPageImage = true
         }
     }
     /// 今の並びにあるページのブックマーク(ページ番号順)。印・ページ一覧・メニューの一覧・トグル・重複判定・次/前のブックマークが読む。
@@ -818,6 +863,8 @@ final class ViewerViewModel: ObservableObject {
             await self?.loadCurrentSpread()
         }
         startupTasks.append(firstSpread)
+        // 最初の見開きも、届くまでが長ければ回転表示を出す(R1-7。init の中の代入では `currentIndex` の didSet が呼ばれない)。
+        updatePageImageWait()
         // 保持冊数の上限による整理は最初の見開きの後で(上の prunesTrackedBooksAfterFirstSpread のコメント)。その前に閉じたら
         // releaseResources が済ませる(pendingTrackedBooksPrune)。
         if prunesTrackedBooksAfterFirstSpread {
@@ -1518,7 +1565,7 @@ final class ViewerViewModel: ObservableObject {
             // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
             _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
         }
-        currentImages = images
+        showImages(images, forIndex: index)
     }
 
     /// プログレスバーでのジャンプなど、通過ページの表示が不要な「即座に移動する」操作の前に呼び、
@@ -1943,12 +1990,14 @@ final class ViewerViewModel: ObservableObject {
         let sourceURL = book.sourceURL
         // nil = 読めなかった(「目次が無い」とは覚えない。2026-09-26 ―― 瞬断した NAS の本が、ファイルが変わるまで目次を取り込まれ
         // なくなった。EpubStructureResolver.resolveTableOfContentsIfReadable)。
-        let entries: [EpubTOCEntry]? = await Task.detached(priority: .utility) { () -> [EpubTOCEntry]? in
+        // 本のファイルを読むブロッキング I/O なので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached` で、応答しない
+        // 共有の本を開くと協調スレッドプールのスレッドを塞いだ)。下の書誌・ComicInfo・アウトラインも同じ。
+        let entries: [EpubTOCEntry]? = await FileIO.perform(qos: .utility) { () -> [EpubTOCEntry]? in
             guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL),
                   let structure = try? EpubStructureResolver.resolve(reader: reader)
             else { return nil }
             return EpubStructureResolver.resolveTableOfContentsIfReadable(reader: reader, structure: structure)
-        }.value
+        }
         guard let entries else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
@@ -1982,7 +2031,7 @@ final class ViewerViewModel: ObservableObject {
     /// 以前は「行が無い本だけ」に取り込んでいたが、解析した本はすべて行を持つようになったので、取り込んだかどうかを
     /// 行の印(`BookMetadata.didImportSourceMetadata`)で覚える。ファイル側に意味のある値が1つも無い場合は何もしない。
     ///
-    /// 読み込み・解析は本を開く処理をブロックしないようTask.detachedで行う
+    /// 読み込み・解析は本を開く処理をブロックしないよう FileIO の上で行う
     /// (autoImportEpubTableOfContentsAsBookmarksIfNeededと同じ方針)。
     private func importSourceMetadataIfNeeded(isEpub: Bool) async {
         guard needsSourceMetadataImport else { return }
@@ -1991,13 +2040,13 @@ final class ViewerViewModel: ObservableObject {
         if await sourceProbe()?.sourceMetadataIsEmpty == true { return }
         let sourceURL = book.sourceURL
         // nil = 読めなかった(「書誌情報が無い」とは覚えない。2026-09-26。resolveMetadataIfReadable)。
-        let metadataOrNil = await Task.detached(priority: .utility) { () -> SourceBookMetadata? in
+        let metadataOrNil = await FileIO.perform(qos: .utility) { () -> SourceBookMetadata? in
             if isEpub {
                 guard let reader = try? makeArchiveReader(kind: .zip, url: sourceURL) else { return nil }
                 return EpubStructureResolver.resolveMetadataIfReadable(reader: reader)
             }
             return PDFStructureResolver.resolveMetadataIfReadable(url: sourceURL)
-        }.value
+        }
 
         guard let metadata = metadataOrNil else { return }
         guard !metadata.isEmpty else {
@@ -2039,7 +2088,7 @@ final class ViewerViewModel: ObservableObject {
     /// EPUB/PDFの取り込み(importSourceMetadataIfNeeded / autoImport*AsBookmarksIfNeeded)と
     /// 同じ方針:
     /// - 既にDB側に値がある項目には触れない(ファイル側はあくまで初期値)。
-    /// - 読み込み・解析は本を開く処理をブロックしないようTask.detachedで行う。
+    /// - 読み込み・解析は本を開く処理をブロックしないよう FileIO の上で行う。
     ///
     /// EPUB/PDFと違い、3種類の情報がすべて1つのXMLに入っているため、解析も1回にまとめている。
     /// そのぶん「3つとも取り込む必要が無い」ことを先に確かめ、必要が無ければ書庫を開くこと自体を
@@ -2077,9 +2126,9 @@ final class ViewerViewModel: ObservableObject {
         if isArchiveFile(sourceURL.lastPathComponent), archiveKind(forFileName: sourceURL.lastPathComponent) != .sevenZip {
             lookup = await pageLoader.bookArchiveComicInfo()
         } else {
-            lookup = await Task.detached(priority: .utility, operation: { () -> ComicInfoResolver.Lookup in
+            lookup = await FileIO.perform(qos: .utility) { () -> ComicInfoResolver.Lookup in
                 ComicInfoResolver.lookup(bookAt: sourceURL)
-            }).value
+            }
         }
         // 「無い」と「読めなかった」を分ける(2026-09-26)。読めなかった(NAS の瞬断・本を開いてすぐ閉じて PageLoader が解放
         // された)ものまで「無い」と覚えると、ファイルが変わるまで ComicInfo.xml の取り込みが二度と試されなくなる。
@@ -2173,9 +2222,9 @@ final class ViewerViewModel: ObservableObject {
         let sourceURL = book.sourceURL
         if await sourceProbe()?.tableOfContentsIsEmpty == true { return }
         // nil = PDF を開けなかった(「アウトラインが無い」とは覚えない。2026-09-26。resolveOutlineIfReadable)。
-        let entriesOrNil = await Task.detached(priority: .utility) { () -> [PDFOutlineEntry]? in
+        let entriesOrNil = await FileIO.perform(qos: .utility) { () -> [PDFOutlineEntry]? in
             PDFStructureResolver.resolveOutlineIfReadable(url: sourceURL)
-        }.value
+        }
         guard let entries = entriesOrNil else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
@@ -2183,7 +2232,7 @@ final class ViewerViewModel: ObservableObject {
 
     /// EPUBの目次/PDFのアウトラインから取り込んだ項目を、実際にブックマークとしてSwiftDataへ
     /// 挿入する共通処理。呼び出し元(autoImportEpubTableOfContentsAsBookmarksIfNeeded/
-    /// autoImportPDFOutlineAsBookmarksIfNeeded)がTask.detachedでの読み込みを待っている間に、
+    /// autoImportPDFOutlineAsBookmarksIfNeeded)が FileIO の上の読み込みを待っている間に、
     /// ユーザーが手動でブックマークを追加した可能性もゼロではないため、書き込み直前に
     /// もう一度bookmarks.isEmptyを確認する。
     private func importAutoTOCEntries(_ entries: [(title: String, pageIndex: Int)]) {
@@ -2761,7 +2810,7 @@ final class ViewerViewModel: ObservableObject {
 
         // 読み込み中にさらに新しいページ送りが起きていたら、この結果は古いので捨てる
         guard generation == loadGeneration, !Task.isCancelled else { return }
-        currentImages = images
+        showImages(images, forIndex: targetIndex)
         // 直前の表示範囲との比較で、ユーザーがどちらへ読み進めているかを決める(先読みの向き。
         // PageLoader.prefetchのdirection参照)。同じ位置の再表示や開いた直後は「不明」。
         let direction: PageLoader.PrefetchDirection

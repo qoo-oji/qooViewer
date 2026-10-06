@@ -27,7 +27,8 @@ final class FolderSettingBookmarks {
     func sync(paths: Set<String>) async {
         let missing = paths.subtracting(bookmarks.keys)
         let keysBefore = Set(bookmarks.keys)
-        let created = await Task.detached(priority: .utility) { () -> [String: Data] in
+        // ブックマークの作成・解決はボリュームに触るので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached`)。
+        let created = await FileIO.perform(qos: .utility) { () -> [String: Data] in
             let mounts = MountTable.current()
             var created: [String: Data] = [:]
             for path in missing where Self.isReachable(path, mounts: mounts) {
@@ -37,7 +38,7 @@ final class FolderSettingBookmarks {
                 }
             }
             return created
-        }.value
+        }
         // 待っている間に付け替わった鍵(`relocate`。アプリへ戻った直後の追従など)は、渡されたパスに無くても捨てない
         // (2026-09-23 の 3 回目の監査の低: 以前は捨てていて、そのフォルダがアプリの外で動いても追えなくなった)。
         var updated = bookmarks.filter { paths.contains($0.key) || !keysBefore.contains($0.key) }
@@ -50,7 +51,7 @@ final class FolderSettingBookmarks {
     /// 控えのうち、アプリの外で動いたもの(古いパス → 新しいパス)。
     func movedFolders() async -> [FileSystemChange.Relocation] {
         let snapshot = bookmarks
-        return await Task.detached(priority: .utility) {
+        return await FileIO.perform(qos: .utility) {
             let mounts = MountTable.current()
             return snapshot.keys.sorted().compactMap { path -> FileSystemChange.Relocation? in
                 guard Self.isReachable(path, mounts: mounts), let data = snapshot[path] else { return nil }
@@ -61,7 +62,7 @@ final class FolderSettingBookmarks {
                 return .init(from: URL(fileURLWithPath: path, isDirectory: true),
                              to: URL(fileURLWithPath: MountTable.normalized(url.path), isDirectory: true))
             }
-        }.value
+        }
     }
 
     /// 付け替えたパスへ控えの鍵を移す(アプリの中での移動・アプリの外での移動の両方)。ブックマークは同じもの(移動を追う)。

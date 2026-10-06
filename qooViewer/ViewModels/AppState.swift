@@ -1231,12 +1231,15 @@ final class AppState: ObservableObject {
         // 待ち始めるここで「開く意図」を進める(`beginOpenIntent`。2026-10-04 のレビューの R6-1 ―― 以前は待ち始めても何も進めず、
         // 2 つの待つ入口が重なると先に終わった方が開いて、後から頼んだ方が捨てられた)。
         let intent = beginOpenIntent()
+        // 下調べの間は札を出す(2026-10-06 の応答性の点検 R2-6。以前は棚のフォルダを落とすと、何も出ないまま一覧を 2〜3 回読んだ)。
+        let wait = beginOpenWait(intent: intent)
         openProbeTask = Task { @MainActor [weak self] in
+            defer { self?.endOpenWait(wait) }
             // 下調べはファイルを読むので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。O-7 の付記。以前は
             // `Task.detached` で、応答しない共有ではプールのスレッドを止めていた)。
             if candidates.count == 1, let url = candidates.first {
                 let verdict = await FileIO.perform { DroppedBooks.single(url, order: order) }
-                guard let self, self.isStillWanted(intent) else { return }
+                guard let self, self.isStillWanted(intent), !self.isOpenWaitCancelled(wait) else { return }
                 guard verdict == .open else {
                     self.postViewerNotice(String(
                         format: String(localized: "“%@” can’t be opened as a book.", language: locale), url.lastPathComponent
@@ -1247,7 +1250,7 @@ final class AppState: ObservableObject {
                 return
             }
             let found = await FileIO.perform { DroppedBooks.multiple(candidates, order: order) }
-            guard let self, self.isStillWanted(intent) else { return }
+            guard let self, self.isStillWanted(intent), !self.isOpenWaitCancelled(wait) else { return }
             guard let first = found.books.first else {
                 self.postViewerNotice(String(localized: "None of the items can be opened as a book.", language: locale))
                 return
@@ -1797,6 +1800,11 @@ final class AppState: ObservableObject {
     func cancelOpen() {
         // 利用者が中止した ―― 待っている入口(この窓で先に頼まれていたもの)の結果も、もう要らない(開く意図を進める。R6-1)。
         noteOpenRequest(fulfilling: nil)
+        // 開く前の確かめの札も下ろし、新しいタブ・ウインドウへ開く確かめの結果も捨てさせる(2026-10-06 の応答性の点検 R2)。
+        openWaitsCancelledThrough = openWaitCounter
+        activeOpenWaits = []
+        // 中止した探索が期限まで残っていても、次の「次の本へ」を受け付ける(`stepToSibling` の重ね防止。コードレビュー)。
+        siblingProbeKey = nil
         // 本を表示している窓なら、スコープ・並び・着地の指定も表示中の本のぶんへ戻す(2026-10-05 の監査 A2-1。以前は読み込みをやめる
         // だけで、表示中の本のスコープは新しい本を読み始めたときに閉じたままになった)。
         if currentBook != nil, let loadRestorePoint {
@@ -1847,18 +1855,10 @@ final class AppState: ObservableObject {
             return
         }
         let currentURL = passed?.url ?? currentURL
-        // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
-        // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
-        let order = siblingBookOrder
-        // 兄弟を探す間に別の本を頼んだ・閉じたら、見つけた結果で置き換えない(2026-10-04 の監査 O-7。開く意図はレビューの R6-1)。
-        let intent = claims ? beginOpenIntent() : openIntentWithoutClaiming()
-        let bookAtStart = currentBook?.id
-        openProbeTask = Task { [weak self] in
-            guard let next = await SiblingFinder.url(after: currentURL, order: order) else { return }
-            guard let self, self.isStillWanted(intent), self.currentBook?.id == bookAtStart else { return }
+        stepToSibling(from: currentURL, forward: true, claims: claims) { [weak self] next, intent in
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
-            self.open(
+            self?.open(
                 request: BookOpenRequest(next), reusesExistingWindow: false,
                 initialEdge: landsOnFirstPage ? .first : nil, startsSlideshow: startsSlideshow,
                 step: BookStep(forward: true), intent: intent
@@ -1877,20 +1877,92 @@ final class AppState: ObservableObject {
             return
         }
         let currentURL = passed?.url ?? currentURL
-        let order = siblingBookOrder
-        // 次の本と同じく、探す間に別の本を頼んだ・閉じたら置き換えない(O-7・R6-1)。
-        let intent = beginOpenIntent()
-        let bookAtStart = currentBook?.id
-        openProbeTask = Task { [weak self] in
-            guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
-            guard let self, self.isStillWanted(intent), self.currentBook?.id == bookAtStart else { return }
+        stepToSibling(from: currentURL, forward: false, claims: true) { [weak self] previous, intent in
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
-            self.open(
+            self?.open(
                 request: BookOpenRequest(previous), reusesExistingWindow: false,
                 initialEdge: landsOnLastPage ? .last : nil, step: BookStep(forward: false), intent: intent
             )
         }
     }
+
+    /// 同じフォルダの次/前の本を探す(`openSibling(after:)` / `openSibling(before:)`)。
+    ///
+    /// ■ 探す間は札を出し、期限を付け、見つからなければ言う(2026-10-06 の応答性の点検 R2-1)
+    /// 探すのは親フォルダの一覧で、子フォルダごとに中まで読む(本かどうかの判定)。画像フォルダの本が並ぶ NAS の棚では数秒〜数十秒
+    /// かかるのに、以前は何も出ず・期限も無く(応答しない共有では戻らない)、端の本・読めないフォルダでは黙って何もしなかった。
+    /// いまは利用者が頼んだ一歩(`claims`)なら、探す間は読み込み中の札を出し(`beginOpenWait`。札の「中止」で打ち切れる)、
+    /// `siblingProbeLimit` を過ぎたら「応答しません」、端ならビープ、読めないフォルダなら理由を知らせる。スライドショーの末尾など
+    /// 頼まれていない一歩は今までどおり黙る。
+    ///
+    /// 同じ本から同じ向きの探索が走っている間は、重ねて探さない(押すたびに FileIO の糸が増え、応答しない共有では 1 本ずつ残った)。
+    private func stepToSibling(
+        from currentURL: URL, forward: Bool, claims: Bool, open: @escaping @MainActor (URL, OpenIntent) -> Void
+    ) {
+        let probeKey = SiblingProbeKey(path: currentURL.path, forward: forward)
+        // 利用者が頼んだ探索だけを重ねない(頼まれていない一歩 ―― スライドショーの末尾 ―― の探索は、利用者の「次の本へ」を止めない)。
+        if claims, siblingProbeKey == probeKey { return }
+        // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
+        // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
+        let order = siblingBookOrder
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        // 兄弟を探す間に別の本を頼んだ・閉じたら、見つけた結果で置き換えない(2026-10-04 の監査 O-7。開く意図はレビューの R6-1)。
+        let intent = claims ? beginOpenIntent() : openIntentWithoutClaiming()
+        let wait = claims ? beginOpenWait(intent: intent) : nil
+        let bookAtStart = currentBook?.id
+        if claims { siblingProbeKey = probeKey }
+        openProbeTask = Task { [weak self] in
+            defer {
+                if let wait { self?.endOpenWait(wait) }
+                if claims, self?.siblingProbeKey == probeKey { self?.siblingProbeKey = nil }
+            }
+            let step: SiblingFinder.Step?
+            do {
+                step = try await FileIO.withDeadline(Self.siblingProbeLimit) {
+                    forward
+                        ? await SiblingFinder.step(after: currentURL, order: order)
+                        : await SiblingFinder.step(before: currentURL, order: order)
+                }
+            } catch {
+                step = nil
+            }
+            guard let self, self.isStillWanted(intent), self.currentBook?.id == bookAtStart else { return }
+            if let wait, self.isOpenWaitCancelled(wait) { return }
+            let folderName = currentURL.deletingLastPathComponent().lastPathComponent
+            switch step {
+            case .found(let url):
+                open(url, intent)
+            case .atEnd:
+                if claims { NSSound.beep() }
+            case .notListed:
+                // 開いた後に本が動いた・消えた(または、この並びに入らない形の本)。ビープだけでは理由が分からない(コードレビュー)。
+                guard claims else { return }
+                self.postViewerNotice(String(format: String(
+                    localized: "“%@” is no longer in its folder, so the next or previous book can’t be found.", language: locale
+                ), currentURL.lastPathComponent))
+            case .unreadable:
+                guard claims else { return }
+                self.postViewerNotice(String(format: String(
+                    localized: "The folder “%@” can’t be read, so the next or previous book can’t be found.", language: locale
+                ), folderName))
+            case nil:
+                guard claims else { return }
+                self.postViewerNotice(String(format: String(
+                    localized: "The location of “%@” didn’t respond. Try again later.", language: locale
+                ), folderName))
+            }
+        }
+    }
+
+    /// 同じフォルダの次/前の本を探すのを待つ上限(`stepToSibling`)。親フォルダの子フォルダの中まで読むので、コレクションの本の
+    /// 確かめ(`CollectionItemOpenProbe.limit`)と同じ長さにする。
+    private static let siblingProbeLimit: Duration = CollectionItemOpenProbe.limit
+    private struct SiblingProbeKey: Equatable {
+        let path: String
+        let forward: Bool
+    }
+    /// いま走っている同じフォルダの探索(`stepToSibling`)。
+    private var siblingProbeKey: SiblingProbeKey?
 
     /// 次の本・前の本(一覧の並びを含む)として開くときの向きと、一覧の並びならその残り(`open(request:step:)`)。
     struct BookStep: Sendable {
@@ -1974,12 +2046,20 @@ final class AppState: ObservableObject {
     ) {
         let origin = origin ?? sequence
         let candidates = sequence.candidatePositions(forward: forward)
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else {
+            // 並びの端(2026-10-06 の応答性の点検 R2-2。以前は黙って何もしなかった)。頼まれていない一歩(スライドショーの末尾)は黙る。
+            if claimsOpenIntent { NSSound.beep() }
+            return
+        }
         sequenceTask?.cancel()
         // 確かめを待つ間に別の本を頼んだら(開く意図。R6-1。利用者が頼んでいない進み方なら控えるだけ ―― openSibling の
         // claimsOpenIntent)・並びが変わったらやめる。
         let intent = claimsOpenIntent ? beginOpenIntent() : openIntentWithoutClaiming()
+        // 確かめの間は札を出す(R2-2。1 冊ごとに最長 `sequenceProbeLimit`、見つからない本を飛ばす間も)。
+        let wait = claimsOpenIntent ? beginOpenWait(intent: intent) : nil
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         sequenceTask = Task { [weak self] in
+            defer { if let wait { self?.endOpenWait(wait) } }
             guard let self else { return }
             var steps = SequenceSteps(sequence: sequence, remaining: candidates)
             let result = await self.nextReachable(in: &steps, stillWanted: { [weak self] in
@@ -1987,6 +2067,7 @@ final class AppState: ObservableObject {
                 return self.bookSequence == origin && self.isStillWanted(intent)
             })
             guard !Task.isCancelled, self.bookSequence == origin, self.isStillWanted(intent) else { return }
+            if let wait, self.isOpenWaitCancelled(wait) { return }
             switch result {
             case .found(let position, let url):
                 // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。開いた本が画像の本でない EPUB なら、
@@ -1997,9 +2078,16 @@ final class AppState: ObservableObject {
                     step: BookStep(forward: forward, sequence: steps), intent: intent
                 )
             case .timedOut:
-                // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。
-                NSSound.beep()
-            case .end, .abandoned:
+                // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。以前はビープだけで、待たせた理由が
+                // 分からなかった(R2-2)。
+                guard claimsOpenIntent else { return }
+                self.postViewerNotice(String(
+                    localized: "The location of the next book didn’t respond. Try again later.", language: locale
+                ))
+            case .end:
+                // 残りに開ける本が無かった(見つからない本ばかり)。
+                if claimsOpenIntent { NSSound.beep() }
+            case .abandoned:
                 return
             }
         }
@@ -2064,6 +2152,7 @@ final class AppState: ObservableObject {
     func beginOpenIntent() -> OpenIntent {
         Self.openIntentClock += 1
         latestOpenIntentSerial = Self.openIntentClock
+        dropSupersededOpenWaits()
         return OpenIntent(serial: latestOpenIntentSerial, openCount: nil)
     }
 
@@ -2107,6 +2196,82 @@ final class AppState: ObservableObject {
         return true
     }
 
+    // MARK: - 開く前の確かめの間の表示(2026-10-06 の応答性の点検 R2)
+
+    /// 開く前の確かめ(兄弟の探索・ドロップの下調べ・履歴やスマートライブラリの本の確かめ …)を待っている入口の印。
+    ///
+    /// **読み込み中の札(`BookLoadingOverlay`)は、これが空でない間も出す。** 以前は札が `loadingProgress`(`open(request:)` が
+    /// 読み込みを始めた後)にしか連動せず、その手前の確かめは入口ごとに 0〜45 秒、何も出ないまま待った(点検 R2。回転表示が
+    /// あるのはコレクションの本だけだった)。待つ入口は `waitingToOpen(_:)`(または `beginOpenWait`/`endOpenWait`)で囲む。
+    /// 確かめから読み込みへ移るときは、`open(request:)` が `loadingProgress` を立てた**後**に印を下ろす(`endOpenWait` は次の周回で
+    /// 下ろす)ので、札は途切れず、400ms の待ちも測り直さない(以前は確かめの後にさらに 400ms 待ってから出た。R2-7)。
+    struct OpenWait: Hashable, Sendable {
+        fileprivate let id: UInt64
+        let purpose: Purpose
+        /// この窓の本を置き換える入口なら、その開く意図の番号。**後から別の本が頼まれた(意図が進んだ)ら、待ちの途中でも札を下ろす**
+        /// (`dropSupersededOpenWaits`。コードレビュー ―― 以前は確かめが返るまで、後から開いた本の上に札と暗幕が最長 45 秒残った)。
+        /// nil は新しいタブ・ウインドウへ開く入口(この窓の本と競わない)。
+        fileprivate let intentSerial: UInt64?
+
+        /// 札の文言を分ける(開く入口か、本の場所を確かめるだけの入口 ―― スマートライブラリの「Finder に表示」「コピー」など ―― か)。
+        enum Purpose: Sendable {
+            case opening
+            case locating
+            /// コレクションへ本を足している(ホームへのドロップの振り分けとブックマークの作成)。
+            case adding
+        }
+    }
+    /// 待っている入口(複数のことがある ―― 新しいタブへ開く確かめを 2 つ続けて頼んだなど)。札は 1 つでも在れば出す。
+    @Published private(set) var activeOpenWaits: Set<OpenWait> = []
+    private var openWaitCounter: UInt64 = 0
+    /// 札の「中止」で打ち切った印の番号(これ以下の印の結果は捨てる)。置き換える入口は開く意図(`isStillWanted`)で照合するので、
+    /// これを見るのは新しいタブ・ウインドウへ開く入口(この窓の本と競わない)だけ。
+    private var openWaitsCancelledThrough: UInt64 = 0
+
+    var isWaitingToOpen: Bool { !activeOpenWaits.isEmpty }
+    /// 札に出す待ちの種類(開く入口が 1 つでもあれば「開いています」)。待っていなければ nil。
+    var openWaitPurpose: OpenWait.Purpose? {
+        guard !activeOpenWaits.isEmpty else { return nil }
+        if activeOpenWaits.contains(where: { $0.purpose == .opening }) { return .opening }
+        if activeOpenWaits.contains(where: { $0.purpose == .locating }) { return .locating }
+        return .adding
+    }
+
+    func beginOpenWait(_ purpose: OpenWait.Purpose = .opening, intent: OpenIntent? = nil) -> OpenWait {
+        openWaitCounter += 1
+        let wait = OpenWait(id: openWaitCounter, purpose: purpose, intentSerial: intent?.serial)
+        activeOpenWaits.insert(wait)
+        return wait
+    }
+
+    /// 印を下ろす。**次の周回で**下ろす ―― 待った後に `open(request:)` が読み込みを始めるなら、その間に札が一度消えて、
+    /// 400ms 待ち直してから出直すことがないように(上の型コメント)。
+    func endOpenWait(_ wait: OpenWait) {
+        DispatchQueue.main.async { [weak self] in
+            self?.activeOpenWaits.remove(wait)
+        }
+    }
+
+    /// 札の「中止」で打ち切られたか(新しいタブ・ウインドウへ開く入口が、待った後に見る)。
+    func isOpenWaitCancelled(_ wait: OpenWait) -> Bool {
+        wait.id <= openWaitsCancelledThrough
+    }
+
+    /// `body`(開く前の確かめ)の間、札を出す。
+    func waitingToOpen<T>(_ purpose: OpenWait.Purpose = .opening, intent: OpenIntent? = nil, _ body: () async -> T) async -> T {
+        let wait = beginOpenWait(purpose, intent: intent)
+        defer { endOpenWait(wait) }
+        return await body()
+    }
+
+    /// 開く意図が先へ進んだ(この窓で別の本が頼まれた・中止した)ので、それより前の意図の札を下ろす。今の意図の札(読み込みへ移る
+    /// 入口のもの)は残す ―― 読み込みの札へ途切れずに移るため(`endOpenWait` のコメント)。
+    private func dropSupersededOpenWaits() {
+        let superseded = activeOpenWaits.filter { ($0.intentSerial ?? .max) < latestOpenIntentSerial }
+        guard !superseded.isEmpty else { return }
+        activeOpenWaits.subtract(superseded)
+    }
+
     /// `open(request:)` を受けた・中止した。待っていた入口の結果を開くとき(`intent` あり)は、その意図の番号を引き継ぐ ――
     /// 新しい番号にすると、後から頼まれて別の窓の意図として待っている入口(編集ウインドウ・Finder)まで捨ててしまう。
     private func noteOpenRequest(fulfilling intent: OpenIntent?) {
@@ -2117,6 +2282,7 @@ final class AppState: ObservableObject {
             latestOpenIntentSerial = Self.openIntentClock
         }
         openRequestCount += 1
+        dropSupersededOpenWaits()
     }
 
     /// 開く前の下調べ(`open(urls:)`)・同じフォルダの次/前の本を探している最中の仕事。テストが終わりを待つ(2026-10-04 の監査 O-7)。
@@ -2147,6 +2313,7 @@ final class AppState: ObservableObject {
         if currentBook != nil, lastOpenedBook != nil { lastBookAwaitsHomeSelection = true }
         currentBook = nil
         clearSiblingBooks()
+        siblingProbeKey = nil
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの
         // コメント参照)。
         securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }

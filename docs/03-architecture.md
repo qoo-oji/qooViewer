@@ -256,7 +256,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 
 - 既定隔離が `MainActor` なので、**メインアクターの外で使うものには `nonisolated` を明示する**
   (型・関数・static プロパティ・enum の計算プロパティ)。対象は `PageLoader`(actor)、
-  `BookLoader` の `Task.detached`、各 Exporter、`DirectoryBrowser`、`SiblingFinder`、
+  `BookLoader` の走査、各 Exporter、`DirectoryBrowser`、`SiblingFinder`、
   `MetadataRulesStore` の static な読み取り(qooMeta)、`SmartLibraryScanner`、`BookURLResolver`、`LibraryCleanupViewModel.evaluate` など。
   正典は `Services/ArchiveReading.swift` 冒頭のコメント。
 - 書庫の reader(`ArchiveReading`)は `Sendable` ではなく、スレッドセーフでもない。
@@ -271,7 +271,9 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 - `@Published` の購読(`$prop.sink`)は**値が書き換わる前**(willSet)に届く。購読の中で
   同じプロパティを読むと1つ前の値になる。sink が受け取った新しい値を使う
   (`AppPreferences.pageImageCacheLimitBytes(forMB:)` のコメント)。
-- **ファイルブラウザのファイル操作・一覧の読み込みは `FileIO.perform` の中で行う**(`Services/FileOperations/FileIO.swift`)。
+- **利用者のファイルに触るブロッキング I/O は `FileIO.perform` の中で行う**(`Services/FileOperations/FileIO.swift`。ファイルブラウザの操作・一覧から
+  始まり、2026-10-06 の応答性の点検で本の読み込みの走査・目次などの取り込み・兄弟の一覧・コレクションの実在確認・ドロップの振り分け・
+  自動登録フォルダ・FSEvents のストリームの生成も移した)。
   `Task.detached` は協調スレッドプールの上なので、応答しない共有でブロックするとプールごと止まる。`FileIO` は
   投入ごとに新しい serial queue を作って走らせる。その中では `Task.isCancelled` が常に false なので、
   取り消しは `Cancellation.isRequestedInCurrentScope` で読む。マウント表(ローカルか・同じボリュームか)は
@@ -284,7 +286,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 1. 入口(ホームのコレクション・ドロップ・Finder・履歴・サイドパネル・隣の本)が
    `BookOpenRequest` を作る。複数の画像なら1冊のその場限りの本、それ以外は先頭1件だけ。
 2. `AppState.open(request:)` が前の本のセキュリティスコープを閉じ、新しい URL を開き、
-   `BookLoader.load(from:progress:)` を `Task.detached` で走らせる(→ [04](04-book-loading.md))。
+   `BookLoader.load(from:progress:)` の走査を `FileIO` の上で走らせる(→ [04](04-book-loading.md))。
 3. 返ってきた `MangaBook` について、4つのストアで bookID の追従(inode による移動検知)、
    履歴の記録、`LastActiveBookStore` の更新、隣の本の一覧の再読み込みを行う。
 4. `ContentView`(`ViewerHandoff`)が `ViewerViewModel` を作って最初の見開きを待ち、揃ったら `ViewerView(...).id(book.id)` を

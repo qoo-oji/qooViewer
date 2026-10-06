@@ -674,10 +674,14 @@ final class CollectionStore: ObservableObject {
 
     private func sorted(_ items: [CollectionItem], sort: FavoritesSortOption) -> [CollectionItem] {
         switch sort {
+        // 比べる値は 1 冊 1 回だけ読む(SwiftData の行の属性は読むたびに重い。比べるたびに 2 冊ぶん読むと、1 万冊の並べ替えで
+        // 秒に届いた ―― 2026-10-06 の応答性の点検 R4-4)。比べ方・入力の順は以前と同じなので並びも同じ。
         case .nameAscending:
-            return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            return items.map { (item: $0, name: $0.title) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.item)
         case .nameDescending:
-            return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
+            return items.map { (item: $0, name: $0.title) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }.map(\.item)
         case .titleAscending, .titleDescending:
             return sortedByTitle(items, ascending: sort.isAscending)
         case .dateCreatedAscending, .dateCreatedDescending:
@@ -687,9 +691,9 @@ final class CollectionStore: ObservableObject {
         // 本には「更新日時」に相当する情報が無いため、追加日時と同じものとして扱う
         // (items(in:sort:)のコメント参照)。
         case .dateAddedAscending, .dateUpdatedAscending:
-            return items.sorted { $0.addedAt < $1.addedAt }
+            return items.map { (item: $0, date: $0.addedAt) }.sorted { $0.date < $1.date }.map(\.item)
         case .dateAddedDescending, .dateUpdatedDescending:
-            return items.sorted { $0.addedAt > $1.addedAt }
+            return items.map { (item: $0, date: $0.addedAt) }.sorted { $0.date > $1.date }.map(\.item)
         }
     }
 
@@ -703,7 +707,7 @@ final class CollectionStore: ObservableObject {
     private func sortedByFileDate(
         _ items: [CollectionItem], ascending: Bool, date: KeyPath<BookFileDates, Date?>
     ) -> [CollectionItem] {
-        let keyed = items.map { (item: $0, date: fileDatesByItemID[$0.id]?[keyPath: date]) }
+        let keyed = items.map { (item: $0, date: fileDatesByItemID[$0.id]?[keyPath: date], name: $0.title) }
         return keyed.sorted { lhs, rhs in
             switch (lhs.date, rhs.date) {
             case let (left?, right?) where left != right:
@@ -713,7 +717,7 @@ final class CollectionStore: ObservableObject {
             case (nil, .some):
                 return false
             default:
-                return lhs.item.title.localizedStandardCompare(rhs.item.title) == .orderedAscending
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
         }.map(\.item)
     }
@@ -729,11 +733,11 @@ final class CollectionStore: ObservableObject {
     /// 同じ並びを描き直すたびに順番が入れ替わりうる。
     private func sortedByTitle(_ items: [CollectionItem], ascending: Bool) -> [CollectionItem] {
         let wanted: ComparisonResult = ascending ? .orderedAscending : .orderedDescending
-        let keyed = items.map { (item: $0, title: titleResolver.title(forBookID: $0.bookID)) }
+        let keyed = items.map { (item: $0, title: titleResolver.title(forBookID: $0.bookID), name: $0.title) }
         return keyed.sorted { lhs, rhs in
             let order = lhs.title.localizedStandardCompare(rhs.title)
             guard order == .orderedSame else { return order == wanted }
-            return lhs.item.title.localizedStandardCompare(rhs.item.title) == wanted
+            return lhs.name.localizedStandardCompare(rhs.name) == wanted
         }.map(\.item)
     }
 
@@ -1006,8 +1010,6 @@ final class CollectionStore: ObservableObject {
     /// 止まる(監査で指摘 2026-09-13)。自動登録フォルダの走査が同じ理由で外へ出していたのに、
     /// 画面の入り口だけが取り残されていた。
     ///
-    /// `@concurrent`が要る理由はCollectionCoverStore.image(for:maxPixelSize:)と同じ。
-    ///
     /// **シークレットフォルダの本は入れない**(2026-10-03。SecretFolderStore ―― コレクションの項目は本のパスを持つ保存データ)。
     /// 画面の入り口(ドロップ・「本を追加」・「＋」・右クリックの「コレクションに登録」)はすべてここを通る。保存データの読み込みは
     /// 1 冊ずつの `makePendingItem` を使い、ここを通らない(読み込みは特別扱いしない ―― 決定 13)。
@@ -1017,10 +1019,15 @@ final class CollectionStore: ObservableObject {
     ///   淡色の判定(`AppState.canAddCurrentBookToCollection`)と同じくその値で通す ―― 以前は淡色は開いた時点の値、拒否は今の一覧で、
     ///   開いた後にそのフォルダをシークレットフォルダへ足すと、押せるのに断られた。開かずに書く経路(ドロップ・本を追加・ファイル
     ///   ブラウザ・サイドパネル)は渡さない(場所で決める。CLAUDE.md「Secret folders」)。
-    @concurrent nonisolated static func makePendingItems(
+    ///
+    /// 1 冊ごとにファイルへ問い合わせるブロッキング I/O なので FileIO の上で(2026-10-06 の応答性の点検 R7 ―― 以前は `@concurrent` で
+    /// 協調スレッドプールの上を走り、応答しない共有の本を落とすとプールのスレッドを塞いだ)。
+    nonisolated static func makePendingItems(
         for urls: [URL], decidedNotSecret: Set<String> = []
     ) async -> [PendingItem] {
-        urls.filter { decidedNotSecret.contains($0.path) || !SecretFolderStore.isSecretAppWide($0) }.compactMap(makePendingItem(for:))
+        await FileIO.perform {
+            urls.filter { decidedNotSecret.contains($0.path) || !SecretFolderStore.isSecretAppWide($0) }.compactMap(makePendingItem(for:))
+        }
     }
 
     /// シークレットフォルダの本を入れなかったことの知らせ(入り口が結果の文に添える)。
@@ -1066,11 +1073,12 @@ final class CollectionStore: ObservableObject {
             let bookID = pending.url.path
             if existingPaths.contains(bookID) { continue }
             if let identifier = pending.identifier, existingIdentifiers.contains(identifier) { continue }
+            // コレクションへは後でまとめてつなぐ(下の `append(contentsOf:)`)。
             let item = CollectionItem(
                 bookID: bookID,
                 bookmarkData: pending.bookmarkData,
                 title: pending.title,
-                collection: collection,
+                collection: nil,
                 sortOrder: nextSortOrder,
                 fileNodeIdentifier: pending.identifier
             )
@@ -1081,8 +1089,31 @@ final class CollectionStore: ObservableObject {
             nextSortOrder += 1
             created.append(item)
         }
-        if !created.isEmpty { invalidateLookupCaches() }
+        // **1 冊ずつつながない**(2026-10-06 の応答性の点検 R4-3)。SwiftData は行をコレクションへつなぐたびに逆の関係
+        // (`collection.items`)を写し直すようで、1 冊ずつつなぐと「足す冊数 × コレクションの冊数」になった(実測 1 万冊で 7.9 秒、
+        // まとめてつなぐと 0.8 秒)。
+        if !created.isEmpty {
+            collection.items.append(contentsOf: created)
+            invalidateLookupCaches()
+        }
         return created
+    }
+
+    /// 多くの本をまとめてコレクションから外して消す(`remove(_:)`・`removeItems(forBookID:)`・`performRemoval`)。
+    ///
+    /// **先にコレクションの側からまとめて外す**(2026-10-06 の応答性の点検 R4-1)。1 冊ずつ `delete` すると、SwiftData がそのたびに
+    /// 相手のコレクションの `items` を写し直し、「消す冊数 × コレクションの冊数」になった(実測 1000/1 万冊で 6.4 秒 → 0.66 秒)。
+    /// 外した後は `item.collection` が nil になるので、どのコレクションに入っていたかは呼ぶ側が先に控えること。
+    private func deleteItems(_ items: [CollectionItem]) {
+        var idsByCollection: [ObjectIdentifier: (collection: BookCollection, ids: Set<UUID>)] = [:]
+        for item in items {
+            guard let collection = item.collection else { continue }
+            idsByCollection[ObjectIdentifier(collection), default: (collection, [])].ids.insert(item.id)
+        }
+        for (collection, ids) in idsByCollection.values {
+            collection.items.removeAll { ids.contains($0.id) }
+        }
+        for item in items { modelContext.delete(item) }
     }
 
     /// 本をコレクションから外す(カバー画像のファイルも消す)。
@@ -1112,8 +1143,8 @@ final class CollectionStore: ObservableObject {
             if let collection = item.collection {
                 touchedCollections[ObjectIdentifier(collection)] = collection
             }
-            modelContext.delete(item)
         }
+        deleteItems(items)
         for collection in touchedCollections.values { collection.updatedAt = now }
         invalidateLookupCaches()
         saveAndNotify()
@@ -1133,8 +1164,8 @@ final class CollectionStore: ObservableObject {
             if let collection = item.collection {
                 touchedCollections[ObjectIdentifier(collection)] = collection
             }
-            modelContext.delete(item)
         }
+        deleteItems(targets)
         for collection in touchedCollections.values { collection.updatedAt = now }
         invalidateLookupCaches()
         saveAndNotify(bookID: bookID)
@@ -1496,33 +1527,45 @@ final class CollectionStore: ObservableObject {
         }
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        existenceRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            // マウント中のボリュームは1回だけ数えて使い回す(本ごとに数え直すと、
-            // 数百冊の棚でマウント一覧の問い合わせがそのぶん繰り返される)。
-            let mountedVolumeUUIDs = BookLocationResolver.mountedVolumeUUIDs()
-            var result: [UUID: BookLocation] = [:]
-            var dates: [UUID: BookFileDates] = [:]
-            for probe in probes {
-                // 取り消し = ライブラリ機能を OFF にした(setLibraryFeatureEnabled)。残りは確かめない。
-                guard !Task.isCancelled else { break }
-                let location = BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mountedVolumeUUIDs)
-                result[probe.itemID] = location
-                // 実体に届いた本だけ、ついでに作成日・変更日を読む(fileDatesByItemIDのコメント)。
-                // 読むのは属性だけだが、サンドボックスの外の本なのでスコープを開けてから。
-                if let url = location.url {
-                    let didStart = url.startAccessingSecurityScopedResource()
-                    dates[probe.itemID] = BookFileDates.read(at: url)
-                    if didStart { url.stopAccessingSecurityScopedResource() }
+        // 確かめ(ブックマークの解決・日付の読み取り)はブロッキングする I/O なので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は
+        // `Task.detached` で、アクティブ化・ボリュームの着脱のたびに、応答しない共有の本があると協調スレッドプールのスレッドを冊数 ×
+        // 30 秒塞いだ)。取り消し(ライブラリ機能を OFF にした)は FileIO が中の旗へ橋渡しする。
+        existenceRefreshTask = Task { [weak self] in
+            struct Outcome: Sendable {
+                let locations: [UUID: BookLocation]
+                let dates: [UUID: BookFileDates]
+            }
+            let outcome = await FileIO.perform(qos: .utility) { () -> Outcome? in
+                // マウント中のボリュームは1回だけ数えて使い回す(本ごとに数え直すと、
+                // 数百冊の棚でマウント一覧の問い合わせがそのぶん繰り返される)。
+                let mountedVolumeUUIDs = BookLocationResolver.mountedVolumeUUIDs()
+                var result: [UUID: BookLocation] = [:]
+                var dates: [UUID: BookFileDates] = [:]
+                for probe in probes {
+                    // 取り消し = ライブラリ機能を OFF にした(setLibraryFeatureEnabled)。残りは確かめない。
+                    guard !Cancellation.isRequestedInCurrentScope else { return nil }
+                    let location = BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mountedVolumeUUIDs)
+                    result[probe.itemID] = location
+                    // 実体に届いた本だけ、ついでに作成日・変更日を読む(fileDatesByItemIDのコメント)。
+                    // 読むのは属性だけだが、サンドボックスの外の本なのでスコープを開けてから。
+                    if let url = location.url {
+                        let didStart = url.startAccessingSecurityScopedResource()
+                        dates[probe.itemID] = BookFileDates.read(at: url)
+                        if didStart { url.stopAccessingSecurityScopedResource() }
+                    }
                 }
+                return Outcome(locations: result, dates: dates)
             }
             guard let self else { return }
             // 途中でやめた結果は一部の本しか含まないので、公開しない。
-            guard !Task.isCancelled else {
-                await self.abandonExistenceRefresh()
+            guard let outcome, !Task.isCancelled else {
+                self.abandonExistenceRefresh()
                 return
             }
+            let result = outcome.locations
+            let dates = outcome.dates
             let recordedPaths = Dictionary(probes.map { ($0.itemID, $0.recordedPath) }, uniquingKeysWith: { first, _ in first })
-            await self.finishExistenceRefresh(result, fileDates: dates, recordedPaths: recordedPaths)
+            self.finishExistenceRefresh(result, fileDates: dates, recordedPaths: recordedPaths)
         }
     }
 
@@ -1695,9 +1738,8 @@ final class CollectionStore: ObservableObject {
     /// 「消したはずの行が残る」という形で表面化する(FavoritesStore.deleteAllFavoritesの
     /// コメントに実測の記録がある)。行をフェッチして1件ずつ消す。
     func deleteAll() {
-        for item in (try? modelContext.fetch(FetchDescriptor<CollectionItem>())) ?? [] {
-            modelContext.delete(item)
-        }
+        // コレクションの側からまとめて外してから消す(`deleteItems` のコメント。1 件ずつだと冊数 × コレクションの冊数)。
+        deleteItems((try? modelContext.fetch(FetchDescriptor<CollectionItem>())) ?? [])
         for collection in (try? modelContext.fetch(FetchDescriptor<BookCollection>())) ?? [] {
             modelContext.delete(collection)
         }
@@ -1854,7 +1896,7 @@ final class CollectionStore: ObservableObject {
             fileNodeIdentifier = item.fileNodeIdentifier
         }
 
-        /// 行を作る。**コレクションへはつながない** ―― `insert` した後に `item.collection` を入れる(`restoreItem`)。作る時点で
+        /// 行を作る。**コレクションへはつながない** ―― `insert` した後にコレクションの `items` へまとめて足す(`restoreItems`)。作る時点で
         /// つないでおくと、コレクションから外した本を同じコレクションへ戻したときに `collection.items` へ現れなかった
         /// (DataUndoTests で実測。行は保存されていて id でも引けたが、コレクションの側の一覧に載らなかった。原因は確かめていない)。
         func makeItem() -> CollectionItem {
@@ -1985,7 +2027,7 @@ final class CollectionStore: ObservableObject {
                 collection.name = uniqueName(snapshot.name) { hasCollectionNamed($0, in: library) }
             }
             modelContext.insert(collection)
-            for item in snapshot.items { restoreItem(item, into: collection) }
+            restoreItems(snapshot.items, into: collection)
             restoredItemIDs.formUnion(snapshot.items.map(\.id))
             restoredAny = true
         }
@@ -2048,21 +2090,34 @@ final class CollectionStore: ObservableObject {
     func restore(_ record: ItemRemovalRecord) -> Bool {
         var restoredCollections: [UUID: BookCollection] = [:]
         var restoredItemIDs = Set<UUID>()
+        // 索引はループの後で 1 回だけ捨てる。以前は 1 冊戻すごとに捨てていて、次の 1 冊の `item(withID:)` が全件 fetch と索引の
+        // 作り直しになり、「戻す冊数 × 全冊数」でメインが止まった(2026-10-06 の応答性の点検 R4-1。実測 200/2000 冊で 3.5 秒、
+        // 1000/1 万冊で 110 秒)。ループの中で見るのは「戻す前からあった本か」だけなので、戻した本が索引に無くても答えは変わらない
+        // (戻す本の id はどれも違う)。コレクションに今ある本(足し直された本を二重にしない)も、コレクションごとに 1 回だけ集める
+        // (以前は 1 冊ごとに中の全冊をなめた)。
+        var presentByCollection: [UUID: (bookIDs: Set<String>, nodes: Set<FileNodeIdentifier>)] = [:]
+        // コレクションごとにまとめてつなぐ(`restoreItems`。1 冊ずつつなぐと逆の関係の写し直しで遅い ―― `insertItems` のコメント)。
+        var restoredByCollection: [UUID: [ItemSnapshot]] = [:]
         for snapshot in record.items {
             guard let collectionID = snapshot.collectionID, let collection = collection(withID: collectionID),
                   item(withID: snapshot.id) == nil
             else { continue }
-            let present = collection.items.contains {
-                $0.bookID == snapshot.bookID
-                    || (snapshot.fileNodeIdentifier != nil && $0.fileNodeIdentifier == snapshot.fileNodeIdentifier)
-            }
-            guard !present else { continue }
-            restoreItem(snapshot, into: collection)
+            var present = presentByCollection[collectionID]
+                ?? (Set(collection.items.map(\.bookID)), Set(collection.items.compactMap(\.fileNodeIdentifier)))
+            defer { presentByCollection[collectionID] = present }
+            guard !present.bookIDs.contains(snapshot.bookID),
+                  !(snapshot.fileNodeIdentifier.map(present.nodes.contains) ?? false)
+            else { continue }
+            restoredByCollection[collectionID, default: []].append(snapshot)
+            present.bookIDs.insert(snapshot.bookID)
+            if let node = snapshot.fileNodeIdentifier { present.nodes.insert(node) }
             restoredCollections[collectionID] = collection
             restoredItemIDs.insert(snapshot.id)
-            invalidateLookupCaches()
         }
         guard !restoredCollections.isEmpty else { return false }
+        for (id, snapshots) in restoredByCollection {
+            if let collection = restoredCollections[id] { restoreItems(snapshots, into: collection) }
+        }
         for (id, collection) in restoredCollections {
             if let previous = record.previousUpdatedAt[id] { collection.updatedAt = previous }
         }
@@ -2107,18 +2162,20 @@ final class CollectionStore: ObservableObject {
             if let collection = item.collection {
                 touchedCollections[ObjectIdentifier(collection)] = collection
             }
-            modelContext.delete(item)
         }
+        deleteItems(items)
         for collection in touchedCollections.values { collection.updatedAt = now }
         invalidateLookupCaches()
         saveAndNotify()
         for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
     }
 
-    private func restoreItem(_ snapshot: ItemSnapshot, into collection: BookCollection) {
-        let item = snapshot.makeItem()
-        modelContext.insert(item)
-        item.collection = collection
+    /// 控えから行を作り直してコレクションへつなぐ。**まとめてつなぐ**(`insertItems` のコメント。2026-10-06 の応答性の点検 R4-1)。
+    private func restoreItems(_ snapshots: [ItemSnapshot], into collection: BookCollection) {
+        guard !snapshots.isEmpty else { return }
+        let items = snapshots.map { $0.makeItem() }
+        for item in items { modelContext.insert(item) }
+        collection.items.append(contentsOf: items)
     }
 
     /// 「名前 2」「名前 3」… のうち空いている最初のもの。

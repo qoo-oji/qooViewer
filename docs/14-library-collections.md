@@ -57,6 +57,16 @@
 bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く ―― 「保存データの削除」ウインドウが
 知っている本の数だけ引くので、線形に舐めると本の数 × 登録件数になっていた(監査で指摘 2026-09-13)。
 
+**多くの本をつなぐ・外すときは、関係をまとめて書き換える**(2026-10-06 の応答性の点検 R4-1・R4-3)。SwiftData は行を 1 件ずつコレクションへ
+つなぐ(`item.collection = …`・`CollectionItem(collection:)`)・1 件ずつ消すたびに、相手の `collection.items`(逆の関係)を写し直すようで、
+「足す/外す冊数 × コレクションの冊数」になった(テストホストの実測: 1 万冊を足す 7.9 秒 → 0.8 秒、1 万冊中 1000 冊を外す 5.7 秒 → 0.11 秒)。
+`insertItems`・`restoreItems` は `collection: nil` で作って `collection.items.append(contentsOf:)` で 1 回につなぎ、`deleteItems` は
+`collection.items.removeAll` で先に外してから消す(外した後は `item.collection` が nil になるので、どのコレクションに入っていたかは呼ぶ側が
+先に控える)。⌘Z で外した本を戻す `restore(_:)` は、1 冊ごとに索引を捨てていた(次の 1 冊の `item(withID:)` が全件 fetch と索引の作り直し)
+のをループの後の 1 回にし、「今ある本」もコレクションごとに 1 回だけ集める(実測 1000/1 万冊で 110 秒 → 0.3 秒)。並べ替え(`sorted`)は
+比べる値を 1 冊 1 回だけ読む(行の属性は読むたびに重い)。実在確認(`scheduleExistenceRefresh`)と `makePendingItems` は FileIO の上
+(以前は `Task.detached` / `@concurrent` で協調スレッドプールを塞いだ)。
+
 `FavoritesStore` と違うところ:
 
 - `AppStores.allObjectWillChangePublishers` に**意図的に足していない**。表紙の抽出や存在確認のたびに
@@ -103,7 +113,7 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
 - **「作成日」「変更日」もコレクションの中にしか出さない**(ユーザー要望 2026-09-13)。本の
   ファイル/フォルダの `creationDate` / `contentModificationDate`(Finder の「作成日」「変更日」と
   同じ値)で、**DB には保存しない**(アプリの外で変わる)。実体確認と同じ契機・同じ
-  `Task.detached` で読み(`fileDatesByItemID`)、登録した直後はその場で読む(`PendingItem.fileDates`)。
+  `FileIO` の上で読み(`fileDatesByItemID`。2026-10-06 までは `Task.detached`)、登録した直後はその場で読む(`PendingItem.fileDates`)。
   日付の分からない本(実体が見つからない等)は昇順・降順のどちらでも末尾へ、同じ日付は名前で決める。
   お気に入り・ブックマーク・コレクションの並べ替えに回ってきたときは名前として扱う(「タイトル」と同じ)。
 
@@ -140,7 +150,7 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
 | `CollectionCoverStore`(actor) | `~/Library/Application Support/<bundle id>/CollectionCovers/<CollectionItem.id>.jpg`。長辺 768px、JPEG 0.8。**切らずに**保存する。**表示のために焼いた派生物**でアイテム単位 |
 | `CollectionCoverSourceStore`(struct) | `.../CollectionCoverSources/<uuid>.jpg`。利用者が指定した画像の**複製**(長辺 1536px、JPEG 0.85)。**作り直しの元**で本単位 |
 | `CoverImageResolver`(nonisolated) | 「この本の表紙はどの画像か」を決める唯一の場所(上書き > 実効1ページ目)と、枠へ収める切り方 `cropped(_:to:anchor:)` |
-| `CollectionCoverExtractor`(MainActor) | アプリ全体で1本の待ち行列。**同時1件**、上から順に埋まる。本を丸ごと開いて先頭ページを復号するので、並列にするとビューアの邪魔になる |
+| `CollectionCoverExtractor`(MainActor) | アプリ全体で1本の待ち行列。**同時1件**、上から順に埋まる。本を丸ごと開いて先頭ページを復号するので、並列にするとビューアの邪魔になる。**利用者が表紙を選び直した本(本を名指ししたレイアウトの知らせ)は列の先頭へ**(`enqueue(_:atFront:)`。既に並んでいれば先頭へ移し、抽出中だった本の作り直しも先頭へ積む。2026-10-06 の応答性の点検 R6-5 ―― 以前は今の表紙を下地へ戻したまま末尾に並び、大量の登録・読み込みの直後は数分〜数十分待った)。bookID の無い知らせ(読み込み・全削除・付け替え)の本は末尾へ |
 | `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない)。復号した絵はアプリで 1 つのメモリ LRU(`CollectionCoverStore.memoryCache`、800 枚・64MB。鍵は item・差し替えの回数・大きさ)から引く ―― 以前は戻るたび・作り直すたび・ウインドウごとに全セルが JPEG を読み直した(2026-09-25)。書く・消すと捨てる。ライブラリを OFF にすると手放す |
 | `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
 
@@ -757,6 +767,11 @@ Finder などへドラッグしてアプリの外へ渡せる(`Views/Welcome/Hom
 何も登録しませんでした」と知らせる(以前は消えた棚の代わりに名前を訊く作成へ回る・同じ名前で作り直していた)。開いている棚へ
 足す途中で機能が OFF になったときは、始めた操作を終わらせる(止めないもの)。
 
+**振り分け・ブックマークの作成を待つ間は窓の札を出す**(2026-10-06 の応答性の点検 R2-10。`WelcomeDropHandling.handle(waitHost:)`・
+`addDropped(waitHost:)`・「＋」からの作成 ―― `AppState.beginOpenWait(.adding)`、「本を追加しています…」)。以前は落とした後、名前のシートか
+トーストが出るまで何も出なかった(千冊の棚・ネットワークで数秒〜数十秒)。札の「中止」で打ち切ったら足さない(窓が閉じたときは
+打ち切らない)。振り分け(`classifyAsync`)は FileIO の上。
+
 `CollectionDropClassifier`(nonisolated、フォルダの列挙を伴う)が URL を3つに分ける:
 
 | 落とされたもの | 扱い |
@@ -792,6 +807,10 @@ Finder などへドラッグしてアプリの外へ渡せる(`Views/Welcome/Hom
   走査する側は `isPathCovered` に「いま列挙してよいか」を訊き、覆われていなければ**黙って見送る**
   (設定の面が「アクセスを許可」を出す)。代償として、フォルダを移動・リネームすると自動登録は
   静かに止まる。
+- **フォルダごとに別々に走らせ、待つのは期限(30 秒)まで**(2026-10-06 の応答性の点検 R6-6・R7)。以前は全部のフォルダを 1 つの
+  `Task.detached` で順に回し、応答しない共有のフォルダが 1 つあると、ほかの全部のコレクションの自動登録も止まった。期限を過ぎた
+  フォルダの列挙は捨てずに走らせ続け(`runningFolderScans`。コレクションとフォルダの組ごと)、次の走査はそれを待ち直す ―― 大きくて
+  遅いが応答はする棚が、期限のたびに最初から読み直されていつまでも登録されない、を起こさない(コードレビュー)。
 - 拾う範囲は `ShelfFolderResolver.role` の `.shelf(books:)` そのもの ―― 同じフォルダを編集モード中に
   ドロップしたときと1冊のずれもなく一致する。棚でないフォルダ(空・それ自体が1冊・中間フォルダ
   だけ)は何も拾わないが、指定自体は弾かない(後から書庫が置かれれば棚になる)。
@@ -856,7 +875,7 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 `BookLocation`)が決める。確認は起動時・アプリのアクティブ化・ボリュームの着脱、**アプリ自身がファイルを動かしたとき**
 (`FileSystemChange`。ファイルブラウザの操作・自動リネーム。2026-09-19 ―― それまではアプリの中で本を移しても消しても、
 アプリを離れて戻るまで表示が変わらなかった。→ [15](15-file-browser.md#アプリ自身の変更の知らせfilesystemchange2026-09-19))で予約され、
-メインアクターの外(`Task.detached`)で走る。
+メインアクターの外(`FileIO` の上。2026-10-06 までは `Task.detached`)で走る。
 
 **ゴミ箱の中まで追った本は「ある」に数えない**(`BookLocationResolver.isInTrash`。2026-09-19、ユーザー決定)。ブックマークはゴミ箱へ
 送った本にも付いていくので、以前は捨てた本が棚に普通の本として並び、ゴミ箱の中から開けた。いまは `.missing` として淡く出し、

@@ -57,6 +57,15 @@ final class CollectionAutoFolderScanner: ObservableObject {
     private var recheckTask: Task<Void, Never>?
     /// 走っている走査(settleが待つためだけに持つ)。
     private var scanTask: Task<Void, Never>?
+    /// 自動登録フォルダ 1 つの走査を待つ上限(応答しない共有で、ほかのコレクションの自動登録まで止めない。R6-6)。
+    private static let folderScanLimit: Duration = .seconds(30)
+    /// 期限を過ぎてもまだ走っているフォルダの列挙(コレクションの id ごと)。次の走査は新しく出さずにこれを待ち直す(`scheduleScan`)。
+    private var runningFolderScans: [FolderScanKey: Task<CollectionAutoFolderScan.FolderResult?, Never>] = [:]
+    /// コレクションとフォルダの組(自動登録フォルダを替えたら、前のフォルダの列挙は待ち直さない)。
+    private struct FolderScanKey: Hashable {
+        let collectionID: UUID
+        let folderPath: String
+    }
     private var activationObserver: NSObjectProtocol?
     private var volumeObservers: [NSObjectProtocol] = []
     /// 監視役。**`init`の中では作れない** ―― あそこの`self`はまだ確定しておらず、並行に走る
@@ -125,6 +134,7 @@ final class CollectionAutoFolderScanner: ObservableObject {
     /// releaseResources と同じ理由・同じ形)。
     func releaseResources() {
         didRelease = true
+        runningFolderScans = [:]
         recheckTask?.cancel()
         recheckTask = nil
         watcher?.tearDown()
@@ -184,20 +194,44 @@ final class CollectionAutoFolderScanner: ObservableObject {
         }
         // [weak self]で受けたselfをawaitをまたぐ前に強参照へ変換する
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        scanTask = Task.detached(priority: .utility) { [weak self] in
-            var found: [CollectionAutoFolderScan.FolderResult] = []
-            for target in targets {
-                let books = CollectionAutoFolderScan.books(in: target.folder, order: order)
-                let known = knownPathsByID[target.id] ?? []
-                let fresh = books.filter { !known.contains($0.path) }
-                guard !fresh.isEmpty else { continue }
-                found.append(
-                    .init(
+        // フォルダの列挙はブロッキングする I/O なので FileIO の上で、**フォルダごとに別々に**走らせ、待つのは期限まで
+        // (2026-10-06 の応答性の点検 R7・R6-6。以前は全部のフォルダを 1 つの `Task.detached` で順に回し、応答しない共有のフォルダが
+        // 1 つあると、協調スレッドプールのスレッドを塞いだうえに、ほかの全部のコレクションの自動登録もそこで止まった)。
+        // 期限を過ぎたフォルダの列挙は**捨てずに走らせ続け**(`runningFolderScans`)、次の走査はそれを待ち直す ―― 大きくて遅いが応答は
+        // する棚(NAS の数千冊)が期限のたびに最初から読み直され、いつまでも登録されない、を起こさない。同じフォルダの列挙を重ねて
+        // 出すこともない(コードレビュー)。
+        let scans: [(key: FolderScanKey, task: Task<CollectionAutoFolderScan.FolderResult?, Never>)] = targets.map { target in
+            let key = FolderScanKey(collectionID: target.id, folderPath: target.folder.path)
+            if let running = runningFolderScans[key] { return (key, running) }
+            let known = knownPathsByID[target.id] ?? []
+            let task = Task<CollectionAutoFolderScan.FolderResult?, Never> {
+                await FileIO.perform(qos: .utility) { () -> CollectionAutoFolderScan.FolderResult? in
+                    let books = CollectionAutoFolderScan.books(in: target.folder, order: order)
+                    let fresh = books.filter { !known.contains($0.path) }
+                    guard !fresh.isEmpty else { return nil }
+                    return .init(
                         id: target.id,
                         books: fresh.map { .init(url: $0, snapshot: CollectionAutoFolderScan.snapshot(of: $0)) },
                         observedAt: Date()
                     )
-                )
+                }
+            }
+            runningFolderScans[key] = task
+            return (key, task)
+        }
+        scanTask = Task { [weak self] in
+            var found: [CollectionAutoFolderScan.FolderResult] = []
+            for scan in scans {
+                guard !Task.isCancelled else { break }
+                // 期限を過ぎたら今回は飛ばす(列挙は続く。上のコメント)。「本が無かった」(nil)と期限切れを取り違えない。
+                let result: CollectionAutoFolderScan.FolderResult?
+                do {
+                    result = try await FileIO.withDeadline(Self.folderScanLimit) { await scan.task.value }
+                } catch {
+                    continue
+                }
+                self?.runningFolderScans[scan.key] = nil
+                if let result { found.append(result) }
             }
             guard let self else { return }
             await self.finishScan(found)
@@ -290,13 +324,15 @@ final class CollectionAutoFolderScanner: ObservableObject {
         pendingCollectionIDByURL = stillWritingCollectionIDs
 
         if !toRegister.isEmpty {
-            let registrations = await Task.detached(priority: .utility) {
-                toRegister.map { entry in
+            // ブックマークの作成はボリュームに触るので FileIO の上で(R7。以前は `Task.detached`)。
+            let registering = toRegister
+            let registrations = await FileIO.perform(qos: .utility) {
+                registering.map { entry in
                     // シークレットフォルダの本は入れない(SecretFolderStore。画面の入り口の makePendingItems と同じ)。
                     (id: entry.id, pending: entry.urls.filter { !SecretFolderStore.isSecretAppWide($0) }
                         .compactMap(CollectionStore.makePendingItem(for:)))
                 }
-            }.value
+            }
             for registration in registrations where !registration.pending.isEmpty {
                 // 待っている間に消されたコレクションには足さない。
                 guard let collection = collectionStore.collection(withID: registration.id) else { continue }
@@ -349,14 +385,18 @@ final class CollectionAutoFolderScanner: ObservableObject {
             return
         }
         isScanning = true
-        scanTask = Task.detached(priority: .utility) { [weak self] in
-            var found: [CollectionAutoFolderScan.FolderResult] = []
-            for (id, entries) in Dictionary(grouping: pending, by: \.value) {
-                let books = entries.map(\.key)
-                    .filter { FileManager.default.fileExists(atPath: $0.path) }
-                    .map { CollectionAutoFolderScan.FreshBook(url: $0, snapshot: CollectionAutoFolderScan.snapshot(of: $0)) }
-                guard !books.isEmpty else { continue }
-                found.append(.init(id: id, books: books, observedAt: Date()))
+        // 見直しの stat も FileIO の上で(R7。以前は `Task.detached`)。
+        scanTask = Task { [weak self] in
+            let found = await FileIO.perform(qos: .utility) { () -> [CollectionAutoFolderScan.FolderResult] in
+                var found: [CollectionAutoFolderScan.FolderResult] = []
+                for (id, entries) in Dictionary(grouping: pending, by: \.value) {
+                    let books = entries.map(\.key)
+                        .filter { FileManager.default.fileExists(atPath: $0.path) }
+                        .map { CollectionAutoFolderScan.FreshBook(url: $0, snapshot: CollectionAutoFolderScan.snapshot(of: $0)) }
+                    guard !books.isEmpty else { continue }
+                    found.append(.init(id: id, books: books, observedAt: Date()))
+                }
+                return found
             }
             guard let self else { return }
             await self.finishScan(found)

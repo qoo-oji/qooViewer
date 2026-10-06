@@ -219,6 +219,9 @@ struct SidePanelView: View {
     /// 各セクションのビューへは`.environmentObject`で配る。
     @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
     @State private var folderFilterText = ""
+    /// 上段の行を最後にシングルクリックで処理した時刻・行・そのときのフォルダ(「開く・移動をダブルクリックにする」OFF のとき)。
+    /// ダブルクリックの 2 回目を読み捨てるため(`handleSingleClick(_:)`)。
+    @State private var lastRowClick: (date: Date, rowID: String, directory: URL?)?
     /// 上段(フォルダブラウザ)の一覧のスクロール位置と、今開いている本の行が見えているか
     /// どうかの判定(PanelListScrollTracker。3つの一覧で共有。行間・余白ゼロの詰めた一覧)。
     @State private var folderScrollPosition = ScrollPosition()
@@ -595,7 +598,7 @@ struct SidePanelView: View {
             }
             .padding(10)
 
-            Text(folderState.currentDirectory.map(DirectoryBrowser.displayName(for:)) ?? String(localized: "Computer", language: preferences.effectiveLocale))
+            Text(folderState.currentDirectoryName ?? String(localized: "Computer", language: preferences.effectiveLocale))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
@@ -659,6 +662,13 @@ struct SidePanelView: View {
                             ForEach(entries) { entry in
                                 folderRow(entry)
                             }
+                        }
+                    }
+                    // 移った先を読み終えるまでは、前のフォルダの一覧を押させず、少し待ってから回転表示(2026-10-06 の応答性の点検 R5-3)。
+                    .allowsHitTesting(!folderState.isListingStale)
+                    .overlay {
+                        if folderState.isListingStale {
+                            DelayedProgressIndicator(boxed: true)
                         }
                     }
                     .scrollPosition($folderScrollPosition)
@@ -790,12 +800,17 @@ struct SidePanelView: View {
                     // ダブルクリックは「開く・移動をダブルクリックにする」ON のときと同じ判定(直下に画像があれば開く、無ければ移動)。
                     // 以前は判定なしで開きへ回し、本の無いフォルダでは読み込みに失敗して読んでいた本が閉じ、本を奥に含む中間フォルダでは
                     // 奥の最初の本が開いた(2026-10-04 の監査 SP-2)。
-                    label
-                        .onTapGesture(count: 2) { handleFolderDoubleClick(entry) }
-                        .onTapGesture(count: 1) { handleFolderClick(entry) }
+                    //
+                    // **クリック回数の違う `.onTapGesture` を重ねない**(2026-10-06 の応答性の点検 R8-1)。SP-2 の直しで count: 2 と
+                    // count: 1 を重ねたら、シングルクリックがシステムのダブルクリック間隔(既定 約 0.5 秒)だけ遅れた ―― 同じ不具合を
+                    // FavoritesOrganizerView・BookmarkListView で利用者の報告から直している。クリックはその場で処理し、ダブルクリックの
+                    // 2 回目は読み捨てる(`handleSingleClick`)。1 回目で中へ移った後の 2 回目が、新しい一覧の別の行を開かないように。
+                    label.onTapGesture { handleSingleClick(rowID: entry.id) { handleFolderClick(entry) } }
                 }
+            } else if preferences.sidePanelUsesDoubleClick {
+                label.onTapGesture(count: 2) { onOpen(entry.url) }
             } else {
-                label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
+                label.onTapGesture { handleSingleClick(rowID: entry.id) { onOpen(entry.url) } }
             }
         }
         .sidePanelContextHighlight(rowID: "folder:\(entry.id)")
@@ -819,7 +834,8 @@ struct SidePanelView: View {
                 Divider()
             }
             Button("Show in Finder") {
-                FinderReveal.reveal(entry.url)
+                // 種類は一覧を読んだ時点で分かっている(渡さないとメインで fileExists する。2026-10-06 の応答性の点検 R3-4)。
+                FinderReveal.reveal(entry.url, isDirectory: entry.isDirectory)
             }
             // 一覧を読んだ時点でフォルダかどうかは分かっている(ここでディスクを触らない。上のコメント)。
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
@@ -996,6 +1012,28 @@ struct SidePanelView: View {
         } else {
             moveAndShowImages { folderState.navigate(into: entry.url) }
         }
+    }
+
+    /// シングルクリックで開く・移動するときの 1 回ぶん。直前のクリックからダブルクリック間隔の内なら、ダブルクリックの 2 回目として
+    /// 読み捨てる ―― 1 回目が既に開く・移動を済ませているので、2 回目まで処理すると、移った先の一覧の別の行を開いてしまう
+    /// (2026-10-04 の監査 SP-2 がダブルクリックを別に受けた理由)。
+    ///
+    /// 読み捨てた結果、ダブルクリックはシングルクリックと同じ動きになる。違いが出るのは「画像と子フォルダの両方を持つフォルダ」だけで、
+    /// ダブルクリックの判定(`handleFolderDoubleClick`)ならその場で本として開き、シングルクリックなら中へ移って画像を表示する
+    /// (どちらも同じ画像を出す)。シングルクリックを 0.5 秒待たせないことを優先した(2026-10-06 の応答性の点検 R8-1)。
+    ///
+    /// 読み捨てるのは、間隔の内の**同じ行への** 2 回目か、1 回目で一覧が替わった(中へ移った)後の 2 回目だけ ―― 同じ一覧の別の行を
+    /// 素早く押したときは、それぞれ処理する(コードレビュー。最初の版はパネル全体で 1 つの時刻を見て、隣の本を素早く開けなかった)。
+    private func handleSingleClick(rowID: String, _ action: () -> Void) {
+        let now = Date()
+        let directory = folderState.currentDirectory
+        if let last = lastRowClick, now.timeIntervalSince(last.date) <= NSEvent.doubleClickInterval,
+           last.rowID == rowID || last.directory != directory {
+            lastRowClick = nil
+            return
+        }
+        lastRowClick = (now, rowID, directory)
+        action()
     }
 
     private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {
@@ -1968,14 +2006,23 @@ private struct SidePanelHistorySectionView: View {
     ) {
         let appState = appState
         let intent = replacesBook ? appState.beginOpenIntent() : nil
-        recentFiles.resolveForOpening(
+        // 確かめの間は窓の札を出す(2026-10-06 の応答性の点検 R2-3。以前は最長 45 秒、何も出なかった)。札の「中止」で打ち切られたら
+        // 新しいタブ・ウインドウへ開くものも結果を捨てる。
+        let wait = appState.beginOpenWait(intent: intent)
+        let task = recentFiles.resolveForOpening(
             entry, locale: preferences.effectiveLocale, report: onOpenFailure,
             stillWanted: { [weak appState] in
+                // 窓が閉じた(appState が無い)ときは、新しいタブ・ウインドウへ開く頼みを捨てない(以前と同じ)。
+                if appState?.isOpenWaitCancelled(wait) == true { return false }
                 guard let intent else { return true }
                 return appState?.isStillWanted(intent) == true
             },
             then: { url in body(url, intent) }
         )
+        Task { @MainActor [weak appState] in
+            await task.value
+            appState?.endOpenWait(wait)
+        }
     }
 
     private func row(for entry: RecentFilesStore.Entry) -> some View {

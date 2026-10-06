@@ -197,7 +197,8 @@ struct WelcomeView: View {
                     urls, allowsEditing: allowsEditing, state: state,
                     collectionStore: collectionStore, coverExtractor: coverExtractor,
                     preferences: preferences,
-                    notify: { appState?.postViewerNotice($0) }
+                    notify: { appState?.postViewerNotice($0) },
+                    waitHost: appState
                 )
             }
         }
@@ -287,25 +288,32 @@ struct WelcomeView: View {
     ) {
         dropFirstPendingCreation()
         let order = preferences.siblingBookOrder
-        Task {
+        // 自動登録フォルダの走査・ブックマークの作成を待つ間は札を出す(2026-10-06 の応答性の点検 R2-10)。
+        let appState = appState
+        let wait = appState.beginOpenWait(.adding)
+        Task { [weak appState] in
+            defer { appState?.endOpenWait(wait) }
             var books = creation.books
             // 「＋」から作って自動登録フォルダだけを選んだ場合は、そのフォルダに並んでいる本で
             // 棚を作る ―― 指定した瞬間に中身が入るほうが素直で、そうしないと「空の棚は作らない」
             // 方針(CollectionStore.createCollection)に阻まれて、行が作られないまま
             // 「本を追加」パネルだけが開くことになる。
             if books.isEmpty, let autoFolder, folderAccess.isPathCovered(autoFolder) {
-                books = await Task.detached(priority: .userInitiated) {
+                // フォルダを列挙するので FileIO の上で(R7。以前は `Task.detached`)。
+                books = await FileIO.perform {
                     CollectionAutoFolderScan.books(in: autoFolder, order: order)
-                }.value
+                }
             }
             // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
             let pending = await CollectionStore.makePendingItems(for: books)
             // シークレットフォルダの本は入れない(makePendingItems が外す)。入れなかったことを知らせる。
             let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
             if skippedSecret > 0 {
-                appState.postViewerNotice(CollectionStore.secretBooksNotAddedMessage(
+                appState?.postViewerNotice(CollectionStore.secretBooksNotAddedMessage(
                     count: skippedSecret, locale: preferences.effectiveLocale))
             }
+            // 札の「中止」で打ち切ったら作らない。
+            guard appState?.isOpenWaitCancelled(wait) == false else { return }
             // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
             // 1冊目が入った時点でCollectionStore.createCollectionが行を作る ―― 選ばれていた
             // 自動登録フォルダも、そのときに書き込めるようパネルへ持たせる。
@@ -392,11 +400,15 @@ enum WelcomeDropHandling {
     ///
     /// - Parameter onFinished: 振り分け(フォルダの列挙を伴うのでメインアクターの外で走る)が
     ///   終わり、結果を積み終えたときに呼ぶ(**テストのための口**。画面は渡さない)。
+    ///
+    /// - Parameter waitHost: 振り分け・ブックマークの作成を待つ間、札(「本を追加しています…」)を出す窓(2026-10-06 の応答性の点検
+    ///   R2-10。以前は落とした後、名前のシートかトーストが出るまで何も出なかった ―― 千冊の棚・ネットワークでは数秒〜数十秒)。札の
+    ///   「中止」で打ち切ったら、足さない。
     static func handle(
         _ urls: [URL], allowsEditing: Bool, state: WelcomeLibraryState,
         collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
         preferences: AppPreferences, notify: @escaping @MainActor (String) -> Void = { _ in },
-        onFinished: (@MainActor () -> Void)? = nil
+        waitHost: AppState? = nil, onFinished: (@MainActor () -> Void)? = nil
     ) -> Bool {
         guard allowsEditing, state.isEditing, !urls.isEmpty,
               resolvedLibrary(state: state, collectionStore: collectionStore) != nil
@@ -404,9 +416,12 @@ enum WelcomeDropHandling {
         let order = preferences.siblingBookOrder
         let locale = preferences.effectiveLocale
         let openedCollectionID = state.openedCollectionID
-        Task {
+        let wait = waitHost?.beginOpenWait(.adding)
+        Task { [weak waitHost] in
+            defer { if let wait { waitHost?.endOpenWait(wait) } }
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             defer { onFinished?() }
+            if let wait, waitHost?.isOpenWaitCancelled(wait) == true { return }
             if let openedCollectionID {
                 // 落とした時点で中にいたコレクションが待つ間に消えたら、新しいコレクションを作らずに知らせる(監査 H-9。以前は
                 // 一覧へのドロップと同じく名前を訊くシートへ回っていた)。
@@ -416,7 +431,8 @@ enum WelcomeDropHandling {
                 }
                 await add(
                     classified, toCollection: openedCollectionID,
-                    collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify
+                    collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify,
+                    isCancelled: { wait.map { waitHost?.isOpenWaitCancelled($0) ?? false } ?? false }
                 )
             } else {
                 // 振り分け(フォルダの列挙)を待つ間に、ライブラリ機能が OFF になった・編集モードを出た(本を開いた・画面を移った ――
@@ -440,16 +456,20 @@ enum WelcomeDropHandling {
     static func addDropped(
         _ urls: [URL], toCollection collectionID: UUID, collectionStore: CollectionStore,
         coverExtractor: CollectionCoverExtractor, preferences: AppPreferences,
-        notify: @escaping @MainActor (String) -> Void
+        notify: @escaping @MainActor (String) -> Void, waitHost: AppState? = nil
     ) {
         guard !urls.isEmpty else { return }
         let order = preferences.siblingBookOrder
         let locale = preferences.effectiveLocale
-        Task {
+        // 待つ間は札を出す(`handle` の waitHost と同じ。R2-10)。
+        let wait = waitHost?.beginOpenWait(.adding)
+        Task { [weak waitHost] in
+            defer { if let wait { waitHost?.endOpenWait(wait) } }
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             await add(
                 classified, toCollection: collectionID,
-                collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify
+                collectionStore: collectionStore, coverExtractor: coverExtractor, locale: locale, notify: notify,
+                isCancelled: { wait.map { waitHost?.isOpenWaitCancelled($0) ?? false } ?? false }
             )
         }
     }
@@ -458,8 +478,9 @@ enum WelcomeDropHandling {
     private static func add(
         _ classified: [CollectionDropClassifier.Item], toCollection collectionID: UUID,
         collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
-        locale: Locale, notify: @MainActor (String) -> Void
+        locale: Locale, notify: @MainActor (String) -> Void, isCancelled: @MainActor () -> Bool = { false }
     ) async {
+        guard !isCancelled() else { return }
         let books = CollectionDropClassifier.booksToAdd(from: classified)
         let skipped = classified.filter { if case .ignored = $0 { true } else { false } }.count
         guard !books.isEmpty else {
@@ -470,6 +491,7 @@ enum WelcomeDropHandling {
         // コメント参照)。待っている間に消されたコレクションには足さないよう、戻ってから
         // idで引き直す。
         let pending = await CollectionStore.makePendingItems(for: books)
+        guard !isCancelled() else { return }
         // シークレットフォルダの本は入れない(makePendingItems が外す)。
         let skippedSecret = books.filter(SecretFolderStore.isSecretAppWide).count
         guard let collection = collectionStore.collection(withID: collectionID) else {

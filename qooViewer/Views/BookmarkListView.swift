@@ -237,6 +237,8 @@ struct BookmarkEditorView: View {
     /// 場所の解決を待っている「開く」(PendingBookOpens。R7-3・RC-3)。
     @State private var pendingOpen = PendingBookOpens()
     @State private var openErrorBookName: String?
+    /// 場所の解決が期限までに返ってこなかった本の名前(アラート)。
+    @State private var openTimedOutBookName: String?
 
     @Environment(\.openWindow) private var openWindow
 
@@ -980,6 +982,18 @@ struct BookmarkEditorView: View {
                 Text("The file or folder for “") + Text(openErrorBookName ?? "")
                     + Text("” could not be found. It may have been moved or deleted.")
             }
+            .alert(
+                "Could Not Open Book",
+                isPresented: Binding(
+                    get: { openTimedOutBookName != nil },
+                    set: { isPresented in if !isPresented { openTimedOutBookName = nil } }
+                )
+            ) {
+                Button("OK") { openTimedOutBookName = nil }
+            } message: {
+                Text(RecentFilesStore.OpenFailure.timedOut.message(name: openTimedOutBookName ?? "", locale: preferences.effectiveLocale))
+            }
+            .pendingBookOpenIndicator(pendingOpen)
             // 編集中の本が付け替えられた(改名・移動・自動リネーム・アプリの外での移動を見つけた付け替え)。選択と出している確認の
             // 相手を新しい bookID へ移す(2026-10-04 の監査 BE-7。BookRelocationNotice)。以前は選択が古いパスのまま行を失い、今の本か
             // 先頭の本へ飛んだ。「ブックマークをすべて削除?」を出していれば「削除」で何も消さずに閉じた。一括リネームのシートは自分で
@@ -1102,7 +1116,12 @@ struct BookmarkEditorView: View {
             // している。
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
-                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                // 期限切れは理由を出す(2026-10-06 の応答性の点検 R2-4。以前はビープだけだった)。
+                if case .timedOut = outcome {
+                    openTimedOutBookName = BookFileName.displayName(forBookID: bookID)
+                } else {
+                    openErrorBookName = BookFileName.displayName(forBookID: bookID)
+                }
                 return
             }
             // 開く先は、新しい窓と同じ性質の手前の窓(監査 M-8 = O-2。以前は性質を問わない手前の窓で、手前のシークレットウインドウで
@@ -1143,7 +1162,12 @@ struct BookmarkEditorView: View {
             let outcome = await StoredBookLocator.resolve(material)
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
-                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                // 期限切れは理由を出す(2026-10-06 の応答性の点検 R2-4。以前はビープだけだった)。
+                if case .timedOut = outcome {
+                    openTimedOutBookName = BookFileName.displayName(forBookID: bookID)
+                } else {
+                    openErrorBookName = BookFileName.displayName(forBookID: bookID)
+                }
                 return
             }
             BookWindowOpener.open(
@@ -1405,6 +1429,8 @@ private struct BookmarkDetailPane: View {
     /// ループは起きない(SidePanelPagesSectionViewと同じ考え方)。
     private static let budgetMinimumCellCount = 120
     @State private var openErrorBookName: String?
+    /// 場所の解決が期限までに返ってこなかった本の名前(アラート)。
+    @State private var openTimedOutBookName: String?
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
@@ -1578,6 +1604,18 @@ private struct BookmarkDetailPane: View {
             Text("The file or folder for “") + Text(openErrorBookName ?? "")
                 + Text("” could not be found. It may have been moved or deleted.")
         }
+        .alert(
+            "Could Not Open Book",
+            isPresented: Binding(
+                get: { openTimedOutBookName != nil },
+                set: { isPresented in if !isPresented { openTimedOutBookName = nil } }
+            )
+        ) {
+            Button("OK") { openTimedOutBookName = nil }
+        } message: {
+            Text(RecentFilesStore.OpenFailure.timedOut.message(name: openTimedOutBookName ?? "", locale: preferences.effectiveLocale))
+        }
+        .pendingBookOpenIndicator(pendingOpen)
         // 3.3節の伝播範囲選択ダイアログ。ViewerView.swiftと全く同じ文言・選択肢を使う。
         .confirmationDialog(
             "Apply Layout Change To…",
@@ -2221,7 +2259,8 @@ private struct BookmarkDetailPane: View {
         let bookmarkData = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData
         let targetBookID = bookID
         Task {
-            let fileNodeIdentifier = await Task.detached(priority: .userInitiated) {
+            // FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached`)。
+            let fileNodeIdentifier = await FileIO.perform {
                 () -> FileNodeIdentifier? in
                 guard let url = LayoutStore.resolvedURL(bookmarkData: bookmarkData, bookID: targetBookID) else {
                     return nil
@@ -2229,7 +2268,7 @@ private struct BookmarkDetailPane: View {
                 let didAccess = url.startAccessingSecurityScopedResource()
                 defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
                 return FileNodeIdentifier.current(for: url)
-            }.value
+            }
             bookmarkStore.addBookmark(
                 bookID: targetBookID, pageIndex: pageIndex, pageKey: pageKey,
                 name: "\(pagePrefix) \(pageIndex + 1)",
@@ -2268,7 +2307,12 @@ private struct BookmarkDetailPane: View {
             // 待つ間に編集ウインドウを閉じた・置き換える「開く」をまた押した(PendingBookOpens。R7-3)。
             guard !Task.isCancelled else { return }
             guard case .found(let url) = outcome else {
-                if case .timedOut = outcome { NSSound.beep() } else { openErrorBookName = BookFileName.displayName(forBookID: bookID) }
+                // 期限切れは理由を出す(2026-10-06 の応答性の点検 R2-4。以前はビープだけだった)。
+                if case .timedOut = outcome {
+                    openTimedOutBookName = BookFileName.displayName(forBookID: bookID)
+                } else {
+                    openErrorBookName = BookFileName.displayName(forBookID: bookID)
+                }
                 return
             }
             // 開く先は新しい窓と同じ性質の手前の窓(監査 M-8 = O-2)。無ければ BookWindowOpener で新しい窓(監査 O-3。シークレット

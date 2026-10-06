@@ -132,6 +132,8 @@ actor PageLoader {
     private var isWholeBookScanActive = false
     /// 下調べ専用のreader(ルートが7zの本だけ。scanReaderIfAvailable参照)。下調べの間だけ持つ。
     private var scanReader: ArchiveReading?
+    /// 下調べ専用の reader で FileIO の上の取り出しが走っている間 true(`scanPage`。reader を 2 本のスレッドで同時に使わない)。
+    private var isScanReadInFlight = false
     /// ルートが rar の本の下調べの読み通し(`startRarScanIfNeeded`)が走っている間 true。
     private var isRarScanRunning = false
     /// 読み通しが寸法を届ける相手のページ(`waitForRarScan` はこの中のページだけ待つ)。
@@ -987,9 +989,23 @@ actor PageLoader {
         if let declared = reader.entryUncompressedSize(at: entryPath), declared > Self.maxDecodableEntryBytes {
             return nil
         }
-        guard let data = try? reader.data(at: entryPath) else { return nil }
+        // **取り出しは actor の外(FileIO の上)で**(2026-10-06 の応答性の点検 R1-4)。専用の reader は新しいので、最初の 1 件は
+        // ソリッドブロックの先頭から再開位置までの伸長になる(250MB の本を中ほどから再開すると数秒)。以前はそれを actor の上で同期に
+        // 行い、その間ページ送りの要求がすべて待った(寸法を永続化していない初回と、永続化した寸法を読まないシークレットウインドウでは
+        // 開くたび)。rar の読み通し(`startRarScanIfNeeded`)と同じ考え方。専用の reader を使うのは下調べだけで、下調べは 1 件ずつ
+        // 待って次を頼むが、念のため同時には使わない(`isScanReadInFlight`。reader はスレッド安全でない)。
+        while isScanReadInFlight, !isReleased, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        guard !isReleased, !Task.isCancelled else { return nil }
+        // ディスクの鍵は取り出しの**前に**決める(待つ間に補正を切り替えられても、補正なしの絵を補正ありの鍵で残さない。コードレビュー)。
         let diskKey = makesThumbnail
             ? thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize) : nil
+        isScanReadInFlight = true
+        let handoff = ScanReaderHandoff(reader: reader)
+        let read = await FileIO.perform(qos: .utility) { try? handoff.reader.data(at: entryPath) }
+        isScanReadInFlight = false
+        guard !isReleased, let data = read else { return nil }
         let pageID = page.id
         // 解析・デコードはactorの外で行う(pageSize(at:)と同じ理由)。
         let task = Task.detached(priority: .utility) { () -> ImageDecoder.HeaderInfo? in
@@ -1008,6 +1024,12 @@ actor PageLoader {
         let size = (width: header.pixelWidth, height: header.pixelHeight)
         notePageSize(size, for: page)
         return size
+    }
+
+    /// 下調べ専用の reader を FileIO の上へ渡す箱(`scanPage`)。reader はスレッド安全ではないが、`isScanReadInFlight` で 1 度に 1 本の
+    /// スレッドしか使わない。そのための `@unchecked`。
+    private nonisolated struct ScanReaderHandoff: @unchecked Sendable {
+        let reader: ArchiveReading
     }
 
     /// 下調べ専用のreader。下調べ中で、かつ本そのものが7zの書庫で、そのページがその書庫に
@@ -1385,7 +1407,9 @@ actor PageLoader {
 
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
         let inFlightKey = "\(ObjectIdentifier(cache))#\(page.id)"
-        if let existingTask = inFlightTasks[inFlightKey] {
+        // **打ち切った先読みには、表示の要求は合流しない**(2026-10-06 のコードレビュー)。打ち切られた読み込みも終わるまで
+        // `inFlightTasks` に残るので、そこへ合流すると nil を受け取り、ビューアが「このページを表示できません」と出した。読み直す。
+        if let existingTask = inFlightTasks[inFlightKey], isPrefetch || !existingTask.isCancelled {
             if !isPrefetch {
                 // 先読みが始めた読み込みに、実際の表示要求が合流した。もう打ち切ってはならない。
                 cancellableInFlightKeys.remove(inFlightKey)
@@ -1415,8 +1439,11 @@ actor PageLoader {
         }
 
         let decoded = await task.value
-        inFlightTasks[inFlightKey] = nil
-        cancellableInFlightKeys.remove(inFlightKey)
+        // 打ち切られた自分の後に別の読み込みが同じ鍵で始まっていたら(上の合流しない場合)、そちらの控えは消さない。
+        if inFlightTasks[inFlightKey] == task {
+            inFlightTasks[inFlightKey] = nil
+            cancellableInFlightKeys.remove(inFlightKey)
+        }
 
         guard let decoded, !isReleased else { return nil }
         cache.store(decoded, forKey: key)

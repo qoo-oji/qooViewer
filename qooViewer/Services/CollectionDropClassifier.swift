@@ -39,10 +39,13 @@ nonisolated enum CollectionDropClassifier {
     }
 
     /// `classify(_:order:)`をメインスレッド外で行う版(ドロップの受け口が使う)。
+    ///
+    /// フォルダを列挙するブロッキング I/O なので FileIO の上で(CLAUDE.md「Blocking file I/O goes through FileIO」。2026-10-06 の
+    /// 応答性の点検 R7 ―― 以前は `Task.detached` で、応答しない共有のフォルダを落とすと協調スレッドプールのスレッドを塞いだ)。
     static func classifyAsync(_ urls: [URL], order: SiblingBookOrder) async -> [Item] {
-        await Task.detached(priority: .userInitiated) {
+        await FileIO.perform {
             classify(urls, order: order)
-        }.value
+        }
     }
 
     /// **既にある**コレクションへ本を追加する場面で拾うURL。本はそのまま、棚はその中の本を
