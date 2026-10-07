@@ -87,6 +87,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         collection.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
         collection.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
         collection.handler = coordinator
+        collection.focusKeeper = FileBrowserPaneFocusKeeper(state: state, pane: .content)
         let menu = NSMenu()
         menu.delegate = coordinator
         collection.menu = menu
@@ -875,8 +876,11 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
     /// リスト・ツリーの行の `NSTableRowView.isEmphasized` と同じ条件 ―― `NSCollectionView` にはこれに当たる仕組みが無いので自分で持つ。
     private(set) var isSelectionEmphasized = false
     private var keyObservers: [NSObjectProtocol] = []
+    /// 作り直されても焦点を引き継ぐ(`FileBrowserPaneFocusKeeper`)。
+    var focusKeeper: FileBrowserPaneFocusKeeper?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
+        focusKeeper?.viewWillMove(self, toWindow: newWindow)
         super.viewWillMove(toWindow: newWindow)
         keyObservers.forEach(NotificationCenter.default.removeObserver)
         keyObservers.removeAll()
@@ -891,6 +895,7 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         refreshSelectionEmphasis()
+        focusKeeper?.viewDidMoveToWindow(self)
     }
 
     override func becomeFirstResponder() -> Bool {

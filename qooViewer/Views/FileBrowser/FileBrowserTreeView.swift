@@ -127,6 +127,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         outline.indentationPerLevel = 12
         outline.autoresizesOutlineColumn = false
         outline.focusRingType = .none
+        outline.focusKeeper = FileBrowserPaneFocusKeeper(state: state, pane: .tree)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tree"))
         column.resizingMask = .autoresizingMask
         outline.addTableColumn(column)

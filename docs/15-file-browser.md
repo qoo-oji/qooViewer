@@ -631,6 +631,16 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
 - スマートライブラリのリスト表示(`SmartLibraryOutlineView`)は `onTabKey` を持たないので、今までどおり。
 - `FileBrowserStateTests.focusingTheContentPaneSelectsTheFirstItemWhenNothingIsSelected` が頼みの形を見る。焦点の移動そのものは実機で確認する。
 
+### 作り直した一覧への焦点の引き継ぎ(2026-10-07、ユーザー要望)
+
+ホームは本を開いている間は畳まれる(ContentView が WelcomeView をビューアと差し替える)ので、本を閉じて戻った一覧はどれも焦点を持たず、
+開くときにアクセント色だった選択が灰色(上の「選択の強調」)で戻り、矢印キーも届かなかった。一覧の AppKit のビュー(リスト・アイコン・
+ツリー)が `FileBrowserPaneFocusKeeper` を持ち、**ウインドウから外れる時点で焦点を持っていたか**を `FileBrowserState.notePaneLeavingWindow`
+へ控え、作り直した同じペインの一覧がウインドウへ入ったとき(SwiftUI の更新が済んだ後)に 1 度だけ取り戻す(`takeFocusToRestore`)。
+焦点を持たずに外れたペインは、自分の古い控えを捨てる。文字の入力中(検索欄など)からは奪わない。表示形式の切り替え(リスト ↔ アイコン)・
+ホームのモードの行き来でも同じように引き継ぐ。スマートライブラリのリスト表示は対象外。
+`FileBrowserStateTests.focusIsRestoredOnlyToThePaneThatHeldIt` が控えの形を見る。
+
 ## ツリーの Return(2026-09-30、ユーザー要望)
 
 ツリーの選ばれている行で Return / Enter を押すと、行を開閉する(開いていればたたみ、閉じていれば開く。三角の無い行では何もしない)。

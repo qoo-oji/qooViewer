@@ -67,6 +67,7 @@ struct FileBrowserListView: NSViewRepresentable {
         table.intercellSpacing = NSSize(width: 6, height: 0)
         table.gridStyleMask = []
         table.focusRingType = .none
+        table.focusKeeper = FileBrowserPaneFocusKeeper(state: state, pane: .content)
         // 不透明な地を持つ見出しに差し替える(FileBrowserTableHeaderViewのコメント)。高さは既定のものを引き継ぐ。
         let headerHeight = table.headerView?.frame.height ?? 28
         table.headerView = FileBrowserTableHeaderView(frame: NSRect(x: 0, y: 0, width: 0, height: headerHeight))
@@ -846,6 +847,19 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
     var onNameClick: ((Int) -> Void)?
     weak var editResponder: (any FileBrowserEditResponding)?
     var onWholeTableDropTargetChange: ((Bool) -> Void)?
+    /// 作り直されても焦点を引き継ぐ(`FileBrowserPaneFocusKeeper`)。
+    var focusKeeper: FileBrowserPaneFocusKeeper?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        focusKeeper?.viewWillMove(self, toWindow: newWindow)
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusKeeper?.viewDidMoveToWindow(self)
+    }
+
     /// 表全体が受け口になっているか(FileBrowserListView.onWholeListDropTargetChange)。出たとき・落とされたときに下ろす。
     /// **`draggingEnded` / `concludeDragOperation` は上書きしない**(FileBrowserOutlineView のコメント: ドラッグ元の終わりの通知が止まる)。
     var isWholeTableDropTarget = false {

@@ -487,6 +487,18 @@ final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValida
     /// 選ばれている行へ効かせてよいか / 効かせる(ツリーの Coordinator)。nil なら淡色。
     var canPerformEdit: ((FileBrowserEditCommand) -> Bool)?
     var onEdit: ((FileBrowserEditCommand) -> Void)?
+    /// 作り直されても焦点を引き継ぐ(`FileBrowserPaneFocusKeeper`)。
+    var focusKeeper: FileBrowserPaneFocusKeeper?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        focusKeeper?.viewWillMove(self, toWindow: newWindow)
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusKeeper?.viewDidMoveToWindow(self)
+    }
 
     @objc func copy(_ sender: Any?) { performEdit(.copy) }
     @objc func cut(_ sender: Any?) { performEdit(.cut) }
@@ -533,6 +545,49 @@ final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValida
 nonisolated func isFileBrowserPaneSwitchKey(_ event: NSEvent) -> Bool {
     guard event.type == .keyDown, event.keyCode == 48 else { return false }
     return event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.shift).isEmpty
+}
+
+/// 一覧(リスト・アイコン・ツリー)が作り直されても焦点を引き継ぐ(`FileBrowserState.paneToRefocus`。2026-10-07)。
+/// ホームは本を開いている間は畳まれる(ContentView が WelcomeView をビューアと差し替える)ので、本を閉じて戻った一覧には焦点が無く、
+/// 開くときにアクセント色だった選択が灰色で戻った。一覧の AppKit のビューが、ウインドウから外れる時点(まだ焦点を持っている)で
+/// 控え、ウインドウへ入ったら取り戻す。取り戻すのは SwiftUI の更新が済んだ後(古い一覧が外れて控えを書いた後)で、文字の入力中
+/// (検索欄・名前の欄)からは奪わない。
+@MainActor
+final class FileBrowserPaneFocusKeeper {
+    private weak var state: FileBrowserState?
+    private let pane: FileBrowserState.FocusPane
+
+    init(state: FileBrowserState, pane: FileBrowserState.FocusPane) {
+        self.state = state
+        self.pane = pane
+    }
+
+    /// `viewWillMove(toWindow:)` から呼ぶ。
+    func viewWillMove(_ view: NSView, toWindow newWindow: NSWindow?) {
+        guard newWindow == nil, let window = view.window, let state else { return }
+        state.notePaneLeavingWindow(pane, heldFocus: Self.holdsFocus(view, in: window))
+    }
+
+    /// `viewDidMoveToWindow()` から呼ぶ。
+    func viewDidMoveToWindow(_ view: NSView) {
+        guard view.window != nil else { return }
+        DispatchQueue.main.async { [weak self, weak view] in
+            guard let self, let view, let window = view.window, let state = self.state,
+                  state.takeFocusToRestore(for: self.pane) else { return }
+            if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { return }
+            window.makeFirstResponder(view)
+        }
+    }
+
+    /// ビューか、その中の欄(名前の編集中のフィールドエディタ)が焦点を持っているか。
+    static func holdsFocus(_ view: NSView, in window: NSWindow) -> Bool {
+        if window.firstResponder === view { return true }
+        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+           let field = editor.delegate as? NSView, field.isDescendant(of: view) {
+            return true
+        }
+        return false
+    }
 }
 
 /// Return / Enter(修飾キー無し。テンキーの Enter の `numericPad` / `function` は修飾と見ない)か。リスト・アイコン表示の

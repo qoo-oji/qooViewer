@@ -319,6 +319,28 @@ final class FileBrowserState: ObservableObject {
         focusRequest = FocusRequest(pane: pane, serial: focusSerial)
     }
 
+    /// 一覧がウインドウから外れた時点で焦点を持っていたペイン(`FileBrowserPaneFocusKeeper`)。作り直した同じペインの一覧が
+    /// 1 度だけ受け取って焦点を取り戻す。ホームは本を開いている間は畳まれるので、以前は本を閉じて戻ると焦点がどこにも無く、
+    /// 選択が灰色のまま(`SelectionEmphasis`)、キーも一覧へ届かなかった(2026-10-07、利用者の指摘)。表示形式の切り替えも同じ。
+    /// 表示には使わないので @Published にしない。
+    private var paneToRefocus: FocusPane?
+
+    /// 一覧がウインドウから外れる。焦点を持っていなかったなら、そのペインについての古い控えを捨てる。
+    func notePaneLeavingWindow(_ pane: FocusPane, heldFocus: Bool) {
+        if heldFocus {
+            paneToRefocus = pane
+        } else if paneToRefocus == pane {
+            paneToRefocus = nil
+        }
+    }
+
+    /// 作り直した一覧が焦点を取り戻すべきか(受け取ったら消える)。
+    func takeFocusToRestore(for pane: FocusPane) -> Bool {
+        guard paneToRefocus == pane else { return false }
+        paneToRefocus = nil
+        return true
+    }
+
     struct QuickLookRequest: Equatable {
         /// 出ていれば閉じる(メニューバーの ⌘Y。右クリックは閉じずに出す)。
         let toggles: Bool

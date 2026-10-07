@@ -840,6 +840,31 @@ struct FileBrowserStateTests {
         #expect(state.selection.isEmpty)
     }
 
+    /// 作り直した一覧への焦点の引き継ぎ(2026-10-07。FileBrowserPaneFocusKeeper)。本を開いてホームが畳まれ、閉じて戻ったとき、
+    /// 開くときに焦点を持っていたペインだけが 1 度だけ取り戻す。焦点を動かすのは AppKit の一覧なので、ここで見るのは控えの形だけ。
+    @Test("畳まれたときに焦点を持っていたペインだけが、1 度だけ焦点を取り戻す")
+    func focusIsRestoredOnlyToThePaneThatHeldIt() throws {
+        let fixture = try Fixture("fb-focus-restore")
+        let state = fixture.state
+        #expect(!state.takeFocusToRestore(for: .content))
+
+        // 右ペインが焦点を持ったまま外れ、ツリーは持たずに外れた(順序はどちらでも)。
+        state.notePaneLeavingWindow(.tree, heldFocus: false)
+        state.notePaneLeavingWindow(.content, heldFocus: true)
+        #expect(!state.takeFocusToRestore(for: .tree))
+        #expect(state.takeFocusToRestore(for: .content))
+        #expect(!state.takeFocusToRestore(for: .content), "受け取ったら消える")
+
+        state.notePaneLeavingWindow(.content, heldFocus: true)
+        state.notePaneLeavingWindow(.tree, heldFocus: false)
+        #expect(state.takeFocusToRestore(for: .content), "焦点を持たないもう一方のペインは控えを消さない")
+
+        // 次に外れたとき焦点を持っていなければ、古い控えを捨てる。
+        state.notePaneLeavingWindow(.content, heldFocus: true)
+        state.notePaneLeavingWindow(.content, heldFocus: false)
+        #expect(!state.takeFocusToRestore(for: .content))
+    }
+
     @Test("つながる前に画面から外れたら、つながっても始めない")
     func deactivationCancelsTheAwaitedActivation() async throws {
         let fixture = try Fixture("fb-await-deactivate")
