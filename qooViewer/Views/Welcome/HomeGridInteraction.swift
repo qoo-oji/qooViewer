@@ -29,11 +29,20 @@ nonisolated enum HomeGridInteraction {
     }
 
     /// いま処理しているクリックの意味(`NSApp.currentEvent` から)。
+    ///
+    /// 「クリック 1 回で開く」のとき、ダブルクリックの 1 回目がウインドウを前に出すだけのクリック(`WindowActivationClickFilter`
+    /// が受けて、グリッドへ届いていない)なら、2 回目を 1 回目として読む ―― 2 回目を捨てる決まりのせいで、後ろのウインドウの
+    /// タイルをダブルクリックしても何も起きなかった(2026-10-07 のレビュー)。ふだんの設定では 2 回目はそのまま「開く」。
     @MainActor
     static func currentClickAction(opensWithSingleClick: Bool) -> ClickAction {
         let event = NSApp.currentEvent
+        var clickCount = event?.clickCount ?? 1
+        if opensWithSingleClick, clickCount == 2, let event,
+           WindowActivationClickFilter.shared.firstClickWasActivation(of: event) {
+            clickCount = 1
+        }
         return clickAction(
-            clickCount: event?.clickCount ?? 1,
+            clickCount: clickCount,
             modifiers: event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? [],
             opensWithSingleClick: opensWithSingleClick
         )

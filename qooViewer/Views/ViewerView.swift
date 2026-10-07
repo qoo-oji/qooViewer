@@ -865,6 +865,8 @@ struct ViewerView: View {
                 // 自分のウインドウ宛て以外(他のqooViewerウインドウ、環境設定ウインドウ、
                 // ファイル選択パネルなど)は一切見ない。
                 guard let hostWindow, event.window === hostWindow else { return event }
+                // ウインドウを前に出すだけのクリックでは閉じない(WindowActivationClickFilter。2026-10-07)。
+                guard !WindowActivationClickFilter.shared.isActivationClick(event) else { return event }
                 let location = NSEvent.mouseLocation
                 guard !thumbnailPanelScreenFrame.contains(location) else {
                     // パネルの上での押下は、ドラッグジェスチャーの起点として覚えておく。

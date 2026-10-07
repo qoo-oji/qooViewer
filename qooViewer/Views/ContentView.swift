@@ -604,6 +604,9 @@ struct ContentView: View {
         windowBody.environmentObject(effectiveAppearance)
             // 削除の取り消しの積み場所(DataUndoStack)。ホーム・ビューア・サイドパネルがここから受け取る。
             .environment(\.dataUndoStack, appState.dataUndo)
+            // ウインドウを前に出すクリックを受ける覆い(WindowActivationClickFilter の型コメント)。ほかのビューに覆われないよう、
+            // いちばん外側に重ねる。ふだんは当たり判定に出てこない。
+            .overlay { WindowActivationClickShield() }
     }
 
     /// ウインドウの本体。**4 つの式に分けてある**(2026-10-04): 監査の修正で modifier が増えた後、この 1 本の連鎖が手元の

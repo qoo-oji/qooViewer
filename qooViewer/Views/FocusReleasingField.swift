@@ -70,7 +70,9 @@ private final class FieldAnchor {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let view = self?.view, let window = view.window, event.window === window,
                   let editor = window.firstResponder as? NSTextView,
-                  let field = editor.delegate as? NSTextField
+                  let field = editor.delegate as? NSTextField,
+                  // ウインドウを前に出すだけのクリックでは焦点を外さない(WindowActivationClickFilter。2026-10-07)。
+                  !WindowActivationClickFilter.shared.isActivationClick(event)
             else { return event }
             // 自分の欄(アンカーの背景ビューと同じ領域)で編集中か。
             let fieldFrame = field.convert(field.bounds, to: nil)
@@ -159,7 +161,8 @@ private final class RegionAnchor {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
             guard let view = self?.view, let window = view.window, event.window === window,
                   let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
-                  let field = editor.delegate as? NSView
+                  let field = editor.delegate as? NSView,
+                  !WindowActivationClickFilter.shared.isActivationClick(event)
             else { return event }
             let region = view.convert(view.bounds, to: nil)
             // この領域の中の入力欄を編集していて、クリックもこの領域の中のときだけ。

@@ -2776,6 +2776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // その回のdidBeginTrackingを取りこぼし、保留すべき更新をすり抜けさせてしまう)。
         // 詳細はMenuBarMenuGateの型コメント参照。
         _ = MenuBarMenuGate.shared
+        // 本のウインドウを前に出すクリックの間だけ、内容を何もしない覆いで受けさせるモニタ(押し下げは捨てない ――
+        // WindowActivationClickFilter の型コメント)。
+        WindowActivationClickFilter.shared.install()
         // 「ウインドウ」メニューの一覧をタブのグループごとにまとめる(WindowsMenuGrouperの型コメント)。テストでは
         // ホストのメニューを並べ替える理由が無いので付けない。
         if !RuntimeEnvironment.isRunningTests {

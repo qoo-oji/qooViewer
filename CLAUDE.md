@@ -494,6 +494,10 @@ kept each closed book window's AppState/ViewerViewModel/PageLoader/NSWindow aliv
 fixed 2026-09-13). Same rule for `NSViewRepresentable` callbacks (clear them in `dismantleNSView`) and
 `NSTrackingArea(owner: self)`. Leaks here are silent — verify with `heap`/`footprint` as in
 `docs/12-verification-and-debugging.md`. Details in `docs/09-ui-and-windows.md`.
+**A click that brings a book window forward only brings it forward** (2026-10-07, `WindowActivationClickFilter`; docs/09「ウインドウを
+前に出すクリック」): a full-content shield overlay in ContentView takes that one press (judged by *main* window + app activation times,
+never a dropped or rebuilt event — both were measured to leave the window non-key or the app inactive). New local monitors that act on
+clicks in book windows must skip `WindowActivationClickFilter.shared.isActivationClick(event)` — the press still reaches every monitor.
 **Windows and tabs (2026-09-27)**: book windows' `tabbingIdentifier` is set by privacy, not by WindowGroup
 (`BookWindowGroup.tabbingIdentifier`), so main/normal/book windows merge and private ones never do. New windows get their
 final frame *before* they appear: the opener calls `BookWindowOpener.expectNewWindow` right before `openWindow`, and the
