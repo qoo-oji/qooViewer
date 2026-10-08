@@ -1690,6 +1690,8 @@ struct ContentView: View {
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
             },
+            // 一覧を辿っている途中なので、パネルは閉じない(SidePanelView.onShowSteppedInPage)。
+            onShowSteppedInPage: { index in appState.jumpToPageIndex?(index) },
             // ページの右クリックからのブックマークの追加/削除(ユーザー要望)。実装は
             // ViewerViewが持つため橋渡し越しに呼ぶ(AppState.toggleBookmarkAtIndex参照)。
             // パネルは閉じない ―― 続けて別のページにも付けられるようにするため。

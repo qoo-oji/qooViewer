@@ -115,6 +115,64 @@ struct BookContentsBrowserStateTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
+    /// 2026-10-08 のユーザー提案。以前は踏み込んでも一覧が替わるだけで、ビューアは前のフォルダのページのままだった。
+    @Test("踏み込んだフォルダの画像を表示するよう頼む。今のページがある階層・画像の無い階層・上へ・戻る・進むでは頼まない")
+    func steppingIntoAnImageFolderAsksToShowItsFirstPage() async throws {
+        let temporary = try TemporaryDirectory("contents-step-in-shows-page")
+        var builder = ZipFixtureBuilder()
+        for (index, path) in ["ch1/001.png", "ch1/002.png", "ch2/001.png", "ch2/002.png", "ch3/sub/001.png"].enumerated() {
+            builder.add(path, PageImageFactory.data(number: UInt8(index + 1), fileExtension: "png"))
+        }
+        let url = temporary.file("book.cbz")
+        try builder.write(to: url)
+        let book = try await FixtureBook.load(url)
+        // 2 章の 1 ページ目は除外してある ―― 飛ぶ先は除外していない最初のページ。
+        let shown = book.pages.filter { $0.sortKey != "ch2/001.png" }
+        let browser = try #require(await BookContentsBrowserState.make(book: book))
+        defer { browser.releaseResources() }
+        browser.pageOrder = Dictionary(uniqueKeysWithValues: shown.enumerated().map { ($1.sortKey, $0) })
+        await browser.waitUntilListed()
+
+        // 開いた時点: 1 章の 1 ページ目を表示していて、一覧は 1 章の中。上へ出ても頼まない。
+        browser.revealCurrentPage(sortKeys: ["ch1/001.png"])
+        await browser.waitUntilListed()
+        #expect(browser.entries.map(\.matchKey).contains("ch1/002.png"))
+        browser.goUp()
+        await browser.waitUntilListed()
+        #expect(browser.steppedInPageRequest == nil)
+
+        func stepInto(_ name: String) async throws {
+            let folder = try #require(browser.entries.first { $0.displayName == name && $0.isContainer })
+            browser.navigate(folder)
+            await browser.waitUntilListed()
+        }
+
+        // 2 章へ踏み込む → 2 章の(除外していない)最初のページを頼む。
+        try await stepInto("ch2")
+        let request = try #require(browser.steppedInPageRequest)
+        #expect(request.matchKey == "ch2/002.png")
+        #expect(browser.pageIndex(ofMatchKey: request.matchKey, in: shown) == 2)
+
+        // 戻る・進むで 2 章へ来ても、頼み直さない。
+        browser.goBack()
+        await browser.waitUntilListed()
+        browser.goForward()
+        await browser.waitUntilListed()
+        #expect(browser.steppedInPageRequest == request)
+
+        // 今のページ(1 章)がある階層へ戻ってきただけなら頼まない。
+        browser.goBack()
+        await browser.waitUntilListed()
+        try await stepInto("ch1")
+        #expect(browser.steppedInPageRequest == request)
+
+        // 直下に画像が無い(章を束ねるだけの)フォルダでは頼まない。
+        browser.goBack()
+        await browser.waitUntilListed()
+        try await stepInto("ch3")
+        #expect(browser.steppedInPageRequest == request)
+    }
+
     @Test("書庫を開いている最中に手放されたら、結果を当てずに捨てる")
     func releasingWhileOpeningDiscardsTheResult() async throws {
         let nestedBook = try await FixtureBook.load(fixture: "nested/nested-zip-in-zip.cbz")

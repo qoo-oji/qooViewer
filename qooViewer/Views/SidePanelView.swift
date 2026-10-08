@@ -108,6 +108,9 @@ struct SidePanelView: View {
     weak var openIntentOwner: AppState?
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
+    /// 下段で踏み込んだ階層の画像を表示する(BookContentsBrowserState.steppedInPageRequest)。`onJumpToPage` と違い、
+    /// パネルを自動で隠す設定でも**パネルは閉じない** ―― 利用者は一覧を辿っている途中で、行を選んだわけではない。
+    var onShowSteppedInPage: (Int) -> Void
     /// ページの右クリック →「このページをブックマークに追加/削除」(ユーザー要望)。
     /// ページモードと本の中身ブラウザの両方から呼ばれ、中身はページ一覧パネルと共通
     /// (PageContextMenuItems参照)。実装はViewerViewが持つため橋渡しのクロージャで受け取る。
@@ -367,6 +370,7 @@ struct SidePanelView: View {
                         openIntentOwner: openIntentOwner,
                         onOpen: onOpen,
                         onJumpToPage: onJumpToPage,
+                        onShowSteppedInPage: onShowSteppedInPage,
                         onExportPage: onExportPage,
                         onToggleBookmark: onToggleBookmarkAtPage
                     )
@@ -1097,6 +1101,7 @@ private struct BookContentsSectionView: View {
     weak var openIntentOwner: AppState?
     var onOpen: (URL) -> Void
     var onJumpToPage: (Int) -> Void
+    var onShowSteppedInPage: (Int) -> Void
     var onExportPage: ((Int) -> Void)?
     var onToggleBookmark: (Int) -> Void
 
@@ -1238,6 +1243,12 @@ private struct BookContentsSectionView: View {
             }
         }
         .onDisappear { stepInFailureDismissTask?.cancel() }
+        // 踏み込んだ階層の画像をビューアに表示する(BookContentsBrowserState.requestPageOfSteppedInLevel)。ページ番号は今の並びから
+        // 引く(頼みは鍵で来る。除外・並べ替えで番号はずれうる)。
+        .onChange(of: state.steppedInPageRequest) { _, request in
+            guard let request, let index = state.pageIndex(ofMatchKey: request.matchKey, in: bookPages) else { return }
+            onShowSteppedInPage(index)
+        }
     }
 
     /// 今表示しているページの行(見開きで2ページとも表示中なら、その2行)が画面から外れて

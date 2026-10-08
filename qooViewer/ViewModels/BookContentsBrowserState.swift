@@ -36,6 +36,15 @@ final class BookContentsBrowserState: ObservableObject {
     /// 今ビューアに表示されているページのmatchKey(revealCurrentPage参照)。一覧の該当行の
     /// ハイライト、および自動スクロールに使う。
     @Published private(set) var highlightedMatchKeys: Set<String> = []
+    /// 利用者が踏み込んだ階層の画像を、ビューアに表示してほしいという頼み(`requestPageOfSteppedInLevel`)。パネルが受けて
+    /// そのページへ飛ぶ。同じページを続けて頼んでも届くよう、頼むたびに番号を進める。
+    @Published private(set) var steppedInPageRequest: SteppedInPageRequest?
+
+    struct SteppedInPageRequest: Equatable {
+        let serial: Int
+        /// 飛ぶ先のページの鍵(`PageRef.sortKey`)。ページ番号は受ける側が今の並びから引く(`pageIndex(ofMatchKey:in:)`)。
+        let matchKey: String
+    }
 
     weak var preferences: AppPreferences?
 
@@ -93,6 +102,11 @@ final class BookContentsBrowserState: ObservableObject {
     private var listingGeneration = 0
     /// 一覧・階層探しを待っている間に届いた「今のページを見せる」(最後の 1 回だけ。済んだら当て直す)。
     private var pendingRevealSortKeys: [String]?
+    /// 利用者が踏み込んだ(`navigate`)階層の一覧を待っている。出そろったら、その階層の画像をビューアに表示するか決める
+    /// (`requestPageOfSteppedInLevel`)。戻る・進む・ページ送りの追従で階層が替わったら取りやめる ―― 動かすのは踏み込んだときだけ。
+    /// 並び順の流し込み(`pageOrder`)による一覧の作り直しでは取りやめない(同じ階層のまま)。
+    private var awaitsSteppedInListing = false
+    private var steppedInPageRequestSerial = 0
 
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
@@ -237,6 +251,7 @@ final class BookContentsBrowserState: ObservableObject {
         revealTask = nil
         revealToken = nil
         pendingRevealSortKeys = nil
+        awaitsSteppedInListing = false
         isReleased = true
         // 裏で reader を使う仕事が走っていれば、解決役はそれが終わってから手放す(`finishReaderWork`。型コメント)。
         if readerWorkTask == nil { resolver.purgeAll() }
@@ -335,11 +350,42 @@ final class BookContentsBrowserState: ObservableObject {
         case .success(let list):
             entries = list
             navigationErrorMessage = nil
+            if awaitsSteppedInListing { requestPageOfSteppedInLevel() }
         case .failure(let error):
             entries = []
             navigationErrorMessage = localizedErrorMessage(for: error, fallback: "This folder could not be read.")
         }
+        awaitsSteppedInListing = false
         applyPendingReveal()
+    }
+
+    /// 踏み込んだ階層の直下に本のページの画像があれば、そのうち本のページ順で最初のもの(除外したページは `pageOrder` に無いので
+    /// 飛ばす)をビューアに表示するよう頼む(ユーザー提案、2026-10-08)。以前は踏み込んでも一覧が替わるだけでビューアは前のページの
+    /// ままだった ―― その食い違いは次のページ送りで一覧が今のページの階層へ引き戻される(`revealCurrentPage`)ので長続きせず、
+    /// 上段のフォルダブラウザは踏み込むとその画像を表示する(`SidePanelView.moveAndShowImages`)のとも揃っていなかった。
+    ///
+    /// 頼まないのは: 今表示しているページがこの階層の中(直下か、その下の容器の中)にあるとき(そこへ戻ってきただけ)、直下に
+    /// 本のページの画像が無いとき(章を束ねるだけのフォルダ・入れ子の上限で読まなかった書庫の中)。上へ・戻る・進むでは
+    /// ここへ来ない(`awaitsSteppedInListing`)。
+    private func requestPageOfSteppedInLevel() {
+        // 一覧を待つ間にページが送られていれば、そちらが今表示しているページ。
+        let shownKeys = pendingRevealSortKeys ?? Array(highlightedMatchKeys)
+        let holdsShownPage = entries.contains { entry in
+            shownKeys.contains { key in
+                entry.matchKey == key
+                    || (entry.isContainer && BookInternalBrowsing.matchKey(key, isContainedIn: entry.matchKey))
+            }
+        }
+        guard !holdsShownPage else { return }
+        let first = entries
+            .compactMap { entry in entry.isImage ? pageOrder[entry.matchKey].map { (index: $0, key: entry.matchKey) } : nil }
+            .min { $0.index < $1.index }
+        guard let first else { return }
+        // 待たせていた「今のページを見せる」は当てない ―― 当てると前のページの階層へ引き戻してから、飛んだ先のページで
+        // またここへ来る(一覧が 2 度替わる)。飛んだ後のページ送りの知らせが、この階層の行を強調する。
+        pendingRevealSortKeys = nil
+        steppedInPageRequestSerial &+= 1
+        steppedInPageRequest = SteppedInPageRequest(serial: steppedInPageRequestSerial, matchKey: first.key)
     }
 
     /// 一覧を作っている・階層を探している・裏で reader を使っている最中か(出ている `entries` が今の階層のものとは限らない。
@@ -388,6 +434,7 @@ final class BookContentsBrowserState: ObservableObject {
             forwardStack.removeAll()
             currentLevel = next.0
             currentLocator = next.1
+            awaitsSteppedInListing = true
             reload()
             return
         case .success(nil):
@@ -514,6 +561,7 @@ final class BookContentsBrowserState: ObservableObject {
     func goBack() {
         guard let (level, locator) = backStack.popLast() else { return }
         historyMoveSerial &+= 1
+        awaitsSteppedInListing = false
         forwardStack.append((currentLevel, currentLocator))
         currentLevel = level
         currentLocator = locator
@@ -523,6 +571,7 @@ final class BookContentsBrowserState: ObservableObject {
     func goForward() {
         guard let (level, locator) = forwardStack.popLast() else { return }
         historyMoveSerial &+= 1
+        awaitsSteppedInListing = false
         backStack.append((currentLevel, currentLocator))
         currentLevel = level
         currentLocator = locator
@@ -655,6 +704,7 @@ final class BookContentsBrowserState: ObservableObject {
     ) {
         backStack = path
         forwardStack.removeAll()
+        awaitsSteppedInListing = false
         currentLevel = final.0
         currentLocator = final.1
         // 前の階層の一覧を作っている仕事があっても、その結果は当てない。
