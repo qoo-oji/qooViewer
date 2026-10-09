@@ -78,6 +78,10 @@ struct FileBrowserTreeWatchPlanTests {
         #expect(FileBrowserListing.onDiskSpelling(of: throughLink).path
             == temporary.url.appendingPathComponent("Lnk/\(decomposed)").path)
 
+        // 大小文字・正規化のほかは書き方を変えない。`standardizedFileURL` を通すと実在するパスの頭の `/private` が外れた
+        // (CI で発覚。サンドボックスの中の作業フォルダは `/private` を含まないので、手元では上の検査だけでは素通りした)。
+        #expect(FileBrowserListing.onDiskSpelling(of: URL(filePath: "/private/var", directoryHint: .isDirectory)).path == "/private/var")
+
         let missing = temporary.url.appendingPathComponent("mixedcase/NoSuchFolder", isDirectory: true)
         #expect(FileBrowserListing.onDiskSpelling(of: missing).path
             == temporary.url.appendingPathComponent("MixedCase/NoSuchFolder").path)

@@ -306,8 +306,12 @@ nonisolated enum FileBrowserListing {
     /// 各階層の名前は `nameKey`(ディスクに書かれた名前を返す。記号リンクは辿らずリンク自身の名前 ―― 実測)。**打った名前と大小文字・
     /// 正規化の違いしかないときだけ**置き換える: マウントポイントでは `nameKey` がボリューム名を返しうる(同じ名前のボリュームが 2 つ
     /// あると `/Volumes/X 1` の名前が `X`)。読めない階層はそのまま残す。
+    ///
+    /// **`standardizedFileURL` を通さない**(2026-10-10、CI で発覚)。あれは実在するパスの頭の `/private` を外す(`/private/var/…` が
+    /// `/var/…` になる)ので、大小文字以外の書き方まで変わった。手元のテストはサンドボックスの中で走り、作業フォルダが `/private` を
+    /// 含まないので素通りしていた。`.` や `..` の始末は呼び出し側(`FileBrowserGoToFolderSheet.resolve`)が済ませている。
     static func onDiskSpelling(of url: URL) -> URL {
-        let components = url.standardizedFileURL.pathComponents
+        let components = url.pathComponents
         guard components.first == "/" else { return url }
         var current = URL(filePath: "/", directoryHint: .isDirectory)
         for component in components.dropFirst() {
