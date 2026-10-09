@@ -87,7 +87,10 @@ detected archive-wide with Foundation (`EntryNameDecoder` in Services/ZipArchive
 QooMetaRules) reads metadata from file names. Its core and bundled preset JSON are used **as shipped** so a qooMeta release
 can be taken in unchanged — qooViewer keeps only the user's diff (`MetadataRulesStore`). Its `BookMetadata` clashes with the
 app's `@Model BookMetadata`: use `typealias QMBookMetadata = QooMetaKit.BookMetadata`. `scripts/ci/check-package-pins.sh`
-checks the pin (docs/11).
+checks the pin (docs/11). **Third-party license texts ship inside the app** as `qooViewer/Resources/Credits.rtf` (shown by the standard
+About panel; generated from the checkouts by `scripts/dev/build-credits.py`) — regenerate it whenever a dependency is added or its pin
+moves, and add new packages (after checking their sources for bundled third-party code) to the script's `PACKAGES`;
+`scripts/ci/check-credits.sh` fails otherwise (docs/11「ライセンス表記」).
 **Sparkle** (`sparkle-project/Sparkle`, **`exactVersion` 2.10.0**, 2026-10-10) is the auto-updater (`Services/AppUpdater.swift`).
 Security rests on one Ed25519 key (the app is not Developer ID signed, so there is no Apple-signing fallback): the Info.plist
 requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS

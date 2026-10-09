@@ -323,7 +323,33 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 
 上げる手順: project.pbxproj の `XCRemoteSwiftPackageReference "Sparkle"` の `version` を書き換え → `xcodebuild -resolvePackageDependencies`
 → `Package.resolved` の revision がそのタグの commit であることを `gh api repos/sparkle-project/Sparkle/commits/<版> --jq .sha` で確かめる
-→ Release で組んで `scripts/release/check-release-app.sh` → 古い版からの更新を一度実際に通す(署名の確かめ方が変わっていないか)。
+→ `python3 -I scripts/dev/build-credits.py`(ライセンス表記の版。中の部品が増えていないかも `LICENSE` で見る)
+→ Release で組んで `scripts/release/check-release-app.sh` → 古い版からの更新を一度実際に通す(署名の確かめ方が変わっていないか。
+[12](12-verification-and-debugging.md#自動アップデートの実機の確かめ方))。
+
+## ライセンス表記(Credits.rtf、2026-10-10)
+
+配る .app には依存ライブラリが入っている(Sparkle.framework はそのまま、ほかは静的にリンク)ので、各ライセンスが求める表記を
+**配布物そのもの**に持たせています。`qooViewer/Resources/Credits.rtf` をアプリのリソースに入れ、macOS の標準の「qooViewer について」に
+表示させる(コードは何もしない)。README のリンクだけでは、BSD の「バイナリの配布物に付ける文書へ載せる」を満たすとは言い切れないため。
+
+| 依存 | 載せるもの |
+|---|---|
+| Sparkle | `LICENSE`(本体の MIT と、中の bsdiff・SUSignatureVerifier(BSD)・sais-lite(MIT)・ed25519(zlib)) |
+| ZIPFoundation | `LICENSE`(MIT) |
+| SevenZip.swift | `LICENSE.txt`(MIT)+ 7-Zip / LZMA SDK の C のコード(Igor Pavlov、パブリックドメイン)とフォークで足した部分(MIT)の一文 |
+| Unrar.swift | `LICENSE.txt`(MIT)+ `Sources/Cunrar/license.txt`(unRAR。改変した unrar を配るときは第 2 段落の全文を文書に載せる条件)+ `acknow.txt`(Intel の CRC32 は BSD)+「RAR 互換の圧縮ソフトの開発に使えない」の一文 + BLAKE2(パブリックドメイン) |
+| qooMeta | `LICENSE`(MIT) |
+
+- **作るのは `scripts/dev/build-credits.py`**(手元。Package.resolved の revision どおりの checkout を DerivedData から探して、ライセンスの
+  ファイルを写す)。依存を足した・版を動かしたら作り直す。新しい依存はスクリプトの `PACKAGES` に足し、中に別の作者の部品が無いかを
+  ソースで確かめる(上の表は 2026-10-10 にソースのヘッダーとライセンスのファイルを全部見て作った)。
+- `scripts/ci/check-credits.sh`(`check-all.sh` の一部)が、Package.resolved のすべての依存が今の版で載っていることを見る
+  (`PACKAGES` に無い依存も落とす)。`check-release-app.sh` は配る .app に `Credits.rtf` があることを見る。
+- 文面は写すだけで変えないが、80 文字前後の改行は段落ごとにつなぐ(パネルの文字の欄は約 270pt で、等幅のままでは 1 行が途中で折り返して
+  読めなかった)。unRAR の飾り文字の見出しだけは等幅・小さい文字のまま。
+- RTF にしたのは、HTML から作った文字列は文字色が黒に固定され、ダークモードのパネルで読めなくなるため。色を指定しない RTF は、
+  パネルの文字色(明暗に追従)で描かれる(ライト・ダークの両方で撮って確かめた)。
 
 ## 削除した依存: UniversalCharsetDetection
 
@@ -354,7 +380,9 @@ Xcode はその revision を使います。フォークを更新したら:
 3. `xcodebuild -resolvePackageDependencies -project qooViewer.xcodeproj -scheme qooViewer` を
    実行して DerivedData のチェックアウトを更新する(Xcode の File › Packages › Update to Latest
    Package Versions でもよいが、ZIPFoundation まで上がるので注意)。
-4. ビルドして動かす。
+4. `python3 -I scripts/dev/build-credits.py` で「qooViewer について」のライセンス表記(`Credits.rtf`)を作り直す
+   (版の表記が変わるので、作り直さないと `scripts/ci/check-credits.sh` が落ちる。→ 下の「ライセンス表記」)。
+5. ビルドして動かす。
 
 **ローカルのフォークをパスで参照する形にはしていません。** clone した人が同じものをビルド
 できるように、必ず GitHub 上の revision を指すようにしてあります。

@@ -100,6 +100,9 @@ print("" if v is None else json.dumps(v, separators=(",", ":")) if isinstance(v,
     fi
 fi
 
+# 依存ライブラリのライセンス文(「qooViewer について」に出る。docs/11「ライセンス表記」)。配布物に表記を持たせるために入れている。
+if [ -s "$app/Contents/Resources/Credits.rtf" ]; then ok "Credits.rtf(依存ライブラリのライセンス文)がある"; else fail "Credits.rtf が無い"; fi
+
 # ── Sparkle.framework ─────────────────────────────────────────────────────────
 sparkle="$app/Contents/Frameworks/Sparkle.framework"
 for part in Versions/B/XPCServices/Installer.xpc Versions/B/XPCServices/Downloader.xpc Versions/B/Autoupdate Versions/B/Updater.app; do

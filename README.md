@@ -377,5 +377,6 @@ GBK/Big5(中国語)や、UTF-8 の目印が付いていない書庫を読み分�
 ## ライセンス
 
 - qooViewer自体のソースコードはMITライセンスです(同梱の `LICENSE` 参照)。
-- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift`(のフォーク)に、ファイル名からのメタデータの読み取りは `qooMeta` に依存しています。いずれもMITライセンスです。
-- rar/cbr 対応は `Unrar.swift`(のフォーク。内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/qoo-oji/Unrar.swift/blob/memory-archive/Sources/Cunrar/readme.txt)を参照してください。
+- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift`(のフォーク)に、ファイル名からのメタデータの読み取りは `qooMeta` に、アップデートの機能は `Sparkle` に依存しています。いずれもMITライセンスです(`SevenZip.swift` は 7-Zip / LZMA SDK のパブリックドメインのコードを、`Sparkle` は BSD・zlib などのライセンスの部品を含みます)。
+- rar/cbr 対応は `Unrar.swift`(のフォーク。内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/qoo-oji/Unrar.swift/blob/memory-archive/Sources/Cunrar/readme.txt)を参照してください。unrar のコードを、RAR(WinRAR)互換の圧縮ソフトの開発や RAR の圧縮方式の再現に使うことはできません。
+- これらのライセンス文(含まれる部品のものも)はすべて、アプリのメニュー「qooViewer」→「qooViewer について」に表示されます。

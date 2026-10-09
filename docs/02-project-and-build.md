@@ -12,6 +12,7 @@ qooViewer/
 │   ├── ViewModels/               ObservableObject(ストア・画面ごとの状態)
 │   ├── Views/                    SwiftUI ビュー(Export/ と Settings/ のサブフォルダあり)
 │   ├── Resources/Localizable.xcstrings   文字列カタログ(英語ベース+日本語)
+│   ├── Resources/Credits.rtf     「qooViewer について」に出す依存ライブラリのライセンス文(scripts/dev/build-credits.py が作る。→ 11)
 │   └── Info.plist                書類の型・自動アップデートの設定(下記)
 ├── qooViewerTests/               単体テスト(Swift Testing、下記)。Fixtures/ に本のフィクスチャと台帳、Support/ にビルダー
 ├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
@@ -419,7 +420,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
 | `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
-| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:
 
