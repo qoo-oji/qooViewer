@@ -65,10 +65,11 @@ fi
 # generate_appcast は書庫の .app のアーキテクチャから sparkle:hardwareRequirements を決める。arm64 だけで組んだ
 # zip を配ると、Intel の Mac には以後アップデートが届かない。
 archs=$(lipo -archs "$app/Contents/MacOS/qooViewer" 2>/dev/null || true)
-case " $archs " in
-    *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ok "universal(arm64 + x86_64)" ;;
-    *) fail "universal ではない: '$archs'(generic/platform=macOS で組む)" ;;
-esac
+if [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]; then
+    ok "universal($archs)"
+else
+    fail "universal ではない: '$archs'(generic/platform=macOS で組む)"
+fi
 
 # ── entitlements ──────────────────────────────────────────────────────────────
 bundle_id=$(value CFBundleIdentifier)

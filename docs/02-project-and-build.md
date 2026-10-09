@@ -556,12 +556,17 @@ Info.plist の中のコメントに書いてある要点:
 ### 最初に 1 度だけ: 署名の鍵
 
 1. Xcode で一度ビルドして Sparkle を取ってくる(道具は DerivedData の `SourcePackages/artifacts/sparkle/Sparkle/bin/`)。
-2. `generate_keys` を実行する。秘密鍵がログインキーチェーンに入り、公開鍵(base64)が表示される。
+2. `generate_keys --account qooProject` を実行する。秘密鍵がログインキーチェーン(サービス `https://sparkle-project.org`、
+   アカウント `qooProject`)に入り、公開鍵(base64)が表示される。アカウント名を付けるのは、道具の既定の `ed25519` がこの Mac の
+   すべての Sparkle アプリで共有される名前だから(`qooProject` はバンドル ID の `com.qooProject.*` に合わせた。`make-appcast.sh` の既定)。
 3. 公開鍵を `qooViewer/Info.plist` の `SUPublicEDKey` に入れてコミットする(公開鍵は秘密ではない)。
-4. `generate_keys -x <リポジトリの外のパス>` で秘密鍵の控えを書き出し、パスワード管理ソフトなど安全な場所へ移して元のファイルを消す。
+4. `generate_keys --account qooProject -x <リポジトリの外のパス>` で秘密鍵の控えを書き出し、パスワード管理ソフトなど安全な場所へ移して
+   元のファイルを消す。iCloud Drive と同期しているフォルダ(「デスクトップと書類」の同期が ON なら書類フォルダも)に置くと、平文の秘密鍵が
+   iCloud に上がる。
    **この鍵をなくすと以後の更新を配れず、漏れると誰でも更新を偽造できます**(差し替える逃げ道を設定で閉じてあるため)。
 
-鍵の入っていないビルドではアップデーターが起動せず、`check-release-app.sh`(CI の Release ジョブも)が失敗します。
+2026-10-10 に作成済み(公開鍵は Info.plist にある)。鍵の入っていないビルドではアップデーターが起動せず、`check-release-app.sh`
+(CI の Release ジョブも)が失敗します。
 
 ### 毎回
 

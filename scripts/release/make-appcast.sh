@@ -17,7 +17,8 @@
 # 環境変数:
 #   SPARKLE_BIN          Sparkle の道具(generate_appcast / generate_keys / sign_update)のフォルダ。
 #                        省略時は Xcode の DerivedData から、Package.resolved で固定した版のものを探す。
-#   SPARKLE_KEY_ACCOUNT  キーチェーンの鍵のアカウント名(既定: generate_keys の既定の ed25519)
+#   SPARKLE_KEY_ACCOUNT  キーチェーンの鍵のアカウント名(既定: qooProject。バンドル ID の com.qooProject.* に合わせた
+#                        qooViewer 用の名前。Sparkle の道具の既定の ed25519 は、この Mac のすべての Sparkle アプリが共有する名前なので使わない)
 #   SPARKLE_ED_KEY_FILE  キーチェーンの代わりに秘密鍵のファイルを使う(generate_keys -x で書き出したもの)。
 #                        **リポジトリの中のファイルは拒む**(うっかりコミットしないため)。
 set -euo pipefail
@@ -35,7 +36,7 @@ zip=$(cd "$(dirname "$zip")" && pwd)/$(basename "$zip")
 out=${out:-$(dirname "$zip")}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-account="${SPARKLE_KEY_ACCOUNT:-ed25519}"
+account="${SPARKLE_KEY_ACCOUNT:-qooProject}"
 key_file="${SPARKLE_ED_KEY_FILE:-}"
 repo_url="https://github.com/qoo-oji/qooViewer"
 
