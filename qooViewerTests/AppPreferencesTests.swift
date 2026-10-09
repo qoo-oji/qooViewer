@@ -56,6 +56,9 @@ struct AppPreferencesTests {
         #expect(p.privateWindowsUseOwnAppearance == false)
         #expect(p.appearance(forPrivateWindow: true) === p.appearance)
         #expect(p.privateWindowTitlePrefix == nil)
+        // 自動アップデート: 確認は既定 ON(利用者の判断 2026-10-10)、ダウンロードとインストールは Sparkle の既定どおり OFF。
+        #expect(p.checksForUpdatesAutomatically == true)
+        #expect(p.installsUpdatesAutomatically == false)
     }
 
     @Test("保存された MB の値が NaN・巨大・範囲外・数でなくても、起動で落ちずに範囲へ収まる")
@@ -288,6 +291,7 @@ struct AppPreferencesTests {
             "sidePanelPosition", "sidePanelUsesDoubleClick",
             "sidePanelSortOrder",
             "siblingNavigationFollowsBrowserSort",
+            "checksForUpdatesAutomatically", "installsUpdatesAutomatically",
         ],
         // 外観タブの設定は AppearanceSettings が揃いごとに持ち、戻すのも揃いごと(AppearanceSettingsTests)。
         .appearance: [],

@@ -57,6 +57,8 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.launchInPrivateMode.toggle()
     p.quitWhenLastWindowClosed.toggle()
     p.confirmBeforeClosingMultipleTabsWindow.toggle()
+    p.checksForUpdatesAutomatically.toggle()
+    p.installsUpdatesAutomatically.toggle()
     p.displayLanguage = otherCase(p.displayLanguage)
     p.maxTrackedBooksCount += 1
     p.recentFilesLimit += 1

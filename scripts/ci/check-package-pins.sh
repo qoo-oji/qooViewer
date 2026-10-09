@@ -57,4 +57,26 @@ else
     ok "qoometa: version $qoometa_version"
 fi
 
+# Sparkle(自動アップデート。2026-10-10)は**正確な版**で固定する(docs/10「自動アップデート」)。更新の署名を確かめる
+# 部品なので、Xcode の「次のメジャー版まで自動で上げる」に任せず、版を上げるときはリリースノート(特にセキュリティの修正)を
+# 読んでから project.pbxproj と Package.resolved を一緒に動かす。書庫そのものは Package.swift の checksum で SwiftPM が確かめる。
+sparkle_location=$(jq -r '.pins[] | select(.identity == "sparkle") | .location // ""' "$file")
+sparkle_version=$(jq -r '.pins[] | select(.identity == "sparkle") | .state.version // ""' "$file")
+sparkle_revision=$(jq -r '.pins[] | select(.identity == "sparkle") | .state.revision // ""' "$file")
+sparkle_requirement=$(awk '/XCRemoteSwiftPackageReference "Sparkle" \*\/ = \{/ { on = 1 } on && /kind = / { gsub(/[ \t;]/, ""); print; exit }' \
+    qooViewer.xcodeproj/project.pbxproj)
+sparkle_exact=$(awk '/XCRemoteSwiftPackageReference "Sparkle" \*\/ = \{/ { on = 1 } on && /version = / { gsub(/[ \t;]/, ""); sub(/version=/, ""); print; exit }' \
+    qooViewer.xcodeproj/project.pbxproj)
+if [ "$sparkle_location" != "https://github.com/sparkle-project/Sparkle" ]; then
+    fail "sparkle の location が '$sparkle_location'(期待: https://github.com/sparkle-project/Sparkle)"
+elif [ "$sparkle_requirement" != "kind=exactVersion" ]; then
+    fail "Sparkle の requirement が exactVersion ではない: '$sparkle_requirement'"
+elif [ -z "$sparkle_version" ] || [ "$sparkle_version" != "$sparkle_exact" ]; then
+    fail "Package.resolved の Sparkle '$sparkle_version' が project.pbxproj の exactVersion '$sparkle_exact' と違う"
+elif ! [[ "$sparkle_revision" =~ ^[0-9a-f]{40}$ ]]; then
+    fail "sparkle の revision が 40 桁の SHA ではない: '$sparkle_revision'"
+else
+    ok "sparkle: exactVersion $sparkle_version @ ${sparkle_revision:0:10}"
+fi
+
 finish

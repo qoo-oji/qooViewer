@@ -8,6 +8,7 @@ import Foundation
 /// (SettingsControls.swift の設計方針を参照)。
 struct GeneralSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    @EnvironmentObject private var updater: AppUpdater
 
     var body: some View {
         SettingsPaneContainer {
@@ -170,6 +171,32 @@ struct GeneralSettingsView: View {
                 }
             } header: {
                 Text("History")
+            }
+
+            // 自動アップデート(2026-10-10、利用者の要望で既定 ON)。アプリ自身のことでほかの設定の前提にならないので末尾。
+            // 値は AppPreferences が持ち、AppUpdater が Sparkle へ流す(AppPreferences.checksForUpdatesAutomatically)。
+            // アップデーターが動いていない(Debug ビルド・署名の鍵を入れていないビルド)ときは淡色にして、理由を吹き出しに出す
+            // (押しても何も起きない項目を押せるように見せない。CLAUDE.md)。
+            Section {
+                SettingsToggle(
+                    "Check for Updates Automatically",
+                    isOn: $preferences.checksForUpdatesAutomatically,
+                    help: updater.isAvailable
+                        ? "About once a day, qooViewer asks GitHub whether a newer version is available. Nothing about your books is sent."
+                        : "Updates aren't available in this build. Debug builds and builds made without the update signing key never check for updates."
+                )
+                .disabled(!updater.isAvailable)
+                // 自動確認が OFF の間、Sparkle はこれを無視する。効かない設定は出さない(サイドパネルと同じ。2026-09-27 の方針)。
+                if preferences.checksForUpdatesAutomatically {
+                    SettingsToggle(
+                        "Download and Install Updates Automatically",
+                        isOn: $preferences.installsUpdatesAutomatically,
+                        help: "New versions are downloaded in the background and installed the next time you quit qooViewer. Every update is checked against the developer's signature before it is installed."
+                    )
+                    .disabled(!updater.isAvailable)
+                }
+            } header: {
+                Text("Updates")
             }
 
             // 説明文がこの画面だけ長いのは、対象外にしている2つがあるため

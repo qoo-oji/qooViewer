@@ -41,3 +41,11 @@ Local.xcconfig
 # scripts/ci/check-private-terms.sh が確かめる。
 private-terms*.txt
 *.local
+
+# ── 自動アップデート(Sparkle)の署名の秘密鍵 ───────────────────────────────────
+# 秘密鍵は作者の Mac のキーチェーンにだけ置く。generate_keys -x で書き出したファイルはリポジトリの**外**に保管する
+# (docs/02「リリース」)。万一ここへ置いても追跡されないよう、書き出すときに使う名前で塞ぐ。
+# scripts/release/make-appcast.sh もリポジトリの中の鍵ファイルを拒む。
+*sparkle*private*
+*eddsa*private*
+*.sparkle-key

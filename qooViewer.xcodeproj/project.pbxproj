@@ -13,6 +13,7 @@
 		0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F102301500000C0C5261 /* ZIPFoundation */; };
 		0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F202301600000C0C5261 /* QooMetaKit */; };
 		0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F203301600000C0C5261 /* QooMetaRules */; };
+		0AD1F303301700000C0C5261 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F302301700000C0C5261 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +29,7 @@
 /* Begin PBXFileReference section */
 		0AD11FE03014A38C00C0C526 /* qooViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = qooViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		0AD1F304301700000C0C5261 /* qooViewer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = qooViewer.entitlements; sourceTree = "<group>"; };
 		0AD120613014AB0000C0C526 /* qooViewerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = qooViewerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -70,6 +72,7 @@
 				0AD11FF03014A59700C0C526 /* ZIPFoundation in Frameworks */,
 				0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */,
 				0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */,
+				0AD1F303301700000C0C5261 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				0AD120503014AA0000C0C526 /* Shared.xcconfig */,
+				0AD1F304301700000C0C5261 /* qooViewer.entitlements */,
 			);
 			path = Configurations;
 			sourceTree = "<group>";
@@ -136,6 +140,7 @@
 				0AD11FF53014A5E800C0C526 /* Unrar */,
 				0AD1F202301600000C0C5261 /* QooMetaKit */,
 				0AD1F203301600000C0C5261 /* QooMetaRules */,
+				0AD1F302301700000C0C5261 /* Sparkle */,
 			);
 			productName = qooViewer;
 			productReference = 0AD11FE03014A38C00C0C526 /* qooViewer.app */;
@@ -199,6 +204,7 @@
 				0AD11FF13014A5C900C0C526 /* XCRemoteSwiftPackageReference "SevenZip" */,
 				0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */,
 				0AD1F201301600000C0C5261 /* XCRemoteSwiftPackageReference "qooMeta" */,
+				0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0AD11FE13014A38C00C0C526 /* Products */;
@@ -382,7 +388,7 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -411,6 +417,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Alternate;
+				QOO_UPDATER_ENABLED = NO;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -433,9 +440,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = Configurations/qooViewer.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -463,6 +471,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Default;
+				QOO_UPDATER_ENABLED = YES;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -584,6 +593,14 @@
 				minimumVersion = 0.3.0;
 			};
 		};
+		0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -616,6 +633,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0AD1F201301600000C0C5261 /* XCRemoteSwiftPackageReference "qooMeta" */;
 			productName = QooMetaRules;
+		};
+		0AD1F302301700000C0C5261 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

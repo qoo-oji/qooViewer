@@ -85,6 +85,23 @@
         }
       }
     },
+    "About once a day, qooViewer asks GitHub whether a newer version is available. Nothing about your books is sent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About once a day, qooViewer asks GitHub whether a newer version is available. Nothing about your books is sent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1日に1回ほど、新しい版が出ていないかを GitHub に問い合わせます。\n本についての情報は送りません。"
+          }
+        }
+      }
+    },
     "Adding books…" : {
       "localizations" : {
         "en" : {
@@ -101,6 +118,40 @@
         }
       }
     },
+    "Check for Updates Automatically" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for Updates Automatically"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートを自動的に確認"
+          }
+        }
+      }
+    },
+    "Check for Updates…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for Updates…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートを確認…"
+          }
+        }
+      }
+    },
     "Creating a New Folder…" : {
       "localizations" : {
         "en" : {
@@ -113,6 +164,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新規フォルダを作成しています…"
+          }
+        }
+      }
+    },
+    "Download and Install Updates Automatically" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download and Install Updates Automatically"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートを自動的にダウンロードしてインストール"
           }
         }
       }
@@ -145,6 +213,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "エイリアスを作成しています…"
+          }
+        }
+      }
+    },
+    "New versions are downloaded in the background and installed the next time you quit qooViewer. Every update is checked against the developer's signature before it is installed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New versions are downloaded in the background and installed the next time you quit qooViewer. Every update is checked against the developer's signature before it is installed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい版を裏でダウンロードし、次に qooViewer を終了したときにインストールします。\nどのアップデートも、インストールの前に開発者の署名を確かめます。"
           }
         }
       }
@@ -225,6 +310,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このページを表示できません。"
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデート"
+          }
+        }
+      }
+    },
+    "Updates aren't available in this build. Debug builds and builds made without the update signing key never check for updates." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates aren't available in this build. Debug builds and builds made without the update signing key never check for updates."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このビルドではアップデートを使えません。\nDebug ビルドと、アップデートの署名の鍵を入れずに作ったビルドは、アップデートを確認しません。"
           }
         }
       }

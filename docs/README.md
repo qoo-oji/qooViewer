@@ -18,7 +18,7 @@
 | 07 | [07-page-order-layout-bookmarks.md](07-page-order-layout-bookmarks.md) | ページの並び順・見開きの組み方・レイアウト設定・ブックマークの鍵 |
 | 08 | [08-export-and-import.md](08-export-and-import.md) | EPUB/PDF/CBZ の書き出し、画像の書き出し、保存データ(JSON)の書き出し・読み込み |
 | 09 | [09-ui-and-windows.md](09-ui-and-windows.md) | 画面の構成、入力の扱い、パネルの見た目、補助ウインドウの共通の形、環境設定の方針 |
-| 10 | [10-sandbox-and-security.md](10-sandbox-and-security.md) | サンドボックス下でファイルに触るための約束事 |
+| 10 | [10-sandbox-and-security.md](10-sandbox-and-security.md) | サンドボックス下でファイルに触るための約束事。自動アップデート(Sparkle)の信頼の作り |
 | 11 | [11-forked-dependencies.md](11-forked-dependencies.md) | 独自にフォークした依存ライブラリ(SevenZip.swift / Unrar.swift)に、何のためにどんな変更を加えたか |
 | 12 | [12-verification-and-debugging.md](12-verification-and-debugging.md) | 画面まわりをテストで押さえないこのアプリを、どうやって検証・計測・デバッグしてきたか |
 | 13 | [13-history-and-known-limitations.md](13-history-and-known-limitations.md) | 主な方針転換の履歴、既知の制限、未着手の課題、テストのパタンセットの記録と**引き継ぎ** |

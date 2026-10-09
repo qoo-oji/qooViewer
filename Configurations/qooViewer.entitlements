@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Release 構成だけが使う(CODE_SIGN_ENTITLEMENTS)。サンドボックス・ハードンドランタイム・ユーザーが選んだ
+  ファイルの読み書きなど、ほかの entitlement は今まで通りビルド設定(ENABLE_APP_SANDBOX など)から生成され、
+  署名のときにこのファイルの中身と合わさる。
+
+  ここに書くのは自動アップデート(Sparkle)のためのものだけ(docs/10「自動アップデート」)。
+  - サンドボックスの中のアプリは Sparkle のインストーラを自分で起動できないので、Sparkle.framework の中の
+    XPC サービス(Installer.xpc)に頼む。その XPC サービスと話すための mach の名前 2 つを、名前を
+    限って開ける(Sparkle の公式の手順どおり。$(PRODUCT_BUNDLE_IDENTIFIER) は署名のときに展開される)。
+  - **com.apple.security.network.client は足さない。** アプリ本体は今まで通り通信しない。更新情報と
+    更新の書庫を取りに行くのは Sparkle の Downloader.xpc(Info.plist の SUEnableDownloaderService)で、
+    通信の権限はそちらだけが持つ。scripts/ci/check-release-app.sh がこの 2 点を確かめる。
+  - Debug 構成には付けない(Debug ではアップデーターを起動しない。QOO_UPDATER_ENABLED)。
+-->
+<dict>
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+	</array>
+</dict>
+</plist>

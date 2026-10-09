@@ -1,6 +1,6 @@
 # 11. 依存ライブラリとフォーク
 
-qooViewer は3つの Swift パッケージに依存します。うち2つは開発者自身のフォークで、
+qooViewer は5つの Swift パッケージに依存します(下の表の 4 つと、[qooMeta](#qoometa2026-09-21))。うち2つは開発者自身のフォークで、
 `Package.resolved` の revision で固定しています。
 
 | パッケージ | 参照先 | 固定方法 | 用途 |
@@ -8,6 +8,7 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
 | SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
+| Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.0(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
 どちらも `origin` = qoo-oji、`upstream` = mtgto(本家)という remote 構成です。各フォークには
@@ -303,6 +304,26 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
   言葉の鍵(英語)と訳は `Localizable.xcstrings` に合流させてある(`"…".ui` は表示言語の `.lproj` から引く。QooMetaLocalization.swift)。
 - 英単語の辞書(`/usr/share/dict/words`)はサンドボックスの中からも読める。起動直後に画面の外で読んでおく(`MetadataRulesStore.warmUp`)。
 - qooMeta の型 `BookMetadata` は qooViewer の同名の @Model と重なるので、`QMBookMetadata` と呼ぶ。
+
+## Sparkle(2026-10-10)
+
+自動アップデートの部品です(設計と信頼の作りは [10「自動アップデート」](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。
+フォークせず本家をそのまま使い、**`exactVersion` で版を 1 つに固定**しています(ほかの依存の `upToNextMajorVersion` と違う)。
+更新の署名を確かめる側の部品なので、Xcode に黙って上げさせず、版を上げるときはリリースノート ―― 特にセキュリティの修正
+(2.9.2〜2.9.6 は展開時のシンボリックリンクや権限昇格の修正が続いた。https://github.com/sparkle-project/Sparkle/discussions/2838)
+と、Info.plist のキーの意味の変更 ―― を読んでから動かします。
+
+- SwiftPM の製品は事前に組まれた `Sparkle.xcframework`(binaryTarget)で、Package.swift の `checksum` で SwiftPM が中身を確かめる。
+  revision は `Package.resolved` が固定し、`scripts/ci/check-package-pins.sh` が `exactVersion` と版の一致を見る。
+- 署名・appcast の道具(`generate_keys` / `generate_appcast` / `sign_update`)も同じ書庫に入っていて、DerivedData の
+  `SourcePackages/artifacts/sparkle/Sparkle/bin/` にある。`scripts/release/make-appcast.sh` は固定した版の checkout の道具だけを使う。
+- 動的フレームワークで、Xcode が自動で `Contents/Frameworks/` に入れて署名し直す(入れ子の XPC サービス・`Autoupdate`・`Updater.app` は
+  Sparkle の配布物の ad-hoc 署名のまま。Sparkle の文書どおり `--deep` で署名し直さない)。
+- 2.10.0 で最小の macOS が 12.0 になった(このアプリは 15.0 なので影響なし)。
+
+上げる手順: project.pbxproj の `XCRemoteSwiftPackageReference "Sparkle"` の `version` を書き換え → `xcodebuild -resolvePackageDependencies`
+→ `Package.resolved` の revision がそのタグの commit であることを `gh api repos/sparkle-project/Sparkle/commits/<版> --jq .sha` で確かめる
+→ Release で組んで `scripts/release/check-release-app.sh` → 古い版からの更新を一度実際に通す(署名の確かめ方が変わっていないか)。
 
 ## 削除した依存: UniversalCharsetDetection
 

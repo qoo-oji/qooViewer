@@ -12,13 +12,15 @@ qooViewer/
 │   ├── ViewModels/               ObservableObject(ストア・画面ごとの状態)
 │   ├── Views/                    SwiftUI ビュー(Export/ と Settings/ のサブフォルダあり)
 │   ├── Resources/Localizable.xcstrings   文字列カタログ(英語ベース+日本語)
-│   └── Info.plist                書類の型(下記)
+│   └── Info.plist                書類の型・自動アップデートの設定(下記)
 ├── qooViewerTests/               単体テスト(Swift Testing、下記)。Fixtures/ に本のフィクスチャと台帳、Support/ にビルダー
 ├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
+├── Configurations/qooViewer.entitlements  Release だけが使う entitlement(Sparkle の XPC サービス用。下記)
 ├── .github/workflows/            CI(build.yml / check.yml、下記)。dependabot.yml も
 ├── scripts/ci/                   約束事の検査スクリプト(check-all.sh がまとめて走らせる。CI と手元で共用)
 ├── scripts/fixtures/             テストのフィクスチャを作り直すスクリプト(手元だけ。下記)
 ├── scripts/test/                 テスト用の使い捨てボリュームの付け外し(スキームの Test の前後と CI から呼ぶ。下記)
+├── scripts/release/              配る .app の検品と、Sparkle の appcast の作成(手元。下記「リリース」)
 ├── docs/                         この仕様書
 ├── README.md / MANUAL.md / CHANGELOG.md / LICENSE(MIT) / CLAUDE.md
 ├── .gitattributes                pbxproj と xcstrings は `-text merge=binary`、MANUAL/CHANGELOG は linguist-documentation
@@ -415,7 +417,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
-| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
+| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
 | `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
 | `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
 
@@ -477,16 +479,19 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | `SWIFT_DEFAULT_ACTOR_ISOLATION` | MainActor | **何も書かなければメインアクター隔離**。メインアクターの外で使う型・関数は `nonisolated` 必須 |
 | `SWIFT_APPROACHABLE_CONCURRENCY` | YES | Xcode 26 の「Approachable Concurrency」一式 |
 | `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY` | YES | 暗黙のモジュール再エクスポートに頼らない |
-| `ENABLE_APP_SANDBOX` | YES | App Sandbox。`.entitlements` ファイルは無く、ビルド設定から生成される |
+| `ENABLE_APP_SANDBOX` | YES | App Sandbox。entitlement はビルド設定から生成される(Release だけ下の `CODE_SIGN_ENTITLEMENTS` の中身が合わさる) |
+| `CODE_SIGN_ENTITLEMENTS` | Release だけ `Configurations/qooViewer.entitlements` | Sparkle の Installer.xpc と話す mach-lookup の例外 2 つ(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。通信の entitlement は足さない |
+| `QOO_UPDATER_ENABLED` | Release: YES / Debug: NO | Info.plist の `QOOUpdaterEnabled`。NO ならアップデーターを起動しない(Debug は別のアプリなので配布版に置き換わってはいけない) |
 | `ENABLE_HARDENED_RUNTIME` | YES | 公証の前提 |
 | `ENABLE_USER_SELECTED_FILES` | readwrite | ユーザーが選んだファイル/フォルダの読み書き |
 | `PRODUCT_BUNDLE_IDENTIFIER` | Release: com.qooProject.qooViewer / **Debug: com.qooProject.qooViewer.debug** | 変えると SwiftData のストア・UserDefaults・キャッシュの場所が変わる。Debug を分けた理由は下 |
 | `INFOPLIST_KEY_CFBundleDisplayName` | Debug だけ「qooViewer Debug」 | Dock・Finder で普段使いのアプリと見分ける |
 | `QOO_DOCUMENT_HANDLER_RANK` | Release: Default / Debug: Alternate | `Info.plist` の本の書類型の `LSHandlerRank`。Debug ビルドが Finder のダブルクリックの既定候補を奪わない |
 | `MARKETING_VERSION` | 1.41(2026-09-05 時点) | アプリのバージョン。Debug/Release 両方にある |
-| `CURRENT_PROJECT_VERSION` | 1 | ビルド番号は使っていない |
+| `CURRENT_PROJECT_VERSION` | `$(MARKETING_VERSION)`(2026-10-10 から。以前は 1 固定) | `CFBundleVersion`。Sparkle はこれで新旧を比べるので、版と同じにした。版は小数点以下 2 桁で書き続ける(`1.9` と `1.10` は 1.9 < 1.10 と読まれる) |
 
-ネットワークの entitlement はありません。このアプリは一切通信しません。
+アプリ本体にネットワークの entitlement はありません。通信するのは自動アップデートの Sparkle の Downloader.xpc だけで、
+GitHub の appcast と更新の書庫しか取りに行きません(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。
 
 **Debug ビルドは保存データが別**(2026-09-13 から)。バンドルIDが違うので、サンドボックスのコンテナ
 (`~/Library/Containers/com.qooProject.qooViewer.debug/`)ごと別になり、SwiftData のストア・
@@ -540,6 +545,39 @@ Info.plist の中のコメントに書いてある要点:
 - 画像グループには `LSItemContentTypes` を併記しない(UTI 側が優先されて拡張子側が無視される)。
 - `LSHandlerRank None` は「開けるが既定のハンドラ候補にはならない」。画像の既定アプリを
   奪わないため。
+
+## リリース
+
+配布物は今まで通り手元で作ります(CI の zip は配布しない)。自動アップデート(Sparkle、2026-10-10)のために、zip と一緒に
+**署名した appcast.xml** をリリースへ添付します。アプリは `https://github.com/qoo-oji/qooViewer/releases/latest/download/appcast.xml`
+を読むので、**appcast.xml を添付したリリースが「Latest」**でなければなりません。設計と信頼の作りは
+[10「自動アップデート」](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10)。
+
+### 最初に 1 度だけ: 署名の鍵
+
+1. Xcode で一度ビルドして Sparkle を取ってくる(道具は DerivedData の `SourcePackages/artifacts/sparkle/Sparkle/bin/`)。
+2. `generate_keys` を実行する。秘密鍵がログインキーチェーンに入り、公開鍵(base64)が表示される。
+3. 公開鍵を `qooViewer/Info.plist` の `SUPublicEDKey` に入れてコミットする(公開鍵は秘密ではない)。
+4. `generate_keys -x <リポジトリの外のパス>` で秘密鍵の控えを書き出し、パスワード管理ソフトなど安全な場所へ移して元のファイルを消す。
+   **この鍵をなくすと以後の更新を配れず、漏れると誰でも更新を偽造できます**(差し替える逃げ道を設定で閉じてあるため)。
+
+鍵の入っていないビルドではアップデーターが起動せず、`check-release-app.sh`(CI の Release ジョブも)が失敗します。
+
+### 毎回
+
+1. `MARKETING_VERSION`・CHANGELOG の見出し `## [X.YY]` を揃え、`scripts/ci/check-all.sh vX.YY` を通す。
+2. Release を **universal** で組み(`-destination 'generic/platform=macOS'`、または Archive)、`ditto -c -k --keepParent qooViewer.app qooViewer.zip`
+   で zip にする(名前は `qooViewer.zip` ―― appcast のダウンロード先がこの名前になる)。
+3. `scripts/release/make-appcast.sh path/to/qooViewer.zip` を実行する。次をすべて確かめてから appcast.xml を作る:
+   - `check-release-app.sh`: 署名の確かめを緩めていない・本体に通信の entitlement が無い・公開鍵が入っている・universal・
+     `CFBundleVersion` = 版、など
+   - アプリの公開鍵とキーチェーンの鍵が一致する(違う鍵で署名した更新は、利用者のアプリが受け付けない)
+   - CHANGELOG の `## [X.YY]` をリリースノートとして埋め込み、`generate_appcast` が書庫と appcast の両方に署名する
+   - 出来た appcast の署名と書庫の署名を、**配る .app の公開鍵で** CryptoKit で確かめ直す(`verify-update-signatures.swift`)
+4. タグ `vX.YY` のリリースを作り、表示されたコマンド(`gh release upload vX.YY qooViewer.zip appcast.xml`)で 2 つを添付する。
+   上げた後に appcast.xml を書き換えると署名が合わなくなり、利用者のアプリは更新を受け付けない。
+
+Sparkle を組み込む前の版(1.82 まで)にはアップデーターが無いので、最初の Sparkle 入りの版だけは手で入れてもらう必要があります。
 
 ## ローカライズ
 

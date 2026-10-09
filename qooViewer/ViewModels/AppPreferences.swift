@@ -40,6 +40,8 @@ final class AppPreferences: ObservableObject {
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
         static let confirmBeforeClosingMultipleTabsWindow =
             "qooViewer.pref.confirmBeforeClosingMultipleTabsWindow"
+        static let checksForUpdatesAutomatically = "qooViewer.pref.checksForUpdatesAutomatically"
+        static let installsUpdatesAutomatically = "qooViewer.pref.installsUpdatesAutomatically"
         static let finderOpenBehavior = "qooViewer.pref.finderOpenBehavior"
         static let favoriteOpenBehavior = "qooViewer.pref.favoriteOpenBehavior"
         static let historyOpenBehavior = "qooViewer.pref.historyOpenBehavior"
@@ -355,6 +357,19 @@ final class AppPreferences: ObservableObject {
                 forKey: Keys.confirmBeforeClosingMultipleTabsWindow
             )
         }
+    }
+    /// アップデートを自動的に確認する(既定はON。利用者の判断 2026-10-10)。Sparkle 自身も同じことを
+    /// `SUEnableAutomaticChecks` として自分の defaults に持つが、**こちらが正**で、AppUpdater が起動時と変更のたびに
+    /// Sparkle へ流す。こちらに持つのは、環境設定の「この画面を初期設定に戻す」と保存データの書き出し
+    /// (`SettingsBackup` は `qooViewer.pref.*` を拾う)に、ほかの設定と同じように乗せるため。
+    @Published var checksForUpdatesAutomatically: Bool {
+        didSet { defaults.set(checksForUpdatesAutomatically, forKey: Keys.checksForUpdatesAutomatically) }
+    }
+    /// 見つけたアップデートを自動的にダウンロードしてインストールする(既定はOFF = Sparkle の既定)。
+    /// 効くのは上の自動確認がONのときだけ(Sparkle が自動確認OFFの間はこれを無視する)。Sparkle の更新の
+    /// ウインドウにも同じ意味のチェックボックスがあり、そちらで変えた値は AppUpdater がここへ書き戻す。
+    @Published var installsUpdatesAutomatically: Bool {
+        didSet { defaults.set(installsUpdatesAutomatically, forKey: Keys.installsUpdatesAutomatically) }
     }
     /// 既に本を表示している状態で、Finderから(ダブルクリックや「このアプリケーションで開く」で)
     /// 別の本を開こうとしたときの挙動(既定は「現在の本を閉じて新しい本を開く」=以前からの挙動)。
@@ -1382,6 +1397,10 @@ final class AppPreferences: ObservableObject {
         self.reopenBehavior = ReopenBehavior(rawValue: defaults.string(forKey: Keys.reopenBehavior) ?? "") ?? .resume
         self.confirmBeforeClosingMultipleTabsWindow =
             defaults.object(forKey: Keys.confirmBeforeClosingMultipleTabsWindow) as? Bool ?? true
+        self.checksForUpdatesAutomatically =
+            defaults.object(forKey: Keys.checksForUpdatesAutomatically) as? Bool ?? true
+        self.installsUpdatesAutomatically =
+            defaults.object(forKey: Keys.installsUpdatesAutomatically) as? Bool ?? false
         self.finderOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.finderOpenBehavior) ?? "")
                 ?? .replaceCurrentBook
@@ -1615,6 +1634,8 @@ extension AppPreferences {
                 Keys.sidePanelUsesDoubleClick,
                 Keys.sidePanelSortOrder,
                 Keys.siblingNavigationFollowsBrowserSort,
+                Keys.checksForUpdatesAutomatically,
+                Keys.installsUpdatesAutomatically,
             ]
         case .appearance:
             // 外観タブの設定は AppearanceSettings が揃いごとに持ち、「初期設定に戻す」も編集中の揃いに対して
@@ -1785,6 +1806,8 @@ extension AppPreferences {
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
             sidePanelSortOrder = source.sidePanelSortOrder
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
+            checksForUpdatesAutomatically = source.checksForUpdatesAutomatically
+            installsUpdatesAutomatically = source.installsUpdatesAutomatically
         case .appearance:
             // keys(for:)の.appearance参照(外観は AppearanceSettings が戻す)。
             break

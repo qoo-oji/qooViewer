@@ -116,6 +116,9 @@ final class AppStores: ObservableObject {
     private var folderSettingObservers: [NSObjectProtocol] = []
     /// テキストの欄を編集しているか(編集メニューの「取り消す」「やり直す」の淡色。TextEditingMenuState の型コメント)。
     let textEditingMenuState = TextEditingMenuState()
+    /// 自動アップデート(Sparkle。2026-10-10、AppUpdater の型コメント)。アプリのメニューの「アップデートを確認…」が
+    /// `canCheckForUpdates` を読むので allObjectWillChangePublishers に並べる(publish するのは確認の始まりと終わりだけ)。
+    let appUpdater: AppUpdater
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
     private var fileSystemChangeSubscription: AnyCancellable?
     /// フォルダの許可が裏の解決で開いた知らせの購読(`FolderAccessStore.accessGained`)。
@@ -147,6 +150,8 @@ final class AppStores: ObservableObject {
         recentFiles = RecentFilesStore()
         folderAccess = FolderAccessStore()
         resourceSampler = ProcessResourceSampler()
+        // Debug・テストの中・約束を満たさない Info.plist では Sparkle を起動しない(AppUpdater / UpdaterConfiguration)。
+        appUpdater = AppUpdater(preferences: preferences)
         // テストの中で走る実物のアプリでは、利用者の規則のファイルを読み書きせず、以前の規則の引き継ぎもしない
         // (共有の状態に触らない。CLAUDE.md)。テストは自分の MetadataRulesStore を使い捨ての場所に作る。
         metadataRulesStore = RuntimeEnvironment.isRunningTests
@@ -669,6 +674,7 @@ final class AppStores: ObservableObject {
             metadataStore.objectWillChange,
             homeMenuDirectory.objectWillChange,
             textEditingMenuState.objectWillChange,
+            appUpdater.objectWillChange,
         ]
     }
 }

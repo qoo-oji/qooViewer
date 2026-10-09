@@ -821,6 +821,15 @@ struct QooViewerApp: App {
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .commands {
+            // アプリのメニューの「qooViewer について」の下(macOS の慣習の位置。2026-10-10、Sparkle)。
+            // 確認の最中・アップデーターが動いていない(Debug・鍵の無いビルド)ときは淡色。読む値は
+            // AppUpdater.canCheckForUpdates で、AppStores.allObjectWillChangePublishers 経由で MenuBarMenuGate を通る。
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    stores.appUpdater.checkForUpdates()
+                }
+                .disabled(!stores.appUpdater.canCheckForUpdates)
+            }
             CommandGroup(replacing: .newItem) {
                 // グループ1: 通常の「開く」(単一ウインドウ内で、選んだファイル/フォルダに置き換える)
                 // 本のウインドウが手前に無いとき(ウインドウが1枚も無い・環境設定などが手前)も押せる
@@ -1817,6 +1826,8 @@ struct QooViewerApp: App {
                 .environmentObject(secretFolderStore)
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
+                // 「一般」▸「アップデート」が、アップデーターが動いているか(Debug では動かない)で淡色を決める。
+                .environmentObject(stores.appUpdater)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }

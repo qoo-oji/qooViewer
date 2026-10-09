@@ -88,6 +88,16 @@ QooMetaRules) reads metadata from file names. Its core and bundled preset JSON a
 can be taken in unchanged — qooViewer keeps only the user's diff (`MetadataRulesStore`). Its `BookMetadata` clashes with the
 app's `@Model BookMetadata`: use `typealias QMBookMetadata = QooMetaKit.BookMetadata`. `scripts/ci/check-package-pins.sh`
 checks the pin (docs/11).
+**Sparkle** (`sparkle-project/Sparkle`, **`exactVersion` 2.10.0**, 2026-10-10) is the auto-updater (`Services/AppUpdater.swift`).
+Security rests on one Ed25519 key (the app is not Developer ID signed, so there is no Apple-signing fallback): the Info.plist
+requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS
+`SUFeedURL` (pinned by the delegate; defaults' `SUFeedURL` is cleared) and a 32-byte `SUPublicEDKey`, and `UpdaterConfiguration`
+refuses to start Sparkle if any of that is loosened — keep the plist, `UpdaterConfigurationTests` and
+`scripts/release/check-release-app.sh` in step. The app itself still has **no network entitlement**: Sparkle's Downloader.xpc
+fetches, Installer.xpc installs (Release-only `Configurations/qooViewer.entitlements` holds just the two mach-lookup names). Debug
+never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` because Sparkle compares
+`CFBundleVersion`. The private key never enters the repo; release steps (`scripts/release/make-appcast.sh`) are in docs/02「リリース」,
+the trust model in docs/10「自動アップデート」.
 
 ## Architecture
 

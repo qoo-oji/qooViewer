@@ -87,5 +87,51 @@
 			<string>None</string>
 		</dict>
 	</array>
+	<!--
+	  自動アップデート(Sparkle 2)。理由と運用は docs/10「自動アップデート」、リリースの手順は docs/02「リリース」。
+	  ここの値はセキュリティの前提なので、変えるときは AppUpdater.swift の UpdaterConfiguration・
+	  scripts/ci/check-release-app.sh・UpdaterConfigurationTests も一緒に見直すこと(どれも同じ約束を確かめている)。
+
+	  - QOOUpdaterEnabled: Release だけ YES(ビルド設定 QOO_UPDATER_ENABLED)。Debug はバンドルIDも保存データも
+	    別のアプリなので、配布版の更新で置き換わってはいけない。アプリ側はこれが YES でなければ Sparkle を起動しない。
+	  - SUFeedURL: 最新のリリースに添付した appcast.xml。HTTPS 以外は AppUpdater が受け付けない。
+	    利用者の defaults に SUFeedURL を書かれても使わない(Sparkle は defaults の値を Info.plist より優先するので、
+	    AppUpdater がデリゲートからこの値を返し、起動時に defaults の値を消す)。
+	  - SUPublicEDKey: 更新の書庫と appcast の署名を確かめる EdDSA の公開鍵(generate_keys が出力する base64)。
+	    秘密鍵は作者の Mac のキーチェーンにだけあり、リポジトリには絶対に入れない。空のあいだはアップデーターを起動しない。
+	  - SUVerifyUpdateBeforeExtraction: 書庫を展開する**前に** EdDSA の署名を確かめる。展開の処理そのものを
+	    改ざんされた書庫にさらさない。このアプリは Developer ID で署名していないので、Sparkle の「Apple の署名で
+	    鍵を差し替える」逃げ道も使えず、EdDSA の鍵だけが信頼の根になる(鍵をなくすと更新を配れない)。
+	  - SURequireSignedFeed / SUSignedFeedFailureExpirationInterval = 0: appcast(版・リリースノート)にも署名を求め、
+	    署名が合わない状態が続いても期限切れで受け入れる逃げ道を作らない(上と同じく鍵の差し替えはしない前提)。
+	  - SUEnableInstallerLauncherService / SUEnableDownloaderService: サンドボックスのアプリのための XPC サービス。
+	    Downloader を使うことで、アプリ本体に通信の entitlement を足さずに済む(Configurations/qooViewer.entitlements)。
+	  - SUEnableSystemProfiling = NO / SUEnableJavaScript = NO: 既定と同じだが明示する。更新の確認で Mac の情報を
+	    送らない・リリースノートでスクリプトを動かさない。
+	  - SUEnableAutomaticChecks = YES: 既定で自動確認する(利用者の判断 2026-10-10)。実際の ON/OFF は環境設定
+	    「一般」▸「アップデート」(AppPreferences.checksForUpdatesAutomatically)を AppUpdater が Sparkle へ流す。
+	-->
+	<key>QOOUpdaterEnabled</key>
+	<string>$(QOO_UPDATER_ENABLED)</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/qoo-oji/qooViewer/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUSignedFeedFailureExpirationInterval</key>
+	<integer>0</integer>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableDownloaderService</key>
+	<true/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUEnableJavaScript</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

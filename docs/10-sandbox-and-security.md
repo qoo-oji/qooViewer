@@ -2,9 +2,11 @@
 
 ## 前提
 
-App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`。ネットワークの
-entitlement は無く、通信は一切しません。エンタイトルメントのファイルは無く、ビルド設定から
-生成されます(→ [02](02-project-and-build.md))。
+App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`。アプリ本体にネットワークの
+entitlement は無く、本体は通信しません。通信するのは自動アップデート(Sparkle)の Downloader.xpc だけで、
+取りに行くのは GitHub の appcast と更新の書庫だけです(→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
+entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
+サービスと話す mach の名前 2 つ)が加わります(→ [02](02-project-and-build.md))。
 
 サンドボックス下で触れるのは、
 
@@ -203,3 +205,64 @@ Finder と違って**読めるのは `FolderAccessStore` に許可のあるフ�
 起動時に他の pid のものを掃除します(OS は自動では掃除しない。11 日前のものが残っていた)。
 キャッシュは容量逼迫時に OS が消してよく、Time Machine の対象にならない場所です
 (再生成できるものしか置かない)。
+
+## 自動アップデート(Sparkle、2026-10-10)
+
+Sparkle 2(`sparkle-project/Sparkle`、**正確な版**で固定。→ [11](11-forked-dependencies.md#sparkle2026-10-10))で
+配布版を更新します。コードは `Services/AppUpdater.swift`、設定は `qooViewer/Info.plist` のコメント、配る前の確かめは
+`scripts/release/check-release-app.sh`、appcast を作る手順は [02「リリース」](02-project-and-build.md#リリース)。
+
+### 信頼の根は EdDSA の鍵 1 本
+
+このアプリは Developer ID で署名・公証していない(Apple Development 証明書)ので、Sparkle の「Apple のコード署名が
+同じチームなら鍵を差し替えてよい」という逃げ道も使えません。**更新を受け入れるかどうかは、作者の Mac のキーチェーンにある
+Ed25519 の秘密鍵で署名されているかだけで決まります。**
+
+| 何を確かめるか | 設定 | 意味 |
+|---|---|---|
+| 書庫の署名を**展開する前に** | `SUVerifyUpdateBeforeExtraction = YES` | 改ざんされた書庫を展開の処理に通さない(2.9 系で展開時のシンボリックリンクの脆弱性が続いた) |
+| appcast(版・リリースノート)の署名 | `SURequireSignedFeed = YES` | 配信元を乗っ取られても、偽の版番号やリリースノート(偽のリンク)を見せられない |
+| 署名の合わない appcast を受け入れない | `SUSignedFeedFailureExpirationInterval = 0` | 既定の 20 日では、署名の合わない状態が続くと期限切れで受け入れる(鍵の差し替え用)。差し替えはしない前提なので閉じる |
+| 配信元 | `SUFeedURL` を HTTPS に固定 + デリゲートが Info.plist の値を返す + 起動時に defaults の `SUFeedURL` を消す | Sparkle は defaults の `SUFeedURL` を Info.plist より優先する(古い API の名残)ので、`defaults write` で向け先を変えられないようにする |
+| 公開鍵 | `SUPublicEDKey`(Info.plist にだけある。Sparkle は defaults からは読まない) | |
+
+アプリは起動の前に `UpdaterConfiguration.validate` でこれらを確かめ、1 つでも崩れていれば Sparkle を起動しません
+(更新が止まるほうが、確かめを緩めたまま更新を受け入れるより安全)。同じ約束を `UpdaterConfigurationTests`(出荷する Info.plist)と
+`check-release-app.sh`(配る .app。CI の Release ジョブと `make-appcast.sh` が呼ぶ)が見ます。
+
+**鍵をなくすと、以後のアップデートを配れません**(差し替える逃げ道が無いため)。`generate_keys -x` で書き出した控えを
+リポジトリの外の安全な場所(パスワード管理ソフトなど)に置きます。**鍵が漏れると、誰でも「正しい」更新を作れます** ―― 漏れたら
+新しい鍵を入れた版を手で配り直すしかありません(今の利用者のアプリは古い鍵の署名しか受け付けない)。リポジトリには入れない
+(`.gitignore` と `make-appcast.sh` がリポジトリの中の鍵ファイルを拒む)。
+
+### アプリ本体は通信しない
+
+- サンドボックスの中のアプリはインストーラを自分で起動できないので、Sparkle.framework の中の `Installer.xpc` に頼みます
+  (`SUEnableInstallerLauncherService` と、Release の entitlements の mach-lookup の例外 `<バンドルID>-spks` / `-spki`)。
+- 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。そのため本体に `com.apple.security.network.client` を足していません
+  (`check-release-app.sh` が「無いこと」を確かめる)。代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
+  版ごとに出し分けられないこと。リリースノートは appcast に埋め込み(`--embed-release-notes`、markdown)、JavaScript は切ってあります。
+- 送るものは Sparkle の既定の要求だけ(アプリ名と版・Sparkle の版)。`SUEnableSystemProfiling = NO` で Mac の情報は送りません。
+  本や保存データに関わるものは何も送りません。
+
+### Debug・テスト・自分でビルドした人
+
+- **Debug ではアップデーターを起動しません**(ビルド設定 `QOO_UPDATER_ENABLED = NO` → Info.plist `QOOUpdaterEnabled`)。バンドル ID も
+  保存データも別のアプリなので、配布版の更新で置き換わってはいけない。Debug には mach-lookup の例外も付けません。テストの中でも
+  起動しません(`RuntimeEnvironment.isRunningTests`)。
+- 公開鍵の入っていないビルドは起動しません(環境設定の欄とメニューの「アップデートを確認…」は淡色)。
+- clone して Release で組んだ人のアプリも、公開鍵と配信元は配布版と同じなので、新しい版が出ると配布版に置き換わります
+  (書庫の署名が正しければ、署名の主体が違っても Sparkle は受け入れる)。望まなければ環境設定で自動確認を切ります。
+
+### 版番号
+
+Sparkle は `CFBundleVersion` で新旧を比べます。以前は `CURRENT_PROJECT_VERSION = 1` 固定で、どの版も同じに見えたため、
+`CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` にしました(`1.82` < `1.83` < … < `2.00` は Sparkle の比べ方で正しく並ぶ。
+小数点以下を 2 桁で書き続けること ―― `1.9` と `1.10` は 1.9 < 1.10 と読まれる)。
+
+### 利用者の設定
+
+環境設定「一般」▸「アップデート」(既定: 自動で確認 ON、自動でダウンロードしてインストール OFF)。値は `AppPreferences`
+(`qooViewer.pref.*` なので保存データの書き出しにも入る)が持ち、`AppUpdater` が Sparkle へ流します。Sparkle の更新の
+ウインドウにある「今後は自動的に…」で変えた値は環境設定へ書き戻します。Sparkle が 2 回目の起動で出す「自動的に確認しますか」は、
+環境設定が決めるので出しません(`updaterShouldPromptForPermissionToCheck` が false)。
