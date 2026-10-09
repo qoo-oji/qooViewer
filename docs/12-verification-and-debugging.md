@@ -372,6 +372,35 @@ macOS 26 でメニューが落ちる問題では、(1) `NSMenu` の変異(`setIt
 qooViewer 側では**「ブロック先頭からのやり直し回数」**(`Archive.folderStreamRestartCount`)を
 数えてください。前後交互のアクセスは禁物です(→ [11](11-forked-dependencies.md))。
 
+## 自動アップデートの実機の確かめ方
+
+2026-10-10 に Sparkle の更新を実機で通したときの手順(結果は [10](10-sandbox-and-security.md#実機での確認2026-10-10))。Sparkle の版を上げたとき・
+Info.plist の Sparkle の設定や `AppUpdater` を変えたときは、これをもう一度通す。
+
+1. **リポジトリの外で組む**: `git archive HEAD | tar -x -C <scratch>/src` に `Configurations/Local.xcconfig` を写し、そこでだけ次を変える。
+   リポジトリのコードには試験用の抜け道を入れない。
+   - Release のバンドル ID を `com.qooProject.qooViewer.sparkletest`(表示名「qooViewer SparkleTest」)へ。**普段使いのデータに触れないため**
+     (Release のバンドル ID のままで作業中のビルドを動かさない。→ [06](06-persistence.md))。
+   - `SUFeedURL` を `http://127.0.0.1:<port>/appcast.xml`、`SUPublicEDKey` を使い捨ての鍵の公開鍵に。
+   - `UpdaterConfiguration.validate` の HTTPS の判定に `|| (scheme == "http" && host == "127.0.0.1")` を足す(ATS は IP アドレスへの接続には
+     効かないので、Sparkle の Downloader はそのまま取りに行ける)。
+2. **使い捨ての鍵**: CryptoKit の `Curve25519.Signing.PrivateKey()` の `rawRepresentation` の base64 がそのまま Sparkle の鍵ファイルの形
+   (`--ed-key-file` で使える)。**本物の鍵(キーチェーンの `qooProject`)では試験の物に署名しない。**
+3. `xcodebuild archive … MARKETING_VERSION=1.82` と `1.83` の 2 つを組み、1.83 を `ditto -c -k --sequesterRsrc --keepParent` で zip に、
+   `generate_appcast --ed-key-file … --download-url-prefix http://127.0.0.1:<port>/ --embed-release-notes` で appcast を作る。
+   `python3 -I -m http.server <port> --bind 127.0.0.1` で配る。
+4. 1.82 の .app を書ける場所に置いて `open` し、System Events の AX だけで操作する(**キー入力は送らない**)。アプリはバンドル ID で
+   特定する(プロセス名は普段使いと同じ「qooViewer」)。メニューの「アップデートを確認…」は `menu bar item 2` のメニューの項目を名前で
+   `click`、Sparkle のボタンは名前で `AXPress`(「アップデートをインストール」「インストールして再起動」「アップデートを中止」)。
+   更新のウインドウだけを撮るなら、`CGWindowListCopyWindowInfo` で番号を引いて `screencapture -l <番号>`(メインのウインドウは撮らない)。
+5. 確かめる: ディスクの .app の版、`codesign --verify --deep --strict`、`xattr -lr` に quarantine が無いこと、起動し直したかどうか、
+   Sparkle のログ(`/usr/bin/log show --info --predicate 'subsystem == "org.sparkle-project.Sparkle"'`。展開前の署名の確かめは
+   Autoupdate のプロセスに出る)。自動でインストールは、コンテナの defaults
+   (`~/Library/Containers/<id>/Data/Library/Preferences/<id>`)に `qooViewer.pref.installsUpdatesAutomatically = YES` と古い `SULastCheckTime` を
+   書いてから起動し、何も押さずに終了させる。
+6. 片付け: アプリを終了 → サーバーを止める → `lsregister -u` で試験の .app の登録を外す → 試験の .app・鍵・コンテナ
+   (`~/Library/Containers/<id>`)・`~/Library/Caches/<id>`・`~/Library/Application Scripts/<id>` を消す。
+
 ## 書き出しの検証
 
 - **往復そのものは `qooViewerTests` が見ています**(`CbzExportTests` / `EpubExportTests` /

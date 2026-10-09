@@ -96,8 +96,12 @@ refuses to start Sparkle if any of that is loosened — keep the plist, `Updater
 `scripts/release/check-release-app.sh` in step. The app itself still has **no network entitlement**: Sparkle's Downloader.xpc
 fetches, Installer.xpc installs (Release-only `Configurations/qooViewer.entitlements` holds just the two mach-lookup names). Debug
 never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` because Sparkle compares
-`CFBundleVersion`. The private key never enters the repo; release steps (`scripts/release/make-appcast.sh`) are in docs/02「リリース」,
-the trust model in docs/10「自動アップデート」.
+`CFBundleVersion`. The private key never enters the repo (login keychain, account `qooProject`); the trust model and the 2026-10-10 on-device
+results are in docs/10「自動アップデート」, the on-device test procedure in docs/12.
+**Releases may be delegated to Claude Code** ("vX.YY をリリースして"): follow docs/02「リリース」steps 1–6 exactly — `xcodebuild archive`
+(= the author's Xcode Archive + Finder compress), `scripts/release/make-appcast.sh`, then **stop and show the author the version, notes,
+zip SHA-256 and check results, and publish only after their go-ahead** (an update reaches users automatically), `gh release create … --latest`
+with `qooViewer.zip` + `appcast.xml`, and finally `scripts/release/verify-published.sh`. Never re-upload the zip alone or edit appcast.xml.
 
 ## Architecture
 

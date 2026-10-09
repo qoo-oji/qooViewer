@@ -30,6 +30,10 @@ qooViewerはApple Developer Programに加入して行う開発者公証(notariza
 **補足**: Apple Developer Program(有償)に加入し、開発者証明書での署名・公証を行えば、
 この手順自体が不要になります。上記はあくまで公証なしでビルド済みアプリを実行する場合の手順です。
 
+**アップデートについて**: 一度起動できれば、以後の新しい版は qooViewer 自身が知らせて入れ替えます
+(アップデートの機能。[MANUAL の「アップデート」](./MANUAL.md#アップデート)参照)。アップデートで入れ替わった版では、
+この手順をやり直す必要はありません。アップデートの機能が無い 1.82 までの版からは、一度だけ手で入れ替えてください。
+
 ## 対応環境
 
 macOS 15 (Sequoia) 以降
@@ -235,6 +239,8 @@ macOS 15 (Sequoia) 以降
   - メモリに残しておくページ画像の上限〈100〜2000MB、既定300MB、本1冊あたり〉、前後に先読みするページ数
   - ページのサムネイルをディスクに保存する機能〈既定OFF〉と、ファイルブラウザのサムネイルをディスクに保存する機能〈既定ON〉のON/OFF・上限・使用量の確認・即時削除
 - 表示言語の切り替え(日本語 / English / システムに従う)
+- アップデート ―― 新しい版を知らせ、変更点を見てからその場でインストール(自動で確かめるか・自動でインストールするかを選べる)
+  - インストールの前に、作者の署名どおりかを確かめる。問い合わせで送るのはアプリの名前と版だけ
 
 ## 使い方
 
@@ -247,6 +253,7 @@ macOS 15 (Sequoia) 以降
 ## 依存ライブラリ
 
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
+- [Sparkle](https://github.com/sparkle-project/Sparkle)(MIT License)―― アップデートの機能
 - [qooMeta](https://github.com/qoo-oji/qooMeta)(MIT License)―― ファイル名からメタデータを読み取るライブラリ(作者自身のもの)。規則の本体と同梱のプリセットを、そのまま取り込んで使っています
 - [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出し(辞書の範囲での戻り読み、ファイル単位の CRC 検証を含む)と、メモリ上の書庫を開く機能を追加してあります
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)―― [qoo-oji/Unrar.swift](https://github.com/qoo-oji/Unrar.swift) の `memory-archive` ブランチ(フォーク)を使用。メモリ上の書庫を開く機能を追加してあります
@@ -294,6 +301,10 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug b
 コレクション・ブックマーク・設定などを共有しません。開発中のビルドが普段使いのデータを書き換えたり、
 形式を変えたりしないためです。Debug ビルドは空の本棚から始まり、Finder で本をダブルクリックしたときの
 既定のアプリにもなりません。
+
+アップデートの機能は Release ビルドだけで動きます。自分でビルドした Release のアプリにも配布版と同じ
+アップデートが届き、新しい版が出ると配布版に入れ替わります。望まない場合は、環境設定「一般」の
+「アップデートを自動的に確認」をオフにしてください。Debug ビルドはアップデートを確認しません。
 
 ### 署名について
 

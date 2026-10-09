@@ -20,7 +20,7 @@ qooViewer/
 ├── scripts/ci/                   約束事の検査スクリプト(check-all.sh がまとめて走らせる。CI と手元で共用)
 ├── scripts/fixtures/             テストのフィクスチャを作り直すスクリプト(手元だけ。下記)
 ├── scripts/test/                 テスト用の使い捨てボリュームの付け外し(スキームの Test の前後と CI から呼ぶ。下記)
-├── scripts/release/              配る .app の検品と、Sparkle の appcast の作成(手元。下記「リリース」)
+├── scripts/release/              配る .app の検品・Sparkle の appcast の作成・公開後の確かめ(手元。下記「リリース」)
 ├── docs/                         この仕様書
 ├── README.md / MANUAL.md / CHANGELOG.md / LICENSE(MIT) / CLAUDE.md
 ├── .gitattributes                pbxproj と xcstrings は `-text merge=binary`、MANUAL/CHANGELOG は linguist-documentation
@@ -568,19 +568,51 @@ Info.plist の中のコメントに書いてある要点:
 2026-10-10 に作成済み(公開鍵は Info.plist にある)。鍵の入っていないビルドではアップデーターが起動せず、`check-release-app.sh`
 (CI の Release ジョブも)が失敗します。
 
-### 毎回
+### 毎回(2026-10-10 に決めた手順。作業は Claude Code に任せてよい)
 
-1. `MARKETING_VERSION`・CHANGELOG の見出し `## [X.YY]` を揃え、`scripts/ci/check-all.sh vX.YY` を通す。
-2. Release を **universal** で組み(`-destination 'generic/platform=macOS'`、または Archive)、`ditto -c -k --keepParent qooViewer.app qooViewer.zip`
-   で zip にする(名前は `qooViewer.zip` ―― appcast のダウンロード先がこの名前になる)。
-3. `scripts/release/make-appcast.sh path/to/qooViewer.zip` を実行する。次をすべて確かめてから appcast.xml を作る:
+リリースは main から出します。作者が「vX.YY をリリースして」と頼めば、Claude Code が 1〜6 を行います。**4 の確認の返事なしに公開しない**
+(公開すると、自動アップデートで利用者のアプリへそのまま届くため)。手で行うときも同じ順番です。
+
+1. **版と変更履歴**: CHANGELOG の `## [Unreleased]` を `## [X.YY] - YYYY-MM-DD` にして空の `## [Unreleased]` を上に戻し、`MARKETING_VERSION`
+   (Debug / Release の 2 か所)を `X.YY` にする。版は小数点以下 2 桁(Sparkle の版の比べ方。→ [10](10-sandbox-and-security.md#版番号))。
+   `scripts/ci/check-all.sh vX.YY` を通してコミットする。**この CHANGELOG の節がアプリの更新のウインドウのリリースノートになる**ので、ここで書き終える。
+2. **ビルド**: 作者が手でしていたこと(Xcode の Archive → Organizer の「Finder で表示」→ .xcarchive の「パッケージの内容を表示」→
+   `Products/Applications/qooViewer.app` をコピー → Finder の「圧縮」)と同じことをコマンドで行う。2026-10-10 に、v1.82 の配布物と
+   署名の証明書・署名の要件(designated requirement)・universal・ハードンドランタイム・entitlement(Sparkle の 2 つを除いて)が一致することを確かめた。
+   ```bash
+   xcodebuild archive -project qooViewer.xcodeproj -scheme qooViewer -configuration Release \
+     -destination 'generic/platform=macOS' -archivePath <作業場所>/qooViewer.xcarchive
+   ditto -c -k --sequesterRsrc --keepParent <作業場所>/qooViewer.xcarchive/Products/Applications/qooViewer.app <作業場所>/qooViewer.zip
+   ```
+   署名は自動署名(`Configurations/Local.xcconfig` の Team の Apple Development)。Archive は `get-task-allow` を付けない(Build で作った .app には付く
+   ので、Build の .app は配らない)。zip の名前は `qooViewer.zip`(appcast のダウンロード先がこの名前になる。今までの添付ファイルと同じ)。
+3. **appcast**: `scripts/release/make-appcast.sh <作業場所>/qooViewer.zip`。次をすべて確かめてから、zip の隣に `appcast.xml` を作る:
    - `check-release-app.sh`: 署名の確かめを緩めていない・本体に通信の entitlement が無い・公開鍵が入っている・universal・
      `CFBundleVersion` = 版、など
-   - アプリの公開鍵とキーチェーンの鍵が一致する(違う鍵で署名した更新は、利用者のアプリが受け付けない)
+   - アプリの公開鍵とキーチェーンの鍵(アカウント `qooProject`)が一致する(違う鍵で署名した更新は、利用者のアプリが受け付けない)
    - CHANGELOG の `## [X.YY]` をリリースノートとして埋め込み、`generate_appcast` が書庫と appcast の両方に署名する
    - 出来た appcast の署名と書庫の署名を、**配る .app の公開鍵で** CryptoKit で確かめ直す(`verify-update-signatures.swift`)
-4. タグ `vX.YY` のリリースを作り、表示されたコマンド(`gh release upload vX.YY qooViewer.zip appcast.xml`)で 2 つを添付する。
-   上げた後に appcast.xml を書き換えると署名が合わなくなり、利用者のアプリは更新を受け付けない。
+
+   初回はキーチェーンへのアクセスを尋ねるダイアログが出る(`generate_appcast` / `generate_keys` / `sign_update` ごと)。「常に許可」なら次からは出ない
+   (DerivedData を消すと道具の場所が変わり、また尋ねられる)。
+4. **作者の確認**: 版・リリースノート(CHANGELOG の節)・zip の大きさと SHA-256・検査の結果を見せ、「公開して」の返事を待つ。
+5. **公開**: コミットを push してから、リリースを作って 2 つを添付する。題は「qooViewer vX.YY」、本文は CHANGELOG の `## [X.YY]` の節
+   (見出しの行を除いた中身。今までの作者のやり方と同じ)、タグはリリースと一緒に main の先頭に作る。
+   ```bash
+   gh release create vX.YY --target main --title "qooViewer vX.YY" --notes-file <節を書き出したファイル> --latest \
+     <作業場所>/qooViewer.zip <作業場所>/appcast.xml
+   ```
+   **appcast.xml を添付したリリースが「Latest」**でなければならない(アプリは `releases/latest/download/appcast.xml` を読む)。
+   プレリリースは Latest にならないので配信されない(試しに配るときに使える)。
+6. **公開後の確かめ**: `scripts/release/verify-published.sh vX.YY <作業場所>/qooViewer.zip`。利用者のアプリと同じ URL から appcast と zip を取り直し、
+   版・ダウンロード先・署名(Info.plist の公開鍵で)・手元の zip と同じバイト列であることを確かめる。
+
+してはいけないこと:
+
+- **添付した後に zip だけを差し替えない。** 署名は zip のバイト列に付くので、差し替えたら 3 からやり直して appcast.xml も上げ直す。
+- **appcast.xml を手で直さない。** 署名が合わなくなり、利用者のアプリは「The update feed is improperly signed」で受け付けない。
+- appcast.xml の無いリリースを Latest にしない。その間は誰にも更新が届かず、自動の確認ではエラーも出ない(手動の確認だけがエラーを出す)。
+- GitHub のリリースの本文を後で直しても、アプリに出るリリースノート(appcast に埋め込んだもの)は変わらない。
 
 Sparkle を組み込む前の版(1.82 まで)にはアップデーターが無いので、最初の Sparkle 入りの版だけは手で入れてもらう必要があります。
 
