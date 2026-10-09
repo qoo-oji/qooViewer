@@ -52,6 +52,56 @@ struct FileBrowserStateTests {
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == fixture.id(fixture.root))
     }
 
+    @Test("読み終えるたびに、ツリーへ出るフォルダだけの一覧を(中身が同じでも番号を進めて)出し、別の場所へ移ったら下ろす")
+    func loadedFolderListingIsPublishedForTheTree() async throws {
+        // 2026-10-10、ユーザー報告「サブフォルダを右と同じ順に並べる ON + 変更日順で左右の並びがずれる」。ツリーはこの値で揃える。
+        let fixture = try Fixture("fb-tree-listing")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        let first = try #require(fixture.state.loadedFolderListing)
+        #expect(first.folderID == fixture.id(fixture.root))
+        #expect(!first.includesHidden)
+        #expect(Set(first.folders.map(\.url.lastPathComponent)) == ["a-folder", "b-folder"])
+
+        // 中身が同じでも出し直す(ツリーが違う値を読んで頼んだ回も、揃えてもらう必要がある)。
+        fixture.state.reload()
+        await fixture.state.settle()
+        let second = try #require(fixture.state.loadedFolderListing)
+        #expect(second.serial != first.serial)
+        #expect(second.folders == first.folders)
+
+        fixture.state.navigate(to: fixture.aFolder)
+        #expect(fixture.state.loadedFolderListing == nil)
+        await fixture.state.settle()
+        #expect(fixture.state.loadedFolderListing?.folderID == fixture.id(fixture.aFolder))
+        #expect(fixture.state.loadedFolderListing?.folders.map(\.url.lastPathComponent) == ["inner"])
+    }
+
+    @Test("サブフォルダの変更日が変わると、ツリーが読んだ値は右ペインの一覧と食い違い、右ペインに読み直してもらえば揃う")
+    func treeReadThatDisagreesReloadsThePane() async throws {
+        let fixture = try Fixture("fb-tree-reconcile")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        let before = try #require(fixture.state.loadedFolderListing)
+
+        // 右ペインが知らないうちに、サブフォルダの中身が変わった(そのフォルダの変更日が進む)。
+        let old = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: fixture.bFolder.path)
+        let treeRead = try FileBrowserListing.entries(in: fixture.root, foldersOnly: true).filter(\.isNavigableFolder)
+        #expect(before.disagrees(with: treeRead))
+
+        // 別のフォルダの読み直しの頼みは無視する(右ペインはもうそこにいない)。
+        fixture.state.reloadForTree(folderID: fixture.id(fixture.aFolder))
+        await fixture.state.settle()
+        #expect(fixture.state.loadedFolderListing?.serial == before.serial)
+
+        fixture.state.reloadForTree(folderID: fixture.id(fixture.root))
+        await fixture.state.settle()
+        let after = try #require(fixture.state.loadedFolderListing)
+        #expect(after.serial != before.serial)
+        #expect(!after.disagrees(with: treeRead))
+    }
+
     @Test("ほかの窓・環境設定でフォルダの許可が変わったら、「アクセスを許可…」の案内を出していた一覧を読み直す(2026-10-04 の監査 FBU-5)")
     func aFolderAccessChangeReloadsANeedsAccessListing() async throws {
         let fixture = try Fixture("fb-access")

@@ -173,7 +173,9 @@ VM likewise (`setPresented`), the smart-library catalog counts per-screen client
 again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on the provider's global `revision` alone.
 `FolderChangeWatcher` drops FSEvents' history replay and its `HistoryDone` sentinel (2026-09-29: `FullHistory` replays events older than
 `sinceWhen`, so every swap of watched folders — each expand/collapse in the file browser tree — reloaded the other open rows), and a tree
-row reload calls `reloadItem` only when what its child rows show has changed (`ShownChild`). Store
+row reload calls `reloadItem` only when what its child rows show has changed (`ShownChild`). The tree row of the folder shown on the right is filled from the right pane's listing
+(`FileBrowserState.loadedFolderListing` → `adoptPaneListing`), and a tree read that disagrees asks the pane to reload (`reloadForTree`) —
+two independent reads with different refresh triggers put "Sort Subfolders Like the List" out of step by date (2026-10-10). Store
 notifications that concern particular books carry their IDs (`BookRelocationPlan.relocatedBookIDsUserInfoKey`,
 `ViewerViewModel.notificationConcerns`). **UI that holds bookIDs follows relocations through `BookRelocationNotice`**
 (`.booksDidRelocate`, 2026-10-04): `BookRecordRelocator.apply` (in-app moves and moves found outside the app alike) and the open-time

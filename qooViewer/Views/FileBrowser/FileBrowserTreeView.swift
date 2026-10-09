@@ -52,6 +52,10 @@ import SwiftUI
 /// **根(ボリューム・ホーム・よく使う項目)の並びは変えない**(ボリュームは起動ボリュームが先頭、よく使う項目は並べ替えた順)。
 /// 並べ替えに要る値(サイズ・種類・日付)は子を読むときの `FileBrowserEntry` を行に持たせておき、基準が変わったら
 /// **読み直さずに**読み込み済みの子を並べ直す(同じ Node を使い回すので、開いている孫の行は閉じない)。
+/// **右ペインに出ているフォルダの行は、右ペインが読んだ値で並べる**(2026-10-10、ユーザー報告「変更日順で左右の並びがずれる」)。
+/// 比較が同じでも、左右が別々の時刻に読んだ変更日で並べると食い違う(読み直すきっかけが左右で違う ―― 詳しくは
+/// `FileBrowserState.LoadedFolderListing`)。右ペインが読み終えるたびにその値で子を組み直し(`adoptPaneListing`)、ツリーが自分で
+/// 読んだ値が右ペインと違えば右ペインに読み直してもらう(`reconcileWithPane`)。
 ///
 /// ■ ドラッグ&ドロップ(段階4b)
 /// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。`NSOutlineView` が「行の間」と判定したとき
@@ -491,6 +495,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
             if view.childSort != childSort {
                 childSort = view.childSort
                 resortLoadedChildren()
+            }
+            // 右ペインが表示中のフォルダを読み終えた。同じフォルダの行の子をその値に揃える(FileBrowserState.LoadedFolderListing)。
+            if let listing = view.state.loadedFolderListing, listing.serial != appliedPaneListingSerial {
+                appliedPaneListingSerial = listing.serial
+                adoptPaneListing(listing)
             }
             if view.favoriteLocations.items != appliedFavorites {
                 appliedFavorites = view.favoriteLocations.items
@@ -950,6 +959,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             }
             node.childrenTask = Task { [weak self, weak node] in
                 let folders: [(FileBrowserEntry, Bool?)]
+                /// 読めたか(読めずに空になった回は、右ペインと比べない)。
+                var didRead = true
                 do {
                     folders = try await FileIO.perform {
                         // 三角のための問い合わせは、子を読むこの 1 回にまとめる(行を描くたびに調べない)。
@@ -961,6 +972,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     }
                 } catch {
                     folders = []
+                    didRead = false
                 }
                 guard let self, let node else { return }
                 node.isLoadingChildren = false
@@ -975,37 +987,88 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     }
                 }
                 guard let outline = self.outline, node.loadGeneration == mine, outline.isItemExpanded(node) else { return }
-                // 読み直し(reloadExpandedRows)で開いている孫の行が閉じないよう、同じパスの行は同じ Node を使い回す
-                // (NSOutlineView は開閉を項目の同一性で覚えている)。
-                let previous = Dictionary(
-                    (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                let shownBefore = (node.children ?? []).map(ShownChild.init)
-                let children = folders.map { entry, hasSubfolders in
-                    let child = previous[FileBrowserState.id(for: entry.url)]
-                        ?? Node(kind: .folder, url: entry.url, name: entry.displayName)
-                    // 並べ替えの値(日付など)は読み直すたびに新しくする。
-                    child.listing = entry
-                    // 開いている孫の行は、読み直しの一瞬の判定で三角を消さない(開いたまま展開できない行になる)。
-                    if !(outline.isItemExpanded(child) && hasSubfolders == false) { child.hasSubfolders = hasSubfolders }
-                    return child
-                }
-                // 並べるのは結果を受け取ったこの時点の並び(読んでいる間に基準が変わっても古い順で入らない)。
-                let sorted = self.sortedChildren(children)
-                node.children = sorted
-                // **行に出るものが何も変わっていなければ描き直さない**(2026-09-29、ユーザー報告「ほかの行を開閉すると、開いている
-                // 行が開き直すように描き直される」)。読み直しは、フォルダの中のファイルが書き換わっただけでも頼まれる(FSEvents は
-                // ファイル単位で知らせる)。`reloadItem(_:reloadChildren:)` は配下の行を全部作り直すので、そのたびに開いている行の
-                // 配下がまるごと描き直されていた。開いた直後の最初の読み込みは、子が増えるのでここを通らない(空のフォルダなら
-                // 描き直すものが無い)。
-                if sorted.map(ShownChild.init) != shownBefore {
-                    outline.reloadItem(node, reloadChildren: true)
-                }
-                self.applySelection(folderID: self.appliedFolderID ?? nil)
-                // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。
-                self.scheduleWatchUpdate()
+                self.installChildren(folders, in: node, outline: outline, keepsKnownSubfolders: false)
+                // 右ペインに出ているフォルダの行なら、右ペインの値と比べる(FileBrowserState.LoadedFolderListing の型コメント)。
+                if didRead { self.reconcileWithPane(node: node, folders: folders.map(\.0)) }
             }
+        }
+
+        /// 読んだ子(フォルダの行と、三角の有無)を行に入れ、今の並びで並べ、行に出るものが変わったときだけ描き直す。
+        /// - Parameter keepsKnownSubfolders: 三角の有無を調べていない値(右ペインの一覧から組み直すとき)。いる子は今の三角を残す。
+        /// - Returns: 新しく作った子の行(三角の有無はまだ分からない)。
+        @discardableResult
+        private func installChildren(
+            _ folders: [(FileBrowserEntry, Bool?)], in node: Node, outline: NSOutlineView, keepsKnownSubfolders: Bool
+        ) -> [Node] {
+            // 読み直し(reloadExpandedRows)で開いている孫の行が閉じないよう、同じパスの行は同じ Node を使い回す
+            // (NSOutlineView は開閉を項目の同一性で覚えている)。
+            let previous = Dictionary(
+                (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let shownBefore = (node.children ?? []).map(ShownChild.init)
+            var created: [Node] = []
+            let children = folders.map { entry, hasSubfolders in
+                let existing = previous[FileBrowserState.id(for: entry.url)]
+                let child = existing ?? Node(kind: .folder, url: entry.url, name: entry.displayName)
+                if existing == nil { created.append(child) }
+                // 並べ替えの値(日付など)は読み直すたびに新しくする。
+                child.listing = entry
+                if keepsKnownSubfolders, existing != nil { return child }
+                // 開いている孫の行は、読み直しの一瞬の判定で三角を消さない(開いたまま展開できない行になる)。
+                if !(outline.isItemExpanded(child) && hasSubfolders == false) { child.hasSubfolders = hasSubfolders }
+                return child
+            }
+            // 並べるのは結果を受け取ったこの時点の並び(読んでいる間に基準が変わっても古い順で入らない)。
+            let sorted = sortedChildren(children)
+            node.children = sorted
+            // **行に出るものが何も変わっていなければ描き直さない**(2026-09-29、ユーザー報告「ほかの行を開閉すると、開いている
+            // 行が開き直すように描き直される」)。読み直しは、フォルダの中のファイルが書き換わっただけでも頼まれる(FSEvents は
+            // ファイル単位で知らせる)。`reloadItem(_:reloadChildren:)` は配下の行を全部作り直すので、そのたびに開いている行の
+            // 配下がまるごと描き直されていた。開いた直後の最初の読み込みは、子が増えるのでここを通らない(空のフォルダなら
+            // 描き直すものが無い)。
+            if sorted.map(ShownChild.init) != shownBefore {
+                outline.reloadItem(node, reloadChildren: true)
+            }
+            applySelection(folderID: appliedFolderID ?? nil)
+            // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。
+            scheduleWatchUpdate()
+            return created
+        }
+
+        // MARK: 右ペインと揃える
+
+        /// 最後に揃えた右ペインの一覧の通し番号(`FileBrowserState.LoadedFolderListing`)。
+        private var appliedPaneListingSerial: Int?
+
+        /// 右ペインが読み終えた一覧で、同じフォルダの開いている行の子を組み直す(`FileBrowserState.LoadedFolderListing` の型コメント)。
+        /// 自分では読まない。子を読んでいる最中の行は飛ばす(読み終えたところで `reconcileWithPane` が比べる)。
+        private func adoptPaneListing(_ listing: FileBrowserState.LoadedFolderListing) {
+            guard let outline, listing.includesHidden == includesHidden else { return }
+            // 組み直すと行の番号が動くので、先に集める(同じフォルダが別の根の下にも出る)。
+            let nodes = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? Node }.filter { node in
+                node.loadsChildren && node.selectionKey == listing.folderID && node.children != nil
+                    && !node.isLoadingChildren && outline.isItemExpanded(node)
+            }
+            let mounts = MountTable.current()
+            for node in nodes {
+                let created = installChildren(
+                    listing.folders.map { ($0, nil) }, in: node, outline: outline, keepsKnownSubfolders: true
+                )
+                // 新しく現れた子の三角は調べ直す(ネットワーク上では調べない ―― 子を読むときと同じ決まり)。
+                reprobe(created.filter { $0.url.map { !mounts.isRemote($0) } ?? false })
+            }
+        }
+
+        /// 自分で読んだ子が、右ペインに出ている同じフォルダの一覧と違えば、右ペインに読み直してもらう(その結果で `adoptPaneListing` が揃える)。
+        /// 右ペインが読んでいる最中でも頼む(その読み込みはこちらが知った変化より前に始まったかもしれない。`reload` が読み終えてから
+        /// もう 1 回だけ読む)。右ペインがまだ一度も読み終えていなければ頼まない(読み終えたら揃えに来る)。
+        private func reconcileWithPane(node: Node, folders: [FileBrowserEntry]) {
+            guard let state, let key = node.selectionKey, state.location.selectionKey == key,
+                  let listing = state.loadedFolderListing, listing.folderID == key, listing.includesHidden == includesHidden,
+                  listing.disagrees(with: folders)
+            else { return }
+            state.reloadForTree(folderID: key)
         }
 
         /// 行の回転表示を、見えているセルへ当てる(見えていなければ、次に作るセルが `viewFor` で当てる)。

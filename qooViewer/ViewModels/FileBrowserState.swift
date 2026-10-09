@@ -274,6 +274,10 @@ final class FileBrowserState: ObservableObject {
     @Published var bookSheet: FileBrowserBookSheet?
     /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
     @Published private(set) var fileSystemChange: TreeReloadRequest?
+    /// 右ペインが最後に読み終えたフォルダの一覧のうち、ツリーの子に出るもの(`LoadedFolderListing` の型コメント)。
+    /// 読み終えるたびに(中身が前と同じでも)通し番号が進む。フォルダ以外の場所・読めなかったとき・別の場所へ移ったときは nil。
+    @Published private(set) var loadedFolderListing: LoadedFolderListing?
+    private var loadedFolderListingSerial = 0
     /// 右ペインの下に短い間だけ浮かべる知らせ(OverlayToast)。nil なら出していない。`showToast(_:)` で出す。
     @Published private(set) var toastMessage: String?
     /// 検索欄を広げて焦点を入れてほしい(メニューバーの「検索」⌘F。2026-09-15)。値は増えるだけの通し番号で、ペインが変化を拾う。
@@ -369,6 +373,39 @@ final class FileBrowserState: ObservableObject {
         let folderIDs: Set<String>
         /// どのフォルダが変わったか分からない(取り消し・やり直し)。ツリーは開いている行と三角を全部見直す。
         var isUnknownScope = false
+    }
+
+    /// 右ペインが読み終えた一覧から、ツリーの子に出るもの(中へ移動できるフォルダ)だけを抜いたもの(2026-10-10、ユーザー報告
+    /// 「サブフォルダを右と同じ順に並べるを ON にして変更日順で並べていると、右と左で並びがずれることがある」)。
+    ///
+    /// 並べる比較は左右で同じ(`FolderBrowserSort.sorted`。全順序)なので、ずれていたのは**並べた値**だった。ツリーの行の子と右ペインは
+    /// 同じフォルダを**別々に、別のきっかけで、別の時刻に**読んでいて、片方だけが読み直す場面がいくつもあった(右ペインだけ: そのフォルダへ
+    /// 移った・アプリがアクティブになった。ツリーだけ: 開いている行の FSEvents。ネットワーク上では FSEvents が飛ばない)。その間にサブフォルダの
+    /// 中身が変わると、そのフォルダの変更日だけが片方で新しくなり、変更日順の並びが食い違った(名前順では変更日を見ないので起きない)。
+    ///
+    /// そこで**表示中のフォルダの行は、右ペインが読んだ値に揃える**: 右ペインが読み終えるたびにここへ出し、ツリーの同じフォルダの行は
+    /// 自分で読み直さずにこの値で子を組み直す(`FileBrowserTreeView.Coordinator.adoptPaneListing`)。ツリーが自分で読んだ子がこれと
+    /// 食い違ったら(ツリーだけが変化を知った)、右ペインに読み直してもらい(`reloadForTree`)、その結果でまた揃える。揃えるのは一方向
+    /// (右ペインの値 → ツリー)だけなので、行き来が止まらなくなることは無い。
+    struct LoadedFolderListing: Equatable {
+        let serial: Int
+        /// 読んだフォルダの id(`FileBrowserState.id(for:)`。ツリーの行の `selectionKey` と同じ形)。
+        let folderID: String
+        /// 隠しファイルを含めて読んだか(ツリーの読み方と違えば揃えない)。
+        let includesHidden: Bool
+        let folders: [FileBrowserEntry]
+
+        /// ツリーが自分で読んだ子(`folders`)が、この一覧と違うか。並びは見ない(値が同じなら同じ比較で同じ並びになる)。
+        func disagrees(with folders: [FileBrowserEntry]) -> Bool {
+            folders.count != self.folders.count || Set(folders) != Set(self.folders)
+        }
+    }
+
+    /// ツリーが、表示中のフォルダの行を読んで右ペインと違う値を得た(`LoadedFolderListing` の型コメント)。右ペインを読み直す
+    /// (読んでいる最中なら、読み終えてからもう 1 回 ―― `reload`)。
+    func reloadForTree(folderID: String) {
+        guard currentFolder != nil, location.selectionKey == folderID else { return }
+        reload()
     }
 
     /// 「フォルダを上に」を読む。差し替えたら購読し直す。
@@ -982,6 +1019,7 @@ final class FileBrowserState: ObservableObject {
             case .success(let list):
                 if self.isCurrentFolderWritable != isWritable { self.isCurrentFolderWritable = isWritable }
                 self.apply(list, sortedWith: sort)
+                if let folder, recentEntries == nil { self.publishLoadedFolderListing(of: folder, includesHidden: includesHidden) }
             case .failure(.notFound), .failure(.volumeUnavailable):
                 // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)。空の一覧に
                 // 「見つかりません」を出して止まるより、残っている祖先へ移るほうが次の操作に進める。
@@ -992,6 +1030,7 @@ final class FileBrowserState: ObservableObject {
             case .failure(let error):
                 self.isLoading = false
                 self.allEntries = []
+                self.loadedFolderListing = nil
                 self.loadError = error
                 self.applyFilter()
             }
@@ -1111,6 +1150,16 @@ final class FileBrowserState: ObservableObject {
     }
 
     // MARK: - 読み込み結果の適用
+
+    /// 読み終えたフォルダの一覧をツリーへ出す(`LoadedFolderListing` の型コメント)。中身が前と同じでも出す ―― ツリーの行が
+    /// 自分で読んだ値と食い違って読み直しを頼んだ回は、同じ値でも揃えてもらう必要がある。
+    private func publishLoadedFolderListing(of folder: URL, includesHidden: Bool) {
+        loadedFolderListingSerial &+= 1
+        loadedFolderListing = LoadedFolderListing(
+            serial: loadedFolderListingSerial, folderID: Self.id(for: folder), includesHidden: includesHidden,
+            folders: allEntries.filter(\.isNavigableFolder)
+        )
+    }
 
     /// - Parameter sortedWith: `list` を並べた設定(`reload` が読み込みと一緒に並べる)。今の設定と違えば並べ直す。
     private func apply(_ list: [FileBrowserEntry], sortedWith: FolderBrowserSort) {
@@ -1278,6 +1327,7 @@ final class FileBrowserState: ObservableObject {
             currentFolder = target.folder
             // 前のフォルダの中身を新しい場所の中身として見せない。
             allEntries = []
+            loadedFolderListing = nil
             filterText = ""
             applyFilter()
             loadError = nil
