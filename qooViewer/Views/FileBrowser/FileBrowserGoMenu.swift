@@ -179,19 +179,23 @@ struct FileBrowserGoToFolderSheet: View {
         }
         isChecking = true
         checkTask = Task {
-            let isFolder = await FileIO.perform { () -> Bool in
+            // 移る先は**ディスク上の名前の書き方**に直す(2026-10-10。大小文字・正規化が違う書き方のままだと、同じフォルダの
+            // ツリーの行と別物になる ―― `FileBrowserListing.onDiskSpelling` のコメント)。
+            let folder = await FileIO.perform { () -> URL? in
                 var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory), isDirectory.boolValue
+                else { return nil }
+                return FileBrowserListing.onDiskSpelling(of: target)
             }
             isChecking = false
             // 確かめている間に「キャンセル」された・シートが消えたら移動しない(2026-10-04 の監査 FBU-6。以前は取り消しも
             // シートの消滅も見ずに `navigate` していた)。
             guard !Task.isCancelled else { return }
-            guard isFolder else {
+            guard let folder else {
                 errorKey = "The folder can’t be found."
                 return
             }
-            state.navigate(to: target)
+            state.navigate(to: folder)
             dismiss()
         }
     }

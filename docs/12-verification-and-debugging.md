@@ -75,6 +75,12 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   → `import` は消えたキーを消さないので、増えたキーは `delete` してから export を突き合わせる。
   本は `hdiutil` の使い捨てボリュームに合成名で置き、検証で残ったページ一覧キャッシュ
   (`Caches/.../BookPageLists/*.json`)も消す。2026-09-13 の段階 1 の検証がこの手順。
+- **キー入力を送らない**(2026-10-10)。System Events の `keystroke` / `key code` は**その時の最前面のアプリ**へ届く。起動直後でまだ
+  ウインドウが無いと `set frontmost` は効かず、⇧⌘G・⌘A・パスの文字列・Return が VS Code へ届いた(ファイルは無事だったが、編集中の
+  内容を消しうる)。シートの欄は `set value of text field … of sheet 1 of window 1`、ボタンは `perform action "AXPress"`、メニューは
+  `click menu item` と、**プロセスを名指しする AX の操作だけ**で進める(SwiftUI の `TextField` は AX で入れた値でも確定する ――「フォルダへ
+  移動…」で確認)。メニューの中身は最前面のときだけホームの項目になるので、`set frontmost` の後に `frontmost` を読んで確かめてから押す。
+  どうしてもキーが要るときは、直前に最前面が qooViewer であることを確かめ、確かめと送信を 1 つの `osascript` の中で行う。
 - GUI の挙動は、推測で2回外したらコンテナ内にログを仕込んで自分で読む。
 
 ## ファイルの同定の測り方

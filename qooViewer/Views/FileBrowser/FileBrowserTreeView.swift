@@ -44,6 +44,9 @@ import SwiftUI
 /// (FSEvents は配下も知らせる)。変わった項目の**親の行**だけを読み直し、閉じている行は三角の有無だけ調べ直す
 /// (変更日で並べているときは、さらにその親の行も読み直す ―― 中身の変わったフォルダは変更日が変わり、並びが変わる)。
 /// FSEvents はネットワークの共有では当てにならないので、アプリがアクティブになったときに共有の上の開いている行も読み直す。
+/// FSEvents は記号リンクを解いたパスで知らせるので、リンクを含む根(よく使う項目など)の下の行へは、根ごとの書き方の表で読み替えて
+/// 当てる。見張るフォルダの重なりもリンクを解いたパスで決める(`FileBrowserTreeWatchPlan`、2026-10-10。以前はその下の行に知らせが
+/// 当たらなかった)。あふれた知らせ(`mustScanSubdirectories`)は、そのパスの配下の開いている行を全部読み直す。
 ///
 /// ■ 子の並び(環境設定、既定OFF。2026-09-14、ユーザー要望)
 /// 開いた行の子(サブフォルダ)は、既定では名前の昇順。「サブフォルダを右と同じ順に並べる」が ON なら、右ペインと同じ
@@ -349,10 +352,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
             watcher = FolderChangeWatcher(onEvents: { [weak self] events in
                 // ファイルの書き換えだけの知らせでは読み直さない(ツリーにはフォルダしか出ないので何も変わらない。
                 // `FolderChangeWatcher.Event.isFileModificationOnly`。2026-10-05 の効率の監査 B13)。
-                let paths = events.filter { !$0.isFileModificationOnly }.map(\.path)
-                guard !paths.isEmpty else { return }
+                let events = events.filter { !$0.isFileModificationOnly }
+                guard !events.isEmpty else { return }
                 // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
-                Task { @MainActor [weak self] in self?.handleExternalChange(paths) }
+                Task { @MainActor [weak self] in self?.handleExternalChange(events) }
             })
             activationObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -381,50 +384,69 @@ struct FileBrowserTreeView: NSViewRepresentable {
         // MARK: 外での変更
 
         /// 開いている行が変わったら、見張るフォルダを入れ替える。開閉が続いても 1 回にまとめる(次のランループで)。
+        /// 根の行の書き方(記号リンクを解いたパス)は FileIO の上で調べる(`FileBrowserTreeWatchPlan`)。調べている間に次の入れ替えが
+        /// 始まったら、古いほうは据えない(`watchPlanGeneration`)。
         private func scheduleWatchUpdate() {
             guard !watchUpdateScheduled else { return }
             watchUpdateScheduled = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.watchUpdateScheduled = false
-                guard let watcher = self.watcher else { return }
-                await watcher.watch(self.watchedRoots())
+                guard self.watcher != nil else { return }
+                self.watchPlanGeneration &+= 1
+                let mine = self.watchPlanGeneration
+                let (rows, rootPaths) = self.expandedLocalRows()
+                let roots = await FileIO.perform { rootPaths.map(FileBrowserTreeWatchPlan.RootSpellings.make(rowPath:)) }
+                guard self.watchPlanGeneration == mine, let watcher = self.watcher else { return }
+                let plan = FileBrowserTreeWatchPlan.make(rows: rows, roots: roots)
+                self.watchPlan = plan
+                await watcher.watch(plan.watchedPaths)
             }
         }
 
-        /// 開いている(子を読む)行のパスのうち、ほかの開いている行の配下に無いもの。
+        /// 見張るフォルダと、知らせのパスを行のパスへ読み替える表(`FileBrowserTreeWatchPlan`)。
+        private var watchPlan = FileBrowserTreeWatchPlan.empty
+        private var watchPlanGeneration = 0
+
+        /// 開いている(子を読む)ローカルの行のパスと、そのうち根の行(ボリューム・ホーム・よく使う項目)のパス。
         /// **ネットワーク上の行は含めない**(FSEvents はそこでは飛ばず、応答しない共有では生成が 30 秒塞ぐ。
         /// そちらはアクティブ化の `reloadRemoteExpandedRows` が追いつかせる。2026-09-14 の監査の 4)。
-        private func watchedRoots() -> Set<String> {
-            guard let outline else { return [] }
+        private func expandedLocalRows() -> (rows: [String], roots: [String]) {
+            guard let outline else { return ([], []) }
             let mounts = MountTable.current()
-            var paths: [String] = []
+            var rows: [String] = []
+            var roots: [String] = []
             for row in 0..<outline.numberOfRows {
                 guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url,
                       outline.isItemExpanded(node), !mounts.isRemote(url)
                 else { continue }
-                paths.append(FileBrowserState.id(for: url))
+                let path = FileBrowserState.id(for: url)
+                rows.append(path)
+                if node.kind != .folder, !roots.contains(path) { roots.append(path) }
             }
-            var roots: [String] = []
-            for path in paths.sorted() where !roots.contains(where: { MountTable.path(path, isAtOrUnder: $0) }) {
-                roots.append(path)
-            }
-            return Set(roots)
+            return (rows, roots)
         }
 
-        /// FSEvents が知らせたパス(ファイル単位)の親と、そのもの(フォルダ自身の中身の変化)の行を読み直す。
-        private func handleExternalChange(_ paths: [String]) {
-            guard !paths.isEmpty else { return }
+        /// FSEvents が知らせたパス(ファイル単位)の親と、そのもの(フォルダ自身の中身の変化)の行を読み直す。知らせのパスは
+        /// 記号リンクを解いた書き方なので、リンクを含む根の下の行の書き方へも読み替えて当てる(`FileBrowserTreeWatchPlan`)。
+        /// **あふれた知らせ**(`mustScanSubdirectories`。個別の変更が省かれている)は、そのパスの配下の開いている行を全部読み直す
+        /// (右ペインの `eventsRequireReload` と同じ扱い。以前はそのパスと親の行しか読み直さなかった)。
+        private func handleExternalChange(_ events: [FolderChangeWatcher.Event]) {
+            guard !events.isEmpty else { return }
             var ids = Set<String>()
-            for raw in paths {
+            var subtrees: [String] = []
+            for event in events {
                 // **URL を作らずに文字列で親を求める**(2026-09-14 の 2 回目の監査 17)。`URL(fileURLWithPath:)` は `isDirectory:` を
                 // 渡さないとパスを stat するので、ダウンロードが続くフォルダでは FSEvents のパスごとにメインの上で stat が走っていた。
                 // 行の id は末尾の / を持たないパス(FileBrowserState.id(for:))なので、揃えて比べられる。
-                let path = MountTable.normalized(FileBrowserState.pathOutsideDataVolume(raw))
-                ids.insert(path)
-                ids.insert((path as NSString).deletingLastPathComponent)
+                let path = MountTable.normalized(FileBrowserState.pathOutsideDataVolume(event.path))
+                for spelling in watchPlan.rowPaths(forEventPath: path) {
+                    ids.insert(spelling)
+                    ids.insert((spelling as NSString).deletingLastPathComponent)
+                    if event.mustScanSubdirectories { subtrees.append(spelling) }
+                }
             }
-            reloadExpandedRows(in: ids)
+            reloadExpandedRows(in: ids, subtrees: subtrees)
         }
 
         /// 最後に応えたフォルダの許可の変化(`FileBrowserState.folderAccessRevision`)。
@@ -867,7 +889,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// 右ペインのフォルダから(親の違う)ツリーのサブフォルダへファイルを運んでも、運び先の親の行が並び替わらず、
         /// たたんで開き直すまで古い順のままだった(操作の `affected` は運び先と運び元のフォルダだけ。FSEvents も
         /// 運んだファイルのパスしか知らせない)。変わるのは変更日だけ(作成日は変わらず、フォルダはサイズを持たない)。
-        private func reloadExpandedRows(in folderIDs: Set<String>?) {
+        /// - Parameter subtrees: 配下の開いている行も全部読み直すパス(あふれた FSEvents の知らせ。`handleExternalChange`)。
+        private func reloadExpandedRows(in folderIDs: Set<String>?, subtrees: [String] = []) {
             guard let outline else { return }
             let parentIDs: Set<String> = childSort.key == .modificationDate
                 ? Set((folderIDs ?? []).map { ($0 as NSString).deletingLastPathComponent })
@@ -877,6 +900,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url else { continue }
                 let id = FileBrowserState.id(for: url)
                 let isChanged = folderIDs?.contains(id) ?? true
+                    || subtrees.contains { MountTable.path(id, isAtOrUnder: $0) }
                 if outline.isItemExpanded(node) {
                     // 親として並びだけ変わりうる行は、開いているときだけ読み直す(閉じた行の三角の有無は変わらない)。
                     if isChanged || parentIDs.contains(id), node.children != nil { loadChildren(of: node) }

@@ -296,6 +296,34 @@ nonisolated enum FileBrowserListing {
         return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     }
 
+    /// 打ったパスを、ディスク上の名前の書き方(大小文字・Unicode の正規化)に直したもの(2026-10-10)。記号リンクは解かない
+    /// (リンクの名前のまま残す)。**ブロッキングするのでFileIOの上で。**
+    ///
+    /// 大小文字を区別しないボリュームでは「フォルダへ移動…」に `/volumes/x` と打っても開けるが、表示中のフォルダのパスが実際の名前と
+    /// 違う書き方のままだと、同じフォルダのツリーの行(子の名前は列挙で得た実際の名前)と別物になる ―― 行が選ばれず、右ペインの
+    /// 一覧でツリーの行の子を揃える仕組み(`FileBrowserState.LoadedFolderListing`)も働かなかった。FSEvents の照合も実際の名前で行われる。
+    ///
+    /// 各階層の名前は `nameKey`(ディスクに書かれた名前を返す。記号リンクは辿らずリンク自身の名前 ―― 実測)。**打った名前と大小文字・
+    /// 正規化の違いしかないときだけ**置き換える: マウントポイントでは `nameKey` がボリューム名を返しうる(同じ名前のボリュームが 2 つ
+    /// あると `/Volumes/X 1` の名前が `X`)。読めない階層はそのまま残す。
+    static func onDiskSpelling(of url: URL) -> URL {
+        let components = url.standardizedFileURL.pathComponents
+        guard components.first == "/" else { return url }
+        var current = URL(filePath: "/", directoryHint: .isDirectory)
+        for component in components.dropFirst() {
+            let typed = current.appending(component: component, directoryHint: .isDirectory)
+            // Swift の `String` の `==` は正規化の違いを同じとみなすので、違いはスカラーの並びで見る。
+            if let name = (try? typed.resourceValues(forKeys: [.nameKey]))?.name,
+               !name.unicodeScalars.elementsEqual(component.unicodeScalars),
+               name.compare(component, options: [.caseInsensitive]) == .orderedSame {
+                current = current.appending(component: name, directoryHint: .isDirectory)
+            } else {
+                current = typed
+            }
+        }
+        return current
+    }
+
     /// `url`から上へたどって、最初に実在するフォルダ。消えたフォルダを表示していたときの退避先。
     /// ボリュームごと外れていれば nil(= コンピュータへ)。**ブロッキングするのでFileIOの上で。**
     static func nearestExistingAncestor(of url: URL, mountTable: MountTable = .current()) -> URL? {
