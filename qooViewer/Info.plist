@@ -111,10 +111,6 @@
 	    送らない・リリースノートでスクリプトを動かさない。
 	  - SUEnableAutomaticChecks = YES: 既定で自動確認する(利用者の判断 2026-10-10)。実際の ON/OFF は環境設定
 	    「一般」▸「アップデート」(AppPreferences.checksForUpdatesAutomatically)を AppUpdater が Sparkle へ流す。
-	  - SUAllowsAutomaticUpdates = YES: 「自動でダウンロードしてインストール」を選べるかを、自動確認の ON/OFF に依らせない。
-	    無いと Sparkle はこれを起動時の自動確認の値に固定し(アプリから ON/OFF を変えても計算し直さない)、自動確認 OFF で
-	    起動した回は、途中で ON にしても「自動でインストール」の設定が次の起動まで効かなかった(AppUpdater.apply のコメント)。
-	    自動でダウンロードするのは自動確認の中だけなので、自動確認が OFF の間は YES でも何も起きない。
 	-->
 	<key>QOOUpdaterEnabled</key>
 	<string>$(QOO_UPDATER_ENABLED)</string>
@@ -137,8 +133,6 @@
 	<key>SUEnableJavaScript</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUAllowsAutomaticUpdates</key>
 	<true/>
 </dict>
 </plist>

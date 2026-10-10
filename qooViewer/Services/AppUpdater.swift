@@ -108,12 +108,13 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
             }
             .store(in: &subscriptions)
         // Sparkle の更新のウインドウの「今後は自動的にダウンロードしてインストール」で変わった値を環境設定へ戻す。
-        // 自動確認が OFF の間も Sparkle はこの値を保存値のまま答える(Info.plist の SUAllowsAutomaticUpdates = YES。
-        // 下の apply のコメント)ので、いつ届いた値も利用者の選択として戻してよい。
+        // 自動確認が OFF の間は Sparkle がこの値を常に NO と答える(保存値ではなく「今は効かない」の意味)ので、
+        // そのときは書き戻さない ―― 書き戻すと、自動確認を OFF にしただけで利用者の選択が消える。
         updater.publisher(for: \.automaticallyDownloadsUpdates, options: [.new])
             .sink { @Sendable [weak self, weak updater] _ in
                 AppUpdater.onMain { [weak self, weak updater] in
-                    guard let self, let updater, !self.isApplyingPreferences else { return }
+                    guard let self, let updater, !self.isApplyingPreferences,
+                          updater.automaticallyChecksForUpdates else { return }
                     let value = updater.automaticallyDownloadsUpdates
                     guard self.preferences.installsUpdatesAutomatically != value else { return }
                     self.preferences.installsUpdatesAutomatically = value
@@ -137,22 +138,17 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
               installs: preferences.installsUpdatesAutomatically, to: updater)
     }
 
-    /// 環境設定の 2 つを Sparkle へ書く。
-    ///
-    /// 「自動でダウンロードしてインストール」は自動確認の ON/OFF に関わらず書く。Sparkle 2.10 は、自動確認の ON/OFF を
-    /// アプリから書き換えても「自動でインストールしてよいか」(`allowsAutomaticUpdates`)を計算し直さない(自分が書いた
-    /// defaults の変化を自分で無視するため。`SPUUpdaterSettings.m`)。既定(Info.plist に SUAllowsAutomaticUpdates が無い)
-    /// ではこれが起動時の自動確認の値に固定されるので、自動確認 OFF で起動した回は、途中で ON にしても
-    /// 「自動でインストール」の書き込みが無視され、次の起動まで効かなかった(2026-10-10 の監査の 2)。
-    /// そこで Info.plist で SUAllowsAutomaticUpdates = YES にし、Sparkle の判断をこの値に依らせない。自動でダウンロードするのは
-    /// 自動確認(裏の定期確認)の中だけなので、自動確認が OFF の間にこの値が YES でも何も起きない(`SPUUpdater._checkForUpdatesInBackground`)。
     private func apply(checks: Bool, installs: Bool, to updater: SPUUpdater) {
         isApplyingPreferences = true
         defer { isApplyingPreferences = false }
         if updater.automaticallyChecksForUpdates != checks {
             updater.automaticallyChecksForUpdates = checks
         }
-        if updater.automaticallyDownloadsUpdates != installs {
+        // 自動確認が OFF の間、Sparkle はこの書き込みを無視する(allowsAutomaticUpdates が NO)。ON に戻した
+        // ときにここをもう一度通るので、利用者の選択はそこで効く(自動確認を切り替えると Sparkle は allowsAutomaticUpdates を
+        // 計算し直す。自動確認 OFF のまま起動して途中で ON にした回も効くことを 2026-10-10 に実機で確かめた ―― 同じ日の監査で
+        // 「計算し直さない」とソースから読んで SUAllowsAutomaticUpdates = YES を足したが、実測で誤りと分かり戻した)。
+        if checks, updater.automaticallyDownloadsUpdates != installs {
             updater.automaticallyDownloadsUpdates = installs
         }
     }
