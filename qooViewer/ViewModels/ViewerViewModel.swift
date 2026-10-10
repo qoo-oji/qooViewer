@@ -1143,6 +1143,12 @@ final class ViewerViewModel: ObservableObject {
     func releaseResources() {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
+        // 保存データ・環境設定の知らせの購読をここで外す(2026-10-10)。以前は deinit でしか外しておらず、後始末の後もビューアが
+        // 生きている間は知らせで目を覚まして DB を読み直していた。保存先が先に手放されると(テストの後始末でハーネスが解放される、
+        // ウインドウを閉じた後にストアが替わる)、消えたコンテナの BookLayoutSettings に触れて
+        // 「This model instance was destroyed by calling ModelContext.reset」でテストホストごと落ちた(CI の Debug・macOS 27。
+        // ViewerReleaseTests で再現・固定)。外す前に予約済みの読み直しは、各入口の hasReleasedResources で断る。
+        stopObservingChanges()
         // デバウンス待ちの保存は、ここで確定させて止める(2026-09-26)。以前は止めておらず、手放した後も 0.4 秒後に
         // modelContext.save() が走った。ウインドウの willClose 経路は onDisappear の flushPendingSave を通らないので
         // 確定は要る。その後で走り出す保存は scheduleSave が断る(下の描き直しの Task は取り消しても走り切ることがある)。
@@ -1197,6 +1203,22 @@ final class ViewerViewModel: ObservableObject {
             // この本は開いている本の一覧に載っているはずだが、外れた後に呼ばれても消さないよう明示的に足す。
             excludedBookIDs: Self.openBookIDs.union([openBookRegistryID])
         )
+    }
+
+    /// 保存データ・環境設定の知らせの購読をすべて外す(releaseResources から。後始末の後は何にも反応しない)。
+    private func stopObservingChanges() {
+        let center = NotificationCenter.default
+        for observer in [bookmarksChangeObserver, readingStatesDeleteObserver, layoutDataChangeObserver, metadataChangeObserver] {
+            if let observer { center.removeObserver(observer) }
+        }
+        bookmarksChangeObserver = nil
+        readingStatesDeleteObserver = nil
+        layoutDataChangeObserver = nil
+        metadataChangeObserver = nil
+        singlePageAspectRatioThresholdObserver = nil
+        pageImageCacheLimitObserver = nil
+        nestedArchiveMemoryLimitObserver = nil
+        displayLanguageObserver = nil
     }
 
     deinit {
@@ -1277,6 +1299,8 @@ final class ViewerViewModel: ObservableObject {
     /// 「[著者] 」だけを表示しても本の識別には役立たず、ユーザー要望も「タイトルが登録されて
     /// いる場合」を前提に2パターンだけを挙げているため。
     private func refreshDisplayTitle() {
+        // 後始末の後は DB(メタデータ)に触れない(表示言語の知らせから 1 ホップ遅れて届くことがある。reloadLayoutData と同じ)。
+        guard !hasReleasedResources else { return }
         // 変わったときだけ代入する(2026-09-25 の監査)。`@Published` は同じ値でも代入のたびに発火するので、本を問わない
         // メタデータの知らせ(メタデータ生成が 500 冊ずつ書くたび)で、開いている全冊のビューアが描き直されていた。
         let title = resolvedDisplayTitle()
@@ -1892,6 +1916,8 @@ final class ViewerViewModel: ObservableObject {
 
     /// - Parameter prefetched: 呼び出し側が取ったばかりの Bookmark の全件(本を開いた直後。init のコメント)。nil ならここで取る。
     private func reloadBookmarks(prefetched: [Bookmark]? = nil) {
+        // 後始末の後は DB に触れない(reloadLayoutData と同じ)。
+        guard !hasReleasedResources else { return }
         let bookID = book.id
         // #Predicateでの絞り込み(旧実装)が、レイアウト変更直後などに0件を誤って返すことがある
         // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
@@ -3359,6 +3385,8 @@ final class ViewerViewModel: ObservableObject {
     /// 万一この待ち時間の外に通知がずれ込んでも、余分な読み直しが1回増えるだけで結果は変わらない
     /// (reloadLayoutDataは常に最新状態を読み直す冪等な処理のため)。
     private func scheduleLayoutDataReload(focusPageKey: String?) {
+        // 後始末の後は予約しない(releaseResources の stopObservingChanges のコメント)。
+        guard !hasReleasedResources else { return }
         // focusPageKeyは「ユーザーが直接操作したページ」を指す追加情報で、通知によっては
         // 付いていない。まとめる過程で失わないよう、非nilが来たら覚えておく。
         if let focusPageKey {
@@ -3367,7 +3395,7 @@ final class ViewerViewModel: ObservableObject {
         layoutReloadDebounceTask?.cancel()
         layoutReloadDebounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 16_000_000) // 約1フレーム
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, !self.hasReleasedResources else { return }
             self.layoutReloadDebounceTask = nil
             let pendingFocusPageKey = self.pendingLayoutReloadFocusPageKey
             self.pendingLayoutReloadFocusPageKey = nil
@@ -3401,6 +3429,8 @@ final class ViewerViewModel: ObservableObject {
     ///   自動的にフォールバックする。nil(既定値)の場合は、以前どおり現在表示中のページを
     ///   維持しようとする(読み方向の上書きなど、対象となる特定のページが無い変更向け)。
     private func reloadLayoutData(focusPageKey: String? = nil) {
+        // 後始末の後は DB に触れない(保存先が手放されていることがある。releaseResources の stopObservingChanges のコメント)。
+        guard !hasReleasedResources else { return }
         // 差し替えの疑いを確かめている間は、DB のレイアウトを画面に当てない(2026-10-04 の監査 V-13)。init と自動レイアウトは
         // この間 DB のレイアウトに手を出さない約束なのに、ほかのウインドウ・関係の無い本の知らせでここが走ると、疑わしい行の
         // 向き・見開き・並びがそのまま画面に当たっていた。確かめた後は resolveLayoutReplacement が読み直す(この間の知らせは
