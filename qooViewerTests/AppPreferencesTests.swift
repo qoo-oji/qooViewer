@@ -119,14 +119,18 @@ struct AppPreferencesTests {
             "qooViewer.pref.thumbnailDiskCacheEnabled", "qooViewer.pref.defaultReadingDirectionSetting",
             AppLanguage.defaultsKey, "AppleLanguages",
         ]
-        let before = watched.map { String(describing: UserDefaults.standard.object(forKey: $0)) }
+        // 値で比べる(NSObject の == は isEqual)。以前は String(describing:) で比べていたが、配列(AppleLanguages)の説明には
+        // `<__NSArrayM 0x…>` とオブジェクトの番地が入るので、途中で誰かが standard へ書いて読み直されただけで、値が同じでも
+        // 食い違っていた(CI の Debug ジョブ 2026-10-10。並行して走るほかのテストやウインドウの位置の保存が書く)。
+        let snapshot = { watched.map { UserDefaults.standard.object(forKey: $0) as? NSObject } }
+        let before = snapshot()
 
         let suite = PreferencesSuite()
         let p = suite.makePreferences()
         mutateEverySetting(p)
         for pane in SettingsPane.allCases { p.resetToDefaults(pane) }
 
-        let after = watched.map { String(describing: UserDefaults.standard.object(forKey: $0)) }
+        let after = snapshot()
         #expect(before == after)
     }
 
