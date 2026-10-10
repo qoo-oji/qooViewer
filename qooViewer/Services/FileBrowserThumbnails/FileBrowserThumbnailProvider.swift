@@ -82,7 +82,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         return pixelTiers.first { $0 >= needed } ?? pixelTiers[pixelTiers.count - 1]
     }
 
-    private let memory: PagePixelCache
+    /// `nonisolated`: リソースモニタ(`memoryUsage()`)がメインアクターの外から使用量を読むため。中はロックで守られている。
+    private nonisolated let memory: PagePixelCache
+
+    /// リソースモニタの「メモリ」の内訳(MemoryUsageRegistry)へ答える使用量(AppStores が届け出る)。
+    nonisolated func memoryUsage() -> MemoryUsageItem {
+        memory.memoryUsage(.fileBrowserThumbnails)
+    }
     private let diskCache: FileBrowserThumbnailDiskCache
     /// 記号リンク・エイリアスの先を読んでよいかの規則に使う保護下の場所(`DirectoryProbe`)。**テストは空を渡す**(テストホストの一時
     /// フォルダはサンドボックスのコンテナ = `~/Library/Containers` の中で、既定の一覧では保護下)。

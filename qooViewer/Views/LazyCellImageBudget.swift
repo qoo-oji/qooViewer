@@ -62,6 +62,11 @@ struct LazyCellImageBudget {
         self.byteBudget = byteBudget
     }
 
+    /// 前回の作り直しから数えた、セルが抱えた絵のバイト数(リソースモニタの見積もり。`ViewState` の届け出)。
+    var retainedByteCount: Int { retainedBytes }
+    /// 同じく、抱えたセルの数。
+    var retainedCells: Int { retainedCellCount }
+
     /// セルが画像を保持したことを記録する。予算を超えたらepochを進めて帳簿を0に戻す。
     /// - Parameters:
     ///   - cellCount: この1枚が**何セル分に相当するか**。既定は1。コレクションの札は中身の
@@ -114,18 +119,44 @@ struct LazyCellImageBudget {
     /// **持つプロパティに `private` を付けない。** 初期値つきの `private var` は、Xcode 26.6(Swift 6.2)ではそのビューの
     /// メンバーごとのイニシャライザを private にし、ほかのファイルから作れなくなる(CI の macos-26 だけが落ちた ―― 2026-10-05。
     /// Xcode 27 では通る。`@State private var` は包みなので当たらない)。
+    ///
+    /// ■ リソースモニタへの届け出(2026-10-11)
+    /// 帳簿の値(前回の作り直しから抱えた絵の量)を、リソースモニタの「メモリ」の内訳へ**見積もり**として届け出る
+    /// (MemoryUsageRegistry。`MemoryUsageKind.cellImages`)。セルの絵はキャッシュの絵と同じバッファを共有していることがあり、
+    /// 作り直しの後に画面内のセルが抱え直したぶんも数えるので、合計には足さない。最初に絵を数えたときに届け出る(SwiftUI が
+    /// 捨てる作りかけの `ViewState` の帳簿まで届け出ないため)。帳簿が解放されれば届け出も外れる。
     struct ViewState: DynamicProperty {
         /// 数える部分。参照型なので、数えても `@State` の値は変わらない(描き直しを呼ばない)。
         private final class Ledger {
             var budget: LazyCellImageBudget
-            init(_ budget: LazyCellImageBudget) { self.budget = budget }
+            let memoryUsageRole: MemoryUsageRole
+            let memoryRegistration = MemoryUsageRegistration()
+            private var isRegistered = false
+
+            init(_ budget: LazyCellImageBudget, memoryUsageRole: MemoryUsageRole) {
+                self.budget = budget
+                self.memoryUsageRole = memoryUsageRole
+            }
+
+            func registerIfNeeded() {
+                guard !isRegistered else { return }
+                isRegistered = true
+                memoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: memoryUsageRole) { [weak self] in
+                    await MainActor.run { [weak self] in
+                        guard let self else { return [] }
+                        return [MemoryUsageItem(kind: .cellImages, usedBytes: self.budget.retainedByteCount,
+                                                count: self.budget.retainedCells)]
+                    }
+                }
+            }
         }
 
         @State private var ledger: Ledger
         @State private var currentEpoch = 0
 
-        init(byteBudget: Int) {
-            _ledger = State(initialValue: Ledger(LazyCellImageBudget(byteBudget: byteBudget)))
+        /// - Parameter memoryUsageRole: リソースモニタの「メモリ」の内訳に出す名前と機能(型コメント「リソースモニタへの届け出」)。
+        init(byteBudget: Int, memoryUsageRole: MemoryUsageRole) {
+            _ledger = State(initialValue: Ledger(LazyCellImageBudget(byteBudget: byteBudget), memoryUsageRole: memoryUsageRole))
         }
 
         /// `.id()`に渡す世代(`LazyCellImageBudget.epoch`)。進んだときだけ描き直される。
@@ -133,6 +164,7 @@ struct LazyCellImageBudget {
 
         /// `LazyCellImageBudget.note(retaining:cellCount:minimumCellCount:)` と同じ。予算を超えたときだけ世代を進める。
         func note(retaining image: CGImage, cellCount: Int = 1, minimumCellCount: Int) {
+            ledger.registerIfNeeded()
             ledger.budget.note(retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount)
             if ledger.budget.epoch != currentEpoch { currentEpoch = ledger.budget.epoch }
         }

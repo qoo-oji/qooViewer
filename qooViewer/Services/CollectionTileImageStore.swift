@@ -511,7 +511,8 @@ actor CollectionTileImageStore {
     /// 上限を超えていたら、最終更新が古いものから削除する(ThumbnailDiskCache.trimIfNeededと
     /// 同じ形。あちらは上限がユーザー設定で、こちらは固定なので世代管理は持たない)。
     private nonisolated static func trimIfNeeded(in directory: URL) {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        // 大きさはディスクの上で確保されている量で数える(DiskFootprint)。
+        let keys: [URLResourceKey] = Array(DiskFootprint.resourceKeys) + [.contentModificationDateKey, .isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: keys
         ) else { return }
@@ -521,7 +522,7 @@ actor CollectionTileImageStore {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true
             else { continue }
-            let size = values.fileSize ?? 0
+            let size = DiskFootprint.bytes(values)
             files.append((url, size, values.contentModificationDate ?? .distantPast))
             total += size
         }

@@ -66,12 +66,37 @@ final class BookContentsBrowserState: ObservableObject {
     /// lazyなのは、`preferences`がinitの**後**に代入されるため(ContentViewが本の切り替えで
     /// この状態オブジェクトを作り直し、直後にpreferencesを差す)。最初に使われるのは
     /// ユーザーが入れ子の書庫へ踏み込んだときなので、その時点では必ず入っている。
-    private lazy var resolver = NestedArchiveResolver(
-        limits: .standard(
-            inMemoryBytes: preferences?.nestedArchiveMemoryLimitBytes
-                ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
+    private lazy var resolver: NestedArchiveResolver = {
+        hasCreatedResolver = true
+        return NestedArchiveResolver(
+            limits: .standard(
+                inMemoryBytes: preferences?.nestedArchiveMemoryLimitBytes
+                    ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
+            )
         )
-    )
+    }()
+    /// `resolver` を作ったか(リソースモニタへの答えのために解決役を作らない)。
+    private var hasCreatedResolver = false
+
+    /// リソースモニタの「メモリ」の内訳への届け出(MemoryUsageRegistry)。ビューアの PageLoader とは別に入れ子の書庫を
+    /// メモリへ置くので、そのぶんを出す(2026-10-11 のリソースモニタの点検。以前はどの行にも載っていなかった)。
+    private let memoryRegistration = MemoryUsageRegistration()
+    /// 最後に数えた解決役の使用量。reader を使う仕事が裏で走っている間は reader に触れない(スレッド安全でない。型コメント)
+    /// ので、その間はこれを答える。
+    private var lastResolverStatistics: NestedArchiveResolver.Statistics?
+
+    /// リソースモニタへ答える(メインアクターの上で)。
+    private func memoryUsageItems() -> [MemoryUsageItem] {
+        if hasCreatedResolver, !isReleased, readerWorkTask == nil {
+            lastResolverStatistics = resolver.statistics()
+        }
+        guard let statistics = lastResolverStatistics, !isReleased else { return [] }
+        return [
+            MemoryUsageItem(kind: .nestedArchives, usedBytes: statistics.inMemoryBytes,
+                            limitBytes: statistics.inMemoryLimitBytes, count: statistics.inMemoryArchiveCount),
+            MemoryUsageItem(kind: .sevenZipDecoder, usedBytes: statistics.decompressionBufferBytes),
+        ]
+    }
 
     /// 「新しい本として開く」ためだけに書き出した一時ファイルのうち、**まだ開く側へ渡していないもの**。解決役が持つものとは別
     /// (NestedArchiveResolver.materializeToIndependentFileのコメント参照)。
@@ -226,6 +251,9 @@ final class BookContentsBrowserState: ObservableObject {
         }
         rootLevel = currentLevel
         rootLocator = currentLocator
+        memoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: .bookContents) { [weak self] in
+            await MainActor.run { [weak self] in self?.memoryUsageItems() ?? [] }
+        }
         reload()
     }
 
@@ -253,6 +281,7 @@ final class BookContentsBrowserState: ObservableObject {
         pendingRevealSortKeys = nil
         awaitsSteppedInListing = false
         isReleased = true
+        memoryRegistration.end()
         // 裏で reader を使う仕事が走っていれば、解決役はそれが終わってから手放す(`finishReaderWork`。型コメント)。
         if readerWorkTask == nil { resolver.purgeAll() }
         removeIndependentTemporaryFiles()

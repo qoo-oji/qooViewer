@@ -14,7 +14,7 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 今開いている本のページ一覧(サムネイル付き。履歴モードと同じく1つの一覧で全高を使う)。
     case pages
     /// このアプリのリソース消費(CPU・メモリ・ディスクのグラフ、本のキャッシュ、ディスク容量、
-    /// 検出した異常)。履歴モードと同じく1列で全高を使う(SidePanelResourcesSectionView参照)。
+    /// 検出した異常)。履歴モードと同じく1列で全高を使う(ResourceMonitorView参照。ホームではインスペクタに出る)。
     case resources
 
     var id: String { rawValue }

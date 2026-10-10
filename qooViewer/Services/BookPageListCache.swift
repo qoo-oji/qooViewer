@@ -356,7 +356,8 @@ actor BookPageListCache {
     /// 上限を超えていたら、最終アクセスが古いものから削除する。
     /// `nonisolated static`: ディレクトリ全走査をactorの上で行わないため。
     private nonisolated static func trimIfNeeded(in directory: URL) {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        // 大きさはディスクの上で確保されている量で数える(DiskFootprint)。
+        let keys: [URLResourceKey] = Array(DiskFootprint.resourceKeys) + [.contentModificationDateKey, .isRegularFileKey]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: keys
         ) else { return }
@@ -367,7 +368,7 @@ actor BookPageListCache {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true
             else { continue }
-            let size = values.fileSize ?? 0
+            let size = DiskFootprint.bytes(values)
             files.append((url, size, values.contentModificationDate ?? .distantPast))
             total += size
         }
@@ -389,14 +390,14 @@ actor BookPageListCache {
     @concurrent nonisolated func totalBytes() async -> Int {
         guard let directory,
               let contents = try? FileManager.default.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+                at: directory, includingPropertiesForKeys: Array(DiskFootprint.resourceKeys) + [.isRegularFileKey]
               )
         else { return 0 }
         return contents.reduce(0) { total, url in
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+            guard let values = try? url.resourceValues(forKeys: DiskFootprint.resourceKeys.union([.isRegularFileKey])),
                   values.isRegularFile == true
             else { return total }
-            return total + (values.fileSize ?? 0)
+            return total + DiskFootprint.bytes(values)
         }
     }
 

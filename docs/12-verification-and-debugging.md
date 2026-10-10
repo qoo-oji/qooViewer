@@ -108,8 +108,9 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 - 数字は `task_vm_info.phys_footprint`(`ProcessResourceSampler` と同じ)。`vmmap` で内訳。
 - 分かっていること: CGImage の表示は元の約3倍、malloc の大ブロックは解放しても footprint が
   戻らない(mmap は戻る)、ImageIO のサムネイルは purgeable。
-- リソースモニタ(サイドパネル)は、このアプリに組み込まれた計測器です。「説明のつかないメモリ」
-  (footprint − 意図して確保しているキャッシュ)が増えていないか、異常の欄が空か、を見ます。
+- リソースモニタ(サイドパネル、ホームではインスペクタの「リソース」)は、このアプリに組み込まれた計測器です。
+  「内訳の無いメモリ」(footprint − `MemoryUsageRegistry` に届け出たものの合計)が増えていないか、どの機能のまとまりが
+  膨らんでいるか、異常の欄が空か、を見ます。
 
 ## 閉じたウインドウが解放されるかの測り方
 

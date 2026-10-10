@@ -112,7 +112,8 @@ nonisolated enum PDFExporter {
         var originalIndexByKey: [String: Int] = [:]
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
-        let pageLoader = PageLoader(book: input.book)
+        // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
+        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
 
         // book.titleは元のファイル/フォルダ名。PDFにファイル名は入らないが、書誌メタデータは
         // EPUB/CBZと同じくNFCへ揃える(nfcNormalizedForExportのコメント参照)。

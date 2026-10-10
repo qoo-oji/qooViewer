@@ -149,7 +149,8 @@ nonisolated enum CbzExporter {
         var originalIndexByKey: [String: Int] = [:]
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
-        let pageLoader = PageLoader(book: input.book)
+        // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
+        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
         let planned = try await planEntries(
             input: input, options: options, orderedPages: orderedPages,
             originalIndexByKey: originalIndexByKey, pageLoader: pageLoader

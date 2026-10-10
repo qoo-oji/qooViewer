@@ -265,7 +265,8 @@ struct FileBrowserVideoThumbnailTests {
     func warmerStaysWithinHalfOfTheCacheLimit() async throws {
         // 以前は上限を知らずに書き続け、刈り込みと作り直しを起動のたびに繰り返した。
         let fixture = try warmerFixture("warm-budget")
-        for name in ["a.mp4", "b.mp4", "c.mp4"] { try fixture.video(name) }
+        let names = (0..<10).map { "\(Character(UnicodeScalar(UInt8(ascii: "a") + UInt8($0)))).mp4" }
+        for name in names { try fixture.video(name) }
         let limit = 10 * 1024 * 1024
 
         func sweepWithUsage(_ usage: Int, label: String) async throws -> FileBrowserVideoThumbnailWarmer.SweepReport {
@@ -289,8 +290,12 @@ struct FileBrowserVideoThumbnailTests {
         #expect(full.generated.isEmpty && full.stoppedForCacheBudget, "使用量が上限の半分に届いていれば作らない")
         #expect(fixture.loader.calls.isEmpty)
 
-        let almost = try await sweepWithUsage(limit / 2 - 1, label: "almost")
-        #expect(almost.generated.map(\.lastPathComponent) == ["a.mp4"], "取り分(1 バイト)を 1 本で使い切ったら止める")
+        // 使用量はディスクの上で確保された量(DiskFootprint)で数えるので、取り分は 1 ブロック(4096 バイト)にする。JPEG は 1 枚でも
+        // 数百バイトを超えるので、10 本を作り切る前に取り分を使い切って止まる。
+        let almost = try await sweepWithUsage(limit / 2 - 4096, label: "almost")
+        #expect(!almost.generated.isEmpty, "取り分があれば作る")
+        #expect(almost.generated.count < names.count, "取り分を使い切ったら止める")
+        #expect(almost.generated.first?.lastPathComponent == "a.mp4")
         #expect(almost.stoppedForCacheBudget)
     }
 

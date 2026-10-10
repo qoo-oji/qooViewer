@@ -569,12 +569,13 @@ final class ViewerViewModel: ObservableObject {
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
             nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes,
             // ネットワークボリューム上の本は、残りを裏で手元へ取り寄せる(本をめくる画面。PageLoader.init のコメント)。
-            stagesWholeFile: true
+            stagesWholeFile: true,
+            // シークレットウインドウ・シークレットフォルダの本は、リソースモニタにも名前を出さない(痕跡を残さない約束)。
+            memoryUsageRole: .viewerBook(title: skipsPersistence ? nil : preparedBook.title)
         )
-        Self.openBookCounter.withLock { $0 += 1 }
 
         let bookID = preparedBook.id
-        // 開いている本の一覧にも載せる(openBookIDs参照。件数と同じくreleaseResources/deinitで外す)。
+        // 開いている本の一覧に載せる(openBookIDs参照。releaseResources/deinitで外す)。
         self.openBookRegistryID = bookID
         Self.registerOpenBook(bookID)
 
@@ -1082,7 +1083,25 @@ final class ViewerViewModel: ObservableObject {
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in self?.refreshDisplayTitle() }
             }
+
+        // 拡大(ピンチ・拡大鏡)の高解像度画像を、リソースモニタの「メモリ」のこの本の行へ足す(MemoryUsageRegistry)。
+        // ページの絵(currentImages)はページ画像のキャッシュと同じバッファなので数えない。こちらは表示用とは別にデコードした
+        // 8000px 上限の像で、キャッシュの外にある(2026-10-11 のリソースモニタの点検。以前はどこにも出ていなかった)。
+        zoomMemoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: nil) { [weak self] in
+            await MainActor.run { [weak self] in
+                guard let self else { return [] }
+                var images = self.highResolutionSourceImages
+                if let combined = self.loupeCombinedSourceImage { images.append(combined) }
+                return [MemoryUsageItem.images(.zoomImages, images)]
+            }
+        }
     }
+
+    /// 拡大の高解像度画像の届け出(init の末尾、`releaseResources` で外す)。この本の PageLoader の行へ足す。
+    private lazy var zoomMemoryRegistration = MemoryUsageRegistration(ownerID: pageLoader.memoryOwnerID)
+
+    /// リソースモニタの「メモリ」の内訳で、この本の行を見分ける印(ResourceMonitorSnapshot.memoryOwnerID)。
+    var memoryOwnerID: UUID { pageLoader.memoryOwnerID }
 
     /// releaseResources()が既に走ったか。onDisappearとウインドウのwillCloseの両方から
     /// 呼ばれうるので、冊数の二重減算と無駄な後始末を避ける。
@@ -1158,7 +1177,6 @@ final class ViewerViewModel: ObservableObject {
         // 最初の見開きの前に閉じられたら、先送りしていた整理をここで済ませる(pendingTrackedBooksPrune)。この本を
         // 開いている本の一覧から外す前に行う(整理はこの本の行を消さない)。
         pruneTrackedBooksIfPending()
-        Self.openBookCounter.withLock { $0 -= 1 }
         Self.unregisterOpenBook(openBookRegistryID)
         // スライドショーもここで止める(監査で指摘)。通常はhandleOnDisappearが先に
         // stopSlideshow()を呼ぶが、ウインドウのwillClose経路はここしか通らない。止めないと、
@@ -1189,6 +1207,7 @@ final class ViewerViewModel: ObservableObject {
         highResolutionSourceImages = []
         highResolutionSourceKeys = []
         loupeCombinedSourceImage = nil
+        zoomMemoryRegistration.end()
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
 
@@ -1224,7 +1243,6 @@ final class ViewerViewModel: ObservableObject {
     deinit {
         // releaseResources()が走っていれば、そこで既に減らしてある。
         if !hasReleasedResources {
-            Self.openBookCounter.withLock { $0 -= 1 }
             Self.unregisterOpenBook(openBookRegistryID)
         }
         if let bookmarksChangeObserver {
@@ -1241,20 +1259,16 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // MARK: - リソースモニタ
+    // MARK: - 開いている本の一覧
 
-    /// いま生きているViewerViewModelの数 = 開いている本の数(ウインドウ・タブの合計)。
-    /// サイドパネルのリソースモニタが「この本のキャッシュは1冊あたりの値で、全体では
-    /// N冊ぶん」と示すために使う。initで増やし、releaseResources()(無ければdeinit)で減らす。
-    /// `nonisolated`なロックなのはdeinitがactor隔離の外で走るため。
-    private nonisolated static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
-    nonisolated static var openBookCount: Int { openBookCounter.withLock { $0 } }
+    // 以前はここに開いている本の冊数(openBookCount)もあり、サイドパネルのリソースモニタが「n 冊開いています」と出していた。
+    // 2026-10-11 からモニタはメモリの内訳(MemoryUsageRegistry)で本を 1 冊ずつ出すので、冊数は無くした。
 
     /// いま開いている本のbookID → 開いているウインドウ/タブの数(同じ本を複数のウインドウで
     /// 開けるため件数で持つ)。LibraryDataPrunerが「開いている本の読書位置は消さない」ために
     /// 見る(監査で指摘: 開いている本の行を消すと、そのViewerViewModelが削除済みの
-    /// オブジェクトへ書き続ける)。openBookCounterと同じく、initで足しreleaseResources()
-    /// (無ければdeinit)で引く。`nonisolated`なロックなのも同じ理由。
+    /// オブジェクトへ書き続ける)。initで足しreleaseResources()
+    /// (無ければdeinit)で引く。`nonisolated`なロックなのはdeinitがactor隔離の外で走るため。
     private nonisolated static let openBookIDRegistry = OSAllocatedUnfairLock(initialState: [String: Int]())
     nonisolated static var openBookIDs: Set<String> { openBookIDRegistry.withLock { Set($0.keys) } }
 
@@ -1282,6 +1296,7 @@ final class ViewerViewModel: ObservableObject {
         let statistics = await pageLoader.cacheStatistics()
         return ResourceMonitorSnapshot(
             statistics: statistics,
+            memoryOwnerID: pageLoader.memoryOwnerID,
             pageIDs: book.pages.map(\.id),
             currentIndex: currentIndex,
             prefetchRadius: max(Int(preferences.prefetchPageCount), 0),

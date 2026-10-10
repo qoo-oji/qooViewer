@@ -192,7 +192,8 @@ nonisolated enum EpubExporter {
         var originalIndexByKey: [String: Int] = [:]
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
-        let pageLoader = PageLoader(book: input.book)
+        // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
+        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
 
         // 出力ファイル名の決定(7.2節)。連番の桁数は出力するページ数の桁数に応じて可変にする
         // (例: 100ページなら3桁で"000"〜)。

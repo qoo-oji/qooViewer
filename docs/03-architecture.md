@@ -60,6 +60,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `KeyBindingStore` | UserDefaults(JSON) | キー・マウスの割り当て(基本+表示モード別) |
 | `LaunchCoordinator` | メモリ | 最初のウインドウ、開いている全 AppState の弱参照一覧、編集ウインドウへの値渡し |
 | `ProcessResourceSampler` | メモリ | リソースモニタの CPU/メモリ/ディスクの計測 |
+| `MemoryUsageRegistry` | メモリ | リソースモニタの「メモリの内訳」の帳簿(メモリを抱える持ち主の届け出。**テスト中は届け出ない**。→ [05](05-page-display-and-memory.md#リソースモニタと異常検出)) |
 | `MenuBarMenuGate` / `MenuBarTracking` | メモリ | メニューが開いている間の更新の保留 |
 | `ThumbnailDiskCache` / `BookPageListCache` / `TemporaryFileStore` / `FileBrowserThumbnailDiskCache` | ディスク | actor / enum のシングルトン |
 | `FileBrowserThumbnailProvider` | メモリ(`PagePixelCache`) | ファイルブラウザのアイコン表示の絵の待ち行列とメモリの絵(改善要望7 段階 7a。`AppStores` が 1 つ持つ。→ [15](15-file-browser.md)) |

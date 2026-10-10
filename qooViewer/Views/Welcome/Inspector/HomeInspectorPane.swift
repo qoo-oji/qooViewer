@@ -22,6 +22,11 @@ import SwiftUI
 /// - ライブラリ: コレクションの中なら選んだ本、一覧なら選んだコレクション
 /// 何も選んでいなければ「選択されていません」、2 つ以上なら数だけ。
 ///
+/// ■ 情報とリソース(2026-10-11)
+/// 上端の切り替えで、選んでいるもの(上の 1〜4)の代わりにリソースモニタ(ResourceMonitorView)を出せる
+/// (`WelcomeLibraryState.inspectorMode`)。ホームではサイドパネルが出ないので、ホームの機能のメモリ・ディスクの使い方を
+/// 見る場所がここ。「メタデータの編集…」は「情報」へ戻す。
+///
 /// ■ 出し入れ
 /// `WelcomeLibraryState.isInspectorShown`(3 つの画面で共通)。3 つの機能が全部 OFF のホームには無い。右クリックの
 /// 「メタデータの編集…」は、その本を選んでインスペクタを出し、題の欄に焦点を入れる(以前の 1 冊ぶんのシートの代わり)。
@@ -49,7 +54,20 @@ struct HomeInspectorPane: View {
     @State private var coverDrop = HomeInspectorCoverDrop()
 
     var body: some View {
-        content(for: subject, width: max(0, paneWidth - Self.horizontalPadding * 2))
+        VStack(spacing: 0) {
+            modePicker
+            WelcomeSeparator(axis: .horizontal)
+            switch home.inspectorMode {
+            case .info:
+                content(for: subject, width: max(0, paneWidth - Self.horizontalPadding * 2))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .resources:
+                // ホームの画面にはこのウインドウの本が無いので、「この本」の詳しい行は出ない(ほかのウインドウの本は
+                // 「ビューア」のまとまりに出る)。
+                ResourceMonitorView(fetchBookSnapshot: nil)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { paneWidth = $0 }
             // 余白のクリックで入力欄を離れる(欄を離れたときに書き、足したまま空の入力欄を消すため。
@@ -59,6 +77,27 @@ struct HomeInspectorPane: View {
     }
 
     static let horizontalPadding: CGFloat = 14
+
+    /// 上端の「情報 / リソース」の切り替え(2026-10-11、利用者の要望: ホームでもリソースモニタを見られるように。
+    /// WelcomeLibraryState.inspectorMode)。**サイドパネルのモード切替と同じアイコンのボタン**(`PanelModeIconButton`。
+    /// リソースは `SidePanelMode.resources` と同じアイコン ―― 利用者の指示: 同じ機能なのに表記が違うと混乱する)。名前はツールチップ。
+    /// 後ろのウインドウではホームの操作列と同じく薄くする(CLAUDE.md「後ろのウインドウで薄くするもの」)。
+    private var modePicker: some View {
+        HStack(spacing: 6) {
+            PanelModeIconButton(systemImage: "info.circle", isSelected: home.inspectorMode == .info, help: "Info") {
+                home.inspectorMode = .info
+            }
+            PanelModeIconButton(
+                systemImage: SidePanelMode.resources.systemImage, isSelected: home.inspectorMode == .resources,
+                help: SidePanelMode.resources.titleKey
+            ) {
+                home.inspectorMode = .resources
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .dimsInInactiveWindow()
+    }
 
     /// いま選んでいるもの。
     private var subject: HomeInspectorSubject {

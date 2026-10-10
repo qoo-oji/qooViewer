@@ -371,7 +371,8 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
 - **履歴/お気に入り/ブックマーク**の行は右クリックでリネーム・削除・「新規◯◯で開く」。
   右クリック中の行は `SidePanelContextMenuHighlight`(ホバー中の行 × `NSMenu.didBeginTracking`)で
   枠を出す(`.contextMenu` は開閉を教えてくれず、`menuItems` の中で `@State` を変えられないため)。
-- **リソース**モードは [05](05-page-display-and-memory.md#リソースモニタと異常検出)。
+- **リソース**モードは [05](05-page-display-and-memory.md#リソースモニタと異常検出)。ホームではサイドパネルが出ないので、
+  同じものをインスペクタの「リソース」に出す([14](14-library-collections.md#インスペクタホームの右ペイン2026-09-30利用者の要望))。
 
 ## プログレスバー(ProgressBarView)
 

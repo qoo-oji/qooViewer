@@ -90,22 +90,24 @@ struct DiskCacheTests {
     func trimmingDropsTheOldestFilesFirst() throws {
         let temporary = try TemporaryDirectory("thumbnails")
         let directory = try temporary.directory("cache")
-        // 100バイトずつ、古い順に old0 → old4。
+        // 1 ブロック(4096 バイト)ずつ、古い順に old0 → old4。大きさはディスクの上で確保された量で数える(DiskFootprint)ので、
+        // ブロックの倍数にしておく(100 バイトのファイルも 4096 バイトを占める)。
+        let block = 4096
         for index in 0..<5 {
             let url = directory.appendingPathComponent("old\(index)")
-            try Data(repeating: 0, count: 100).write(to: url)
+            try Data(repeating: 0x41, count: block).write(to: url)
             try FileManager.default.setAttributes(
                 [.modificationDate: Date(timeIntervalSinceReferenceDate: Double(index))],
                 ofItemAtPath: url.path
             )
         }
 
-        // 上限500なら何もしない(超えていない)。
-        ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: 500)
+        // 上限 5 ブロックなら何もしない(超えていない)。
+        ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: block * 5)
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 5)
 
-        // 上限300 → 目標は8割の240。古い順に消して240以下になるまで(残り2つ = 200バイト)。
-        ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: 300)
+        // 上限 3 ブロック → 目標は8割の 2.4 ブロック。古い順に消してそれ以下になるまで(残り2つ = 2 ブロック)。
+        ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: block * 3)
         let remaining = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
         #expect(remaining == ["old3", "old4"])
     }

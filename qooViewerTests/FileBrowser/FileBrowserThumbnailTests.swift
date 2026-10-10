@@ -576,7 +576,8 @@ struct FileBrowserThumbnailTests {
         let data = PageImageFactory.jpeg(number: 4)
         await cache.store(data, for: key)
         #expect(await cache.data(for: key) == data)
-        #expect(await cache.totalBytes() == data.count)
+        // 使用量はディスクの上で確保された量(DiskFootprint)なので、ブロック単位に切り上がる。
+        #expect(await cache.totalBytes() >= data.count)
 
         await cache.configure(isEnabled: false, maxTotalBytes: 1024 * 1024, generation: 1)
         #expect(await cache.data(for: key) == nil)

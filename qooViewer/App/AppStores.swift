@@ -100,6 +100,8 @@ final class AppStores: ObservableObject {
     /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
     /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
+    /// ホームのメモリキャッシュの、リソースモニタへの届け出(init)。アプリが終わるまで持つ。
+    private let homeCacheMemoryRegistration = MemoryUsageRegistration()
     /// よく使う項目の中の動画の絵を裏で先に作る役(段階 7b)。ウインドウに配らない(誰も直接は読まない)。
     let fileBrowserVideoThumbnailWarmer: FileBrowserVideoThumbnailWarmer
     /// ファイルブラウザの自動リネーム(2026-09-15)。規則・実行ログ・実行役。メニューバーに現れないので
@@ -195,6 +197,15 @@ final class AppStores: ObservableObject {
         )
         fileBrowserThumbnails.connect(preferences: preferences)
         fileBrowserThumbnails.setLibraryFeatureEnabled(isLibraryEnabled)
+        // ホームのアプリで 1 つのメモリキャッシュを、リソースモニタの「メモリ」の内訳へ届け出る(MemoryUsageRegistry。
+        // 2026-10-11 のリソースモニタの点検 ―― 以前はどこにも出ていなかった)。テストの中では届け出ない。
+        let thumbnailsForMonitor = fileBrowserThumbnails
+        let coverMemoryCache = collectionCoverStore.memoryCache
+        let tileMemoryCache = collectionTileImageStore.memoryCache
+        homeCacheMemoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: .homeCaches) {
+            [thumbnailsForMonitor.memoryUsage(), coverMemoryCache.memoryUsage(.collectionCovers),
+             tileMemoryCache.memoryUsage(.collectionTiles)]
+        }
         fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(dependencies: .live())
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、本物のキャッシュに書くため)。
         if !RuntimeEnvironment.isRunningTests {

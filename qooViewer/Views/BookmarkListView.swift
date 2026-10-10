@@ -1419,7 +1419,7 @@ private struct BookmarkDetailPane: View {
     /// Lazyコンテナと違い、Listの作り直しはNSTableViewごと消えてスクロール位置が先頭へ戻るため、
     /// 直前にサムネイルを読み込んだ行(=画面付近の行)を覚えておき、作り直し後にScrollViewReaderで
     /// そこへ戻す(pageListContentの.onChange参照)。
-    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024, memoryUsageRole: .bookmarkEditorCells)
     /// 直前にサムネイルを読み込んだ行のpageKey(上のスクロール復元用)。読み込みのたびに
     /// 書き込まれるため、@Stateの値として持つと右ペイン全体の再評価を誘発する。参照型の
     /// 入れ物に入れて、書き込みが再描画を起こさないようにする(listAnchorBoxと同じ考え方)。

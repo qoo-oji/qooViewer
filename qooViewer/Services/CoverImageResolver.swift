@@ -251,7 +251,7 @@ nonisolated enum CoverImageResolver {
         // 3. 復号。カバーは1000px弱の小さな画像なので、grid用の経路をそのまま借りる。
         //    ディスクキャッシュ(ThumbnailDiskCache)は使わない ―― カバーはこの後
         //    CollectionCoverStoreへJPEGで永続化するので、同じ絵を2か所に置く意味が無い。
-        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false, memoryUsageRole: .coverExtraction)
         let image = await loader.gridThumbnail(at: index, maxPixelSize: maxPixelSize, usesDiskCache: false)
         await loader.releaseAllResources()
         return image

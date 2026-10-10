@@ -35,6 +35,7 @@ final class WelcomeLibraryState: ObservableObject {
         static let mode = "qooViewer.welcome.mode"
         static let showsInspector = "qooViewer.welcome.showsInspector"
         static let inspectorWidth = "qooViewer.welcome.inspectorWidth"
+        static let inspectorMode = "qooViewer.welcome.inspectorMode"
     }
 
     /// 本棚かファイルブラウザか(改善要望7 段階3、2026-09-13)。帯の左端のボタンで切り替える。
@@ -163,6 +164,16 @@ final class WelcomeLibraryState: ObservableObject {
         }
     }
 
+    /// インスペクタに出すもの(上端の切り替え。2026-10-11、利用者の要望)。「情報」は選んでいるもの、「リソース」はリソースモニタ
+    /// (ResourceMonitorView)。ホームではサイドパネルが出ないので、ホームでリソースモニタを見る場所がここ(以前は本を開いている間の
+    /// サイドパネルにしか無かった)。値はウインドウごとに持ち、最後に切り替えた値を次に開くウインドウが引き継ぐ(`isInspectorShown` と同じ)。
+    @Published var inspectorMode: HomeInspectorMode {
+        didSet {
+            guard inspectorMode != oldValue else { return }
+            defaults.set(inspectorMode.rawValue, forKey: Keys.inspectorMode)
+        }
+    }
+
     static let inspectorWidthRange: ClosedRange<CGFloat> = 220...480
     static let defaultInspectorWidth: CGFloat = 280
 
@@ -207,6 +218,8 @@ final class WelcomeLibraryState: ObservableObject {
     func revealInspector(editingMetadataOf bookID: String, now: Date = Date()) {
         guard canShowInspector else { return }
         if !isInspectorShown { isInspectorShown = true }
+        // リソースモニタを出していても、メタデータの欄のある「情報」へ切り替える(欄が無いと頼みが拾われない)。
+        if inspectorMode != .info { inspectorMode = .info }
         inspectorFocusRequest = InspectorFocusRequest(bookID: bookID, date: now)
     }
 
@@ -604,6 +617,7 @@ final class WelcomeLibraryState: ObservableObject {
         coverSize = (defaults.object(forKey: Keys.coverSize) as? Double)
             .map { Self.coverSizeRange.clamping(CGFloat($0)) } ?? Self.defaultCoverSize
         isInspectorShown = defaults.bool(forKey: Keys.showsInspector)
+        inspectorMode = HomeInspectorMode(rawValue: defaults.string(forKey: Keys.inspectorMode) ?? "") ?? .info
         inspectorWidth = (defaults.object(forKey: Keys.inspectorWidth) as? Double)
             .map { Self.inspectorWidthRange.clamping(CGFloat($0)) } ?? Self.defaultInspectorWidth
     }
@@ -681,4 +695,12 @@ private extension ClosedRange where Bound == CGFloat {
     func clamping(_ value: CGFloat) -> CGFloat {
         Swift.min(upperBound, Swift.max(lowerBound, value))
     }
+}
+
+/// ホームのインスペクタに出すもの(`WelcomeLibraryState.inspectorMode`)。
+enum HomeInspectorMode: String, CaseIterable {
+    /// 選んでいるもの(本・項目・コレクション)。
+    case info
+    /// リソースモニタ。
+    case resources
 }

@@ -345,7 +345,7 @@ struct SidePanelView: View {
                     onToggleBookmark: onToggleBookmarkAtPage
                 )
             case .resources:
-                SidePanelResourcesSectionView(fetchBookSnapshot: fetchResourceSnapshot)
+                ResourceMonitorView(fetchBookSnapshot: fetchResourceSnapshot)
             }
         }
     }
@@ -1460,8 +1460,6 @@ private struct SidePanelModeSwitcher: View {
     @Binding var mode: SidePanelMode
     /// ウェルカム画面へ戻るボタン(左端)。nilなら無効(本を開いていない)。
     let onReturnToWelcome: (() -> Void)?
-    /// 選択中のモードの地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
-    @Environment(\.appearsActive) private var appearsActive
 
     private static let spacing: CGFloat = 6
     private static let buttonHeight: CGFloat = 30
@@ -1495,43 +1493,63 @@ private struct SidePanelModeSwitcher: View {
                 .frame(height: Self.buttonHeight)
 
             ForEach(SidePanelMode.allCases) { candidate in
-                let isSelected = candidate == mode
-                Button {
-                    // 既に選ばれているモードをもう一度押した場合も、同じ値の代入になるだけで
-                    // 実害は無い(意味の無い再描画を避けたい場合だけガードする価値があるが、
-                    // ここは押下頻度が低くコストも小さいためガードしない)。
-                    mode = candidate
-                } label: {
-                    Image(systemName: candidate.systemImage)
-                        // アイコンだけになったぶん、以前(13pt)より一回り大きくして
-                        // 何のモードか判別しやすくする。
-                        .font(.system(size: 15, weight: .medium))
-                        // 未選択のボタンは地が7%しかなく、実質パネルの上に直接アイコンが
-                        // 乗っているのと同じなので輪郭を掛ける。選択中は不透明な地(アクセント色 /
-                        // 後ろでは灰色)があるため掛けない(掛けると縁だけ浮いて見える)。
-                        .panelOutlinedContent(isEnabled: !isSelected)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: Self.buttonHeight)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07))
-                        )
-                        // 重ね色をアクセントカラーに近い色にすると、選択中の地がパネルへ溶けて
-                        // どれが選ばれているか分からなくなる。縁取って区別を残す
-                        // (panelOutlinedAccentのコメント参照)。
-                        .panelOutlinedAccent(
-                            in: RoundedRectangle(cornerRadius: 6, style: .continuous),
-                            isEnabled: isSelected
-                        )
-                        .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help(candidate.titleKey)
+                // 既に選ばれているモードをもう一度押した場合も、同じ値の代入になるだけで
+                // 実害は無い(意味の無い再描画を避けたい場合だけガードする価値があるが、
+                // ここは押下頻度が低くコストも小さいためガードしない)。
+                PanelModeIconButton(
+                    systemImage: candidate.systemImage, isSelected: candidate == mode, help: candidate.titleKey,
+                    height: Self.buttonHeight
+                ) { mode = candidate }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+    }
+}
+
+/// モードを切り替えるアイコンのボタン 1 つ(サイドパネルのモード切替と、ホームのインスペクタの「情報 / リソース」で共通。
+/// 2026-10-11、利用者の指示: 同じ機能なのに見た目・表記が違うと混乱する ―― インスペクタのリソースはサイドパネルのリソースと
+/// 同じアイコン・同じ形にする)。名前はツールチップで出す。
+struct PanelModeIconButton: View {
+    let systemImage: String
+    let isSelected: Bool
+    let help: LocalizedStringKey
+    var height: CGFloat = 30
+    let action: () -> Void
+
+    /// 選択中のモードの地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
+    @Environment(\.appearsActive) private var appearsActive
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                // アイコンだけになったぶん、以前(13pt)より一回り大きくして
+                // 何のモードか判別しやすくする。
+                .font(.system(size: 15, weight: .medium))
+                // 未選択のボタンは地が7%しかなく、実質パネルの上に直接アイコンが
+                // 乗っているのと同じなので輪郭を掛ける。選択中は不透明な地(アクセント色 /
+                // 後ろでは灰色)があるため掛けない(掛けると縁だけ浮いて見える)。
+                .panelOutlinedContent(isEnabled: !isSelected)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07))
+                )
+                // 重ね色をアクセントカラーに近い色にすると、選択中の地がパネルへ溶けて
+                // どれが選ばれているか分からなくなる。縁取って区別を残す
+                // (panelOutlinedAccentのコメント参照)。
+                .panelOutlinedAccent(
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous),
+                    isEnabled: isSelected
+                )
+                .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(Text(help))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -2164,7 +2182,7 @@ private struct SidePanelPagesSectionView: View {
     /// 通過した行も生成される)するだけで、訪れた行の数だけ画像が積み上がる。予算(128MB)を
     /// 超えたら一覧を`.id(epoch)`で作り直してまとめて解放する(仕組みと実測の詳細は
     /// LazyCellImageBudgetの型コメント参照)。ScrollViewは残るのでスクロール位置は保たれる。
-    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: 128 * 1024 * 1024, memoryUsageRole: .sidePanelPageCells)
 
     /// 帳簿の下限セル数。行の高さは固定(サムネイル72pt+間隔)なので、現実的な最大サイズの
     /// ディスプレイでも画面内は30行に届かない。その3倍強を固定値で持てば、作り直し直後の

@@ -320,7 +320,8 @@ actor ThumbnailDiskCache {
     /// `nonisolated static`: ディレクトリ全走査をactorの上で行わないため。
     /// privateでないのはテストのため(刈り込みそのものを、指定したフォルダに対して確かめる)。
     nonisolated static func trimIfNeeded(in directory: URL, maxTotalBytes: Int) {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        // 大きさはディスクの上で確保されている量で数える(DiskFootprint。上限は「ディスクをどれだけ使ってよいか」)。
+        let keys: [URLResourceKey] = Array(DiskFootprint.resourceKeys) + [.contentModificationDateKey, .isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: keys
         ) else { return }
@@ -331,7 +332,7 @@ actor ThumbnailDiskCache {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true
             else { continue }
-            let size = values.fileSize ?? 0
+            let size = DiskFootprint.bytes(values)
             let date = values.contentModificationDate ?? .distantPast
             files.append((url, size, date))
             total += size
@@ -363,7 +364,7 @@ actor ThumbnailDiskCache {
     /// (`makeIterator`が非同期文脈では使えず、Swift 6モードではエラーになる)ため、
     /// 同期の関数へ切り出してある。trimIfNeededが同じ書き方でよいのも同じ理由。
     private nonisolated static func totalBytes(in directory: URL) -> Int {
-        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        let keys: [URLResourceKey] = Array(DiskFootprint.resourceKeys) + [.isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: keys
         ) else { return 0 }
@@ -372,7 +373,7 @@ actor ThumbnailDiskCache {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true
             else { continue }
-            total += values.fileSize ?? 0
+            total += DiskFootprint.bytes(values)
         }
         return total
     }

@@ -20,22 +20,6 @@
         }
       }
     },
-    " / %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : " / %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : " / %@"
-          }
-        }
-      }
-    },
     " copy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -85,6 +69,70 @@
         }
       }
     },
+    "A book being read by something not listed above." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A book being read by something not listed above."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上のどれにも当たらない読み込みで読んでいる本です。"
+          }
+        }
+      }
+    },
+    "A book being read page by page to export it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A book being read page by page to export it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出すために 1 ページずつ読んでいる本です。"
+          }
+        }
+      }
+    },
+    "A book open in another window or tab." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A book open in another window or tab."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほかのウインドウやタブで開いている本です。"
+          }
+        }
+      }
+    },
+    "A memory cache has stayed above its built-in limit for several seconds. The cache should evict the pictures used longest ago as soon as the limit is reached." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A memory cache has stayed above its built-in limit for several seconds. The cache should evict the pictures used longest ago as soon as the limit is reached."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリのキャッシュが、固定の上限を数秒以上超えたままです。本来は上限に達した時点で、最も長く使っていない絵から追い出されます。"
+          }
+        }
+      }
+    },
     "About once a day, qooViewer asks GitHub whether a newer version is available. Nothing about your books is sent." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -114,6 +162,182 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本を追加しています…"
+          }
+        }
+      }
+    },
+    "An estimate of the pictures held by the cells of this list since it was last rebuilt. The list is rebuilt to let them go once they pass its budget. Some of them are the same pictures as in the caches, so this is not added to the totals." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An estimate of the pictures held by the cells of this list since it was last rebuilt. The list is rebuilt to let them go once they pass its budget. Some of them are the same pictures as in the caches, so this is not added to the totals."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この一覧のセルが、前回作り直してから抱えた絵の見積もりです。予算を超えると一覧を作り直して手放します。キャッシュの絵と同じものも含むので、合計には足しません。"
+          }
+        }
+      }
+    },
+    "Archives found inside the book that are open right now, against the “Nested archives kept in memory” setting." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives found inside the book that are open right now, against the “Nested archives kept in memory” setting."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の中で見つかった書庫のうち、いま開いているものです。分母は設定「メモリに残しておく入れ子の書庫」です。"
+          }
+        }
+      }
+    },
+    "Book being exported" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book being exported"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出し中の本"
+          }
+        }
+      }
+    },
+    "Book contents pane" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book contents pane"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルの本の中身"
+          }
+        }
+      }
+    },
+    "Book in a Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book in a Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの本"
+          }
+        }
+      }
+    },
+    "Bookmarks, reading positions, page layouts, metadata, libraries and collections (the SwiftData store and its write-ahead log)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmarks, reading positions, page layouts, metadata, libraries and collections (the SwiftData store and its write-ahead log)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク・読書位置・ページのレイアウト・メタデータ・ライブラリとコレクションです(SwiftData のストアと先行書き込みログ)。"
+          }
+        }
+      }
+    },
+    "Books being read for a moment to make the covers of books added to a collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books being read for a moment to make the covers of books added to a collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションに登録した本のカバーを作るために、短い間だけ読んでいる本です。"
+          }
+        }
+      }
+    },
+    "Books in the collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in the collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの中の一覧"
+          }
+        }
+      }
+    },
+    "Books open in viewer windows and tabs, the side panel, and Actual Size windows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books open in viewer windows and tabs, the side panel, and Actual Size windows."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビューアのウインドウとタブで開いている本、サイドパネル、実寸表示のウインドウです。"
+          }
+        }
+      }
+    },
+    "Books read by Edit Bookmarks & Layout and by book export, including choosing a cover page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books read by Edit Bookmarks & Layout and by book export, including choosing a cover page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ブックマーク・レイアウトの編集」と本の書き出し(カバーにするページの選択を含む)が読んでいる本です。"
+          }
+        }
+      }
+    },
+    "Caches shared by every window’s Home." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caches shared by every window’s Home."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのウインドウのホームで共有しているキャッシュです。"
           }
         }
       }
@@ -152,6 +376,150 @@
         }
       }
     },
+    "Choosing a cover page to export" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choosing a cover page to export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出すカバーのページの選択"
+          }
+        }
+      }
+    },
+    "Chosen cover images" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chosen cover images"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指定したカバー画像"
+          }
+        }
+      }
+    },
+    "Collapsed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapsed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折り畳み"
+          }
+        }
+      }
+    },
+    "Collection covers exceed their memory limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection covers exceed their memory limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのカバーがメモリの上限を超えています"
+          }
+        }
+      }
+    },
+    "Collection list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの一覧"
+          }
+        }
+      }
+    },
+    "Collection tiles are far over their limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection tiles are far over their limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのタイルが上限を大きく超えています"
+          }
+        }
+      }
+    },
+    "Collection tiles exceed their memory limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection tiles exceed their memory limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのタイルがメモリの上限を超えています"
+          }
+        }
+      }
+    },
+    "Copies of network volume books remain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copies of network volume books remain"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークボリュームの本の写しが残っています"
+          }
+        }
+      }
+    },
+    "Copies of the images you chose as books’ covers (for collections and export), reduced in size when saved. The original file may already be gone, so they cannot be made again; each is kept until that book’s cover is set back or its saved data is deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copies of the images you chose as books’ covers (for collections and export), reduced in size when saved. The original file may already be gone, so they cannot be made again; each is kept until that book’s cover is set back or its saved data is deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本のカバーとして指定した画像の写しです(コレクションと書き出しで使います)。保存するときに小さくしてあります。元のファイルはもう無いかもしれないので作り直せず、その本のカバーを元に戻すか、保存データを削除するまで残します。"
+          }
+        }
+      }
+    },
     "Creating a New Folder…" : {
       "localizations" : {
         "en" : {
@@ -164,6 +532,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新規フォルダを作成しています…"
+          }
+        }
+      }
+    },
+    "Decoded collection covers for the books inside a collection, against their built-in limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decoded collection covers for the books inside a collection, against their built-in limit."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの中の一覧に出す、デコード済みのコレクションのカバーです。分母は固定の上限です。"
+          }
+        }
+      }
+    },
+    "Decoded collection tiles for the library’s collection list, against their built-in limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decoded collection tiles for the library’s collection list, against their built-in limit."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリのコレクションの一覧に出す、デコード済みのコレクションのタイルです。分母は固定の上限です。"
           }
         }
       }
@@ -181,6 +581,166 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アップデートを自動的にダウンロードしてインストール"
+          }
+        }
+      }
+    },
+    "Edit Bookmarks & Layout list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Bookmarks & Layout list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク・レイアウトの編集の一覧"
+          }
+        }
+      }
+    },
+    "Everything else in the app’s container, such as saved window state, logs and downloaded updates." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Everything else in the app’s container, such as saved window state, logs and downloaded updates."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリのコンテナにあるそのほかのもの(ウインドウの状態の保存・ログ・ダウンロードしたアップデートなど)です。"
+          }
+        }
+      }
+    },
+    "Expanded" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expanded"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開"
+          }
+        }
+      }
+    },
+    "Extracted nested archives from this launch are still in the temporary folder although nothing is reading a book. They should be removed when a book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extracted nested archives from this launch are still in the temporary folder although nothing is reading a book. They should be removed when a book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を読んでいるものが無いのに、この起動で展開した入れ子の書庫が一時フォルダに残っています。本来は本を閉じたときに削除されます。"
+          }
+        }
+      }
+    },
+    "File Browser & Smart Library" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Browser & Smart Library"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザとスマートライブラリ"
+          }
+        }
+      }
+    },
+    "File browser and smart library thumbnails exceed their memory limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File browser and smart library thumbnails exceed their memory limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザとスマートライブラリのサムネイルがメモリの上限を超えています"
+          }
+        }
+      }
+    },
+    "File browser thumbnail cache exceeds its limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File browser thumbnail cache exceeds its limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのサムネイルキャッシュが上限を超えています"
+          }
+        }
+      }
+    },
+    "File browser thumbnail cache is off but files remain" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File browser thumbnail cache is off but files remain"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのサムネイルキャッシュがオフなのにファイルが残っています"
+          }
+        }
+      }
+    },
+    "Higher-resolution copies of the pages on screen, decoded for pinch zoom and the loupe. They are released when you turn the page or close the book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Higher-resolution copies of the pages on screen, decoded for pinch zoom and the loupe. They are released when you turn the page or close the book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピンチでの拡大と拡大鏡のために、画面のページを高い解像度でデコードし直したものです。ページを送るか本を閉じると手放します。"
+          }
+        }
+      }
+    },
+    "Local copies of books on a network volume are still in the temporary folder although nothing is reading them any more. They should be removed shortly after a book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local copies of books on a network volume are still in the temporary folder although nothing is reading them any more. They should be removed shortly after a book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "もう読んでいないのに、ネットワークボリュームの本の写しが一時フォルダに残っています。本来は本を閉じて少し経つと削除されます。"
           }
         }
       }
@@ -217,6 +777,150 @@
         }
       }
     },
+    "Making collection covers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Making collection covers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのカバーの作成"
+          }
+        }
+      }
+    },
+    "Memory Breakdown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory Breakdown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリの内訳"
+          }
+        }
+      }
+    },
+    "Memory exceeds its limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory exceeds its limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリが上限を超えています"
+          }
+        }
+      }
+    },
+    "Memory in use that none of the items above account for: the app itself and the system frameworks, the saved data, the pictures on screen and the copies the system keeps to draw them, and memory not yet returned to the system. Shown as — when the system has compressed the items above below their nominal size." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory in use that none of the items above account for: the app itself and the system frameworks, the saved data, the pictures on screen and the copies the system keeps to draw them, and memory not yet returned to the system. Shown as — when the system has compressed the items above below their nominal size."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上のどの項目にも当たらない、使用中のメモリです。アプリ自身とシステムのフレームワーク、保存データ、画面に出ている絵とシステムがそれを描くために持つ写し、まだシステムへ返していないメモリなどが入ります。上の項目がシステムに圧縮されて帳簿の大きさより小さくなっているときは「—」になります。"
+          }
+        }
+      }
+    },
+    "Memory the app deliberately keeps, grouped by the feature that uses it. Each limit applies to each book or cache separately." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory the app deliberately keeps, grouped by the feature that uses it. Each limit applies to each book or cache separately."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリが意図して抱えているメモリを、使っている機能ごとにまとめたものです。上限は本ごと・キャッシュごとに別々に掛かります。"
+          }
+        }
+      }
+    },
+    "Metadata book list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata book list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの対象の本の記録"
+          }
+        }
+      }
+    },
+    "Metadata rules" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata rules"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの規則"
+          }
+        }
+      }
+    },
+    "Nested archives that the lower half of the side panel opened itself to list the book’s contents, against the “Nested archives kept in memory” setting." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nested archives that the lower half of the side panel opened itself to list the book’s contents, against the “Nested archives kept in memory” setting."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルの下段が本の中身を一覧にするために自分で開いている入れ子の書庫です。分母は設定「メモリに残しておく入れ子の書庫」です。"
+          }
+        }
+      }
+    },
+    "Network volume copies" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network volume copies"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークボリュームの写し"
+          }
+        }
+      }
+    },
     "New versions are downloaded in the background and installed the next time you quit qooViewer. Every update is checked against the developer's signature before it is installed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -230,6 +934,134 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新しい版を裏でダウンロードし、次に qooViewer を終了したときにインストールします。\nどのアップデートも、インストールの前に開発者の署名を確かめます。"
+          }
+        }
+      }
+    },
+    "Not broken down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not broken down"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内訳の無いメモリ"
+          }
+        }
+      }
+    },
+    "Not in use" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not in use"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未使用"
+          }
+        }
+      }
+    },
+    "Other book reading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other book reading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのほかの本の読み込み"
+          }
+        }
+      }
+    },
+    "Page list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧"
+          }
+        }
+      }
+    },
+    "Page list cache is far over its limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page list cache is far over its limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧キャッシュが上限を大きく超えています"
+          }
+        }
+      }
+    },
+    "Pictures held by the list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures held by the list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一覧が抱えている絵"
+          }
+        }
+      }
+    },
+    "Pictures of books, images, videos and folders shown in the file browser’s icon view, the smart library and the inspector, against their built-in limit. They are also kept on disk (On Disk ▸ File Browser & Smart Library)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures of books, images, videos and folders shown in the file browser’s icon view, the smart library and the inspector, against their built-in limit. They are also kept on disk (On Disk ▸ File Browser & Smart Library)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのアイコン表示・スマートライブラリ・インスペクタに出す、本・画像・動画・フォルダの絵です。分母は固定の上限です。ディスクにも残します(「ディスク上」▸「ファイルブラウザとスマートライブラリ」)。"
+          }
+        }
+      }
+    },
+    "Pictures of books, images, videos and folders shown in the file browser’s icon view, the smart library and the inspector, so they appear without reading the books again. Videos under Favorite Locations are prepared in advance. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures of books, images, videos and folders shown in the file browser’s icon view, the smart library and the inspector, so they appear without reading the books again. Videos under Favorite Locations are prepared in advance. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのアイコン表示・スマートライブラリ・インスペクタに出す、本・画像・動画・フォルダの絵です。本を読み直さずに出せます。よく使う項目の下の動画は前もって作ります。表示している上限を超えると古いものから削除します。環境設定「キャッシュ」でオフにしたり削除したりできます。"
           }
         }
       }
@@ -266,6 +1098,230 @@
         }
       }
     },
+    "Settings and History" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings and History"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定と履歴"
+          }
+        }
+      }
+    },
+    "Settings, history, folder permissions, secret folders and the state of windows (the app’s preferences files)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings, history, folder permissions, secret folders and the state of windows (the app’s preferences files)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定・履歴・フォルダのアクセス許可・シークレットフォルダ・ウインドウの状態です(アプリの設定ファイル)。"
+          }
+        }
+      }
+    },
+    "Shared caches" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared caches"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共有のキャッシュ"
+          }
+        }
+      }
+    },
+    "Side panel pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side panel pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルのページ"
+          }
+        }
+      }
+    },
+    "Smart library covers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart library covers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリの表紙の一覧"
+          }
+        }
+      }
+    },
+    "Smart library list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart library list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリの一覧"
+          }
+        }
+      }
+    },
+    "Temporary files left by a previous launch (extracted nested archives or copies of network volume books) are still in the temporary folder. They should be removed automatically at launch." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Temporary files left by a previous launch (extracted nested archives or copies of network volume books) are still in the temporary folder. They should be removed automatically at launch."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前の起動が残した一時ファイル(展開した入れ子の書庫やネットワークボリュームの本の写し)が一時フォルダに残っています。本来は起動時に自動で削除されます。"
+          }
+        }
+      }
+    },
+    "The book open in the Edit Bookmarks & Layout window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book open in the Edit Bookmarks & Layout window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ブックマーク・レイアウトの編集」ウインドウで開いている本です。"
+          }
+        }
+      }
+    },
+    "The book read to choose its cover page in an export window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book read to choose its cover page in an export window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しのウインドウで、カバーにするページを選ぶために読んでいる本です。"
+          }
+        }
+      }
+    },
+    "The book shown in this window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book shown in this window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このウインドウに表示している本です。"
+          }
+        }
+      }
+    },
+    "The books that collections and the smart library have seen, recorded so that metadata can be derived from their file names even while those features are turned off." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books that collections and the smart library have seen, recorded so that metadata can be derived from their file names even while those features are turned off."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションとスマートライブラリが見た本の記録です。それらの機能をオフにしている間も、ファイル名からメタデータを推測できるようにしてあります。"
+          }
+        }
+      }
+    },
+    "The collection tile folder is more than twice its limit. It is trimmed after every few hundred tiles, so going somewhat over is normal, but not this much." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The collection tile folder is more than twice its limit. It is trimmed after every few hundred tiles, so going somewhat over is normal, but not this much."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのタイルのフォルダが上限の 2 倍を超えています。刈り込みは数百枚ごとなので、多少超えるのは正常ですが、ここまでは超えません。"
+          }
+        }
+      }
+    },
+    "The file browser thumbnail folder is larger than its “Maximum Size” setting, beyond the slack the cache allows itself before trimming." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file browser thumbnail folder is larger than its “Maximum Size” setting, beyond the slack the cache allows itself before trimming."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのサムネイルのフォルダが環境設定「最大容量」を、刈り込み前に許される余裕を超えて上回っています。"
+          }
+        }
+      }
+    },
+    "The file browser, libraries, smart library and inspector: their thumbnails and covers, and the books read to make collection covers." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file browser, libraries, smart library and inspector: their thumbnails and covers, and the books read to make collection covers."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザ・ライブラリ・スマートライブラリ・インスペクタのサムネイルとカバー、コレクションのカバーを作るために読んでいる本です。"
+          }
+        }
+      }
+    },
     "The folder “%@” can’t be read, so the next or previous book can’t be found." : {
       "localizations" : {
         "en" : {
@@ -278,6 +1334,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダ「%@」を読めないため、次の本・前の本を探せません。"
+          }
+        }
+      }
+    },
+    "The full-size image shown in an Actual Size window. It is released when the window is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The full-size image shown in an Actual Size window. It is released when the window is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実寸表示のウインドウに出している、元の大きさの画像です。ウインドウを閉じると手放します。"
+          }
+        }
+      }
+    },
+    "The last list of books the smart library found in its target folders, so that it can show them at once next time. It is made again whenever the folders are scanned." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The last list of books the smart library found in its target folders, so that it can show them at once next time. It is made again whenever the folders are scanned."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリが対象フォルダで見つけた本の、最後の一覧です。次に開いたときにすぐ出せます。フォルダを調べ直すたびに作り直します。"
           }
         }
       }
@@ -298,6 +1386,54 @@
         }
       }
     },
+    "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Trimmed to the limit shown once per launch, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window or kept in a secret folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Trimmed to the limit shown once per launch, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window or kept in a secret folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いたことのある本の、ページの並び・名前・画像の大きさです。次に開くときに書庫を調べ直さずに済みます。起動ごとに 1 回、表示している上限まで古いものから削除します。環境設定「キャッシュ」で削除できます。シークレットウインドウで開いた本とシークレットフォルダの本については書きません。"
+          }
+        }
+      }
+    },
+    "The page list cache is more than twice its limit. It is trimmed once per launch, so going somewhat over during a long session is normal, but not this much." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The page list cache is more than twice its limit. It is trimmed once per launch, so going somewhat over during a long session is normal, but not this much."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧キャッシュが上限の 2 倍を超えています。刈り込みは起動ごとに 1 回なので、長く使っている間に多少超えるのは正常ですが、ここまでは超えません。"
+          }
+        }
+      }
+    },
+    "The parts of books on a network volume that have been read, kept locally so they are not fetched again. Only the parts actually read take up space; while a book is open in a viewer, the rest is fetched in the background. They are removed shortly after the book is closed, and when the app quits." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The parts of books on a network volume that have been read, kept locally so they are not fetched again. Only the parts actually read take up space; while a book is open in a viewer, the rest is fetched in the background. They are removed shortly after the book is closed, and when the app quits."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークボリューム上の本のうち、読んだ部分を手元に残したものです。同じ部分を取り寄せ直さずに済みます。場所を取るのは実際に読んだ部分だけで、ビューアで開いている間は残りを裏で取り寄せます。本を閉じて少し経つと削除し、アプリを終了するときにも削除します。"
+          }
+        }
+      }
+    },
     "This page can’t be displayed." : {
       "localizations" : {
         "en" : {
@@ -310,6 +1446,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このページを表示できません。"
+          }
+        }
+      }
+    },
+    "Thumbnails of book pages for the progress bar and page lists, so a book you have viewed before shows them without decoding its pages again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thumbnails of book pages for the progress bar and page lists, so a book you have viewed before shows them without decoding its pages again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進捗バーとページ一覧に出す、本のページのサムネイルです。一度見た本は、ページをデコードし直さずに出せます。表示している上限を超えると古いものから削除します。環境設定「キャッシュ」でオフにしたり削除したりできます。"
+          }
+        }
+      }
+    },
+    "Tool Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tool Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "補助ウインドウ"
           }
         }
       }
@@ -348,6 +1516,38 @@
         }
       }
     },
+    "Your changes to the rules that derive metadata from file names, and copies of a rules file that could not be read." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your changes to the rules that derive metadata from file names, and copies of a rules file that could not be read."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名からメタデータを推測する規則に加えた変更と、読めなかった規則のファイルの写しです。"
+          }
+        }
+      }
+    },
+    "Zoom images" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom images"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大の高解像度画像"
+          }
+        }
+      }
+    },
     "—" : {
       "comment" : "A placeholder text for a value that is not available.",
       "isCommentAutoGenerated" : true
@@ -381,6 +1581,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」が元のフォルダにないため、次の本・前の本を探せません。"
+          }
+        }
+      }
+    },
+    "“Cache File Browser Thumbnails on Disk” is off, but its folder still contains files. Turning the setting off should delete them." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“Cache File Browser Thumbnails on Disk” is off, but its folder still contains files. Turning the setting off should delete them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ファイルブラウザのサムネイルをディスクに保存する」がオフなのに、そのフォルダにファイルが残っています。本来は設定をオフにしたときに削除されます。"
           }
         }
       }
@@ -2337,22 +3553,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld件 / %2$lld件を表示中"
-          }
-        }
-      }
-    },
-    "%lld open" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld open"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld冊を表示中"
           }
         }
       }
@@ -6263,22 +7463,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDF として書き出すには、ブックマーク・ページレイアウト設定・メタデータのいずれかが登録されている必要があります。"
-          }
-        }
-      }
-    },
-    "Books open across all windows and tabs. The limits below apply to each book separately." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books open across all windows and tabs. The limits below apply to each book separately."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのウインドウ・タブで開いている本の数です。下の上限は本1冊ごとに適用されます。"
           }
         }
       }
@@ -12562,22 +13746,6 @@
         }
       }
     },
-    "Everything else in the app’s container: preferences, saved window state, logs." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Everything else in the app’s container: preferences, saved window state, logs."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コンテナ内のその他のもの(環境設定、ウインドウの状態、ログなど)です。"
-          }
-        }
-      }
-    },
     "Everything the app stores on disk, in ~/Library/Containers." : {
       "localizations" : {
         "en" : {
@@ -13372,38 +14540,6 @@
         }
       }
     },
-    "Extracted nested archives from this launch are still in the temporary folder although no book is open. They should be removed when a book is closed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extracted nested archives from this launch are still in the temporary folder although no book is open. They should be removed when a book is closed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を開いていないのに、この起動で展開した入れ子の書庫が一時フォルダに残っています。本来は本を閉じたときに削除されます。"
-          }
-        }
-      }
-    },
-    "Extracted nested archives left by a previous launch are still in the temporary folder. They should be removed automatically at launch." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extracted nested archives left by a previous launch are still in the temporary folder. They should be removed automatically at launch."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以前の起動が展開した入れ子の書庫が一時フォルダに残っています。本来は起動時に自動的に削除されます。"
-          }
-        }
-      }
-    },
     "Extracting “%@”…" : {
       "localizations" : {
         "en" : {
@@ -13613,22 +14749,6 @@
         }
       }
     },
-    "Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り・ブックマーク・読書位置・ページレイアウト・メタデータ(SwiftDataのストアとそのログ)です。"
-          }
-        }
-      }
-    },
     "Favorites: %d folder(s), %d book(s) imported." : {
       "localizations" : {
         "en" : {
@@ -13739,22 +14859,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルブラウザのサムネイルキャッシュ"
-          }
-        }
-      }
-    },
-    "File browser thumbnails" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File browser thumbnails"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルブラウザのサムネイル"
           }
         }
       }
@@ -18547,22 +19651,6 @@
         }
       }
     },
-    "Memory not accounted for by the page-image and thumbnail caches of the book in this window. Includes the app itself, other open books, and anything waiting to be returned to the system. Shown as — when the system has compressed the caches below their nominal size." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Memory not accounted for by the page-image and thumbnail caches of the book in this window. Includes the app itself, other open books, and anything waiting to be returned to the system. Shown as — when the system has compressed the caches below their nominal size."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このウインドウの本のページ画像・サムネイルのキャッシュでは説明できないメモリです。アプリ本体、他に開いている本、システムへ返却待ちの領域を含みます。システムがキャッシュを名目上の大きさより小さく圧縮しているときは「—」になります。"
-          }
-        }
-      }
-    },
     "Memory the 7z library keeps between page reads so that the next page of a solid block can continue from where the last one ended (and a few pages back can be re-read without starting the block over): the LZMA dictionary of that block, whose size is chosen when the archive is made (usually 16–64 MB), plus small buffers. It is released when the book is closed." : {
       "localizations" : {
         "en" : {
@@ -22044,22 +23132,6 @@
         }
       }
     },
-    "Outside this book’s caches" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Outside this book’s caches"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のキャッシュ以外"
-          }
-        }
-      }
-    },
     "Overwrite" : {
       "localizations" : {
         "en" : {
@@ -22816,22 +23888,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "困っていることを選ぶと、それに効く設定が右に出ます。"
-          }
-        }
-      }
-    },
-    "Pictures of books, images, videos and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pictures of books, images, videos and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルブラウザのアイコン表示に出す本・画像・動画・フォルダの絵。一度表示したフォルダでは本を読み直さずに出せます。表示している上限の中に収まるよう、古いものから削除されます。環境設定 ▸ キャッシュでオフにしたり削除したりできます。"
           }
         }
       }
@@ -30463,22 +31519,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開いた本のページの並び順・ファイル名・画像の寸法です。次に開くときに書庫を走査し直さずに済ませるために残しています。\n合計50MBを上限に、古いものから削除されます。\n削除しても、次にその本を開くときに走査し直すだけです。\nシークレットウインドウで開いた本については何も書きません。"
-          }
-        }
-      }
-    },
-    "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開いた本のページの並び順・ファイル名・画像の寸法です。次に開くときに書庫を走査し直さずに済ませるために残しています。表示の上限に収まるよう古いものから削除され、環境設定「キャッシュ」から削除できます。シークレットウインドウで開いた本については何も書きません。"
           }
         }
       }

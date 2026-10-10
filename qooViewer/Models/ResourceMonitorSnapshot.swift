@@ -55,7 +55,7 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
     /// 表示側はこれをそのまま出さず、先読みの範囲より外側にはみ出した分
     /// (`residentBefore - prefetchRadius`)を「既読」として出す。先読みと履歴を1つの数字と
     /// 1本の帯で兼ねさせると、帯が飽和しているのに数字だけ伸び続けて異常に見えるため
-    /// (ユーザー指摘。SidePanelResourcesSectionViewのpreloadRow/alreadyReadRow参照)。
+    /// (ユーザー指摘。ResourceMonitorViewのpreloadRow/alreadyReadRow参照)。
     var residentBefore: Int
     /// ページ画像がキャッシュに残っているページのインデックス(表示中のページの前後
     /// `prefetchRadius`の範囲 = 先読みの帯が描く範囲だけ)。
@@ -67,17 +67,13 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
         prefetchingIndices.contains { abs($0 - currentIndex) > prefetchRadius }
     }
 
-    /// この本のために意図して確保しているメモリの合計。「説明のつかないメモリ」の計算に使う。
-    ///
-    /// 3つのピクセルキャッシュに加えて、メモリ上に置いている入れ子の書庫も足す ―― あちらも
-    /// 上限付きで意図的に抱えているもので、引かずにおくと入れ子の本を開いたときだけ
-    /// 「説明のつかないメモリ」が数百MB増えたように見えてしまう。
-    var totalCacheBytes: Int {
-        pageImages.usedBytes + thumbnails.usedBytes + gridThumbnails.usedBytes + nestedArchives.usedBytes
-    }
+    /// リソースモニタの「メモリ」の内訳(MemoryUsageRegistry)で、この本の行を見分ける印(PageLoader.memoryOwnerID)。
+    /// 「説明のつかないメモリ」は以前はこの本のキャッシュだけを引いていたが、今は内訳の全員を引く(MemoryUsageBreakdown)。
+    var memoryOwnerID: UUID?
 
     init(
         statistics: PageCacheStatistics,
+        memoryOwnerID: UUID? = nil,
         pageIDs: [String],
         currentIndex: Int,
         prefetchRadius: Int,
@@ -107,6 +103,7 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
             limitBytes: statistics.gridThumbnailLimitBytes,
             count: statistics.gridThumbnails.count
         )
+        self.memoryOwnerID = memoryOwnerID
         self.currentIndex = currentIndex
         self.displayedPageCount = max(displayedPageCount, 1)
         pageCount = pageIDs.count

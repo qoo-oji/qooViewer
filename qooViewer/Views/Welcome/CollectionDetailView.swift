@@ -58,7 +58,7 @@ struct CollectionDetailView: View {
     private static let gridPadding: CGFloat = 24
     private static let coverByteBudget = 96 * 1024 * 1024
 
-    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget)
+    var cellImageBudget = LazyCellImageBudget.ViewState(byteBudget: coverByteBudget, memoryUsageRole: .collectionItemCells)
     /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
     @State private var gridSize: CGSize = .zero
     @State private var isRenaming = false

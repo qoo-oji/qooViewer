@@ -288,7 +288,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         book = loaded
         // 本をめくる画面なので、ネットワークボリューム上の本は残りを裏で取り寄せる(PageLoader.init のコメント)。
         pageLoader = PageLoader(book: loaded, usesThumbnailDiskCache: !isSecret,
-                                imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true)
+                                imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
+                                memoryUsageRole: .bookmarkEditor(title: isSecret ? nil : loaded.title))
         pageLoaderGeneration &+= 1
         isBookReady = true
 
@@ -324,7 +325,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         book = loaded
         pageLoader = PageLoader(
             book: loaded, usesThumbnailDiskCache: usesDiskCaches,
-            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true
+            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
+            memoryUsageRole: .bookmarkEditor(title: usesDiskCaches ? loaded.title : nil)
         )
         pageLoaderGeneration &+= 1
         isBookReady = true

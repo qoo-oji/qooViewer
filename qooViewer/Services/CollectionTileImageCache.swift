@@ -141,4 +141,12 @@ nonisolated final class CollectionTileImageCache: @unchecked Sendable {
             state.totalBytes = 0
         }
     }
+
+    /// リソースモニタの「メモリ」の内訳(MemoryUsageRegistry)へ答える使用量。
+    func memoryUsage(_ kind: MemoryUsageKind) -> MemoryUsageItem {
+        state.withLock { state in
+            MemoryUsageItem(kind: kind, usedBytes: state.totalBytes, limitBytes: state.totalCostLimit,
+                            count: state.entries.count)
+        }
+    }
 }

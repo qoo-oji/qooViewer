@@ -196,13 +196,14 @@ actor FileBrowserThumbnailDiskCache {
     }
 
     private nonisolated static func totalBytes(in directory: URL) -> Int {
-        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        // 大きさはディスクの上で確保されている量で数える(DiskFootprint。刈り込みの ThumbnailDiskCache.trimIfNeeded と同じ)。
+        let keys: [URLResourceKey] = Array(DiskFootprint.resourceKeys) + [.isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: keys)
         else { return 0 }
         var total = 0
         for case let url as URL in enumerator {
             guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
-            total += values.fileSize ?? 0
+            total += DiskFootprint.bytes(values)
         }
         return total
     }

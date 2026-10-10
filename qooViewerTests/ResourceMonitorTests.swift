@@ -53,17 +53,30 @@ nonisolated struct ResourceSnapshotFactory {
 
     static func storage(
         thumbnailCacheBytes: Int? = nil,
+        fileBrowserThumbnailCacheBytes: Int? = nil,
+        pageListCacheBytes: Int? = nil,
+        collectionTileBytes: Int? = nil,
         staleTemporaryEntryCount: Int = 0,
-        sessionTemporaryFileCount: Int = 0,
+        nestedTemporaryFileCount: Int = 0,
+        stagedTemporaryFileCount: Int = 0,
         scannedAt: Date = Date()
     ) -> StorageUsage {
         StorageUsage(
-            containerBytes: nil, sessionTemporaryBytes: 0,
-            sessionTemporaryFileCount: sessionTemporaryFileCount,
-            staleTemporaryBytes: 0, staleTemporaryEntryCount: staleTemporaryEntryCount,
-            thumbnailCacheBytes: thumbnailCacheBytes, pageListCacheBytes: nil, databaseBytes: nil,
+            containerBytes: nil,
+            nestedTemporaryFileCount: nestedTemporaryFileCount,
+            stagedTemporaryFileCount: stagedTemporaryFileCount,
+            staleTemporaryEntryCount: staleTemporaryEntryCount,
+            thumbnailCacheBytes: thumbnailCacheBytes, pageListCacheBytes: pageListCacheBytes,
+            collectionTileBytes: collectionTileBytes,
+            fileBrowserThumbnailCacheBytes: fileBrowserThumbnailCacheBytes,
             scannedAt: scannedAt
         )
+    }
+
+    /// 本を読む持ち主 1 人(PageLoader の統計から)。`id` を揃えれば同じ持ち主として数え続ける。
+    static let bookOwnerID = UUID()
+    static func bookOwner(_ statistics: PageCacheStatistics, id: UUID = bookOwnerID) -> MemoryUsageOwner {
+        MemoryUsageOwner(id: id, role: .viewerBook(title: "book"), items: MemoryUsageItem.items(from: statistics))
     }
 }
 
@@ -73,15 +86,25 @@ struct ResourceAnomalyDetectorTests {
 
     private func input(
         book: ResourceMonitorSnapshot? = nil,
+        memory: [MemoryUsageOwner] = [],
         storage: StorageUsage? = nil,
         isDiskCacheEnabled: Bool = true,
         diskCacheLimitBytes: Int = 1_000_000,
-        openBookCount: Int = 1
+        isFileBrowserCacheEnabled: Bool = true,
+        fileBrowserCacheLimitBytes: Int = 1_000_000,
+        bookReaderCount: Int = 1,
+        liveNetworkCopyCount: Int = 0
     ) -> ResourceAnomalyDetector.Input {
         .init(
-            bookSnapshot: book, storage: storage, isDiskCacheEnabled: isDiskCacheEnabled,
-            diskCacheLimitBytes: diskCacheLimitBytes, openBookCount: openBookCount
+            bookSnapshot: book, memory: memory, storage: storage, isDiskCacheEnabled: isDiskCacheEnabled,
+            diskCacheLimitBytes: diskCacheLimitBytes, isFileBrowserCacheEnabled: isFileBrowserCacheEnabled,
+            fileBrowserCacheLimitBytes: fileBrowserCacheLimitBytes, bookReaderCount: bookReaderCount,
+            liveNetworkCopyCount: liveNetworkCopyCount
         )
+    }
+
+    private func book(_ statistics: PageCacheStatistics) -> [MemoryUsageOwner] {
+        [Factory.bookOwner(statistics)]
     }
 
     // MARK: - メモリキャッシュの上限超過
@@ -89,76 +112,114 @@ struct ResourceAnomalyDetectorTests {
     @Test("上限ちょうどは異常ではない(超えたときだけ数え始める)")
     func beingExactlyAtTheLimitIsNormal() {
         let detector = ResourceAnomalyDetector()
-        let atLimit = Factory.snapshot(statistics: Factory.statistics(pageImages: (100, 100, [])))
+        let atLimit = book(Factory.statistics(pageImages: (100, 100, [])))
         for _ in 0..<10 {
-            #expect(detector.evaluate(input(book: atLimit)).isEmpty)
+            #expect(detector.evaluate(input(memory: atLimit)).isEmpty)
         }
     }
 
     @Test("上限超過は 3 回(3 秒)続いたときだけ異常にする")
     func anOverLimitCacheMustPersistForThreeEvaluations() {
         let detector = ResourceAnomalyDetector()
-        let over = Factory.snapshot(statistics: Factory.statistics(pageImages: (101, 100, [])))
+        let over = book(Factory.statistics(pageImages: (101, 100, [])))
         #expect(ResourceAnomalyDetector.persistenceThreshold == 3)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)) == [.memoryOverLimit(.pageImages)])
         // 一度成立したら、続く限り出続ける。
-        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        #expect(detector.evaluate(input(memory: over)) == [.memoryOverLimit(.pageImages)])
     }
 
     @Test("途中で収まったら数え直し(瞬間的な超過で鳴らさない)")
     func aSingleFrameOfOverLimitResetsTheStreak() {
         let detector = ResourceAnomalyDetector()
-        let over = Factory.snapshot(statistics: Factory.statistics(pageImages: (101, 100, [])))
-        let normal = Factory.snapshot(statistics: Factory.statistics(pageImages: (50, 100, [])))
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: normal)).isEmpty)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        let over = book(Factory.statistics(pageImages: (101, 100, [])))
+        let normal = book(Factory.statistics(pageImages: (50, 100, [])))
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: normal)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)) == [.memoryOverLimit(.pageImages)])
     }
 
     @Test("走査の後の判定(拍の外)は持続回数を進めず、今の回数で判定する(監査 SP-12)")
     func evaluationsOutsideTheTickDoNotAdvanceTheStreak() {
         let detector = ResourceAnomalyDetector()
-        let over = Factory.snapshot(statistics: Factory.statistics(pageImages: (101, 100, [])))
-        #expect(detector.evaluate(input(book: over)).isEmpty)
+        let over = book(Factory.statistics(pageImages: (101, 100, [])))
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
         // 「今すぐ更新」の連打・走査の終わり。何度呼んでも 3 回目の拍の前に異常へ届かない。
         for _ in 0..<5 {
-            #expect(detector.evaluate(advancingStreaks: false, input(book: over)).isEmpty)
+            #expect(detector.evaluate(advancingStreaks: false, input(memory: over)).isEmpty)
         }
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)) == [.memoryOverLimit(.pageImages)])
         // 成立した後は、拍の外でも続いている限り出す(走査の後に異常の一覧から消えない)。
-        #expect(detector.evaluate(advancingStreaks: false, input(book: over)) == [.pageImageCacheOverLimit])
+        #expect(detector.evaluate(advancingStreaks: false, input(memory: over)) == [.memoryOverLimit(.pageImages)])
     }
 
     @Test("3 種類のキャッシュはそれぞれ別に数える")
     func eachCacheHasItsOwnStreak() {
         let detector = ResourceAnomalyDetector()
-        let statistics = Factory.statistics(
+        let over = book(Factory.statistics(
             pageImages: (101, 100, []), thumbnails: (101, 100), gridThumbnails: (101, 100)
-        )
-        let snapshot = Factory.snapshot(statistics: statistics)
-        _ = detector.evaluate(input(book: snapshot))
-        _ = detector.evaluate(input(book: snapshot))
-        #expect(Set(detector.evaluate(input(book: snapshot)))
-                == [.pageImageCacheOverLimit, .thumbnailCacheOverLimit, .gridThumbnailCacheOverLimit])
+        ))
+        _ = detector.evaluate(input(memory: over))
+        _ = detector.evaluate(input(memory: over))
+        #expect(Set(detector.evaluate(input(memory: over)))
+                == [.memoryOverLimit(.pageImages), .memoryOverLimit(.thumbnails), .memoryOverLimit(.gridThumbnails)])
     }
 
     @Test("本を閉じたら持続回数は捨てる(次に開いた本へ持ち越さない)")
     func closingTheBookClearsTheStreaks() {
         let detector = ResourceAnomalyDetector()
-        let over = Factory.snapshot(statistics: Factory.statistics(pageImages: (101, 100, [])))
-        _ = detector.evaluate(input(book: over))
-        _ = detector.evaluate(input(book: over))
-        #expect(detector.evaluate(input(book: nil)).isEmpty)
+        let over = book(Factory.statistics(pageImages: (101, 100, [])))
+        _ = detector.evaluate(input(memory: over))
+        _ = detector.evaluate(input(memory: over))
+        #expect(detector.evaluate(input(memory: [])).isEmpty)
         // 数え直しになるので、再び 3 回必要。
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)).isEmpty)
-        #expect(detector.evaluate(input(book: over)) == [.pageImageCacheOverLimit])
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)).isEmpty)
+        #expect(detector.evaluate(input(memory: over)) == [.memoryOverLimit(.pageImages)])
+    }
+
+    @Test("持ち主ごとに数える ―― 2 冊が 1 秒ずつ交互に超えても、どちらも 3 秒続いていなければ異常にしない")
+    func eachOwnerHasItsOwnStreak() {
+        let detector = ResourceAnomalyDetector()
+        let first = UUID(), second = UUID()
+        let over = Factory.statistics(pageImages: (101, 100, []))
+        let normal = Factory.statistics(pageImages: (50, 100, []))
+        for index in 0..<6 {
+            let owners = [
+                Factory.bookOwner(index.isMultiple(of: 2) ? over : normal, id: first),
+                Factory.bookOwner(index.isMultiple(of: 2) ? normal : over, id: second),
+            ]
+            #expect(detector.evaluate(input(memory: owners)).isEmpty)
+        }
+    }
+
+    @Test("ホームのキャッシュ・ほかのウインドウの本も、上限超過を見る(2026-10-11 の点検で広げた)")
+    func homeCachesAndOtherBooksAreChecked() {
+        let detector = ResourceAnomalyDetector()
+        let home = MemoryUsageOwner(id: UUID(), role: .homeCaches, items: [
+            MemoryUsageItem(kind: .fileBrowserThumbnails, usedBytes: 11, limitBytes: 10, count: 1),
+            MemoryUsageItem(kind: .collectionCovers, usedBytes: 5, limitBytes: 10, count: 1),
+            MemoryUsageItem(kind: .collectionTiles, usedBytes: 11, limitBytes: 10, count: 1),
+        ])
+        let editor = MemoryUsageOwner(id: UUID(), role: .bookmarkEditor(title: nil), items: MemoryUsageItem.items(
+            from: Factory.statistics(thumbnails: (101, 100))))
+        for _ in 0..<2 { _ = detector.evaluate(input(memory: [home, editor])) }
+        #expect(detector.evaluate(input(memory: [home, editor]))
+                == [.memoryOverLimit(.thumbnails), .memoryOverLimit(.fileBrowserThumbnails), .memoryOverLimit(.collectionTiles)])
+    }
+
+    @Test("上限の無い項目・見積もりは上限超過を見ない")
+    func itemsWithoutALimitAreNotChecked() {
+        let detector = ResourceAnomalyDetector()
+        let owner = MemoryUsageOwner(id: UUID(), role: .pageListCells, items: [
+            MemoryUsageItem(kind: .cellImages, usedBytes: 1 << 40),
+        ])
+        for _ in 0..<5 { #expect(detector.evaluate(input(memory: [owner])).isEmpty) }
     }
 
     // MARK: - 先読み
@@ -188,11 +249,10 @@ struct ResourceAnomalyDetectorTests {
         let detector = ResourceAnomalyDetector()
         // 上限内に収まったまま、ずっと前のページまでキャッシュに残っている状態(既読のぶん)。
         let keys = Set(Factory.pageIDs(100).prefix(51))
-        let snapshot = Factory.snapshot(
-            statistics: Factory.statistics(pageImages: (50, 100, keys)), currentIndex: 50, prefetchRadius: 3
-        )
+        let statistics = Factory.statistics(pageImages: (50, 100, keys))
+        let snapshot = Factory.snapshot(statistics: statistics, currentIndex: 50, prefetchRadius: 3)
         #expect(snapshot.residentBefore == 50)
-        for _ in 0..<5 { #expect(detector.evaluate(input(book: snapshot)).isEmpty) }
+        for _ in 0..<5 { #expect(detector.evaluate(input(book: snapshot, memory: book(statistics))).isEmpty) }
     }
 
     // MARK: - ディスクキャッシュ
@@ -231,6 +291,31 @@ struct ResourceAnomalyDetectorTests {
                                         diskCacheLimitBytes: limit)) == [.diskCacheOverLimit])
     }
 
+    @Test("ファイルブラウザのディスクキャッシュも、OFF なのに残っている・上限 + 余裕を超えたら異常")
+    func theFileBrowserDiskCacheIsCheckedLikeThePageThumbnails() {
+        let detector = ResourceAnomalyDetector()
+        #expect(detector.evaluate(input(storage: Factory.storage(fileBrowserThumbnailCacheBytes: 1),
+                                        isFileBrowserCacheEnabled: false)) == [.fileBrowserCacheDisabledButPresent])
+        let limit = 1_000_000
+        let slack = ThumbnailDiskCache.trimThreshold(for: limit)
+        #expect(detector.evaluate(input(storage: Factory.storage(fileBrowserThumbnailCacheBytes: limit + slack),
+                                        fileBrowserCacheLimitBytes: limit)).isEmpty)
+        #expect(detector.evaluate(input(storage: Factory.storage(fileBrowserThumbnailCacheBytes: limit + slack + 1),
+                                        fileBrowserCacheLimitBytes: limit)) == [.fileBrowserCacheOverLimit])
+    }
+
+    @Test("ページ一覧のキャッシュとコレクションのタイルは、上限の 2 倍を超えたときだけ(刈り込みの間に超えるのは仕様)")
+    func intermittentlyTrimmedCachesAreReportedOnlyFarOverTheLimit() {
+        let detector = ResourceAnomalyDetector()
+        let pageLists = BookPageListCache.maxTotalBytes
+        let tiles = CollectionTileImageStore.maxTotalBytes
+        #expect(detector.evaluate(input(storage: Factory.storage(
+            pageListCacheBytes: pageLists * 2, collectionTileBytes: tiles * 2))).isEmpty)
+        #expect(detector.evaluate(input(storage: Factory.storage(
+            pageListCacheBytes: pageLists * 2 + 1, collectionTileBytes: tiles * 2 + 1)))
+                == [.pageListCacheFarOverLimit, .collectionTilesFarOverLimit])
+    }
+
     // MARK: - 一時ファイル
 
     @Test("他の起動が残した一時ファイルは 1 つでも異常(起動時に消えているはず)")
@@ -240,23 +325,23 @@ struct ResourceAnomalyDetectorTests {
                 == [.staleTemporaryFiles])
     }
 
-    @Test("「本が 0 冊なのに一時ファイル」は走査 2 回連続で成立したときだけ")
+    @Test("「本を読んでいるものが無いのに入れ子の書庫の一時ファイル」は走査 2 回連続で成立したときだけ")
     func orphanTemporaryFilesNeedTwoConsecutiveScans() {
         let detector = ResourceAnomalyDetector()
-        let first = Factory.storage(sessionTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 100))
-        let second = Factory.storage(sessionTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 130))
-        #expect(detector.evaluate(input(storage: first, openBookCount: 0)).isEmpty)
-        #expect(detector.evaluate(input(storage: second, openBookCount: 0)) == [.orphanTemporaryFiles])
+        let first = Factory.storage(nestedTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 100))
+        let second = Factory.storage(nestedTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 130))
+        #expect(detector.evaluate(input(storage: first, bookReaderCount: 0)).isEmpty)
+        #expect(detector.evaluate(input(storage: second, bookReaderCount: 0)) == [.orphanTemporaryFiles])
     }
 
     @Test("同じ走査結果を何度渡しても数は進まない(1 秒ごとの呼び出しで誤報しない)")
     func repeatingTheSameScanDoesNotAdvanceTheStreak() {
         let detector = ResourceAnomalyDetector()
-        // 本を開いている最中は、BookLoader が展開した直後の一瞬だけ「0 冊なのに一時ファイル」が
+        // 本を開いている最中は、BookLoader が展開した直後の一瞬だけ「読む側が無いのに一時ファイル」が
         // 正しく成立する。走査結果が同じうちは数えない。
-        let scan = Factory.storage(sessionTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 100))
+        let scan = Factory.storage(nestedTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: 100))
         for _ in 0..<30 {
-            #expect(detector.evaluate(input(storage: scan, openBookCount: 0)).isEmpty)
+            #expect(detector.evaluate(input(storage: scan, bookReaderCount: 0)).isEmpty)
         }
     }
 
@@ -264,20 +349,35 @@ struct ResourceAnomalyDetectorTests {
     func openingABookResetsTheOrphanStreak() {
         let detector = ResourceAnomalyDetector()
         func scan(_ seconds: TimeInterval) -> StorageUsage {
-            Factory.storage(sessionTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: seconds))
+            Factory.storage(nestedTemporaryFileCount: 3, scannedAt: Date(timeIntervalSince1970: seconds))
         }
-        #expect(detector.evaluate(input(storage: scan(100), openBookCount: 0)).isEmpty)
-        #expect(detector.evaluate(input(storage: scan(130), openBookCount: 1)).isEmpty)
-        #expect(detector.evaluate(input(storage: scan(160), openBookCount: 0)).isEmpty)
-        #expect(detector.evaluate(input(storage: scan(190), openBookCount: 0)) == [.orphanTemporaryFiles])
+        #expect(detector.evaluate(input(storage: scan(100), bookReaderCount: 0)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(130), bookReaderCount: 1)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(160), bookReaderCount: 0)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(190), bookReaderCount: 0)) == [.orphanTemporaryFiles])
+    }
+
+    @Test("ネットワークボリュームの写しは、読み込み層が知っている数より多いまま走査 2 回続いたら異常")
+    func networkCopiesUnknownToTheRegistryAreReportedAfterTwoScans() {
+        let detector = ResourceAnomalyDetector()
+        func scan(_ seconds: TimeInterval) -> StorageUsage {
+            Factory.storage(stagedTemporaryFileCount: 2, scannedAt: Date(timeIntervalSince1970: seconds))
+        }
+        // 読み込み層が 2 つとも知っていれば(本を開いている・閉じた直後の猶予の間)正常。本が無くても入れ子の判定には入らない。
+        #expect(detector.evaluate(input(storage: scan(100), bookReaderCount: 0, liveNetworkCopyCount: 2)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(130), bookReaderCount: 0, liveNetworkCopyCount: 2)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(160), liveNetworkCopyCount: 1)).isEmpty)
+        #expect(detector.evaluate(input(storage: scan(190), liveNetworkCopyCount: 1)) == [.orphanNetworkCopies])
     }
 
     @Test("何も無ければ何も出ない")
     func aHealthyStateReportsNothing() {
         let detector = ResourceAnomalyDetector()
-        let snapshot = Factory.snapshot(statistics: Factory.statistics(pageImages: (50, 100, [])))
+        let statistics = Factory.statistics(pageImages: (50, 100, []))
+        let snapshot = Factory.snapshot(statistics: statistics)
         for _ in 0..<5 {
-            #expect(detector.evaluate(input(book: snapshot, storage: Factory.storage(thumbnailCacheBytes: 10)))
+            #expect(detector.evaluate(input(book: snapshot, memory: book(statistics),
+                                            storage: Factory.storage(thumbnailCacheBytes: 10)))
                     .isEmpty)
         }
     }
@@ -327,14 +427,13 @@ struct ResourceMonitorSnapshotTests {
         #expect(snapshot.displayedPageCount == 1)
     }
 
-    @Test("説明のつくメモリはピクセルキャッシュ 3 つとメモリ上の入れ子の書庫の合計")
-    func theExplainedMemoryIsTheSumOfTheFourBudgets() {
-        var statistics = Factory.statistics(
-            pageImages: (100, 1000, []), thumbnails: (20, 1000), gridThumbnails: (3, 1000))
+    @Test("入れ子の書庫は、メモリの上のぶんとディスクのぶんを分けて持つ")
+    func nestedArchivesKeepMemoryAndDiskApart() {
+        var statistics = Factory.statistics()
         statistics.nestedArchives.inMemoryBytes = 7
-        statistics.nestedArchives.temporaryBytes = 5000  // ディスク上なので足さない
+        statistics.nestedArchives.temporaryBytes = 5000  // ディスク上
         let snapshot = Factory.snapshot(statistics: statistics)
-        #expect(snapshot.totalCacheBytes == 130)
+        #expect(snapshot.nestedArchives.usedBytes == 7)
         #expect(snapshot.nestedArchiveTemporaryBytes == 5000)
     }
 

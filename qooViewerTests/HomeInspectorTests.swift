@@ -25,6 +25,26 @@ struct HomeInspectorTests {
         #expect(third.inspectorWidth == WelcomeLibraryState.inspectorWidthRange.upperBound)
     }
 
+    @Test("「情報 / リソース」の切り替えは保存され、次のウインドウが引き継ぐ。「メタデータの編集…」は「情報」へ戻す(2026-10-11)")
+    func inspectorModeIsPersistedAndEditMetadataReturnsToInfo() {
+        let suite = PreferencesSuite(label: "inspector-mode")
+        defer { withExtendedLifetime(suite) {} }
+        let first = WelcomeLibraryState(defaults: suite.defaults)
+        #expect(first.inspectorMode == .info)
+        first.inspectorMode = .resources
+        let second = WelcomeLibraryState(defaults: suite.defaults)
+        #expect(second.inspectorMode == .resources)
+
+        // リソースモニタを出したまま右クリックの「メタデータの編集…」: 欄のある「情報」へ切り替え、頼みを置く。
+        second.revealInspector(editingMetadataOf: "/books/fictional.cbz")
+        #expect(second.isInspectorShown)
+        #expect(second.inspectorMode == .info)
+        #expect(second.hasInspectorFocusRequest(for: "/books/fictional.cbz"))
+
+        suite.defaults.set("unknown", forKey: "qooViewer.welcome.inspectorMode")
+        #expect(WelcomeLibraryState(defaults: suite.defaults).inspectorMode == .info)
+    }
+
     @Test("3 つの機能が全部 OFF のホームには出さず、「メタデータの編集…」の頼みも置かない")
     func classicHomeHasNoInspector() {
         let suite = PreferencesSuite(label: "inspector-classic")

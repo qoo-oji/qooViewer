@@ -154,6 +154,14 @@ nonisolated final class PagePixelCache: @unchecked Sendable {
         }
     }
 
+    /// リソースモニタの「メモリ」の内訳(MemoryUsageRegistry)へ答える使用量。`snapshot()` と違い鍵の一覧を写さない。
+    func memoryUsage(_ kind: MemoryUsageKind) -> MemoryUsageItem {
+        state.withLock { state in
+            MemoryUsageItem(kind: kind, usedBytes: state.totalBytes, limitBytes: state.totalCostLimit,
+                            count: state.entries.count)
+        }
+    }
+
     func snapshot() -> Snapshot {
         state.withLock { state in
             Snapshot(totalBytes: state.totalBytes, count: state.entries.count, keys: Set(state.entries.keys))

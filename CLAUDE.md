@@ -143,6 +143,11 @@ dedups in-flight requests for the same page, limits concurrent full-size decodes
 jump ahead of prefetches), and prefetches pages around the current index into three `PagePixelCache`s
 (strict LRU with byte/count limits; full image / progress-bar thumbnail / grid thumbnail). When editing this file, preserve the actor-isolation
 boundary: archive/PDF handles must stay actor-confined, but decoding must not block the actor.
+**Resource monitor** (`ResourceMonitorView`: the side panel's Resources mode, and on Home the inspector's Info / Resources switch,
+2026-10-11) breaks memory and disk down by feature in foldable groups: **anything new that deliberately holds memory registers with
+`MemoryUsageRegistry`** (`MemoryUsageRegistration`; every `PageLoader` takes a `memoryUsageRole`, lazy lists pass one to
+`LazyCellImageBudget.ViewState`) or it lands in "Not broken down"; disk sizes — the monitor, the disk caches' trimming and Settings ▸ Cache
+alike — are allocated bytes (`DiskFootprint`; network-volume copies are sparse). docs/05「リソースモニタと異常検出」.
 
 **Actor isolation gotcha**: this project targets Swift 6.2 with default actor isolation set to `MainActor`,
 so any type/function not explicitly marked is implicitly main-actor-only. Code that must run off the main

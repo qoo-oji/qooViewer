@@ -230,18 +230,28 @@ actor PageLoader {
     private let usesThumbnailDiskCache: Bool
     /// ネットワークボリューム上の本の残りを裏で取り寄せるか(init のコメント)。
     private let stagesWholeFile: Bool
+    /// リソースモニタの「メモリ」の内訳への届け出(MemoryUsageRegistry)。読み込みを手放したら外す(`releaseAllResources`)。
+    /// `memoryOwnerID` は、同じ本の行へ項目を足す側(ビューアの拡大の画像)と、このウインドウの本を見分けるモニタが使う。
+    private nonisolated let memoryRegistration = MemoryUsageRegistration()
+    nonisolated var memoryOwnerID: UUID { memoryRegistration.ownerID }
+    /// 下調べ専用の reader(`scanReader`)の 7z のデコーダが抱えているメモリ。reader はスレッド安全でないので、FileIO の上で
+    /// 使っていない間(`isScanReadInFlight` が false のとき)に actor の上で読んでここへ控える(`cacheStatistics` が読む)。
+    private var scanReaderDecoderBytes = 0
 
     /// - Parameter imageCacheLimitBytes: ページ画像のメモリキャッシュ(imageCache)の上限。
     ///   画面から作る場合は環境設定「キャッシュ」の値を渡す(AppPreferences.pageImageCacheLimitBytes)。
     ///   書き出し(CbzExporter/PDFExporter/EpubExporter)のように、ページキャッシュを実質使わず
     ///   環境設定にも触れられない(nonisolated)経路は既定値のままでよい。
+    /// - Parameter memoryUsageRole: リソースモニタの「メモリ」の内訳に出す名前と機能(MemoryUsageRegistry)。アプリの中で作るときは
+    ///   必ず渡す(既定の `.otherBookReading` は「どの機能か分からない読み込み」として出る)。テストでは届け出ない。
     init(
         book: MangaBook,
         contrastCorrectionEnabled: Bool = false,
         usesThumbnailDiskCache: Bool = true,
         imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
-        stagesWholeFile: Bool = false
+        stagesWholeFile: Bool = false,
+        memoryUsageRole: MemoryUsageRole = .otherBookReading
     ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
@@ -255,11 +265,19 @@ actor PageLoader {
             limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes), stagesWholeFile: stagesWholeFile
         )
         imageCache.totalCostLimit = imageCacheLimitBytes
+        memoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: memoryUsageRole) { [weak self] in
+            guard let self else { return [] }
+            return await MemoryUsageItem.items(from: self.cacheStatistics())
+        }
     }
 
     /// リソースモニタ向けに、3つのメモリキャッシュの中身と先読みの状態をまとめて返す。
     /// キャッシュの中身を数えるだけで、画像には触れない。
     func cacheStatistics() -> PageCacheStatistics {
+        var nestedArchives = resolver.statistics()
+        // 下調べ専用の reader も 7z のデコーダ(LZMA 辞書)を抱える。resolver の外に持っているので、ここで足す
+        // (2026-10-11 のリソースモニタの点検。以前は下調べの間、辞書 1 つぶんがどの行にも載っていなかった)。
+        nestedArchives.decompressionBufferBytes += scanReaderDecoderBytes
         return PageCacheStatistics(
             pageImages: imageCache.snapshot(),
             pageImageLimitBytes: imageCache.totalCostLimit,
@@ -267,7 +285,7 @@ actor PageLoader {
             thumbnailLimitBytes: thumbnailCache.totalCostLimit,
             gridThumbnails: gridThumbnailCache.snapshot(),
             gridThumbnailLimitBytes: gridThumbnailCache.totalCostLimit,
-            nestedArchives: resolver.statistics(),
+            nestedArchives: nestedArchives,
             prefetchingIndices: Set(prefetchTasks.keys)
         )
     }
@@ -333,6 +351,7 @@ actor PageLoader {
     /// メモリも)が開きっぱなしになる。「もう表示していない」以上、これらも手放す。
     func releaseAllResources() {
         isReleased = true
+        memoryRegistration.end()
         for entry in prefetchTasks.values {
             entry.task.cancel()
         }
@@ -354,6 +373,7 @@ actor PageLoader {
         pdfDocuments.removeAll()
         inMemoryPDFKeys.removeAll()
         scanReader = nil
+        scanReaderDecoderBytes = 0
         rarScanCancellation?.request()
         headerInfoCache.removeAll()
         // 下調べが途中だった場合でも、ここまでに分かった寸法は次回のために書き戻しておく。
@@ -775,6 +795,7 @@ actor PageLoader {
     func endWholeBookScan() {
         isWholeBookScanActive = false
         scanReader = nil
+        scanReaderDecoderBytes = 0
         rarScanCancellation?.request()
     }
 
@@ -1005,6 +1026,8 @@ actor PageLoader {
         let handoff = ScanReaderHandoff(reader: reader)
         let read = await FileIO.perform(qos: .utility) { try? handoff.reader.data(at: entryPath) }
         isScanReadInFlight = false
+        // 使い終えた今なら reader を読んでよい(`scanReaderDecoderBytes`)。下調べを止めていれば(scanReader が nil)0。
+        scanReaderDecoderBytes = scanReader != nil ? reader.residentDecompressionBufferBytes : 0
         guard !isReleased, let data = read else { return nil }
         let pageID = page.id
         // 解析・デコードはactorの外で行う(pageSize(at:)と同じ理由)。

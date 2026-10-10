@@ -315,8 +315,10 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 - **`TemporaryFileStore`**: 一時ファイルの置き場(`~/Library/Containers/<bundle id>/Data/tmp`
   配下、起動ごとの pid 付きディレクトリ)と後始末。`deinit` は本を開いたまま終了すると走らない
   ため(実際に 11 日ぶん・120 個・8.4GB が残っていた)、**起動時に他の pid のディレクトリを
-  掃除**する。リソースモニタは「前の起動の残骸」と「本を開いていないのに残っている」を異常として
-  出す(`ResourceAnomaly.staleTemporaryFiles` / `orphanTemporaryFiles`)。
+  掃除**する。リソースモニタは「前の起動の残骸」「本を読んでいるものが無いのに入れ子の書庫が残っている」
+  「読み込み層が知らないネットワークボリュームの写しが残っている」を異常として出す(`ResourceAnomaly.staleTemporaryFiles` /
+  `orphanTemporaryFiles` / `orphanNetworkCopies`)。ネットワークボリュームの写し(`StagedFileSource` の `.staged`)も同じ
+  ディレクトリに置く。
 - `TemporaryArchiveFile` の `deinit` が削除を持つ(最後の持ち主が手放した瞬間に消える)。
 
 環境設定「入れ子書庫をメモリに置く上限」(既定 256MB、0 で常に一時ファイル)がこれらの予算の

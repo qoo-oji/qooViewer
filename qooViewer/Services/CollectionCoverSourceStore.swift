@@ -280,10 +280,10 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
     /// 保管庫が使っているディスク容量(サイドパネルの「リソース」モードの内訳用)。
     func totalByteCount() -> Int64 {
         guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.fileSizeKey]
+            at: directory, includingPropertiesForKeys: Array(DiskFootprint.resourceKeys)
         ) else { return 0 }
         return urls.reduce(into: Int64(0)) { total, url in
-            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            total += Int64(DiskFootprint.bytes(of: url) ?? 0)
         }
     }
 }
