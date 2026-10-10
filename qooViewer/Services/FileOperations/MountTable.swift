@@ -87,6 +87,12 @@ nonisolated struct MountTable: Sendable {
         return !entry.isLocal
     }
 
+    /// パスの文字列で、ネットワーク越しか(`isRemote(_:)` と同じ答え。URL の標準化を通さないので、文字列だけで決まる)。
+    func isRemote(path: String) -> Bool {
+        guard let entry = entry(containing: path) else { return false }
+        return !entry.isLocal
+    }
+
     /// ローカルか。判定できなければ false(`isRemote` と向きが逆になるのは、呼び出し側が
     /// 「ローカルなら安い処理をしてよい」の判断に使うため ―― 迷ったら安い処理をしない)。
     func isLocal(_ url: URL) -> Bool {

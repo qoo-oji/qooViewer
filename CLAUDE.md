@@ -193,9 +193,11 @@ again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on
 `sinceWhen`, so every swap of watched folders — each expand/collapse in the file browser tree — reloaded the other open rows), and a tree
 row reload calls `reloadItem` only when what its child rows show has changed (`ShownChild`). The tree row of the folder shown on the right is filled from the right pane's listing
 (`FileBrowserState.loadedFolderListing` → `adoptPaneListing`), and a tree read that disagrees asks the pane to reload (`reloadForTree`) —
-two independent reads with different refresh triggers put "Sort Subfolders Like the List" out of step by date (2026-10-10). FSEvents reports
+two independent reads with different refresh triggers put "Sort Subfolders Like the List" out of step by date (2026-10-10); which side is newer is
+decided by read-start order (`takeReadTicket`, `LoadedFolderListing.treeAction`), never by which read finished first. FSEvents reports
 symlink-resolved paths, so the tree maps them back to rows under linked roots through `FileBrowserTreeWatchPlan` (and dedupes watched folders by
-resolved path); Go to Folder moves to the on-disk spelling (`FileBrowserListing.onDiskSpelling`) so a typed `/volumes/x` matches the tree's rows. Store
+resolved path; each root's spellings are resolved once and cached, link by link, stopping before any path on a network volume —
+`resolvingSymlinksInPath` there blocked a FileIO thread on every watch update); Go to Folder moves to the on-disk spelling (`FileBrowserListing.onDiskSpelling`) so a typed `/volumes/x` matches the tree's rows. Store
 notifications that concern particular books carry their IDs (`BookRelocationPlan.relocatedBookIDsUserInfoKey`,
 `ViewerViewModel.notificationConcerns`). **UI that holds bookIDs follows relocations through `BookRelocationNotice`**
 (`.booksDidRelocate`, 2026-10-04): `BookRecordRelocator.apply` (in-app moves and moves found outside the app alike) and the open-time

@@ -387,8 +387,17 @@ final class FileBrowserState: ObservableObject {
     /// 自分で読み直さずにこの値で子を組み直す(`FileBrowserTreeView.Coordinator.adoptPaneListing`)。ツリーが自分で読んだ子がこれと
     /// 食い違ったら(ツリーだけが変化を知った)、右ペインに読み直してもらい(`reloadForTree`)、その結果でまた揃える。揃えるのは一方向
     /// (右ペインの値 → ツリー)だけなので、行き来が止まらなくなることは無い。
+    ///
+    /// **どちらが新しいかは読み始めた順(`readTicket`)で決める**(2026-10-10 の監査の 4)。同じ FSEvents の知らせで左右がほぼ同時に
+    /// 読み直すと、以前は先に読み終えた側の古い値と比べて食い違いを見つけ、右ペインに余分な読み直しを頼んでいた(数万件のフォルダでは
+    /// 一覧を読んで並べる分の CPU)。今は、右ペインがそのフォルダを読んでいる最中なら比べずに読み終わりを待ち(`isReadingFolder`)、
+    /// 比べるのはツリーの値が右ペインの値より**後に読み始めた**ものだったときだけ(`treeAction`)。右ペインのほうが新しければ
+    /// ツリーがその値を取る。読み直しを頼むのは「ツリーのほうが新しく、しかも違う」ときだけで、その読み直しはツリーより後に
+    /// 読み始めるので、次は必ずツリーが取る側になる(行き来しない)。
     struct LoadedFolderListing: Equatable {
         let serial: Int
+        /// 読み始めた順の番号(`FileBrowserState.takeReadTicket()`。ツリーの行の読み込みと同じ数え方)。
+        let readTicket: UInt64
         /// 読んだフォルダの id(`FileBrowserState.id(for:)`。ツリーの行の `selectionKey` と同じ形)。
         let folderID: String
         /// 隠しファイルを含めて読んだか(ツリーの読み方と違えば揃えない)。
@@ -399,9 +408,41 @@ final class FileBrowserState: ObservableObject {
         func disagrees(with folders: [FileBrowserEntry]) -> Bool {
             folders.count != self.folders.count || Set(folders) != Set(self.folders)
         }
+
+        /// ツリーの行が今持っている子と、この一覧のどちらを使うか(型コメント)。
+        enum TreeAction: Equatable {
+            /// ツリーの子をこの一覧で組み直す(こちらが新しいか、ツリーの子の出どころが分からない)。
+            case adopt
+            /// ツリーの子のまま(ツリーのほうが新しく、中身も同じ)。
+            case keep
+            /// ツリーのほうが新しく、中身が違う。右ペインに読み直してもらう(`reloadForTree`)。
+            case askPaneToReload
+        }
+
+        /// - Parameters:
+        ///   - ticket: ツリーの行の子を読み始めたときの番号(右ペインの一覧から組み直した子なら、その一覧の番号)。
+        ///     nil は読めなかった・まだ読んでいない(一覧を取る)。
+        ///   - folders: ツリーの行が今持っている子の値。
+        func treeAction(forTreeChildrenReadAt ticket: UInt64?, folders: [FileBrowserEntry]) -> TreeAction {
+            guard let ticket, ticket > readTicket else { return .adopt }
+            return disagrees(with: folders) ? .askPaneToReload : .keep
+        }
     }
 
-    /// ツリーが、表示中のフォルダの行を読んで右ペインと違う値を得た(`LoadedFolderListing` の型コメント)。右ペインを読み直す
+    /// 読み始めた順の番号を配る(`LoadedFolderListing.readTicket` とツリーの行の読み込みが使う。メインアクターで単調に増える)。
+    static func takeReadTicket() -> UInt64 {
+        lastReadTicket &+= 1
+        return lastReadTicket
+    }
+    private static var lastReadTicket: UInt64 = 0
+
+    /// 右ペインがいま `folderID` のフォルダを読んでいる最中か(ツリーは読み終わりを待ってから比べる。`LoadedFolderListing`)。
+    func isReadingFolder(_ folderID: String) -> Bool {
+        if case .some(.some(let reading)) = inFlightFolderID { return reading == folderID }
+        return false
+    }
+
+    /// ツリーが、表示中のフォルダの行を右ペインより後に読んで、違う値を得た(`LoadedFolderListing` の型コメント)。右ペインを読み直す
     /// (読んでいる最中なら、読み終えてからもう 1 回 ―― `reload`)。
     func reloadForTree(folderID: String) {
         guard currentFolder != nil, location.selectionKey == folderID else { return }
@@ -982,6 +1023,8 @@ final class FileBrowserState: ObservableObject {
         isLoading = true
         needsReloadAfterLoad = false
         inFlightFolderID = .some(location.selectionKey)
+        // 読み始めた順(ツリーがどちらの値が新しいかを決める。`LoadedFolderListing` の型コメント)。
+        let readTicket = Self.takeReadTicket()
         loadTask = Task { [weak self] in
             defer {
                 if let self, self.generation == mine { self.inFlightFolderID = nil }
@@ -1019,7 +1062,9 @@ final class FileBrowserState: ObservableObject {
             case .success(let list):
                 if self.isCurrentFolderWritable != isWritable { self.isCurrentFolderWritable = isWritable }
                 self.apply(list, sortedWith: sort)
-                if let folder, recentEntries == nil { self.publishLoadedFolderListing(of: folder, includesHidden: includesHidden) }
+                if let folder, recentEntries == nil {
+                    self.publishLoadedFolderListing(of: folder, includesHidden: includesHidden, readTicket: readTicket)
+                }
             case .failure(.notFound), .failure(.volumeUnavailable):
                 // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)。空の一覧に
                 // 「見つかりません」を出して止まるより、残っている祖先へ移るほうが次の操作に進める。
@@ -1153,10 +1198,11 @@ final class FileBrowserState: ObservableObject {
 
     /// 読み終えたフォルダの一覧をツリーへ出す(`LoadedFolderListing` の型コメント)。中身が前と同じでも出す ―― ツリーの行が
     /// 自分で読んだ値と食い違って読み直しを頼んだ回は、同じ値でも揃えてもらう必要がある。
-    private func publishLoadedFolderListing(of folder: URL, includesHidden: Bool) {
+    private func publishLoadedFolderListing(of folder: URL, includesHidden: Bool, readTicket: UInt64) {
         loadedFolderListingSerial &+= 1
         loadedFolderListing = LoadedFolderListing(
-            serial: loadedFolderListingSerial, folderID: Self.id(for: folder), includesHidden: includesHidden,
+            serial: loadedFolderListingSerial, readTicket: readTicket, folderID: Self.id(for: folder),
+            includesHidden: includesHidden,
             folders: allEntries.filter(\.isNavigableFolder)
         )
     }

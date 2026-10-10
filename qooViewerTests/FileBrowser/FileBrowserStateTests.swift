@@ -102,6 +102,42 @@ struct FileBrowserStateTests {
         #expect(!after.disagrees(with: treeRead))
     }
 
+    @Test("ツリーの子と右ペインの一覧のどちらを使うかは読み始めた順で決め、右ペインに読み直しを頼むのはツリーが新しくて違うときだけ")
+    func treeActionFollowsTheReadOrder() async throws {
+        // 2026-10-10 の監査の 4: 同じ知らせで左右がほぼ同時に読み直したとき、先に読み終えた側の古い値と比べて、右ペインに
+        // 余分な読み直しを頼んでいた。
+        let fixture = try Fixture("fb-tree-read-order")
+        fixture.state.navigate(to: fixture.root)
+        // 読んでいる最中は、ツリーは比べずに読み終わりを待つ。
+        #expect(fixture.state.isReadingFolder(fixture.id(fixture.root)))
+        #expect(!fixture.state.isReadingFolder(fixture.id(fixture.aFolder)))
+        await fixture.state.settle()
+        #expect(!fixture.state.isReadingFolder(fixture.id(fixture.root)))
+        let listing = try #require(fixture.state.loadedFolderListing)
+        let same = listing.folders
+
+        // ツリーの子の出どころが分からない・右ペインより前に読み始めた → 右ペインの値を取る。
+        #expect(listing.treeAction(forTreeChildrenReadAt: nil, folders: []) == .adopt)
+        #expect(listing.treeAction(forTreeChildrenReadAt: listing.readTicket - 1, folders: []) == .adopt)
+
+        // 右ペインより後に読み始めた: 中身が同じなら何もしない、違えば右ペインに読み直してもらう。
+        let later = FileBrowserState.takeReadTicket()
+        #expect(listing.treeAction(forTreeChildrenReadAt: later, folders: same) == .keep)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -7200)], ofItemAtPath: fixture.bFolder.path
+        )
+        let changed = try FileBrowserListing.entries(in: fixture.root, foldersOnly: true).filter(\.isNavigableFolder)
+        #expect(listing.treeAction(forTreeChildrenReadAt: later, folders: changed) == .askPaneToReload)
+
+        // 頼んだ読み直しはツリーより後に読み始めるので、次はツリーがその値を取る(行き来しない)。
+        fixture.state.reloadForTree(folderID: fixture.id(fixture.root))
+        await fixture.state.settle()
+        let reread = try #require(fixture.state.loadedFolderListing)
+        #expect(reread.readTicket > later)
+        #expect(reread.treeAction(forTreeChildrenReadAt: later, folders: changed) == .adopt)
+        #expect(!reread.disagrees(with: changed))
+    }
+
     @Test("ほかの窓・環境設定でフォルダの許可が変わったら、「アクセスを許可…」の案内を出していた一覧を読み直す(2026-10-04 の監査 FBU-5)")
     func aFolderAccessChangeReloadsANeedsAccessListing() async throws {
         let fixture = try Fixture("fb-access")

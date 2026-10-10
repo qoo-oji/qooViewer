@@ -248,6 +248,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
         var showsBusy = false
         /// 読み込んだときの一覧の行(フォルダの行だけ)。子の並べ替えに使う(型コメント「子の並び」)。
         var listing: FileBrowserEntry?
+        /// 今の子を読み始めた順の番号(`FileBrowserState.takeReadTicket()`。右ペインの一覧から組み直したなら、その一覧の番号)。
+        /// nil は読めなかった・まだ読んでいない。右ペインの値とどちらが新しいかを決める(`FileBrowserState.LoadedFolderListing`)。
+        var childrenReadTicket: UInt64?
 
         init(
             kind: Kind, url: URL?, name: String, children: [Node]? = nil, hasSubfolders: Bool? = nil,
@@ -384,36 +387,73 @@ struct FileBrowserTreeView: NSViewRepresentable {
         // MARK: 外での変更
 
         /// 開いている行が変わったら、見張るフォルダを入れ替える。開閉が続いても 1 回にまとめる(次のランループで)。
-        /// 根の行の書き方(記号リンクを解いたパス)は FileIO の上で調べる(`FileBrowserTreeWatchPlan`)。調べている間に次の入れ替えが
-        /// 始まったら、古いほうは据えない(`watchPlanGeneration`)。
+        ///
+        /// 根の行の書き方(記号リンクを解いたパス。`FileBrowserTreeWatchPlan`)は**根ごとに 1 回だけ** FileIO の上で調べて覚える
+        /// (2026-10-10 の監査の 1)。ここは行の子を読み終えるたび・右ペインの一覧を取り込むたびに呼ばれるので、以前は呼ばれるたびに
+        /// すべての根を解き直していた ―― 何も変わらない回にもスレッドを起こし、リンクの先が応答しない共有なら 1 回 30 秒塞がった
+        /// スレッドが積もった。覚えた書き方は、根をたたんだとき(開き直せば調べ直す)とマウント表が変わったときに捨てる。
+        /// 調べている最中の根の配下の行は、調べ終えるまで見張らない(調べ終えたらもう一度ここを通る)。
         private func scheduleWatchUpdate() {
             guard !watchUpdateScheduled else { return }
             watchUpdateScheduled = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.watchUpdateScheduled = false
-                guard self.watcher != nil else { return }
-                self.watchPlanGeneration &+= 1
-                let mine = self.watchPlanGeneration
-                let (rows, rootPaths) = self.expandedLocalRows()
-                let roots = await FileIO.perform { rootPaths.map(FileBrowserTreeWatchPlan.RootSpellings.make(rowPath:)) }
-                guard self.watchPlanGeneration == mine, let watcher = self.watcher else { return }
-                let plan = FileBrowserTreeWatchPlan.make(rows: rows, roots: roots)
+                guard let watcher = self.watcher else { return }
+                let mounts = MountTable.current()
+                let mountPoints = mounts.entries.map(\.mountPoint)
+                if mountPoints != self.rootSpellingsMountPoints {
+                    // マウントされた・外れた共有の上へリンクが向くようになったかもしれない。調べ直す(調べている最中の結果も捨てる)。
+                    self.rootSpellingsMountPoints = mountPoints
+                    self.rootSpellings = [:]
+                    self.rootSpellingsGeneration &+= 1
+                    self.rootsBeingResolved = []
+                }
+                let (rows, rootPaths) = self.expandedLocalRows(mounts: mounts)
+                let openRoots = Set(rootPaths)
+                self.rootSpellings = self.rootSpellings.filter { openRoots.contains($0.key) }
+                let unknown = rootPaths.filter { self.rootSpellings[$0] == nil && !self.rootsBeingResolved.contains($0) }
+                if !unknown.isEmpty { self.resolveRootSpellings(unknown, mounts: mounts) }
+                let plan = FileBrowserTreeWatchPlan.make(
+                    rows: rows, roots: rootPaths.compactMap { self.rootSpellings[$0] },
+                    pendingRoots: openRoots.subtracting(self.rootSpellings.keys), mountTable: mounts
+                )
                 self.watchPlan = plan
                 await watcher.watch(plan.watchedPaths)
             }
         }
 
+        /// 根の書き方を FileIO の上で調べ、覚えてから見張りを作り直す(`scheduleWatchUpdate`)。同じ根を重ねて調べない。
+        private func resolveRootSpellings(_ rootPaths: [String], mounts: MountTable) {
+            rootsBeingResolved.formUnion(rootPaths)
+            let generation = rootSpellingsGeneration
+            Task { @MainActor [weak self] in
+                let resolved = await FileIO.perform {
+                    rootPaths.map { FileBrowserTreeWatchPlan.RootSpellings.make(rowPath: $0, mountTable: mounts) }
+                }
+                guard let self, self.rootSpellingsGeneration == generation else { return }
+                self.rootsBeingResolved.subtract(rootPaths)
+                for spellings in resolved { self.rootSpellings[spellings.rowPath] = spellings }
+                self.scheduleWatchUpdate()
+            }
+        }
+
         /// 見張るフォルダと、知らせのパスを行のパスへ読み替える表(`FileBrowserTreeWatchPlan`)。
         private var watchPlan = FileBrowserTreeWatchPlan.empty
-        private var watchPlanGeneration = 0
+        /// 開いている根の行の書き方(根の行のパス → 書き方。`scheduleWatchUpdate`)。
+        private var rootSpellings: [String: FileBrowserTreeWatchPlan.RootSpellings] = [:]
+        /// いま FileIO の上で書き方を調べている根の行のパス。
+        private var rootsBeingResolved: Set<String> = []
+        /// 書き方を調べたときのマウント表(マウント先の並び)。変わったら調べ直す。
+        private var rootSpellingsMountPoints: [String] = []
+        /// 覚えた書き方を捨てた回数(捨てる前に始めた調べの結果を据えない)。
+        private var rootSpellingsGeneration = 0
 
         /// 開いている(子を読む)ローカルの行のパスと、そのうち根の行(ボリューム・ホーム・よく使う項目)のパス。
         /// **ネットワーク上の行は含めない**(FSEvents はそこでは飛ばず、応答しない共有では生成が 30 秒塞ぐ。
         /// そちらはアクティブ化の `reloadRemoteExpandedRows` が追いつかせる。2026-09-14 の監査の 4)。
-        private func expandedLocalRows() -> (rows: [String], roots: [String]) {
+        private func expandedLocalRows(mounts: MountTable) -> (rows: [String], roots: [String]) {
             guard let outline else { return ([], []) }
-            let mounts = MountTable.current()
             var rows: [String] = []
             var roots: [String] = []
             for row in 0..<outline.numberOfRows {
@@ -975,6 +1015,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // 続く間ずっと結果を捨て続ける)。
             let mine = node.loadGeneration
             let includesHidden = self.includesHidden
+            // 読み始めた順(右ペインの一覧とどちらが新しいかを決める。FileBrowserState.LoadedFolderListing の型コメント)。
+            let readTicket = FileBrowserState.takeReadTicket()
             // 読み終えるのが遅ければ、行に回転表示を出す(R5-2。`DelayedProgressIndicator` と同じく、ちらつかないよう少し待つ)。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak node] in
                 guard let self, let node, node.isLoadingChildren, node.loadGeneration == mine, !node.showsBusy else { return }
@@ -1011,9 +1053,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     }
                 }
                 guard let outline = self.outline, node.loadGeneration == mine, outline.isItemExpanded(node) else { return }
+                node.childrenReadTicket = didRead ? readTicket : nil
                 self.installChildren(folders, in: node, outline: outline, keepsKnownSubfolders: false)
                 // 右ペインに出ているフォルダの行なら、右ペインの値と比べる(FileBrowserState.LoadedFolderListing の型コメント)。
-                if didRead { self.reconcileWithPane(node: node, folders: folders.map(\.0)) }
+                if didRead { self.reconcileWithPane(node: node) }
             }
         }
 
@@ -1065,8 +1108,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// 最後に揃えた右ペインの一覧の通し番号(`FileBrowserState.LoadedFolderListing`)。
         private var appliedPaneListingSerial: Int?
 
-        /// 右ペインが読み終えた一覧で、同じフォルダの開いている行の子を組み直す(`FileBrowserState.LoadedFolderListing` の型コメント)。
+        /// 右ペインが読み終えた一覧を、同じフォルダの開いている行に当てる(`FileBrowserState.LoadedFolderListing` の型コメント)。
         /// 自分では読まない。子を読んでいる最中の行は飛ばす(読み終えたところで `reconcileWithPane` が比べる)。
+        /// 行の子のほうが後に読み始めたもので、中身も違えば(この一覧を読んでいる間に変化があった)、組み直さずに右ペインに
+        /// 読み直してもらう(`LoadedFolderListing.treeAction`)。
         private func adoptPaneListing(_ listing: FileBrowserState.LoadedFolderListing) {
             guard let outline, listing.includesHidden == includesHidden else { return }
             // 組み直すと行の番号が動くので、先に集める(同じフォルダが別の根の下にも出る)。
@@ -1074,25 +1119,48 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 node.loadsChildren && node.selectionKey == listing.folderID && node.children != nil
                     && !node.isLoadingChildren && outline.isItemExpanded(node)
             }
-            let mounts = MountTable.current()
+            var asksPaneToReload = false
             for node in nodes {
-                let created = installChildren(
-                    listing.folders.map { ($0, nil) }, in: node, outline: outline, keepsKnownSubfolders: true
-                )
-                // 新しく現れた子の三角は調べ直す(ネットワーク上では調べない ―― 子を読むときと同じ決まり)。
-                reprobe(created.filter { $0.url.map { !mounts.isRemote($0) } ?? false })
+                switch listing.treeAction(forTreeChildrenReadAt: node.childrenReadTicket, folders: shownListings(of: node)) {
+                case .adopt: install(listing, in: node, outline: outline)
+                case .keep: break
+                case .askPaneToReload: asksPaneToReload = true
+                }
             }
+            if asksPaneToReload { state?.reloadForTree(folderID: listing.folderID) }
         }
 
-        /// 自分で読んだ子が、右ペインに出ている同じフォルダの一覧と違えば、右ペインに読み直してもらう(その結果で `adoptPaneListing` が揃える)。
-        /// 右ペインが読んでいる最中でも頼む(その読み込みはこちらが知った変化より前に始まったかもしれない。`reload` が読み終えてから
-        /// もう 1 回だけ読む)。右ペインがまだ一度も読み終えていなければ頼まない(読み終えたら揃えに来る)。
-        private func reconcileWithPane(node: Node, folders: [FileBrowserEntry]) {
-            guard let state, let key = node.selectionKey, state.location.selectionKey == key,
-                  let listing = state.loadedFolderListing, listing.folderID == key, listing.includesHidden == includesHidden,
-                  listing.disagrees(with: folders)
+        /// 右ペインの一覧で行の子を組み直す(三角の有無は、いる子は今のまま、新しく現れた子は調べ直す)。
+        private func install(_ listing: FileBrowserState.LoadedFolderListing, in node: Node, outline: NSOutlineView) {
+            let created = installChildren(
+                listing.folders.map { ($0, nil) }, in: node, outline: outline, keepsKnownSubfolders: true
+            )
+            node.childrenReadTicket = listing.readTicket
+            // 新しく現れた子の三角は調べ直す(ネットワーク上では調べない ―― 子を読むときと同じ決まり)。
+            let mounts = MountTable.current()
+            reprobe(created.filter { $0.url.map { !mounts.isRemote($0) } ?? false })
+        }
+
+        /// 行の子が持っている一覧の値(右ペインの一覧と比べる)。
+        private func shownListings(of node: Node) -> [FileBrowserEntry] {
+            (node.children ?? []).compactMap(\.listing)
+        }
+
+        /// 自分で読み終えた行の子を、右ペインに出ている同じフォルダの一覧と突き合わせる(`LoadedFolderListing.treeAction`)。
+        /// - 右ペインがそのフォルダを読んでいる最中なら比べない(読み終えたら `adoptPaneListing` がこの行の値と比べる。以前はここで
+        ///   読み直しを重ねて頼み、同じ知らせで読み始めた右ペインに、読み終えてからもう 1 回読ませていた ―― 2026-10-10 の監査の 4)。
+        /// - 右ペインの一覧のほうが後に読み始めたものなら、その値を取る。こちらが新しく中身が違えば、右ペインに読み直してもらう。
+        /// - 右ペインがまだ一度も読み終えていなければ何もしない(読み終えたら揃えに来る)。
+        private func reconcileWithPane(node: Node) {
+            guard let state, let outline, let key = node.selectionKey, state.location.selectionKey == key,
+                  !state.isReadingFolder(key),
+                  let listing = state.loadedFolderListing, listing.folderID == key, listing.includesHidden == includesHidden
             else { return }
-            state.reloadForTree(folderID: key)
+            switch listing.treeAction(forTreeChildrenReadAt: node.childrenReadTicket, folders: shownListings(of: node)) {
+            case .adopt: install(listing, in: node, outline: outline)
+            case .keep: break
+            case .askPaneToReload: state.reloadForTree(folderID: key)
+            }
         }
 
         /// 行の回転表示を、見えているセルへ当てる(見えていなければ、次に作るセルが `viewFor` で当てる)。

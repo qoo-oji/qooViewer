@@ -60,6 +60,72 @@ struct FileBrowserTreeWatchPlanTests {
         #expect(plan.rowPaths(forEventPath: realPath + "/Alpha").contains(rowPath + "/Alpha"))
     }
 
+    /// ネットワーク上のボリュームを 1 つ持つマウント表(実際にはマウントしない。マウント表は文字列で引くだけ)。
+    private static let remoteMountPoint = "/Volumes/qooViewer-test-remote-share"
+    private static let mountsWithRemoteShare = MountTable(entries: [
+        .init(mountPoint: "/", mountedFrom: "/dev/disk-test", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+        .init(mountPoint: remoteMountPoint, mountedFrom: "//test@server/share", fileSystemType: "smbfs",
+              isLocal: false, isHiddenFromBrowsing: false),
+    ])
+
+    @Test("リンクの先がネットワーク上のボリュームに入る根は、そこへ触れずに見張れない根にし、配下の行を見張らない")
+    func rootsLinkingIntoRemoteVolumesAreNotWatched() throws {
+        // 2026-10-10 の監査の 1: `resolvingSymlinksInPath` はリンクの先の共有へ問い合わせ、応答しない共有では塞がった。
+        let temporary = try TemporaryDirectory("tree-watch-remote-link")
+        let local = try temporary.directory("local")
+        let link = temporary.file("nas")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: Self.remoteMountPoint + "/share")
+        let linkedRow = FileBrowserState.id(for: link.appendingPathComponent("Shelf", isDirectory: true))
+        let localRow = FileBrowserState.id(for: local)
+
+        #expect(FileBrowserTreeWatchPlan.resolvedWithoutTouchingRemoteVolumes(linkedRow, mountTable: Self.mountsWithRemoteShare) == nil)
+        #expect(FileBrowserTreeWatchPlan.resolvedWithoutTouchingRemoteVolumes(Self.remoteMountPoint + "/x", mountTable: Self.mountsWithRemoteShare) == nil)
+        let linked = FileBrowserTreeWatchPlan.RootSpellings.make(rowPath: linkedRow, mountTable: Self.mountsWithRemoteShare)
+        #expect(!linked.isWatchable)
+        let plain = FileBrowserTreeWatchPlan.RootSpellings.make(rowPath: localRow, mountTable: Self.mountsWithRemoteShare)
+        #expect(plain.isWatchable)
+
+        let plan = FileBrowserTreeWatchPlan.make(
+            rows: [linkedRow, linkedRow + "/Alpha", localRow], roots: [linked, plain], mountTable: Self.mountsWithRemoteShare
+        )
+        #expect(plan.watchedPaths.count == 1)
+        #expect(!plan.watchedPaths.contains { $0.hasPrefix(Self.remoteMountPoint) || $0.hasPrefix(linkedRow) })
+        #expect(plan.aliases.allSatisfy { $0.rowPrefix != linkedRow })
+    }
+
+    @Test("循環するリンクの根は見張らない。無い階層から先は書かれたまま")
+    func loopsAndMissingComponents() throws {
+        let temporary = try TemporaryDirectory("tree-watch-loop")
+        try FileManager.default.createSymbolicLink(atPath: temporary.file("a").path, withDestinationPath: temporary.file("b").path)
+        try FileManager.default.createSymbolicLink(atPath: temporary.file("b").path, withDestinationPath: temporary.file("a").path)
+        let mounts = MountTable.current()
+        #expect(FileBrowserTreeWatchPlan.resolvedWithoutTouchingRemoteVolumes(temporary.file("a").path + "/x", mountTable: mounts) == nil)
+        #expect(!FileBrowserTreeWatchPlan.RootSpellings.make(rowPath: temporary.file("a").path, mountTable: mounts).isWatchable)
+
+        let missing = temporary.file("no-such/deeper").path
+        let resolved = try #require(FileBrowserTreeWatchPlan.resolvedWithoutTouchingRemoteVolumes(missing, mountTable: mounts))
+        #expect(resolved.hasSuffix("/no-such/deeper"))
+    }
+
+    @Test("書き方を調べている最中の根の配下は見張らず、見張れる浅い根の配下の行はそのまま見張る。解いたパスがネットワーク上なら外す")
+    func pendingRootsAndRemotePathsAreLeftOut() {
+        let plan = FileBrowserTreeWatchPlan.make(
+            rows: ["/vol-a", "/vol-a/sub", "/vol-a/fav", "/vol-a/fav/x"],
+            roots: [root("/vol-a", resolved: "/vol-a")],
+            pendingRoots: ["/vol-a/fav"]
+        )
+        #expect(plan.watchedPaths == ["/vol-a"])
+        // /vol-a の行が無ければ、調べている根の配下は 1 つも見張らない。
+        let pendingOnly = FileBrowserTreeWatchPlan.make(rows: ["/vol-a/fav", "/vol-a/fav/x"], roots: [], pendingRoots: ["/vol-a/fav"])
+        #expect(pendingOnly.watchedPaths.isEmpty)
+
+        let afterMount = FileBrowserTreeWatchPlan.make(
+            rows: ["/vol-a/link"], roots: [root("/vol-a/link", resolved: Self.remoteMountPoint + "/share")],
+            mountTable: Self.mountsWithRemoteShare
+        )
+        #expect(afterMount.watchedPaths.isEmpty)
+    }
+
     @Test("打ったパスの大小文字と Unicode の正規化をディスク上の名前に直す。記号リンクは解かず、無い階層は打ったまま")
     func typedPathsTakeTheOnDiskSpelling() throws {
         let temporary = try TemporaryDirectory("on-disk-spelling")
