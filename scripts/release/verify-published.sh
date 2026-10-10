@@ -34,7 +34,7 @@ PY
 )
 [ "$got_version" = "$version" ] || die "Latest の appcast の版が $got_version(期待: $version)"
 [ "$got_url" = "$expected_url" ] || die "ダウンロード先が $got_url(期待: $expected_url)"
-echo "ok: Latest の appcast は $version、ダウンロード先 $got_url"
+echo "ok: Latest の appcast は ${version}、ダウンロード先 $got_url"
 
 curl -fsSL --proto '=https' "$got_url" -o "$work/qooViewer.zip" || die "zip を取れない: $got_url"
 xcrun swift "$repo/scripts/release/verify-update-signatures.swift" "$work/appcast.xml" "$work/qooViewer.zip" "$key" \
