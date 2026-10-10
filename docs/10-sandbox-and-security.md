@@ -267,6 +267,15 @@ Sparkle は `CFBundleVersion` で新旧を比べます。以前は `CURRENT_PROJ
 ウインドウにある「今後は自動的に…」で変えた値は環境設定へ書き戻します。Sparkle が 2 回目の起動で出す「自動的に確認しますか」は、
 環境設定が決めるので出しません(`updaterShouldPromptForPermissionToCheck` が false)。
 
+Info.plist の `SUAllowsAutomaticUpdates = YES` は、「自動でダウンロードしてインストール」を自動確認の ON/OFF に依らせないためのものです
+(2026-10-10 の監査の 2。セキュリティの約束ではないので `UpdaterConfiguration` は見ず、`check-release-app.sh` とテストが確かめる)。無いと Sparkle 2.10 は
+「自動でインストールしてよいか」を起動時の自動確認の値に固定し、アプリから自動確認を書き換えても計算し直しません(自分が書いた defaults の変化を
+自分で無視する。`SPUUpdaterSettings.m`)。そのため自動確認 OFF で起動した回は、途中で ON にしても「自動でインストール」の書き込みが無視され、
+次の起動まで効きませんでした。自動でダウンロードするのは裏の定期確認の中だけなので、自動確認が OFF の間はこの値が YES でも何も起きません。
+Sparkle の値の変化(KVO)は、届いたスレッドがメインならその場で、ほかならメインへ回して受けます(`AppUpdater.onMain`。以前は
+`MainActor.assumeIsolated` だけで、メイン以外で届けば落ちた。Sparkle 自身はメインでしか書き換えず、別のプロセスの `defaults write` も
+メインに届くことを実測)。
+
 ### 利用者から見た動き(Sparkle 2.10.0 の標準の画面。ソースで確かめ、下の実機の確認で見た)
 
 - **いつ確かめるか**: 起動の直後(初回の起動を含む ―― Sparkle が「2 回目の起動まで待つ」のは自動確認の許可を尋ねる画面のことで、

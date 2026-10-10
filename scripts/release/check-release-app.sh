@@ -32,6 +32,9 @@ expect_value SURequireSignedFeed true
 expect_value SUSignedFeedFailureExpirationInterval 0
 expect_value SUEnableInstallerLauncherService true
 expect_value SUEnableDownloaderService true
+# 「自動でダウンロードしてインストール」を自動確認の ON/OFF に依らせない(無いと設定が次の起動まで効かない回がある。
+# AppUpdater.apply のコメント)。セキュリティの約束ではないが、配る前に確かめる。
+expect_value SUAllowsAutomaticUpdates true
 for key in SUEnableSystemProfiling SUEnableJavaScript; do
     got=$(value "$key")
     if [ "$got" = "true" ]; then fail "$key が true(Mac の情報を送る・スクリプトを動かす)"; else ok "$key は ON でない"; fi

@@ -97,21 +97,25 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         }
         self.controller = controller
 
+        // KVO の知らせは、値を書き換えたスレッドで届く。Sparkle はメインスレッドでしか書き換えないので、ふつうはそのまま
+        // 受ける(`onMain`)。届いた値ではなく、受けた時点の Sparkle の値を読む ―― メインへ回した場合に、古い値で書き戻さない。
         updater.publisher(for: \.canCheckForUpdates, options: [.initial, .new])
-            .removeDuplicates()
-            .sink { [weak self] value in
-                MainActor.assumeIsolated { self?.canCheckForUpdates = value }
+            .sink { @Sendable [weak self, weak updater] _ in
+                AppUpdater.onMain { [weak self, weak updater] in
+                    guard let self, let updater, self.canCheckForUpdates != updater.canCheckForUpdates else { return }
+                    self.canCheckForUpdates = updater.canCheckForUpdates
+                }
             }
             .store(in: &subscriptions)
         // Sparkle の更新のウインドウの「今後は自動的にダウンロードしてインストール」で変わった値を環境設定へ戻す。
-        // 自動確認が OFF の間は Sparkle がこの値を常に NO と答える(保存値ではなく「今は効かない」の意味)ので、
-        // そのときは書き戻さない ―― 書き戻すと、自動確認を OFF にしただけで利用者の選択が消える。
+        // 自動確認が OFF の間も Sparkle はこの値を保存値のまま答える(Info.plist の SUAllowsAutomaticUpdates = YES。
+        // 下の apply のコメント)ので、いつ届いた値も利用者の選択として戻してよい。
         updater.publisher(for: \.automaticallyDownloadsUpdates, options: [.new])
-            .sink { [weak self, weak updater] value in
-                MainActor.assumeIsolated {
-                    guard let self, let updater, !self.isApplyingPreferences,
-                          updater.automaticallyChecksForUpdates,
-                          self.preferences.installsUpdatesAutomatically != value else { return }
+            .sink { @Sendable [weak self, weak updater] _ in
+                AppUpdater.onMain { [weak self, weak updater] in
+                    guard let self, let updater, !self.isApplyingPreferences else { return }
+                    let value = updater.automaticallyDownloadsUpdates
+                    guard self.preferences.installsUpdatesAutomatically != value else { return }
                     self.preferences.installsUpdatesAutomatically = value
                 }
             }
@@ -133,16 +137,34 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
               installs: preferences.installsUpdatesAutomatically, to: updater)
     }
 
+    /// 環境設定の 2 つを Sparkle へ書く。
+    ///
+    /// 「自動でダウンロードしてインストール」は自動確認の ON/OFF に関わらず書く。Sparkle 2.10 は、自動確認の ON/OFF を
+    /// アプリから書き換えても「自動でインストールしてよいか」(`allowsAutomaticUpdates`)を計算し直さない(自分が書いた
+    /// defaults の変化を自分で無視するため。`SPUUpdaterSettings.m`)。既定(Info.plist に SUAllowsAutomaticUpdates が無い)
+    /// ではこれが起動時の自動確認の値に固定されるので、自動確認 OFF で起動した回は、途中で ON にしても
+    /// 「自動でインストール」の書き込みが無視され、次の起動まで効かなかった(2026-10-10 の監査の 2)。
+    /// そこで Info.plist で SUAllowsAutomaticUpdates = YES にし、Sparkle の判断をこの値に依らせない。自動でダウンロードするのは
+    /// 自動確認(裏の定期確認)の中だけなので、自動確認が OFF の間にこの値が YES でも何も起きない(`SPUUpdater._checkForUpdatesInBackground`)。
     private func apply(checks: Bool, installs: Bool, to updater: SPUUpdater) {
         isApplyingPreferences = true
         defer { isApplyingPreferences = false }
         if updater.automaticallyChecksForUpdates != checks {
             updater.automaticallyChecksForUpdates = checks
         }
-        // 自動確認が OFF の間、Sparkle はこの書き込みを無視する(allowsAutomaticUpdates が NO)。ON に戻した
-        // ときにここをもう一度通るので、利用者の選択はそこで効く。
-        if checks, updater.automaticallyDownloadsUpdates != installs {
+        if updater.automaticallyDownloadsUpdates != installs {
             updater.automaticallyDownloadsUpdates = installs
+        }
+    }
+
+    /// KVO の知らせを、メインアクターで受ける(届いたスレッドがメインならその場で、ほかならメインへ回して)。
+    /// 以前は `MainActor.assumeIsolated` だけで、メイン以外で届けば落ちた(2026-10-10 の監査の 3。Sparkle 自身はメインでしか
+    /// 書き換えないが、アプリの中のどこかがメイン以外で Sparkle の defaults を書けば、その KVO はそのスレッドで届く)。
+    nonisolated private static func onMain(_ body: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(body)
+        } else {
+            DispatchQueue.main.async { MainActor.assumeIsolated(body) }
         }
     }
 

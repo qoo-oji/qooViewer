@@ -93,7 +93,8 @@ moves, and add new packages (after checking their sources for bundled third-part
 `scripts/ci/check-credits.sh` fails otherwise (docs/11「ライセンス表記」).
 **Sparkle** (`sparkle-project/Sparkle`, **`exactVersion` 2.10.0**, 2026-10-10) is the auto-updater (`Services/AppUpdater.swift`).
 Security rests on one Ed25519 key (the app is not Developer ID signed, so there is no Apple-signing fallback): the Info.plist
-requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS
+(which also sets `SUAllowsAutomaticUpdates = YES` — without it Sparkle freezes "may auto-install" at launch-time and ignores the setting after
+automatic checks are turned on mid-session) requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS
 `SUFeedURL` (pinned by the delegate; defaults' `SUFeedURL` is cleared) and a 32-byte `SUPublicEDKey`, and `UpdaterConfiguration`
 refuses to start Sparkle if any of that is loosened — keep the plist, `UpdaterConfigurationTests` and
 `scripts/release/check-release-app.sh` in step. The app itself still has **no network entitlement**: Sparkle's Downloader.xpc

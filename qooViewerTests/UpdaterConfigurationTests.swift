@@ -157,6 +157,14 @@ struct UpdaterConfigurationTests {
         #expect((Bundle.main.infoDictionary?["SUSignedFeedFailureExpirationInterval"] as? NSNumber)?.intValue == 0)
     }
 
+    @Test("「自動でダウンロードしてインストール」は自動確認の ON/OFF に依らせない(SUAllowsAutomaticUpdates = YES)")
+    func automaticInstallsDoNotDependOnTheLaunchTimeCheckSetting() throws {
+        // 2026-10-10 の監査の 2: 無いと Sparkle 2.10 はこれを起動時の自動確認の値に固定し、自動確認 OFF で起動した回は
+        // 途中で ON にしても「自動でインストール」の書き込みを無視した(AppUpdater.apply のコメント)。
+        let info = try #require(Bundle.main.infoDictionary)
+        #expect((info["SUAllowsAutomaticUpdates"] as? NSNumber)?.boolValue == true)
+    }
+
     @Test("ビルド番号はバージョンと同じ(Sparkle は CFBundleVersion で新旧を比べる)")
     func theBuildNumberFollowsTheMarketingVersion() throws {
         let info = try #require(Bundle.main.infoDictionary)
