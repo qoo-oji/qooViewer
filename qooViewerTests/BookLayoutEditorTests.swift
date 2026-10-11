@@ -7,8 +7,8 @@ import Testing
 /// 「ブックマーク・レイアウトの編集」ウインドウの右ペイン
 /// (ViewModels/BookLayoutEditorViewModel.swift)。
 ///
-/// 本は `load(book:usesDiskCaches:)` で渡す ―― 通常の `load()` は共有のディスクキャッシュ
-/// (`BookPageListCache.shared`)を読み書きするため、テストからは通れない。
+/// 本は `load(book:usesDiskCaches:)` で渡す(行の組み立てだけを見るため)。キャッシュから先に行を組む通常の `load()` は、
+/// 作業フォルダのキャッシュ(`BookDiskCaches`)を渡して PortDrivenFlowTests が通す。
 @MainActor
 struct BookLayoutEditorTests {
     private func makeEditor(

@@ -442,8 +442,8 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
-| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
-| `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
+| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認したうえで、**Debug の制御口で動かして確かめる**(`scripts/ci/smoke-control-port.py`: フィクスチャの本 5 形式が manifest どおりのページ数で開く・ページ送り・メニューの木・本を閉じたら `ViewerViewModel`/`PageLoader` が残らない・機能の ON/OFF 8 通りのホームのモード・Finder から渡す経路・シークレットの窓の開閉。2026-10-11)、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
+| `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認し、制御口の確かめ(同じスクリプト)を通す。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
 | `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:

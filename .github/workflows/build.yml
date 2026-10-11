@@ -217,6 +217,24 @@ jobs:
             exit 1
           fi
 
+      # 起動したアプリを Debug の制御口(App/DebugControlPort.swift)で動かして確かめる: フィクスチャの本が manifest どおりの
+      # ページ数で開く、ページ送り、メニューの木、本を閉じたら ViewerViewModel/PageLoader が残らない、機能の ON/OFF 8 通りの
+      # ホームのモード、Finder から渡す経路、シークレットの窓の開閉(scripts/ci/smoke-control-port.py の冒頭)。
+      - name: Control port smoke test
+        if: matrix.configuration == 'Debug'
+        run: |
+          app="$DERIVED_DATA/Build/Products/Debug/qooViewer.app"
+          reports=~/Library/Logs/DiagnosticReports
+          count_reports() { find "$reports" -maxdepth 1 -name 'qooViewer*' 2>/dev/null | wc -l | tr -d ' '; }
+          before=$(count_reports)
+          python3 -I scripts/ci/smoke-control-port.py "$app" --report "$RUNNER_TEMP/control-port-smoke.json"
+          after=$(count_reports)
+          if [ "$after" -gt "$before" ]; then
+            echo "::error::a crash report was written during the control port smoke test"
+            find "$reports" -maxdepth 1 -name 'qooViewer*' -exec head -c 20000 {} +
+            exit 1
+          fi
+
       - name: Inspect Release app
         if: matrix.configuration == 'Release'
         run: |
@@ -347,6 +365,23 @@ jobs:
           after=$(count_reports)
           if [ "$after" -gt "$before" ]; then
             echo "::error::a crash report was written while qooViewer was running"
+            find "$reports" -maxdepth 1 -name 'qooViewer*' -exec head -c 20000 {} +
+            exit 1
+          fi
+
+      # 起動したアプリを Debug の制御口(App/DebugControlPort.swift)で動かして確かめる: フィクスチャの本が manifest どおりの
+      # ページ数で開く、ページ送り、メニューの木、本を閉じたら ViewerViewModel/PageLoader が残らない、機能の ON/OFF 8 通りの
+      # ホームのモード、Finder から渡す経路、シークレットの窓の開閉(scripts/ci/smoke-control-port.py の冒頭)。
+      - name: Control port smoke test
+        run: |
+          app="$DERIVED_DATA/Build/Products/Debug/qooViewer.app"
+          reports=~/Library/Logs/DiagnosticReports
+          count_reports() { find "$reports" -maxdepth 1 -name 'qooViewer*' 2>/dev/null | wc -l | tr -d ' '; }
+          before=$(count_reports)
+          python3 -I scripts/ci/smoke-control-port.py "$app" --report "$RUNNER_TEMP/control-port-smoke.json"
+          after=$(count_reports)
+          if [ "$after" -gt "$before" ]; then
+            echo "::error::a crash report was written during the control port smoke test"
             find "$reports" -maxdepth 1 -name 'qooViewer*' -exec head -c 20000 {} +
             exit 1
           fi

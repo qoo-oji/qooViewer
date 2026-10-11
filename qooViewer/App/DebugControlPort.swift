@@ -195,6 +195,20 @@ final class DebugControlPort {
             else { throw Failure("no window \(arguments["windowNumber"] ?? "nil")") }
             window.performClose(nil)
             return [:] as [String: Any]
+        case "nudge":
+            // 何もしないイベントを 1 つ流す。SwiftUI・AppKit の後始末(閉じたウインドウの解放など)は次のイベントまで遅れることがあるので
+            // (docs/12「閉じた直後に数えない」)、数える前にこれを送る。
+            if let event = NSEvent.otherEvent(
+                with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, subtype: 0, data1: 0, data2: 0
+            ) {
+                NSApp.postEvent(event, atStart: false)
+            }
+            return [:] as [String: Any]
+        case "quit":
+            // 返事を書いてから終える(待っている側が時間切れにならない)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+            return [:] as [String: Any]
         default:
             throw Failure("unknown command: \(command)")
         }
