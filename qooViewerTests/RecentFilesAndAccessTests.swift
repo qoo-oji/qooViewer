@@ -13,7 +13,7 @@ struct RecentFilesAndAccessTests {
     // MARK: - 最近開いたファイル
 
     @Test("記録は新しい順に並び、同じパスは重複しない")
-    func historyKeepsTheNewestFirstWithoutDuplicates() throws {
+    func historyKeepsTheNewestFirstWithoutDuplicates() async throws {
         let suite = PreferencesSuite(label: "recent")
         let temporary = try TemporaryDirectory("recent")
         let store = RecentFilesStore(defaults: suite.defaults)
@@ -23,17 +23,17 @@ struct RecentFilesAndAccessTests {
         try Data().write(to: first)
         try Data().write(to: second)
 
-        store.record(url: first)
-        store.record(url: second)
+        await store.recordInBackground(url: first).value
+        await store.recordInBackground(url: second).value
         #expect(store.entries.map(\.path) == [second.path, first.path])
 
         // 同じ本をもう一度開いたら、増やさずに先頭へ持ち上げる。
-        store.record(url: first)
+        await store.recordInBackground(url: first).value
         #expect(store.entries.map(\.path) == [first.path, second.path])
     }
 
     @Test("保持件数を超えたぶんは古い順に落ちる")
-    func historyIsCappedAtTheConfiguredLimit() throws {
+    func historyIsCappedAtTheConfiguredLimit() async throws {
         let suite = PreferencesSuite(label: "recent")
         let temporary = try TemporaryDirectory("recent")
         // 件数の上限は環境設定の値を UserDefaults から直接読む(このストアは AppPreferences を
@@ -44,7 +44,7 @@ struct RecentFilesAndAccessTests {
         for index in 1...12 {
             let url = temporary.file(String(format: "book%02d.cbz", index))
             try Data().write(to: url)
-            store.record(url: url)
+            await store.recordInBackground(url: url).value
         }
 
         #expect(store.entries.count == 10)
@@ -53,21 +53,21 @@ struct RecentFilesAndAccessTests {
     }
 
     @Test("記録は新旧2つの形式へ書く(古いバージョンへ戻しても履歴が消えないように)")
-    func recordingWritesBothStorageFormats() throws {
+    func recordingWritesBothStorageFormats() async throws {
         let suite = PreferencesSuite(label: "recent")
         let temporary = try TemporaryDirectory("recent")
         let store = RecentFilesStore(defaults: suite.defaults)
         let url = temporary.file("book.cbz")
         try Data().write(to: url)
 
-        store.record(url: url)
+        await store.recordInBackground(url: url).value
 
         #expect(suite.storedDomain["recentBookEntries"] != nil)
         #expect((suite.storedDomain["recentBookBookmarks"] as? [Data])?.count == 1)
     }
 
     @Test("一覧が空でも、保存済みの履歴は「すべて削除」で消える")
-    func removeAllClearsStoredDataEvenWhenTheListLooksEmpty() throws {
+    func removeAllClearsStoredDataEvenWhenTheListLooksEmpty() async throws {
         let suite = PreferencesSuite(label: "recent")
         // 旧形式(ブックマークの配列)だけがある状態。移行直後はパスが未解決なので、
         // 表示用の一覧には出てこない。
@@ -122,7 +122,7 @@ struct RecentFilesAndAccessTests {
                       Stored(bookmark: goneBookmark, path: gone.path, isDirectory: false)]
         suite.defaults.set(try JSONEncoder().encode(stored), forKey: "recentBookEntries")
         let store = RecentFilesStore(defaults: suite.defaults)
-        store.record(url: present)
+        await store.recordInBackground(url: present).value
         try #require(store.entries.contains { $0.path == offline })
 
         let offlineEntry = try #require(store.entries.first { $0.path == offline })
@@ -158,7 +158,7 @@ struct RecentFilesAndAccessTests {
         let gone = temporary.file("gone.cbz")
         try Data().write(to: gone)
         let store = RecentFilesStore(defaults: suite.defaults)
-        store.record(url: gone)
+        await store.recordInBackground(url: gone).value
         let entry = try #require(store.entries.first { $0.path == gone.path })
         try FileManager.default.removeItem(at: gone)
 
@@ -186,7 +186,7 @@ struct RecentFilesAndAccessTests {
     }
 
     @Test("1件だけの削除は、保存済みのデータからも消える")
-    func removingOneEntryClearsItFromStorage() throws {
+    func removingOneEntryClearsItFromStorage() async throws {
         let suite = PreferencesSuite(label: "recent")
         let temporary = try TemporaryDirectory("recent")
         let store = RecentFilesStore(defaults: suite.defaults)
@@ -194,8 +194,8 @@ struct RecentFilesAndAccessTests {
         let drop = temporary.file("drop.cbz")
         try Data().write(to: keep)
         try Data().write(to: drop)
-        store.record(url: keep)
-        store.record(url: drop)
+        await store.recordInBackground(url: keep).value
+        await store.recordInBackground(url: drop).value
 
         let target = try #require(store.entries.first { $0.path == drop.path })
         store.remove(target)
@@ -207,7 +207,7 @@ struct RecentFilesAndAccessTests {
     // MARK: - フォルダのアクセス権
 
     @Test("許可したフォルダの名前をアプリの中で変えると、新しいパスも許可の中と答える(2026-09-22 の監査)")
-    func grantedFoldersFollowInAppRenames() throws {
+    func grantedFoldersFollowInAppRenames() async throws {
         let suite = PreferencesSuite(label: "access-rename")
         let temporary = try TemporaryDirectory("access-rename")
         let folder = try temporary.directory("granted")

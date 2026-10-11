@@ -107,8 +107,9 @@ nonisolated struct BookRelocationPlan: Sendable {
     }
 
     /// 本のファイル名から決まる題(`BookLoader` が `MangaBook.title` に入れるのと同じ: フォルダは名前そのまま、ファイルは拡張子を除く)。
+    /// パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。
     static func derivedTitle(forBookID bookID: String, isDirectory: Bool) -> String {
-        let url = URL(fileURLWithPath: bookID)
+        let url = URL(filePath: bookID, directoryHint: isDirectory ? .isDirectory : .notDirectory)
         return isDirectory ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
     }
 }

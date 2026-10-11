@@ -1429,12 +1429,16 @@ struct DiffPane: View {
         panel.allowedContentTypes = [.json]
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
-            do {
-                text = String(decoding: try Data(contentsOf: url), as: UTF8.self)
-                message = "Loaded. Press “Apply” to put it to work".ui
-            } catch {
-                // 読めないファイルを選んだことを黙っていない(以前は `try?` で何も起きなかった。監査 MD-8)。
-                editing.errors = [error.localizedDescription]
+            // 読むのは FileIO の上で(選んだファイルが応答しない共有の上でもメインを止めない。2026-10-11 の規約監査)。
+            Task { @MainActor in
+                do {
+                    let data = try await FileIO.perform { try Data(contentsOf: url) }
+                    text = String(decoding: data, as: UTF8.self)
+                    message = "Loaded. Press “Apply” to put it to work".ui
+                } catch {
+                    // 読めないファイルを選んだことを黙っていない(以前は `try?` で何も起きなかった。監査 MD-8)。
+                    editing.errors = [error.localizedDescription]
+                }
             }
         }
     }
@@ -1445,12 +1449,16 @@ struct DiffPane: View {
         panel.nameFieldStringValue = "qooMeta rule changes.json".ui
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
-            do {
-                try editing.settings.changes.data(half).write(to: url, options: .atomic)
-                message = "Written".ui
-            } catch {
-                // 書けなかったことを黙っていない(持っていくつもりのファイルが、実は無いことになる)。
-                editing.errors = [error.localizedDescription]
+            // 中身はここ(メイン)で作り、書き込みは FileIO の上で(上の読み込みと同じ。2026-10-11 の規約監査)。
+            let data = editing.settings.changes.data(half)
+            Task { @MainActor in
+                do {
+                    try await FileIO.perform { try data.write(to: url, options: .atomic) }
+                    message = "Written".ui
+                } catch {
+                    // 書けなかったことを黙っていない(持っていくつもりのファイルが、実は無いことになる)。
+                    editing.errors = [error.localizedDescription]
+                }
             }
         }
     }

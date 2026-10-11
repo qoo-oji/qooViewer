@@ -129,8 +129,11 @@ final class MetadataCorpusStore {
         saving = Task.detached(priority: .utility) {
             await previous?.value
             guard let data = try? JSONEncoder().encode(record) else { return }
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: url, options: .atomic)
+            // 書き込みは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+            await FileIO.perform(qos: .utility) {
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: url, options: .atomic)
+            }
         }
     }
 

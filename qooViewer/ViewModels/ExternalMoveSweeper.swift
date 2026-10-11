@@ -58,9 +58,10 @@ enum ExternalMoveSweeper {
         _ relocations: [FileSystemChange.Relocation], openBookIDs: Set<String>
     ) -> [FileSystemChange.Relocation] {
         guard !openBookIDs.isEmpty else { return relocations }
-        let openPaths = openBookIDs.map { URL(fileURLWithPath: $0) }
+        // パスを揃えるだけ(メインから呼ばれる。`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する ―― 2026-10-11 の規約監査)。
+        let openPaths = openBookIDs.map { URL(filePath: $0).path }
         return relocations.filter { relocation in
-            FileBrowserOperations.openBookConflict(among: [relocation.from, relocation.to], openBookPaths: openPaths.map(\.path)) == nil
+            FileBrowserOperations.openBookConflict(among: [relocation.from, relocation.to], openBookPaths: openPaths) == nil
         }
     }
 

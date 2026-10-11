@@ -408,14 +408,14 @@ struct DataUndoTests {
     // MARK: - 履歴
 
     @Test("履歴の削除を取り消すと元の位置へ戻る。すべて削除も戻せる")
-    func undoingAHistoryRemovalRestoresThePosition() throws {
+    func undoingAHistoryRemovalRestoresThePosition() async throws {
         let suite = PreferencesSuite(label: "undo-history")
         let temporary = try TemporaryDirectory("undo-history")
         let store = RecentFilesStore(defaults: suite.defaults)
         for name in ["c", "b", "a"] {
             let url = temporary.file("\(name).cbz")
             try Data().write(to: url)
-            store.record(url: url)
+            await store.recordInBackground(url: url).value
         }
         let order = store.entries.map(\.path)
         let stack = DataUndoStack()
@@ -432,20 +432,21 @@ struct DataUndoTests {
     }
 
     @Test("消した後に同じ本を開き直していたら、取り消しで二重にしない")
-    func undoingAHistoryRemovalDoesNotDuplicateAReopenedBook() throws {
+    func undoingAHistoryRemovalDoesNotDuplicateAReopenedBook() async throws {
         let suite = PreferencesSuite(label: "undo-history-reopened")
         let temporary = try TemporaryDirectory("undo-history-reopened")
         let store = RecentFilesStore(defaults: suite.defaults)
-        let urls = try ["b", "a"].map { name -> URL in
+        var urls: [URL] = []
+        for name in ["b", "a"] {
             let url = temporary.file("\(name).cbz")
             try Data().write(to: url)
-            store.record(url: url)
-            return url
+            await store.recordInBackground(url: url).value
+            urls.append(url)
         }
         let stack = DataUndoStack()
 
         DataUndoStack.removeAllHistory(in: store, recordingOn: stack)
-        store.record(url: urls[0])
+        await store.recordInBackground(url: urls[0]).value
         stack.undo()
         #expect(store.entries.count == 2)
         #expect(Set(store.entries.map(\.path)).count == 2)

@@ -260,7 +260,8 @@ struct HomeInspectorBookView: View {
             loadedFacts = facts
         } else {
             var missing = HomeInspectorFileFacts(
-                url: URL(fileURLWithPath: recordedPath), isFolder: false, kind: nil, size: nil, created: nil, modified: nil
+                // 見つからない本の行なので、パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。
+                url: URL(filePath: recordedPath), isFolder: false, kind: nil, size: nil, created: nil, modified: nil
             )
             missing.isMissing = true
             loadedFacts = missing

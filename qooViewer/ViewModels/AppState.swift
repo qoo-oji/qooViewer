@@ -1053,12 +1053,32 @@ final class AppState: ObservableObject {
     /// 付きブックマークを解決し、実際にファイル/フォルダがまだ存在するかを確認する
     /// (要望5: 見つからない場合はmissingFavoriteをセットしてアラートを出す。実際に開く処理は
     /// open(url:)にそのまま委譲する)。
+    ///
+    /// 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。待つ間は札を出し、後から頼んだ
+    /// 本があれば開かない(ほかの待つ入口と同じ `OpenIntent`)。
     func openFavorite(_ favorite: FavoriteBook) {
-        guard let favoritesStore, let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
+        guard let favoritesStore else {
             missingFavorite = favorite
             return
         }
-        open(url: url)
+        let intent = beginOpenIntent()
+        let wait = beginOpenWait(intent: intent)
+        Task { @MainActor [weak self] in
+            let outcome = await favoritesStore.locateForOpening(favorite)
+            guard let self else { return }
+            self.endOpenWait(wait)
+            guard self.isStillWanted(intent), !self.isOpenWaitCancelled(wait) else { return }
+            switch outcome {
+            case .found(let url):
+                self.open(url: url, intent: intent)
+            case .notFound:
+                self.missingFavorite = favorite
+            case .timedOut:
+                self.postViewerNotice(FavoritesStore.timedOutMessage(
+                    for: favorite, locale: self.preferences?.effectiveLocale ?? AppLanguage.currentLocale
+                ))
+            }
+        }
     }
 
     /// 現在進行中の読み込みタスク。開いている途中でさらに別の本を開こうとした場合、
@@ -1668,7 +1688,9 @@ final class AppState: ObservableObject {
                                 BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
                             }
                             let found = FileSystemChange.foundOutsideTheApp([
-                                .init(from: URL(fileURLWithPath: oldBookID), to: URL(fileURLWithPath: book.id)),
+                                // パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。向きは上でメインの外で求めたもの。
+                                .init(from: URL(filePath: oldBookID, directoryHint: isDirectory ? .isDirectory : .notDirectory),
+                                      to: URL(filePath: book.id, directoryHint: isDirectory ? .isDirectory : .notDirectory)),
                             ])
                             // メタデータ生成が古いパスを「確かめ済み」のまま持たないように(MetadataGenerator.relocate)。
                             MetadataGenerator.appWide?.relocate(using: found)
@@ -2686,12 +2708,10 @@ final class AppState: ObservableObject {
     ///   nil なら `currentBook`。
     func revealCurrentBookInFinder(_ shownURL: URL? = nil) {
         guard let url = shownURL ?? currentBook?.sourceURL else { return }
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            NSWorkspace.shared.open(url)
-        } else {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
+        // 開いている本の種別は、開いたときにメインの外で求めてある(`MangaBook.sourceFacts`)。それ以外は FinderReveal が FileIO の上で
+        // 確かめる(2026-10-11 の規約監査 ―― 以前はここでメインで stat していた)。
+        let knownIsDirectory = currentBook.flatMap { $0.sourceURL == url ? $0.sourceFacts?.isDirectory : nil }
+        FinderReveal.reveal(url, isDirectory: knownIsDirectory)
     }
 }
 

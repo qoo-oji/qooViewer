@@ -127,8 +127,9 @@ struct FavoritesOrganizerView: View {
                     Label("Favorites (Top Level)", systemImage: "star")
                 }
                 .buttonStyle(.plain)
+                // 選択の色は SelectionEmphasis(後ろのウインドウでは灰色)、ドロップの受け口はアクセント色のまま(docs/15「選択の強調」。2026-10-11 の規約監査)。
                 .listRowBackground(
-                    (selectedFolder == nil || isRootTargeted) ? Color.accentColor.opacity(0.15) : Color.clear
+                    OrganizerRowBackground(isSelected: selectedFolder == nil, isDropTargeted: isRootTargeted)
                 )
                 .onDrop(of: [.text], isTargeted: $isRootTargeted) { providers in
                     handleDrop(providers: providers, targetFolder: nil)
@@ -276,9 +277,7 @@ struct FavoritesOrganizerView: View {
                         // クリックして選択したことが分かるよう、左ペインと同じ見た目でハイライトする
                         // (要望: 右ペインの項目を選択したとき、選択されているか分かりにくい、
                         // という指摘への対応)。
-                        .listRowBackground(
-                            selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
-                        )
+                        .listRowBackground(OrganizerRowBackground(isSelected: selectedEntryID == entry.id))
                         .contextMenu {
                             Button("Rename…") {
                                 // onRename(上のOrganizerFolderRowの.init呼び出し箇所)と同じ対策。
@@ -364,9 +363,7 @@ struct FavoritesOrganizerView: View {
                         // 左ペインの行と同様、カーソルを合わせるとフルネームをツールチップで表示する。
                         .help(favorite.title)
                         // クリックして選択したことが分かるよう、左ペインと同じ見た目でハイライトする。
-                        .listRowBackground(
-                            selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
-                        )
+                        .listRowBackground(OrganizerRowBackground(isSelected: selectedEntryID == entry.id))
                         .contextMenu {
                             // ユーザー要望: サイドパネルの本の行と同じ「開き方」の項目を、
                             // ここにも同じ並びで置く(BookOpenContextMenuItems)。
@@ -717,19 +714,28 @@ struct FavoritesOrganizerView: View {
     private func openFavorite(
         _ favorite: FavoriteBook, to destination: BookOpenDestination, relativeTo activeAppState: AppState?
     ) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
-            activeAppState?.missingFavorite = favorite
-            return
+        // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
+        Task { @MainActor in
+            let outcome = await favoritesStore.locateForOpening(favorite)
+            guard case .found(let url) = outcome else {
+                // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
+                if case .notFound = outcome {
+                    activeAppState?.missingFavorite = favorite
+                } else {
+                    UserFeedback.beep()
+                }
+                return
+            }
+            BookWindowOpener.open(
+                BookOpenRequest(url),
+                to: destination,
+                from: activeAppState,
+                launchCoordinator: launchCoordinator,
+                openWindow: openWindow,
+                // 開き終えたらこの整理ウインドウは役目を終える(従来どおり)。
+                onOpened: { closeEditorWindow() }
+            )
         }
-        BookWindowOpener.open(
-            BookOpenRequest(url),
-            to: destination,
-            from: activeAppState,
-            launchCoordinator: launchCoordinator,
-            openWindow: openWindow,
-            // 開き終えたらこの整理ウインドウは役目を終える(従来どおり)。
-            onOpened: { closeEditorWindow() }
-        )
     }
 
     /// ツールバーの「Add This Book」ボタンから呼ぶ。今読んでいる本を、現在選択中のフォルダへ
@@ -921,12 +927,28 @@ private struct OrganizerFolderRow: View {
                 Button("Delete", role: .destructive) { onDelete(folder) }
             }
         }
-        .listRowBackground(
-            (selectedFolder?.id == folder.id || isTargeted) ? Color.accentColor.opacity(0.15) : Color.clear
-        )
+        // 選択の色は SelectionEmphasis(後ろのウインドウでは灰色)、ドロップの受け口はアクセント色のまま(docs/15「選択の強調」。2026-10-11 の規約監査)。
+        .listRowBackground(OrganizerRowBackground(isSelected: selectedFolder?.id == folder.id, isDropTargeted: isTargeted))
         .onDrag { NSItemProvider(object: "favoriteFolder:\(folder.id.uuidString)" as NSString) }
         .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
             onDrop(providers, folder)
+        }
+    }
+}
+
+/// 「お気に入りの整理」の行の地。選択は SelectionEmphasis(後ろのウインドウでは灰色)、ドロップの受け口はアクセント色
+/// (SelectionEmphasis の型コメント「使わない: ドロップの受け口」)。
+private struct OrganizerRowBackground: View {
+    let isSelected: Bool
+    var isDropTargeted = false
+
+    var body: some View {
+        if isDropTargeted {
+            Color.accentColor.opacity(0.15)
+        } else if isSelected {
+            SelectionEmphasisHighlight(shape: Rectangle())
+        } else {
+            Color.clear
         }
     }
 }

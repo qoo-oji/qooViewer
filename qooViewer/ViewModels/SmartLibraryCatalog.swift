@@ -143,11 +143,12 @@ final class SmartLibraryCatalog: ObservableObject {
             .appendingPathComponent("catalog.json")
     }
 
-    /// 以前の保存先(Caches。2026-09-22 の 1 日だけ)。残っていれば消す。
+    /// 以前の保存先(Caches。2026-09-22 の 1 日だけ)。残っていれば消す。起動時に呼ばれるので、消すのは FileIO の上で
+    /// (2026-10-11 の規約監査)。
     static func removeLegacyCache() {
         guard let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent("SmartLibrary", isDirectory: true) else { return }
-        try? FileManager.default.removeItem(at: url)
+        Task { await FileIO.perform(qos: .utility) { _ = try? FileManager.default.removeItem(at: url) } }
     }
 
     /// 環境設定「スマートライブラリを有効にする」(型コメント「OFF にしたとき」)。
@@ -368,13 +369,14 @@ final class SmartLibraryCatalog: ObservableObject {
         let roots = scanRoots()
         let epoch = restoreEpoch
         Task { [weak self] in
-            let cached = await Task.detached(priority: .userInitiated) { () -> CachedCatalog? in
+            // 読み込みと解読は FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+            let cached = await FileIO.perform(qos: .userInitiated) { () -> CachedCatalog? in
                 guard let data = try? Data(contentsOf: cacheURL),
                       let cached = try? JSONDecoder().decode(CachedCatalog.self, from: data),
                       cached.version == CachedCatalog.currentVersion, cached.roots == roots
                 else { return nil }
                 return cached
-            }.value
+            }
             guard let self else { return }
             self.isRestoringCache = false
             guard let cached, self.isFeatureEnabled, epoch == self.restoreEpoch, cached.roots == self.scanRoots(),
@@ -426,19 +428,22 @@ final class SmartLibraryCatalog: ObservableObject {
         saving = Task.detached(priority: .utility) {
             await previous?.value
             guard latest.withLock({ $0 == sequence }) else { return }
-            if roots.isEmpty {
-                try? FileManager.default.removeItem(at: cacheURL)
-                return
+            // 読み書きは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+            await FileIO.perform(qos: .utility) {
+                if roots.isEmpty {
+                    try? FileManager.default.removeItem(at: cacheURL)
+                    return
+                }
+                if comparesWithFile, let data = try? Data(contentsOf: cacheURL),
+                   let saved = try? JSONDecoder().decode(CachedCatalog.self, from: data),
+                   saved.version == cached.version, saved.roots == cached.roots, saved.isTruncated == cached.isTruncated,
+                   saved.books == cached.books {
+                    return
+                }
+                guard let data = try? JSONEncoder().encode(cached) else { return }
+                try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: cacheURL, options: .atomic)
             }
-            if comparesWithFile, let data = try? Data(contentsOf: cacheURL),
-               let saved = try? JSONDecoder().decode(CachedCatalog.self, from: data),
-               saved.version == cached.version, saved.roots == cached.roots, saved.isTruncated == cached.isTruncated,
-               saved.books == cached.books {
-                return
-            }
-            guard let data = try? JSONEncoder().encode(cached) else { return }
-            try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: cacheURL, options: .atomic)
         }
     }
 

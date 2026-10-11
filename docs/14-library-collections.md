@@ -886,7 +886,7 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 
 **ゴミ箱の中まで追った本は「ある」に数えない**(`BookLocationResolver.isInTrash`。2026-09-19、ユーザー決定)。ブックマークはゴミ箱へ
 送った本にも付いていくので、以前は捨てた本が棚に普通の本として並び、ゴミ箱の中から開けた。いまは `.missing` として淡く出し、
-開かない(`resolvedExistingURL`)。ゴミ箱から戻せば(ファイルブラウザの取り消しでも)また見つかる。パスの綴り(`.Trash` / `.Trashes`)で見る。
+開かない(`CollectionStore.existingURL` ―― 開く前の確かめは `CollectionItemOpenProbe` が FileIO の上で行う)。ゴミ箱から戻せば(ファイルブラウザの取り消しでも)また見つかる。パスの綴り(`.Trash` / `.Trashes`)で見る。
 
 `BookLocation`(→ `Services/BookLocationResolver.swift`)は4つ:
 

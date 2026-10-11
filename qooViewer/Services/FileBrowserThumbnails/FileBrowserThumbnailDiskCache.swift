@@ -167,14 +167,15 @@ actor FileBrowserThumbnailDiskCache {
         guard isEnabled else {
             hasTrimmed = false
             bytesWrittenSinceTrim = 0
-            Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: directory) }
+            // 消す・刈り込むのは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+            Task { await FileIO.perform(qos: .utility) { try? FileManager.default.removeItem(at: directory) } }
             return
         }
         guard isFirst || !previous.isEnabled || maxTotalBytes < previous.maxTotalBytes else { return }
         hasTrimmed = true
         bytesWrittenSinceTrim = 0
-        Task.detached(priority: .utility) {
-            ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: maxTotalBytes)
+        Task {
+            await FileIO.perform(qos: .utility) { ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: maxTotalBytes) }
         }
     }
 
@@ -211,7 +212,7 @@ actor FileBrowserThumbnailDiskCache {
     /// 丸ごと消す。削除は actor の外で行い、終わってから戻る(呼び出し側が使用量を測り直す)。
     func removeAll() async {
         guard let directory else { return }
-        await Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: directory) }.value
+        await FileIO.perform(qos: .utility) { _ = try? FileManager.default.removeItem(at: directory) }
         hasTrimmed = false
         bytesWrittenSinceTrim = 0
     }

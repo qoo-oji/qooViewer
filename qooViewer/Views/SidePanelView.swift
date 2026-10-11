@@ -1352,8 +1352,8 @@ private struct BookContentsSectionView: View {
     ///
     /// 右クリックメニューの中身は行の body と一緒に組まれる(ページを送るたびに見えている行の数だけ)ので、ここではファイルに
     /// 触らない(2026-10-05 の効率の監査 C14。以前は除外したページの行ごとにメインで `fileExists` していた ―― ネットワーク上の
-    /// フォルダの本では往復)。実体の確かめは押したとき(`withRevealTarget`)。本そのものを示せないとき(本の場所が無い)だけは、
-    /// 項目を出すかどうかがファイルの有無で決まるので、今までどおりここで確かめる。
+    /// フォルダの本では往復)。実体の確かめは押したとき(`withRevealTarget`)。本そのものを示せないとき(本の場所が無い)も、
+    /// 確かめは押したときに回す(2026-10-11 の規約監査。以前はここだけメインで `fileExists` していた)。見つからなければ鳴らす。
     private func hasRevealTarget(_ entry: BookInternalBrowsing.Entry) -> Bool {
         switch entry.navigateTarget {
         case .realFolder, .archiveFileOnDisk, .documentFileOnDisk:
@@ -1362,7 +1362,7 @@ private struct BookContentsSectionView: View {
             return bookSourceURL != nil
         case nil:
             if bookSourceURL != nil { return true }
-            return entry.matchKey.hasPrefix("/") && FileManager.default.fileExists(atPath: entry.matchKey)
+            return entry.matchKey.hasPrefix("/")
         }
     }
 
@@ -1387,11 +1387,18 @@ private struct BookContentsSectionView: View {
             }
             let path = entry.matchKey
             Task { @MainActor in
-                let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
-                if exists {
-                    body(URL(fileURLWithPath: path))
+                // 在るかと向きを FileIO の上で一緒に求め、URL はパスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。
+                let found = await FileIO.perform { () -> Bool? in
+                    var isDirectory: ObjCBool = false
+                    return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) ? isDirectory.boolValue : nil
+                }
+                if let isDirectory = found {
+                    body(URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory))
                 } else if let fallback {
                     body(fallback)
+                } else {
+                    // 示すものが無い(押したときには消えていた)。黙らない(CLAUDE.md「断る・失敗する入口は知らせる」)。
+                    UserFeedback.beep()
                 }
             }
         }
@@ -1767,14 +1774,19 @@ private struct SidePanelFavoriteRow: View {
             )
             Divider()
             Button("Show in Finder") {
-                guard let url = favoritesStore.resolvedExistingURL(for: book, purpose: .userOpen) else { return }
-                FinderReveal.reveal(url)
+                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。見つからなければ鳴らす。
+                Task { @MainActor in
+                    guard case .found(let url) = await favoritesStore.locateForOpening(book) else { return UserFeedback.beep() }
+                    FinderReveal.reveal(url)
+                }
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let url = favoritesStore.resolvedExistingURL(for: book, purpose: .userOpen) else { return }
-                    revealInFileBrowser(url)
+                    Task { @MainActor in
+                        guard case .found(let url) = await favoritesStore.locateForOpening(book) else { return UserFeedback.beep() }
+                        revealInFileBrowser(url)
+                    }
                 }
             }
             Divider()

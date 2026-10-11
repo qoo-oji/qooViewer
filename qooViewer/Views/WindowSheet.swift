@@ -169,6 +169,20 @@ enum WindowSheet {
         }
     }
 
+    /// **どのウインドウにも属さない**パネル(「新規ウインドウで開く…」 ―― アプリ全体の頼みとして `runModal` を許している所)を
+    /// アプリモーダルで出し、選ばれた場所を返す。キャンセルなら nil。
+    ///
+    /// 選ばれた場所をここで読むのは、ほかのパネルと同じくテストが答えを差し込めるようにするため(以前は呼び出し側が `panel.urls` を
+    /// 直に読んでいた。2026-10-11 の規約監査)。テストホストの中で答える役が無ければ出さない(`begin` と同じ)。
+    static func chooseURLsAppModally(_ panel: NSSavePanel) -> [URL]? {
+        if let responder = SheetScripting.responder {
+            return responder.reply(to: .init(panel: panel)).chosenURLs
+        }
+        guard !RuntimeEnvironment.isRunningTests, panel.runModal() == .OK else { return nil }
+        let urls = (panel as? NSOpenPanel)?.urls ?? panel.url.map { [$0] } ?? []
+        return urls.isEmpty ? nil : urls
+    }
+
     /// `beginChoosing(_:for:completion:)`の async 版。
     static func chooseURLs(_ panel: NSSavePanel, for window: NSWindow? = nil) async -> [URL]? {
         await withCheckedContinuation { continuation in

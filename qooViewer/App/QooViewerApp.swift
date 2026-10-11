@@ -2179,7 +2179,8 @@ struct QooViewerApp: App {
             // (2026-10-11 の規約監査で直した)。
             language: locale
         )
-        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        // アプリモーダル(どのウインドウにも属さない頼み)。選ばれた場所は WindowSheet が読む(テストが答えを差し込める口)。
+        guard let urls = WindowSheet.chooseURLsAppModally(panel) else { return }
         // 複数の本を選んだら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。DroppedBooks)。
         //
         // 下調べは Dock・Finder からの「開く」と同じ `ExternalOpenPreparation.prepare`(2026-10-04 の監査 O-6)。以前は
@@ -2187,7 +2188,6 @@ struct QooViewerApp: App {
         // 開き、本でないもの(空のフォルダ・対応しないファイル)だと**窓を 1 枚作ってからエラーを出していた**。⌘O・ドロップ・Finder は
         // 開かずに知らせる。開けるものが無ければ窓を作らず、手前の窓(無ければアラート)に知らせる。
         // 本でないので並びに入れなかった数は、従来どおり知らせない(開く先の窓が後から決まる。docs/04)。
-        let urls = panel.urls
         let order = preferences.siblingBookOrder
         Task { @MainActor in
             // 決め方は `prepareForNewWindow`(テストはそこを通る。2026-10-04 のレビューの R6-6)。
@@ -2212,12 +2212,22 @@ struct QooViewerApp: App {
     /// 選んだときに呼ぶ。開く前にセキュリティスコープ付きブックマークを解決し、実際に
     /// ファイル/フォルダが存在するかを確認する(要望5)。見つからなければ、通常の「開く」
     /// (AppState.openFavorite)と同じくmissingFavoriteをセットしてアラートを出す。
+    ///
+    /// 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
     private func openFavorite(_ favorite: FavoriteBook, asTab: Bool) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
-            focusedAppState?.missingFavorite = favorite
-            return
+        let appState = focusedAppState
+        let locale = currentLocale
+        Task { @MainActor in
+            switch await favoritesStore.locateForOpening(favorite) {
+            case .found(let url):
+                openInNewWindow(BookOpenRequest(url), asTab: asTab, tabTarget: nil)
+            case .notFound:
+                appState?.missingFavorite = favorite
+            case .timedOut:
+                // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
+                if let appState { appState.postViewerNotice(FavoritesStore.timedOutMessage(for: favorite, locale: locale)) } else { UserFeedback.beep() }
+            }
         }
-        openInNewWindow(BookOpenRequest(url), asTab: asTab, tabTarget: nil)
     }
 
     /// メニューバーの「お気に入り一覧」からお気に入りをクリックしたときの実際の分岐処理。
@@ -2241,8 +2251,12 @@ struct QooViewerApp: App {
         guard let targetAppState, targetAppState.currentBook != nil else {
             if let targetAppState {
                 targetAppState.openFavorite(favorite)
-            } else if let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) {
-                openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+            } else {
+                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
+                Task { @MainActor in
+                    guard case .found(let url) = await favoritesStore.locateForOpening(favorite) else { return UserFeedback.beep() }
+                    openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+                }
             }
             return
         }
@@ -2782,8 +2796,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 前回までの起動が残した一時ファイル(入れ子の書庫の展開物)を片付ける。
         // ディレクトリの走査を伴うので、起動の邪魔をしないようメインスレッドの外で行う
         // (TemporaryFileStoreの型コメント参照)。
-        Task.detached(priority: .utility) {
-            TemporaryFileStore.removeStaleSessionDirectories()
+        // FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+        Task {
+            await FileIO.perform(qos: .utility) { TemporaryFileStore.removeStaleSessionDirectories() }
         }
         UserDefaults.standard.register(defaults: [
             "NSInitialToolTipDelay": 200,

@@ -325,7 +325,8 @@ final class AutoRenameService: ObservableObject {
             guard !preferences.fileBrowserReadOnly else {
                 return String(localized: "Original names can’t be restored while the file browser is in read-only mode.", language: currentLocale)
             }
-            let current = URL(fileURLWithPath: entry.folderPath + "/" + newName)
+            // パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。
+            let current = URL(filePath: entry.folderPath + "/" + newName)
             let originalPath = entry.folderPath + "/" + entry.originalName
             // **ビューアで開いている本(それを含むフォルダ・その中の項目)は戻さない**(2026-10-04 の監査 TW-16)。自動の改名が開いている本を
             // 飛ばす(`inUsePaths`)・ファイルブラウザの名前の変更が断る(`FileBrowserOperations.refusesBecauseOpenInViewer`)のと同じ決まりで、

@@ -2313,7 +2313,9 @@ struct ViewerView: View {
             Menu("Favorites List") {
                 FavoritesMenuContent(
                     favoritesStore: favoritesStore,
-                    onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+                    // ViewerView を直に捕まえない(右クリックの閉包は AppKit が窓より長く持つ ―― CLAUDE.md の ViewerActionRelay の件。
+                    // 2026-10-11 の規約監査。お気に入り機能は今は隠してあるが、戻したときに漏れが戻らないように)。
+                    onOpen: { [relay = actionRelay] favorite in relay.send { $0.openFavoriteAccordingToPreference(favorite) } }
                 )
             }
 
@@ -4160,7 +4162,7 @@ struct ViewerView: View {
     /// ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、こちらでも
     /// 同じ判定を実装している。ViewerViewが表示されている時点で必ず本を表示しているはずだが、
     /// 念のためcurrentBookがnilの場合は常にそのまま開く形にフォールバックする。
-    private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
+    func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
         guard appState.currentBook != nil else {
             appState.openFavorite(favorite)
             return
@@ -4427,19 +4429,34 @@ struct ViewerView: View {
     ///
     /// 見つからなかった場合は、通常の「開く」(AppState.openFavorite)と同じくアラートを出す。
     private func openFavorite(_ favorite: FavoriteBook, to destination: BookOpenDestination) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
-            appState.missingFavorite = favorite
-            return
+        // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。待つ間に ViewerView を
+        // 掴まないよう、要るものだけを写して渡す。
+        let favoritesStore = favoritesStore
+        let appState = appState
+        let launchCoordinator = launchCoordinator
+        let openWindow = openWindow
+        Task { @MainActor in
+            let outcome = await favoritesStore.locateForOpening(favorite)
+            guard case .found(let url) = outcome else {
+                // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
+                if case .notFound = outcome {
+                    appState.missingFavorite = favorite
+                } else {
+                    appState.postViewerNotice(FavoritesStore.timedOutMessage(
+                        for: favorite, locale: appState.preferences?.effectiveLocale ?? AppLanguage.currentLocale))
+                }
+                return
+            }
+            // このウインドウから派生した操作なので、シークレットかどうか・タブの追加先は
+            // このウインドウに揃える(BookWindowGroup / BookWindowOpener参照)。
+            BookWindowOpener.open(
+                BookOpenRequest(url),
+                to: destination,
+                from: appState,
+                launchCoordinator: launchCoordinator,
+                openWindow: openWindow
+            )
         }
-        // このウインドウから派生した操作なので、シークレットかどうか・タブの追加先は
-        // このウインドウに揃える(BookWindowGroup / BookWindowOpener参照)。
-        BookWindowOpener.open(
-            BookOpenRequest(url),
-            to: destination,
-            from: appState,
-            launchCoordinator: launchCoordinator,
-            openWindow: openWindow
-        )
     }
 
     /// 見開きの左/右ページを原寸大の別ウインドウで表示する(cooViewerの「実寸表示ウィンドウ」相当)。

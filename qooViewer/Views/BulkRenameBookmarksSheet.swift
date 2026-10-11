@@ -41,6 +41,8 @@ enum LastBookmarkTreatment: String, CaseIterable, Identifiable {
 
 struct BulkRenameBookmarksSheet: View {
     let bookID: String
+    /// 表紙のページの鍵を引くページ一覧のキャッシュ(BookDiskCaches。共有のものを直に読まない ―― CLAUDE.md「テストの口」)。
+    var diskCaches: BookDiskCaches = .shared
 
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
@@ -115,7 +117,7 @@ struct BulkRenameBookmarksSheet: View {
     /// 実質的な先頭ページ(実効順の1ページ目)の鍵を、本体を読み込まずにキャッシュから求める
     /// (coverPageKeyのコメント参照)。
     private func resolveCoverPageKey(for bookID: String) async -> String? {
-        guard let cached = await BookPageListCache.shared.pageList(forBookID: bookID),
+        guard let cached = await diskCaches.pageLists.pageList(forBookID: bookID),
               !cached.pages.isEmpty else { return nil }
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
         let excludedKeys = Set(

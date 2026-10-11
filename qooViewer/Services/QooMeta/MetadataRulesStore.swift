@@ -84,8 +84,9 @@ final class MetadataRulesStore {
     nonisolated static var dictionaries: [String: WordSet] { SystemDictionaries.all }
 
     /// 辞書を画面の外で読んでおく(メタデータの編集ウインドウを初めて開いたときに main で待たないため)。
+    /// 読むのは FileIO の上で(ファイルを読むので協調スレッドプールに載せない ―― CLAUDE.md の FileIO の決まり。2026-10-11 の規約監査)。
     nonisolated static func warmUp() {
-        Task.detached(priority: .utility) { _ = SystemDictionaries.all }
+        Task { await FileIO.perform(qos: .utility) { _ = SystemDictionaries.all } }
     }
 
     // MARK: - 規則の差分

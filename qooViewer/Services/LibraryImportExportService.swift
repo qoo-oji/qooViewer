@@ -241,7 +241,7 @@ enum LibraryImportExportService {
     /// フォルダ階層をルートから再帰的にたどり、フラットな配列2つ(folders/books)に展開する。
     ///
     /// ユーザー要望(後方互換性): 識別子を持たない古いFavoriteBook行についても、
-    /// favoritesStore.resolvedExistingURL(for:)でファイルの実在が確認できる場合は、そこから
+    /// お気に入りのブックマークでファイルの実在が確認できる場合は(FileIO の上で)、そこから
     /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarks/
     /// exportLayoutsの同種の処理と同じ理由)。
     ///

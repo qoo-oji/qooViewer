@@ -30,27 +30,35 @@ nonisolated enum FinderReveal {
     ///   (履歴は`RecentFilesStore.Entry.isDirectory`にキャッシュ済み。お気に入りは
     ///   セキュリティスコープ付きブックマークを解決したURLを渡せば、下の既定の経路で
     ///   正しく判定できる。)
+    ///
+    ///   渡さなければ、在るかと種別を **`FileIO` の上で**確かめてから見せる(2026-10-11 の規約監査。呼び出し元はどれもメインの
+    ///   ボタンの処理で、以前はここでメインで stat していた ―― 応答しない共有の上の本では押すたびに最長約 30 秒止まった)。
     static func reveal(_ url: URL, isDirectory: Bool? = nil) {
         if let isDirectory {
             performReveal(url, isDirectory: isDirectory)
             return
         }
-        // スコープ付きで解決されたURLなら、ここで開いてから確認する必要がある。
-        // スコープの付いていないURLではfalseが返るだけで無害(start/stopは回数さえ
-        // 釣り合っていればよい。RecentFilesStore.fileExists(at:)と同じ考え方)。
-        let didStartAccessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccessing {
-                url.stopAccessingSecurityScopedResource()
+        Task { @MainActor in
+            let found = await FileIO.perform { () -> Bool? in
+                // スコープ付きで解決されたURLなら、ここで開いてから確認する必要がある。
+                // スコープの付いていないURLではfalseが返るだけで無害(start/stopは回数さえ
+                // 釣り合っていればよい。RecentFilesStore.fileExists(at:)と同じ考え方)。
+                let didStartAccessing = url.startAccessingSecurityScopedResource()
+                defer {
+                    if didStartAccessing {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) ? isDir.boolValue : nil
             }
+            // 見つからなければ鳴らす(以前は黙って何もしなかった。2026-10-06 の応答性の点検 R3-4)。
+            guard let isDirectory = found else {
+                UserFeedback.beep()
+                return
+            }
+            performReveal(url, isDirectory: isDirectory)
         }
-        var isDir: ObjCBool = false
-        // 見つからなければ鳴らす(以前は黙って何もしなかった。2026-10-06 の応答性の点検 R3-4)。
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
-            UserFeedback.beep()
-            return
-        }
-        performReveal(url, isDirectory: isDir.boolValue)
     }
 
     private static func performReveal(_ url: URL, isDirectory: Bool) {

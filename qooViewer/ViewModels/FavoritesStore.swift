@@ -329,13 +329,18 @@ final class FavoritesStore: ObservableObject {
         }
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        Task.detached(priority: .utility) { [weak self] in
-            var result: [UUID: Bool] = [:]
-            for item in items {
-                result[item.id] = FavoritesStore.fileExists(bookmark: item.bookmark)
+        // 確かめは FileIO の上で(ブックマークの解決と存在確認は利用者の本 ―― 応答しない共有では協調スレッドを塞いだ。2026-10-11 の
+        // 規約監査。以前は Task.detached)。
+        Task { [weak self] in
+            let result = await FileIO.perform(qos: .utility) { () -> [UUID: Bool] in
+                var result: [UUID: Bool] = [:]
+                for item in items {
+                    result[item.id] = FavoritesStore.fileExists(bookmark: item.bookmark)
+                }
+                return result
             }
             guard let self else { return }
-            await self.finishExistenceRefresh(result)
+            self.finishExistenceRefresh(result)
         }
     }
 
@@ -1005,8 +1010,32 @@ final class FavoritesStore: ObservableObject {
     /// (要望5: 開く前の存在チェック)。呼び出し側(AppState.openFavorite、
     /// QooViewerApp.openFavorite(_:asTab:))は、これがnilを返した場合に
     /// 「見つかりません。お気に入りから削除しますか?」というアラートを表示する。
-    func resolvedExistingURL(for favorite: FavoriteBook, purpose: BookmarkResolution.Purpose = .background) -> URL? {
-        guard let url = resolvedURL(for: favorite, purpose: purpose) else { return nil }
+    ///
+    /// **解決と存在確認はメインの外で、期限つき**(2026-10-11 の規約監査。以前は同期の `resolvedExistingURL(for:)` をメインで呼び、
+    /// `.userOpen` の解決は繋がっていないボリュームへ繋ぎに行くので、押すたびにメインが待った)。期限は `StoredBookLocator.limit`。
+    ///
+    /// 期限切れは「見つからない」と分けて返す(`.timedOut`)。眠っていた共有が起きるのに時間がかかっただけの本を「見つからない ――
+    /// お気に入りから削除しますか?」へ回さない(CLAUDE.md「解決の失敗だけで『無い』と読まない」。2026-10-11 のレビュー)。
+    func locateForOpening(_ favorite: FavoriteBook) async -> StoredBookLocator.Outcome {
+        let data = favorite.bookmarkData
+        do {
+            let url = try await FileIO.withDeadline(StoredBookLocator.limit) {
+                await FileIO.perform { Self.existingURL(fromBookmark: data, purpose: .userOpen) }
+            }
+            return url.map(StoredBookLocator.Outcome.found) ?? .notFound
+        } catch {
+            return .timedOut
+        }
+    }
+
+    /// 期限切れの知らせの文(`locateForOpening` が `.timedOut` を返したとき。履歴の期限切れと同じ文)。
+    static func timedOutMessage(for favorite: FavoriteBook, locale: Locale) -> String {
+        RecentFilesStore.OpenFailure.timedOut.message(name: favorite.title, locale: locale)
+    }
+
+    /// `locateForOpening` の本体。**ブロッキングする**ので `FileIO` の上で呼ぶ。
+    nonisolated static func existingURL(fromBookmark data: Data, purpose: BookmarkResolution.Purpose) -> URL? {
+        guard let url = resolvedURL(fromBookmark: data, purpose: purpose) else { return nil }
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer {
             if didStartAccessing {

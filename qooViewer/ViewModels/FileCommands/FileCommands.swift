@@ -139,7 +139,10 @@ final class CopyFilesCommand: FileCommand {
         // **作ったそのものだけを**ゴミ箱へ(FileIdentity の型コメント。同じ名前の別の項目に変わっていたら触らない)。
         let receipts = outcome.receipts
         let (ours, changed) = await FileIO.perform { TransferUndo.partitionByIdentity(receipts) }
-        let changedFailures = changed.map { FailedItem(url: $0.destination, reason: TransferUndo.changedReason(for: $0.destination)) }
+        // 理由を決める確かめ(lstat)も FileIO の上で(ほかの `changedReason` の呼び出しと同じ。2026-10-11 の規約監査)。
+        let changedFailures = await FileIO.perform {
+            changed.map { FailedItem(url: $0.destination, reason: TransferUndo.changedReason(for: $0.destination)) }
+        }
         guard !ours.isEmpty else { return .impossible(reason: changedFailures[0].reason) }
         // コピーの取り消しは受領書をまとめて 1 回でゴミ箱へ(ゴミ箱の無い場所では取り消せない ――
         // 黙って完全削除しない)。ロックされた元をコピーするとロックも写るので、**自分が作ったものに限って**
@@ -296,7 +299,10 @@ enum TransferUndo {
     static func trashCreated(_ receipts: [TransferReceipt], fileOps: FileOperationService) async -> FileUndoResult {
         guard !receipts.isEmpty else { return .impossible(reason: nothingToRestore) }
         let (ours, changed) = await FileIO.perform { partitionByIdentity(receipts) }
-        let changedFailures = changed.map { FailedItem(url: $0.destination, reason: changedReason(for: $0.destination)) }
+        // 理由を決める確かめ(lstat)も FileIO の上で(2026-10-11 の規約監査)。
+        let changedFailures = await FileIO.perform {
+            changed.map { FailedItem(url: $0.destination, reason: changedReason(for: $0.destination)) }
+        }
         guard !ours.isEmpty else { return .impossible(reason: changedFailures[0].reason) }
         let trashed: TrashOutcome
         do {
@@ -839,8 +845,10 @@ final class CreateFolderCommand: FileCommand {
         }
         // **メインアクターで一覧を読まない**(応答しない共有で ⌘Z がメインスレッドを止める)。
         // 読めなければ空とみなさない(2026-09-14 の 2 回目の監査。以前は読めないフォルダを空として、中身ごとゴミ箱へ送りえた)。
+        // 一覧は `readdir` で(`contentsOfDirectory` は `._*` を黙って省くので、exFAT などで `._` だけが残ったフォルダを空とみなして
+        // ゴミ箱へ送った ―― CLAUDE.md「1 件ずつ消すものは readdir で名前を並べる」。2026-10-11 の規約監査)。
         let listing: Result<Bool, any Error> = await FileIO.perform {
-            Result { try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty }
+            Result { try FileOperationService.directoryEntryNames(atPath: target.path).isEmpty }
         }
         let isEmpty: Bool
         switch listing {

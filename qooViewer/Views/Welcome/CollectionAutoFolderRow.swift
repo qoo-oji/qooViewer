@@ -215,14 +215,20 @@ struct CollectionAutoFolderRow: View {
 
     /// 落とされたものからフォルダを1つだけ採る(ファイルは無視する ―― ここが受けるのは
     /// 「どのフォルダを見張るか」であって、本ではない)。
+    ///
+    /// フォルダかどうかは `FileIO` の上で確かめる(Finder から共有の上のフォルダを落とされても、メインを止めない。2026-10-11 の規約監査)。
     private func adoptDroppedFolder(_ urls: [URL]) {
-        var isDirectory: ObjCBool = false
-        guard let dropped = urls.first(where: {
-            FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory)
-                && isDirectory.boolValue
-        }) else { return }
-        folderAccess.add(url: dropped)
-        folder = dropped
+        Task { @MainActor in
+            let dropped = await FileIO.perform { () -> URL? in
+                urls.first { url in
+                    var isDirectory: ObjCBool = false
+                    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                }
+            }
+            guard let dropped else { return }
+            folderAccess.add(url: dropped)
+            folder = dropped
+        }
     }
 
     /// 権限の付いていないフォルダ(落とされたファイルの親など)への許可を求める。

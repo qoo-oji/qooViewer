@@ -660,8 +660,8 @@ struct FileBrowserStateTests {
         #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
 
         fixture.preferences.fileBrowserShowsRecents = true
-        recent.record(url: fixture.root.appendingPathComponent("B.cbz"))
-        recent.record(url: fixture.aFolder)
+        await recent.recordInBackground(url: fixture.root.appendingPathComponent("B.cbz")).value
+        await recent.recordInBackground(url: fixture.aFolder).value
         state.showRecents()
         await state.settle()
         #expect(state.isShowingRecents)
@@ -673,7 +673,7 @@ struct FileBrowserStateTests {
         #expect(state.entries.map(\.isDirectory) == [true, false])
 
         // 履歴が変われば読み直す。
-        recent.record(url: fixture.bFolder)
+        await recent.recordInBackground(url: fixture.bFolder).value
         try await Task.sleep(for: .milliseconds(100))
         await state.settle()
         #expect(fixture.names() == ["b-folder", "a-folder", "B.cbz"])

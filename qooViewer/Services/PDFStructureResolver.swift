@@ -227,6 +227,11 @@ nonisolated enum PDFStructureResolver {
 
     /// `resolveOutline(url:)` の、PDF を開けなかったら nil を返す版(2026-09-26。空の配列は「アウトラインが無い」。
     /// `resolveMetadataIfReadable` と同じ)。
+    ///
+    /// `openPDFDocument(at:)`(ネットワーク上の PDF を読み込み層に通す窓口)を通さず PDFKit で直に開くのは、`resolveMetadataIfReadable`
+    /// と同じ理由 ―― アウトライン(`PDFOutline`)は PDFKit の `PDFDocument` にしか無く、`PDFDocument` はファイルから開くほかに手が無い
+    /// (データから開くと全体をメモリに載せる)。呼び出し元は FileIO の上で呼ぶ(ViewerViewModel の目次の取り込み。2026-10-11 の規約監査で
+    /// 理由を書き足した)。
     static func resolveOutlineIfReadable(url: URL) -> [PDFOutlineEntry]? {
         guard let document = PDFDocument(url: url) else { return nil }
         guard let root = document.outlineRoot else { return [] }

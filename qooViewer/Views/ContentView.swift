@@ -1753,17 +1753,27 @@ struct ContentView: View {
             // アラートを出す(シークレットウインドウでは「お気に入りから削除」は出ない ――
             // 保存データへの変更にあたるため。missingFavoriteの扱いはViewerView側が持つ)。
             onOpenFavoriteInNewWindow: { favorite, destination in
-                guard let url = favoritesStore.resolvedExistingURL(for: favorite, purpose: .userOpen) else {
-                    appState.missingFavorite = favorite
-                    return
+                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
+                Task { @MainActor in
+                    let outcome = await favoritesStore.locateForOpening(favorite)
+                    guard case .found(let url) = outcome else {
+                        // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
+                        if case .notFound = outcome {
+                            appState.missingFavorite = favorite
+                        } else {
+                            appState.postViewerNotice(FavoritesStore.timedOutMessage(
+                            for: favorite, locale: appState.preferences?.effectiveLocale ?? AppLanguage.currentLocale))
+                        }
+                        return
+                    }
+                    BookWindowOpener.open(
+                        BookOpenRequest(url),
+                        to: destination,
+                        from: appState,
+                        launchCoordinator: launchCoordinator,
+                        openWindow: openWindow
+                    )
                 }
-                BookWindowOpener.open(
-                    BookOpenRequest(url),
-                    to: destination,
-                    from: appState,
-                    launchCoordinator: launchCoordinator,
-                    openWindow: openWindow
-                )
             },
             onOpenFavorite: { favorite in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }

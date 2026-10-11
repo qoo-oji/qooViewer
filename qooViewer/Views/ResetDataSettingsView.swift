@@ -277,18 +277,25 @@ struct ResetDataSettingsView: View {
         Task { await ThumbnailDiskCache.shared.removeAll() }
         Task { await FileBrowserThumbnailDiskCache.shared.removeAll() }
         Task { await BookPageListCache.shared.removeAll() }
-        // コレクションのカバー画像も同じ扱い(こちらはキャッシュではなくApplication Support配下
-        // だが、「このアプリが保存したすべて」に含まれる。CollectionCoverStoreの型コメント参照)。
-        CollectionCoverStore.removeDefaultDirectory()
-        // コレクション表紙の元画像(利用者が指定した画像の複製)も同じ扱い。こちらは作り直せない
-        // ―― 元ファイルは利用者が既に捨てているかもしれない(CollectionCoverSourceStore参照)。
-        CollectionCoverSourceStore.removeDefaultDirectory()
-        // 焼いた札の絵(CollectionTileImageStore)はカバーから作り直せるキャッシュだが、
-        // 消し残すと「削除したはずのコレクションの絵」がディスクに残る。
-        CollectionTileImageStore.removeDefaultDirectory()
-        // qooMeta の設定とスマートライブラリの一覧(QooViewerApp.metadataAndSmartLibraryDirectories のコメント)。
-        for directory in QooViewerApp.metadataAndSmartLibraryDirectories {
-            try? FileManager.default.removeItem(at: directory)
+        // 下のフォルダの削除も、キャッシュと同じく完了は待たず FileIO の上で(画像の枚数ぶんの削除がメインで走っていた。
+        // 2026-10-11 の規約監査。終了時の予約済み削除がもう一度消す)。
+        let metadataAndSmartLibraryDirectories = QooViewerApp.metadataAndSmartLibraryDirectories
+        Task {
+            await FileIO.perform(qos: .userInitiated) {
+                // コレクションのカバー画像も同じ扱い(こちらはキャッシュではなくApplication Support配下
+                // だが、「このアプリが保存したすべて」に含まれる。CollectionCoverStoreの型コメント参照)。
+                CollectionCoverStore.removeDefaultDirectory()
+                // コレクション表紙の元画像(利用者が指定した画像の複製)も同じ扱い。こちらは作り直せない
+                // ―― 元ファイルは利用者が既に捨てているかもしれない(CollectionCoverSourceStore参照)。
+                CollectionCoverSourceStore.removeDefaultDirectory()
+                // 焼いた札の絵(CollectionTileImageStore)はカバーから作り直せるキャッシュだが、
+                // 消し残すと「削除したはずのコレクションの絵」がディスクに残る。
+                CollectionTileImageStore.removeDefaultDirectory()
+                // qooMeta の設定とスマートライブラリの一覧(QooViewerApp.metadataAndSmartLibraryDirectories のコメント)。
+                for directory in metadataAndSmartLibraryDirectories {
+                    try? FileManager.default.removeItem(at: directory)
+                }
+            }
         }
         // 履歴と「前回開いていた本」は終了時のUserDefaultsの削除で消えるが、その場でも消しておく
         // (「Quit Now」までの間に画面に残っていると、消えていないように見えるため)。

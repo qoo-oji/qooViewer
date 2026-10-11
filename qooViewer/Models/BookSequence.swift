@@ -16,7 +16,7 @@ nonisolated struct BookSequence: Codable, Hashable, Sendable {
     enum Entry: Codable, Hashable, Sendable {
         /// パスで開く本(スマートライブラリ。権限は対象フォルダの許可 ―― FolderAccessStore)。
         case file(path: String)
-        /// コレクションの本(開くときは項目のブックマークから解決する ―― `CollectionStore.resolvedExistingURL`)。
+        /// コレクションの本(開くときは項目のブックマークから解決する ―― `CollectionStore.existingURL(fromBookmark:)`、FileIO の上)。
         /// `path` は項目が見つからなくなったとき(コレクションから外した)の予備。
         case collectionItem(id: UUID, path: String)
 

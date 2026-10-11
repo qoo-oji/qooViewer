@@ -233,13 +233,27 @@ nonisolated enum ArchiveExtractor {
             let children = ((try? FileManager.default.contentsOfDirectory(atPath: temporary.path)) ?? [])
                 .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             var receipts: [TransferReceipt] = []
+            func placeChild(_ child: String) throws {
+                let source = temporary.appendingPathComponent(child)
+                var info = stat()
+                let isDirectory = lstat(source.path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
+                let placed = try moveExclusively(source, into: folder, preferredName: child, isDirectory: isDirectory)
+                receipts.append(TransferReceipt(source: archive, destination: placed, replacedItemInTrash: nil, identity: FileIdentity.of(placed)))
+            }
             do {
                 for child in children {
-                    let source = temporary.appendingPathComponent(child)
-                    var info = stat()
-                    let isDirectory = lstat(source.path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
-                    let placed = try moveExclusively(source, into: folder, preferredName: child, isDirectory: isDirectory)
-                    receipts.append(TransferReceipt(source: archive, destination: placed, replacedItemInTrash: nil, identity: FileIdentity.of(placed)))
+                    try placeChild(child)
+                }
+                // `contentsOfDirectory` は `._*` を黙って省くので、残りを `readdir` で見る(2026-10-11 の規約監査)。書庫の `._*` は計画の
+                // 段階で除いてある(`ArchiveExtractionPlan` の `isAppleDoubleEntry`)ので、残っている `._*` は FAT/exFAT でカーネルが作った
+                // AppleDouble ―― 消す。以前は一時フォルダに残り、`rmdir` が失敗して隠しの一時フォルダが出力先に残った。`._` で始まらない
+                // 残り(上の一覧の後に現れたもの)は、ほかの項目と同じく置く。
+                for name in (try? FileOperationService.directoryEntryNames(atPath: temporary.path)) ?? [] {
+                    if name.hasPrefix("._") {
+                        unlink(temporary.appendingPathComponent(name).path)
+                    } else {
+                        try placeChild(name)
+                    }
                 }
             } catch {
                 // 途中まで置いたものは受領書ごと返せないので、置いたものを一時フォルダへ戻してから失敗させる
@@ -251,7 +265,11 @@ nonisolated enum ArchiveExtractor {
                 }
                 throw error
             }
-            rmdir(temporary.path)
+            // 空になった一時フォルダを外す。**空のときだけ** ―― `._` だけが残った exFAT のフォルダへの `rmdir` はカーネルごと固まった
+            // (CLAUDE.md、2026-09-15 の実測)。何か残っていれば外さない(隠しの一時フォルダが残るだけ)。
+            if (try? FileOperationService.directoryEntryNames(atPath: temporary.path))?.isEmpty == true {
+                rmdir(temporary.path)
+            }
             return receipts
         }
     }

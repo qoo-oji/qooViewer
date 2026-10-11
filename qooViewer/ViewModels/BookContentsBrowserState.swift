@@ -302,9 +302,11 @@ final class BookContentsBrowserState: ObservableObject {
         // (ファイルI/Oをdeinitのスレッドで行わない点は従来どおり)。
         let urls = temporaryFileURLs
         guard !urls.isEmpty else { return }
-        Task.detached(priority: .utility) {
-            for url in urls {
-                try? FileManager.default.removeItem(at: url)
+        Task {
+            await FileIO.perform(qos: .utility) {
+                for url in urls {
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
         }
     }
@@ -313,9 +315,12 @@ final class BookContentsBrowserState: ObservableObject {
         let urls = temporaryFileURLs
         temporaryFileURLs.removeAll()
         guard !urls.isEmpty else { return }
-        Task.detached(priority: .utility) {
-            for url in urls {
-                try? FileManager.default.removeItem(at: url)
+        // 消すのは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+        Task {
+            await FileIO.perform(qos: .utility) {
+                for url in urls {
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
         }
     }
@@ -849,8 +854,8 @@ final class BookContentsBrowserState: ObservableObject {
                 return
             }
             guard let self else {
-                // 窓(この状態)がもう無い。書き出したものを残さない。
-                try? FileManager.default.removeItem(at: url)
+                // 窓(この状態)がもう無い。書き出したものを残さない(消すのは FileIO の上で)。
+                Task { await FileIO.perform(qos: .utility) { try? FileManager.default.removeItem(at: url) } }
                 return
             }
             if self.finishMaterializing(url) { whenMaterialized(url) }
@@ -865,7 +870,7 @@ final class BookContentsBrowserState: ObservableObject {
         let released = finishReaderWork()
         guard let url else { return false }
         if released {
-            Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: url) }
+            Task { await FileIO.perform(qos: .utility) { try? FileManager.default.removeItem(at: url) } }
             return false
         }
         temporaryFileURLs.append(url)

@@ -276,7 +276,8 @@ actor ThumbnailDiskCache {
             bytesWrittenSinceTrim = 0
             // 削除の完了は待たない(呼び出し元は環境設定のトグルで、待たせる意味が無い)。
             // 走査と削除をactorの上で行わないのは、読み書きと同じ理由(directoryのコメント参照)。
-            Task.detached(priority: .utility) { Self.removeDirectory(directory) }
+            // FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+            Task { await FileIO.perform(qos: .utility) { Self.removeDirectory(directory) } }
             return
         }
 
@@ -286,8 +287,8 @@ actor ThumbnailDiskCache {
         // もう一度走らないように)。
         hasTrimmed = true
         bytesWrittenSinceTrim = 0
-        Task.detached(priority: .utility) {
-            Self.trimIfNeeded(in: directory, maxTotalBytes: maxTotalBytes)
+        Task {
+            await FileIO.perform(qos: .utility) { Self.trimIfNeeded(in: directory, maxTotalBytes: maxTotalBytes) }
         }
     }
 
@@ -394,7 +395,7 @@ actor ThumbnailDiskCache {
     /// actorが解放されるので、他の読み書きは通る。
     func removeAll() async {
         guard let directory else { return }
-        await Task.detached(priority: .utility) { Self.removeDirectory(directory) }.value
+        await FileIO.perform(qos: .utility) { Self.removeDirectory(directory) }
         hasTrimmed = false
         bytesWrittenSinceTrim = 0
     }

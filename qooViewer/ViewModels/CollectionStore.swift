@@ -1431,16 +1431,7 @@ final class CollectionStore: ObservableObject {
         BookmarkResolution.resolve(item.bookmarkData)
     }
 
-    /// 開く直前に使う。解決と存在確認の両方に成功したときだけURLを返す(見つからない場合、
-    /// 呼び出し側は「本が見つかりません」のアラートを出す)。
-    ///
-    /// - Parameter purpose: 利用者が開く・Finder に表示するなどの操作なら `.userOpen`(繋がっていない共有へ繋ぎに行く)。
-    ///   カバーの抽出・取り込みなど裏の仕事は既定のまま(繋ぎに行かない。BookmarkResolution)。
-    func resolvedExistingURL(for item: CollectionItem, purpose: BookmarkResolution.Purpose = .background) -> URL? {
-        Self.existingURL(fromBookmark: item.bookmarkData, purpose: purpose)
-    }
-
-    /// `resolvedExistingURL(for:)` の本体。ブックマークの解決と存在確認はボリュームへの問い合わせなので、多くを続けて
+    /// ブックマークを解決して、在れば URL を返す。ブックマークの解決と存在確認はボリュームへの問い合わせなので、多くを続けて
     /// 確かめる所(一覧の並びをたどる「次の本へ」。`AppState.openInSequence`)は `FileIO` の上から呼ぶ。
     /// 「次の本へ」がたどるときは裏の解決(既定)―― 飛ばす本の共有へ繋ぎに行かない。
     nonisolated static func existingURL(
@@ -1598,7 +1589,10 @@ final class CollectionStore: ObservableObject {
                   BookExistenceProbe.comparablePath(url.path) != BookExistenceProbe.comparablePath(item.bookID),
                   seen.insert(item.bookID).inserted
             else { continue }
-            relocations.append(.init(from: URL(fileURLWithPath: item.bookID), to: url))
+            // 古いパスは文字列から作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。向きは見つけた場所に揃える。
+            relocations.append(.init(
+                from: URL(filePath: item.bookID, directoryHint: url.hasDirectoryPath ? .isDirectory : .notDirectory), to: url
+            ))
         }
         if !relocations.isEmpty { onBooksFoundAtNewPaths(relocations) }
     }

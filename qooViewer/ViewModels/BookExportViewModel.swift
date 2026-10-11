@@ -371,7 +371,8 @@ class BookExportViewModel: ObservableObject {
         // ままで、`resolveURL(forBookID:)` が無い場所を返した ―― 開いている本は移動を断るので今は起きにくいが、記録と合わせる)。
         // 開いたときのセキュリティスコープは移った先の URL には付かないが、古いパスにはもう何も無い。
         directSourceURLs = notice.rekeyed(directSourceURLs).mapValues { url in
-            notice.newBookID(for: url.path).map { URL(fileURLWithPath: $0) } ?? url
+            // パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。向きは元の URL のまま。
+            notice.newBookID(for: url.path).map { URL(filePath: $0, directoryHint: url.hasDirectoryPath ? .isDirectory : .notDirectory) } ?? url
         }
         if isExporting { relocationsDuringExport.append(notice) }
         if rows.contains(where: { notice.newBookID(for: $0.bookID) != nil }) {

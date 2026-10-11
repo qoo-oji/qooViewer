@@ -749,10 +749,18 @@ final class LayoutStore: ObservableObject {
     ///
     /// 参照の無いファイルも、すぐには消さずに30日隔離する(CollectionCoverSourceStore.sweepOrphans。
     /// 2026-09-11に参照のほうが間違って消え、この掃除が元画像を131枚消した)。
-    func sweepOrphanedShelfCoverImages() {
-        guard let all = try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>()) else { return }
+    ///
+    /// 保管庫の走査・隔離は FileIO の上で(起動時に呼ばれ、画像の枚数ぶんの列挙・属性の問い合わせ・移動がメインで走っていた。
+    /// 2026-10-11 の規約監査)。参照の一覧はここ(メイン)で写し取る。走っている間に作った新しい表紙は `recentFileGrace` が守る。
+    /// 走っている間に古い画像が参照され直した(保存データの読み込み・取り消し)場合は隔離されうるが、隔離は 30 日消さず、次の起動の
+    /// 掃除が参照の戻ったものを戻す(`CollectionCoverSourceStore.sweepOrphans` の 1)―― 受け入れた幅。
+    /// - Returns: 掃除の仕事(テストが待つための口)。
+    @discardableResult
+    func sweepOrphanedShelfCoverImages() -> Task<Void, Never>? {
+        guard let all = try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>()) else { return nil }
         let names = Set(all.compactMap(\.shelfCoverImageFileName))
-        coverSourceStore.sweepOrphans(keeping: names)
+        let store = coverSourceStore
+        return Task { await FileIO.perform(qos: .utility) { store.sweepOrphans(keeping: names) } }
     }
 
     /// 本に含まれる既存ページを表紙にする。displayNameはsetCoverPageKeyと同じ扱い

@@ -408,11 +408,11 @@ nonisolated private final class TemporaryArchiveFile {
 
     deinit {
         // deinitがどのスレッド/アクターで呼ばれるかは保証されないため、ファイルI/Oを
-        // Task.detachedへ逃がす。アプリの終了で
+        // FileIO へ逃がす(以前は Task.detached(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査))。アプリの終了で
         // このTaskが走らなかった場合は、次回起動時のTemporaryFileStoreの掃除が拾う。
         let url = self.url
-        Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: url)
+        Task {
+            await FileIO.perform(qos: .utility) { try? FileManager.default.removeItem(at: url) }
         }
     }
 }

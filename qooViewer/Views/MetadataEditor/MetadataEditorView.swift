@@ -259,7 +259,8 @@ final class MetadataEditorModel {
         guard let relocator else { return [] }
         let moved = located.compactMap { bookID, location -> FileSystemChange.Relocation? in
             guard let movedTo = location.movedTo else { return nil }
-            return FileSystemChange.Relocation(from: URL(fileURLWithPath: bookID), to: URL(fileURLWithPath: movedTo))
+            // パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する。2026-10-11 の規約監査)。
+            return FileSystemChange.Relocation(from: URL(filePath: bookID), to: URL(filePath: movedTo))
         }
         // ビューアで開いている本は見送る(ExternalMoveSweeper.excludingOpenBooks)。
         let relocations = ExternalMoveSweeper.excludingOpenBooks(moved, openBookIDs: ViewerViewModel.openBookIDs)

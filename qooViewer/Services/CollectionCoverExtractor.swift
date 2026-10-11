@@ -166,9 +166,9 @@ final class CollectionCoverExtractor: ObservableObject {
         cachesPageList: Bool = true,
         diskCaches: BookDiskCaches = .shared,
         defaults: UserDefaults = .standard,
-        cachedPageList: @escaping @Sendable (String) async -> [BookPageListCache.Entry.Page]? = {
-            await BookPageListCache.shared.pageList(forBookID: $0)?.pages
-        },
+        /// nil なら `diskCaches` のページ一覧のキャッシュから引く(以前の既定値は `BookPageListCache.shared` を直に読み、`diskCaches` を
+        /// 入れ替えてもこちらだけ共有のものを見た。2026-10-11 の規約監査)。
+        cachedPageList: (@Sendable (String) async -> [BookPageListCache.Entry.Page]?)? = nil,
         isLibraryFeatureEnabled: Bool = true
     ) {
         self.isLibraryFeatureEnabled = isLibraryFeatureEnabled
@@ -178,7 +178,8 @@ final class CollectionCoverExtractor: ObservableObject {
         self.cachesPageList = cachesPageList
         self.diskCaches = diskCaches
         self.defaults = defaults
-        self.cachedPageList = cachedPageList
+        let pageLists = diskCaches.pageLists
+        self.cachedPageList = cachedPageList ?? { await pageLists.pageList(forBookID: $0)?.pages }
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
@@ -740,7 +741,9 @@ final class CollectionCoverExtractor: ObservableObject {
         }
         let cachedPageList = cachedPageList
         pageOrderEvaluation = Task { [weak self] in
-            let affected = await Task.detached(priority: .utility) { () -> [String] in
+            // 判定はメインの外で(ページ一覧のキャッシュを引いて先頭を比べるだけ)。`Task.detached` は外側の取り消しを受け継がないので、
+            // 取り消しを手で渡す(2026-10-11 の規約監査 ―― 以前は中の `Task.isCancelled` が効かず、止めても全冊ぶん判定し続けた)。
+            let evaluation = Task.detached(priority: .utility) { () -> [String] in
                 var affected: [String] = []
                 for candidate in candidates {
                     if Task.isCancelled { return [] }
@@ -758,7 +761,8 @@ final class CollectionCoverExtractor: ObservableObject {
                     if oldFirst?.sortKey != newFirst?.sortKey { affected.append(candidate.bookID) }
                 }
                 return affected
-            }.value
+            }
+            let affected = await withTaskCancellationHandler { await evaluation.value } onCancel: { evaluation.cancel() }
             guard !Task.isCancelled, let self else { return }
             self.refreshCovers(forBookIDs: affected)
             self.defaults.set(true, forKey: doneKey)

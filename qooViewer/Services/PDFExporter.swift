@@ -234,8 +234,12 @@ nonisolated enum PDFExporter {
             if let context {
                 pdfContext = context
             } else {
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try? FileManager.default.removeItem(at: destinationURL)
+                // 既存の書き出し先の確かめと削除は FileIO の上で(2026-10-11 の規約監査)。ページを描く CGContext はその場で書くので、
+                // 描画と一緒にこのタスクの上に残る(docs/08「共通の流れ」)。
+                await FileIO.perform {
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try? FileManager.default.removeItem(at: destinationURL)
+                    }
                 }
                 guard let created = CGContext(
                     destinationURL as CFURL, mediaBox: nil, auxiliaryInfo as CFDictionary
@@ -279,25 +283,24 @@ nonisolated enum PDFExporter {
 
         // Document Catalogにしか置けない情報を、書き終わったファイルへ追記する。
         // CGPDFContextにはこれらを書き込む手段が無い(PDFCatalogAugmenterのコメント参照)。
-        try PDFCatalogAugmenter.apply(
-            PDFCatalogAugmenter.Augmentation(
-                xmpPacket: PDFXMPMetadata.packet(
-                    title: bookTitle, authors: authors, subject: genre,
-                    series: input.series ?? "", seriesIndex: input.seriesIndex
-                ),
-                // 読み方向は常に書く。本ごとの上書きが無い場合でも環境設定の既定値まで
-                // 解決済みの値が渡ってくるので、EPUB書き出しがspineの
-                // page-progression-directionを常に出力しているのと同じ扱いにする
-                // (EpubExportInput/PreparedBook.readingDirectionのコメント参照)。
-                viewerPreferencesDirection: PDFStructureResolver.catalogDirectionName(
-                    for: input.readingDirection
-                ),
-                pageLayout: PDFStructureResolver.catalogPageLayoutName(
-                    for: input.forcedDisplayMode, direction: input.readingDirection
-                )
+        // 追記(ファイルを読んで書き足す)は FileIO の上で(2026-10-11 の規約監査)。
+        let augmentation = PDFCatalogAugmenter.Augmentation(
+            xmpPacket: PDFXMPMetadata.packet(
+                title: bookTitle, authors: authors, subject: genre,
+                series: input.series ?? "", seriesIndex: input.seriesIndex
             ),
-            to: destinationURL
+            // 読み方向は常に書く。本ごとの上書きが無い場合でも環境設定の既定値まで
+            // 解決済みの値が渡ってくるので、EPUB書き出しがspineの
+            // page-progression-directionを常に出力しているのと同じ扱いにする
+            // (EpubExportInput/PreparedBook.readingDirectionのコメント参照)。
+            viewerPreferencesDirection: PDFStructureResolver.catalogDirectionName(
+                for: input.readingDirection
+            ),
+            pageLayout: PDFStructureResolver.catalogPageLayoutName(
+                for: input.forcedDisplayMode, direction: input.readingDirection
+            )
         )
+        try await FileIO.perform { try PDFCatalogAugmenter.apply(augmentation, to: destinationURL) }
     }
 
     /// ブックマーク一覧を、CGPDFContextSetOutlineが受け取る形式のCFDictionary木へ変換する

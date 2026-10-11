@@ -32,6 +32,9 @@ enum FileBrowserNameEditing {
         // 画面が状態に追いついている(一覧の取り込みを待たせている間の古い行ではない)。
         guard state.currentFolder == displayedFolder, state.entry(withID: entry.id) != nil else { return false }
         // 一覧の読み直しより先に、ディスクから消えた・移った(ドラッグで移した直後など)。
+        // これはメインで答える判定(AppKit の編集の開始)なので、**ネットワークボリュームでは確かめない**(応答しない共有では lstat が
+        // 最長約 30 秒メインを止める。2026-10-11 の規約監査)。そこでは一覧を信じ、消えていたら名前の変更そのものが失敗を知らせる。
+        if MountTable.current().isRemote(entry.url) { return true }
         return itemExists(entry.url)
     }
 

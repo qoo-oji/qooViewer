@@ -193,7 +193,9 @@ enum SmartLibraryTargetAdding {
     static func addedMessage(_ added: [URL], locale: Locale) -> String {
         added.count == 1
             ? String(format: String(localized: "Added “%@” to the smart library’s target folders", language: locale),
-                     FileManager.default.displayName(atPath: added[0].path))
+                     // 名前はパスの文字列から(`displayName(atPath:)` はファイルに触る ―― 上の `secretRefusedMessage` と同じ理由。
+                     // 2026-10-11 の規約監査)。違いは、「書類」「ピクチャ」など Finder の訳した名前ではなくフォルダの実名を出すこと。
+                     added[0].lastPathComponent)
             : String(format: String(localized: "Added %lld folders to the smart library’s target folders", language: locale),
                      added.count)
     }

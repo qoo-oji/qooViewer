@@ -269,14 +269,6 @@ nonisolated enum DirectoryBrowser {
         return (hasImageFile, hasSubdirectory)
     }
 
-    /// 上記をメインスレッド外(Task.detached)で実行する版。SiblingFinder.siblingBookURLsAsyncと
-    /// 同じ形。エラーはそのまま呼び出し側へ伝播する。
-    static func entriesAsync(in directory: URL, sort: FolderBrowserSort) async throws -> [Entry] {
-        try await Task.detached(priority: .utility) {
-            try entries(in: directory, sort: sort)
-        }.value
-    }
-
     /// ウェルカム画面でパネルを開いたときの最上位階層として使う、マウント中のボリューム一覧。
     /// 列挙自体はアクセス権を必要としない(実際にその中へ移動して一覧しようとした時点で
     /// 初めてentries(in:)側の権限判定が効く)。
