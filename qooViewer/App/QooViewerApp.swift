@@ -2175,7 +2175,9 @@ struct QooViewerApp: App {
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
             localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
-            locale: locale
+            // `locale:` は書式だけを替え、訳文は OS の言語のものになる(CLAUDE.md「Localization」)。表示言語で引くのは `language:`
+            // (2026-10-11 の規約監査で直した)。
+            language: locale
         )
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         // 複数の本を選んだら、先頭を開いて残りを「次の本・前の本」でたどる(2026-09-27。DroppedBooks)。

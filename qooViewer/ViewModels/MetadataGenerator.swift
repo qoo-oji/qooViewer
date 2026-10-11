@@ -148,10 +148,13 @@ final class MetadataGenerator {
 
     /// 本を開いた(記録の残るウインドウで)。その本は記録どおりの場所にある。行を作るときは、その URL から本の場所の手がかり
     /// (ブックマークと識別子)も持たせる(アプリの外で名前を変えても行が付いていけるように。以前の `registerParsed` と同じ)。
-    func noteBookOpened(_ bookID: String, sourceURL: URL? = nil) {
+    ///
+    /// - Parameter anchors: 開いたときにメインの外で求めた手がかり(`MangaBook.recordAnchors`。2026-10-11 の規約監査 ―― 以前は
+    ///   URL を受け取り、行を作るときにメインでブックマークと識別子を作っていた)。
+    func noteBookOpened(_ bookID: String, anchors: BookRowAnchors? = nil) {
         verified.insert(bookID)
         absent.remove(bookID)
-        if let sourceURL { sourceURLs[bookID] = sourceURL }
+        if let anchors { sourceAnchors[bookID] = anchors }
         // もう並べていて行もある本(2 度目以降に開いた本のほとんど)なら、回を頼まない(2026-09-25 の監査)。この本が加わっても
         // 母体・並び・入力・書くものは変わらない(並べている本は「確かめた」かどうかに関わらず並ぶ。行の中身が変われば
         // `bookMetadataDidChange` が回を頼む)のに、1 回ぶん(DB の全行の読み出し 2〜3 回・知っている本の収集・書く前の全冊の
@@ -184,16 +187,20 @@ final class MetadataGenerator {
         verified = Set(verified.compactMap(moved))
         absent = Set(absent.compactMap(moved))
         reregistering = Set(reregistering.compactMap(moved))
-        var urls: [String: URL] = [:]
-        for (id, url) in sourceURLs {
-            guard let new = moved(id) else { continue }
-            urls[new] = new == id ? url : URL(fileURLWithPath: new)
+        // 移った本の手がかり(ブックマークと識別子)は捨てる。別のボリュームへ移した(写して消した)本では、古い場所の識別子と消えた
+        // ファイルへのブックマークになり、後で同じ iノードを使い回した別のファイルへ行が付きうる(2026-10-11 のレビュー)。行の手がかりは、
+        // 次にその本を開いたときの補完(`BookMetadataStore.backfillIdentifiers`)が埋める。以前は移った先の URL を `URL(fileURLWithPath:)`
+        // で作り直していた(メインで lstat する)。
+        var anchors: [String: BookRowAnchors] = [:]
+        for (id, anchor) in sourceAnchors {
+            guard let new = moved(id), new == id else { continue }
+            anchors[new] = anchor
         }
-        sourceURLs = urls
+        sourceAnchors = anchors
     }
 
-    /// 開いた本の URL(行を作るときに渡す)。
-    private var sourceURLs: [String: URL] = [:]
+    /// 開いた本の場所の手がかり(行を作るときに渡す)。
+    private var sourceAnchors: [String: BookRowAnchors] = [:]
     /// この起動で利用者が消した本のうち、次の回で登録し直す本(開き直した・メタデータの編集ウインドウを開き直した)。
     /// ほかの契機(知らせ・規則の変更)では、消した本を作り直さない(消したそばから戻らないように)。
     private var reregistering: Set<String> = []
@@ -358,7 +365,7 @@ final class MetadataGenerator {
             switch (snapshot[id], current[id]) {
             case (nil, nil):
                 guard !values.isEmpty, !deleted.contains(id) else { continue }
-                entries.append(.init(bookID: id, values: values, sourceURL: sourceURLs[id],
+                entries.append(.init(bookID: id, values: values, anchors: sourceAnchors[id],
                                      state: BookMetadataRowState(isLocked: false)))
             case let (before?, now?):
                 // 読みが空になっても行は消さない(空の値の書き込みは行の削除になり、直した欄・ルールセット・取り込みの印まで消えた。

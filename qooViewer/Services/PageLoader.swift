@@ -315,19 +315,37 @@ actor PageLoader {
         imageCache.totalCostLimit = bytes
     }
 
-    private func thumbnailDiskKey(maxPixelSize: CGFloat) -> ThumbnailDiskCache.BookKey {
+    private func thumbnailDiskKey(maxPixelSize: CGFloat) async -> ThumbnailDiskCache.BookKey {
         if let cached = cachedThumbnailDiskKeys[maxPixelSize] { return cached }
         // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
-        // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。
+        // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。問い合わせは本ごとに 1 回、`FileIO` の上で
+        // (`sourceFileAttributes`。2026-10-11 の規約監査 ―― 以前は actor の上、つまり協調スレッドプールで stat していた)。
+        let contrast = contrastCorrectionEnabled
+        let attributes = await sourceFileAttributes()
         let key = ThumbnailDiskCache.BookKey(
-            sourceURL: book.sourceURL,
             bookID: book.id,
-            contrastCorrectionEnabled: contrastCorrectionEnabled,
+            modificationDate: attributes.modificationDate,
+            fileSize: attributes.fileSize,
+            contrastCorrectionEnabled: contrast,
             maxPixelSize: maxPixelSize
         )
-        cachedThumbnailDiskKeys[maxPixelSize] = key
+        // 待っている間にコントラスト補正を切り替えられたら(`setContrastCorrectionEnabled` が控えを捨てる)、古い設定の鍵は控えない。
+        if contrast == contrastCorrectionEnabled { cachedThumbnailDiskKeys[maxPixelSize] = key }
         return key
     }
+
+    /// 本体の更新日時・大きさ(サムネイルのディスクキャッシュの鍵)。本ごとに 1 回だけ `FileIO` の上で問い合わせて控える。
+    private func sourceFileAttributes() async -> (modificationDate: Date?, fileSize: Int64?) {
+        if let cachedSourceFileAttributes { return cachedSourceFileAttributes }
+        let url = book.sourceURL
+        let attributes = await FileIO.perform(qos: .utility) { () -> (modificationDate: Date?, fileSize: Int64?) in
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            return (values?.contentModificationDate, values?.fileSize.map(Int64.init))
+        }
+        cachedSourceFileAttributes = attributes
+        return attributes
+    }
+    private var cachedSourceFileAttributes: (modificationDate: Date?, fileSize: Int64?)?
 
     /// 本を閉じてこのPageLoaderが解放されるとき、まだ走っている読み込みを畳んでおく。
     ///
@@ -475,7 +493,7 @@ actor PageLoader {
             )?.makeImage()
         }
 
-        let diskKey = thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
+        let diskKey = await thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
         if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
            let buffer = await Self.renderBuffer(from: fromDisk) {
             thumbnailCache.store(buffer, forKey: key)
@@ -533,7 +551,7 @@ actor PageLoader {
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesDisk {
-            let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
+            let diskKey = await thumbnailDiskKey(maxPixelSize: maxPixelSize)
             if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
                let buffer = await Self.renderBuffer(from: fromDisk) {
                 gridThumbnailCache.store(buffer, forKey: key)
@@ -546,7 +564,7 @@ actor PageLoader {
         }
         gridThumbnailCache.store(decoded, forKey: key)
         if usesDisk {
-            let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
+            let diskKey = await thumbnailDiskKey(maxPixelSize: maxPixelSize)
             let pageID = page.id
             let thumbnailCache = diskCaches.thumbnails
             // 書き込みは待たない(thumbnail(at:)と同じ考え方)。
@@ -586,7 +604,7 @@ actor PageLoader {
     /// PDFを書き出しの入力にする経路はexportableImage(at:)を使うこと)。
     func rawImageData(at index: Int) async -> Data? {
         guard book.pages.indices.contains(index) else { return nil }
-        return rawData(for: book.pages[index].source)
+        return await rawData(for: book.pages[index].source)
     }
 
     /// PDF書き出しのパススルー用に、そのページの元PDFファイル**そのもの**のバイト列を返す。
@@ -600,7 +618,8 @@ actor PageLoader {
         guard case .pdf(let container, _) = book.pages[index].source else { return nil }
         switch container {
         case .file(let url):
-            return try? Data(contentsOf: url)
+            // ファイルを読むのは `FileIO` の上で(rawData(for:)と同じ。2026-10-11 の規約監査)。
+            return await FileIO.perform(qos: .userInitiated) { try? Data(contentsOf: url) }
         case .entry(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }
             if let declared = reader.entryUncompressedSize(at: entryPath),
@@ -628,7 +647,7 @@ actor PageLoader {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
-            guard let data = rawData(for: page.source) else { return nil }
+            guard let data = await rawData(for: page.source) else { return nil }
             return (data, Self.fileExtension(forEntryPathOf: page))
         }
         guard let document = pdfDocument(for: container),
@@ -733,8 +752,11 @@ actor PageLoader {
             // フォルダの本は、そもそもactorが守るべき共有状態(アーカイブのreader)を触らない。
             // ファイルを丸ごと読まずヘッダーだけを読むURL版を、そのままactor外で使う
             // (ImageDecoder.headerInfo(ofFileAt:)のコメント参照)。
-            task = Task.detached(priority: .utility) {
-                ImageDecoder.pixelSize(ofFileAt: url)
+            //
+            // 読むのは `FileIO` の上で(2026-10-11 の規約監査 ―― 以前は `Task.detached`、つまり協調スレッドプールで読み、
+            // 応答しない共有の上のフォルダの本では、横長判定の全ページ先読みがプールのスレッドを塞いだ)。
+            task = Task(priority: .utility) {
+                await FileIO.perform(qos: .utility) { ImageDecoder.pixelSize(ofFileAt: url) }
             }
         case .archive(let locator, let entryPath):
             // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
@@ -766,7 +788,7 @@ actor PageLoader {
         // ページを待ち合わせていた別の呼び出しにはnilが返る。その呼び出し元(横長判定の
         // 先読み)は「まだ判定できていないページ」として扱い、後で改めて問い合わせるだけなので
         // 実害は無い(キャッシュにも入っていないため、次回は正しく読み直される)。
-        if size == nil, !page.source.isFile, let fullData = rawData(for: page.source) {
+        if size == nil, !page.source.isFile, let fullData = await rawData(for: page.source) {
             size = await Task.detached(priority: .utility) {
                 ImageDecoder.pixelSize(of: fullData)
             }.value
@@ -1039,13 +1061,16 @@ actor PageLoader {
         // 行い、その間ページ送りの要求がすべて待った(寸法を永続化していない初回と、永続化した寸法を読まないシークレットウインドウでは
         // 開くたび)。rar の読み通し(`startRarScanIfNeeded`)と同じ考え方。専用の reader を使うのは下調べだけで、下調べは 1 件ずつ
         // 待って次を頼むが、念のため同時には使わない(`isScanReadInFlight`。reader はスレッド安全でない)。
+        //
+        // ディスクの鍵は取り出しの**前に**決める(待つ間に補正を切り替えられても、補正なしの絵を補正ありの鍵で残さない。コードレビュー)。
+        // 鍵を求めるのは初回に FileIO を待つ(`thumbnailDiskKey`)ので、**下の順番待ちより前に**求める ―― 順番待ちを抜けてから
+        // `isScanReadInFlight = true` までの間に await を挟むと、2 つの下調べが両方抜けて同じ reader を同時に使いうる(2026-10-11 のレビュー)。
+        let diskKey = makesThumbnail
+            ? await thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize) : nil
         while isScanReadInFlight, !isReleased, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(10))
         }
         guard !isReleased, !Task.isCancelled else { return nil }
-        // ディスクの鍵は取り出しの**前に**決める(待つ間に補正を切り替えられても、補正なしの絵を補正ありの鍵で残さない。コードレビュー)。
-        let diskKey = makesThumbnail
-            ? thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize) : nil
         isScanReadInFlight = true
         let handoff = ScanReaderHandoff(reader: reader)
         let read = await FileIO.perform(qos: .utility) { try? handoff.reader.data(at: entryPath) }
@@ -1095,7 +1120,7 @@ actor PageLoader {
     /// 前回までに分かったページ寸法を構造キャッシュから読み込む(下調べの前に呼ぶ)。
     /// 入っていたページはpageSize/scanPageが書庫に触らずに答えられる。
     func loadPersistedPageSizes() async {
-        guard usesThumbnailDiskCache, let fingerprint = pageSizePersistenceFingerprint() else { return }
+        guard usesThumbnailDiskCache, let fingerprint = await pageSizePersistenceFingerprint() else { return }
         guard let sizes = await diskCaches.pageLists.pageSizes(forBookID: book.id, fingerprint: fingerprint),
               !isReleased
         else { return }
@@ -1111,7 +1136,7 @@ actor PageLoader {
     /// 新しく分かったページ寸法を構造キャッシュへ書き戻す(下調べの後と、本を閉じるときに呼ぶ)。
     func persistPageSizesIfNeeded() async {
         guard hasUnpersistedPageSizes, usesThumbnailDiskCache,
-              let fingerprint = pageSizePersistenceFingerprint()
+              let fingerprint = await pageSizePersistenceFingerprint()
         else { return }
         hasUnpersistedPageSizes = false
         var sizes: [String: [Int]] = [:]
@@ -1124,10 +1149,12 @@ actor PageLoader {
 
     /// 寸法を永続化してよい本(本体が書庫ファイル1つ。BookPageListCache.Entry.pageSizesの
     /// コメント参照)なら、その本体の今の指紋。そうでなければnil。
-    private func pageSizePersistenceFingerprint() -> BookPageListCache.Entry.Fingerprint? {
-        let name = book.sourceURL.lastPathComponent
+    /// 指紋の問い合わせ(stat)は `FileIO` の上で(2026-10-11 の規約監査。以前は actor の上 = 協調スレッドプールで問い合わせていた)。
+    private func pageSizePersistenceFingerprint() async -> BookPageListCache.Entry.Fingerprint? {
+        let url = book.sourceURL
+        let name = url.lastPathComponent
         guard isArchiveFile(name), !isPDFFile(name), !isEpubFile(name) else { return nil }
-        return BookPageListCache.Entry.Fingerprint.current(for: book.sourceURL)
+        return await FileIO.perform(qos: .utility) { BookPageListCache.Entry.Fingerprint.current(for: url) }
     }
 
     /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を
@@ -1168,15 +1195,22 @@ actor PageLoader {
             // コメント参照)。その場合のファイルサイズはファイルシステムに問い合わせる。属性は 1 回の問い合わせで取る。
             let header: ImageDecoder.HeaderInfo
             let cachedByteCount: Int?
-            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+            // ヘッダーと属性を読むのは `FileIO` の上で(rawData(for:)と同じ。2026-10-11 の規約監査)。
+            let cached = Self.headerCacheKey(for: page.source).flatMap { headerInfoCache[$0] }
+            let read = await FileIO.perform(qos: .userInitiated) {
+                () -> (header: ImageDecoder.HeaderInfo?, fileSize: Int?, created: Date?, modified: Date?) in
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey])
+                return (cached == nil ? ImageDecoder.headerInfo(ofFileAt: url) : nil,
+                        values?.fileSize, values?.creationDate, values?.contentModificationDate)
+            }
+            if let cached {
                 (header, cachedByteCount) = (cached.header, cached.byteCount)
             } else {
-                guard let parsed = ImageDecoder.headerInfo(ofFileAt: url) else { return nil }
+                guard let parsed = read.header else { return nil }
                 (header, cachedByteCount) = (parsed, nil)
             }
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey])
-            let fileSize = cachedByteCount.map(Int64.init) ?? values?.fileSize.map(Int64.init)
-            let dates = (created: values?.creationDate, modified: values?.contentModificationDate)
+            let fileSize = cachedByteCount.map(Int64.init) ?? read.fileSize.map(Int64.init)
+            let dates = (created: read.created, modified: read.modified)
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
@@ -1198,7 +1232,7 @@ actor PageLoader {
             if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
                 (header, byteCount) = (cached.header, cached.byteCount)
             } else {
-                guard let data = rawData(for: page.source),
+                guard let data = await rawData(for: page.source),
                       let parsed = ImageDecoder.headerInfo(of: data)
                 else { return nil }
                 (header, byteCount) = (parsed, data.count)
@@ -1533,7 +1567,7 @@ actor PageLoader {
             case .pdf(let container, let pageIndex):
                 return renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
             case .file, .archive:
-                guard let data = rawData(for: source) else { return nil }
+                guard let data = await rawData(for: source) else { return nil }
                 guard !Task.isCancelled else { return nil }
                 // decodedImage(for:maxPixelSize:)と同じく、デコードはactorの外で行う。
                 // 書庫内エントリはヘッダー情報も同じバイト列から取っておく(headerInfoCache参照)。
@@ -1691,7 +1725,7 @@ actor PageLoader {
             guard !Task.isCancelled else { return nil }
             decoded = renderPDFPage(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
         case .file, .archive:
-            guard let data = rawData(for: source) else { return nil }
+            guard let data = await rawData(for: source) else { return nil }
             guard !Task.isCancelled else { return nil }
             // デコードはactorの外(バックグラウンドタスク)で行い、
             // 他のページのリクエストをここで足止めしないようにする。
@@ -1771,18 +1805,30 @@ actor PageLoader {
         return ComicInfoResolver.lookup(reader: reader)
     }
 
-    private func rawData(for source: PageSource) -> Data? {
+    /// フォルダの本の 1 ページを読む(`rawData(for:)`。**ブロッキングする**ので `FileIO` の上で呼ぶ)。
+    ///
+    /// 書庫内エントリと同じ上限(maxDecodableEntryBytes)をフォルダの本にも掛ける
+    /// (監査で指摘: 以前はこちらだけ上限が無く、画像フォルダに置かれた巨大な
+    /// ファイルを丸ごとメモリへ読んでいた)。サイズの問い合わせはstat 1回で、
+    /// 読み込み本体に比べれば無視できる。
+    nonisolated private static func readPageFile(at url: URL) -> Data? {
+        if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           Int64(fileSize) > maxDecodableEntryBytes {
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }
+
+    /// 1 ページぶんの元のバイト列。
+    ///
+    /// フォルダの本(`.file`)は **`FileIO` の上で読む**(2026-10-11 の規約監査)。以前は actor の上、つまり協調スレッドプールで
+    /// 同期に読んでいたので、応答しない共有の上のフォルダの本ではページ送り・先読みのたびにプールのスレッドが塞がった(SMB は 30 秒)。
+    /// フォルダの本は actor が守る共有状態(書庫の reader)に触らないので、actor の上で読む理由が無い。書庫のエントリは reader が
+    /// スレッド安全でないので、これまでどおり actor の上(このプロジェクトの約束。CLAUDE.md の PageLoader の項)。
+    private func rawData(for source: PageSource) async -> Data? {
         switch source {
         case .file(let url):
-            // 書庫内エントリと同じ上限(maxDecodableEntryBytes)をフォルダの本にも掛ける
-            // (監査で指摘: 以前はこちらだけ上限が無く、画像フォルダに置かれた巨大な
-            // ファイルを丸ごとメモリへ読んでいた)。サイズの問い合わせはstat 1回で、
-            // 読み込み本体に比べれば無視できる。
-            if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
-               Int64(fileSize) > Self.maxDecodableEntryBytes {
-                return nil
-            }
-            return try? Data(contentsOf: url)
+            return await FileIO.perform(qos: .userInitiated) { Self.readPageFile(at: url) }
         case .archive(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }
             // 解凍爆弾よけ: 展開後サイズが上限を超えるエントリは読み込まない

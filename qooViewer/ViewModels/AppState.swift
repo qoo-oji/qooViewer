@@ -1190,7 +1190,9 @@ final class AppState: ObservableObject {
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
             localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
-            locale: locale
+            // `locale:` は書式だけを替え、訳文は OS の言語のものになる(CLAUDE.md「Localization」)。表示言語で引くのは `language:`
+            // (2026-10-11 の規約監査で直した)。
+            language: locale
         )
         // このウインドウのシート(2026-09-27。WindowSheet)。以前はアプリモーダルで、選ぶ間ほかのウインドウも止まっていた。
         WindowSheet.beginChoosing(panel, for: hostWindow) { [weak self] urls in
@@ -1567,18 +1569,27 @@ final class AppState: ObservableObject {
                 // (leavesNoRecord)、表示している間この窓はシークレットウインドウの見た目になる(showsAsPrivate)。
                 loaded.isInSecretFolder = SecretFolderStore.isSecretAppWide(loaded.sourceURL)
                     || request.urls.contains(where: SecretFolderStore.isSecretAppWide)
-                let book = loaded
                 // 本の識別子(iノード・ボリューム)と「フォルダか」は、**反映の前にメインの外で**求めておく(2026-09-27、表示の切り替えの
                 // 監査の 11)。どちらもボリュームへの問い合わせで、以前は下の反映(メイン)の中で求めていた ―― FileNodeIdentifier.current の
                 // コメントのとおり、遅い・眠っているボリュームでは秒単位で止まりうる。本は読み終えたところなので、ここで求めても同じ値に
                 // なる(下の追従・補完はこの値だけを使い、ほかに識別子を読む所は無い)。記録の残らない本(シークレットウインドウ・その場
                 // 限りの本)では使わないので求めない(下の skipsPersistence と同じ条件)。
-                let sourceURL = book.sourceURL
+                //
+                // 2026-10-11 の規約監査で、同じ問い合わせに差し替え検知の指紋(更新日時・大きさ)と行に添えるブックマークも足し、本に
+                // 持たせた(`MangaBook.sourceFacts`)。以前はビューアの初期化(指紋)と、レイアウト・ブックマークの行を作るたびに
+                // (識別子・ブックマーク)メインで問い合わせていた。指紋は記録しない本でも読書位置の照合に使うので、識別子と
+                // ブックマークだけを記録する本に限る。
+                let sourceURL = loaded.sourceURL
+                let recordsBook = !(isPrivate || loaded.leavesNoRecord)
+                let facts = await FileIO.perform {
+                    var facts = BookSourceFacts.probe(sourceURL, makesBookmark: recordsBook)
+                    if !recordsBook { facts.fileNodeIdentifier = nil }
+                    return facts
+                }
+                loaded.sourceFacts = facts
+                let book = loaded
                 let probedLocation: (identifier: FileNodeIdentifier?, isDirectory: Bool)? =
-                    isPrivate || book.leavesNoRecord ? nil : await FileIO.perform {
-                        (FileNodeIdentifier.current(for: sourceURL),
-                         (try? sourceURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true)
-                    }
+                    recordsBook ? (facts.fileNodeIdentifier, facts.isDirectory) : nil
                 guard !Task.isCancelled, let self else { return }
                 // 読み込み完了の反映(currentBookの設定から履歴の記録まで)は、メニューバーの
                 // メニューが開いている間は保留する。**低速なストレージ上の本は、ユーザーが
@@ -1698,8 +1709,8 @@ final class AppState: ObservableObject {
                     // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
                     // 本の実ファイルへ到達するために必要)。
                     if !skipsPersistence, !isInTrash {
-                        self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL,
-                                                                knownIdentifier: identifier)
+                        // 手がかりは上でメインの外で求めたもの(`MangaBook.sourceFacts`)。
+                        self.metadataStore?.backfillIdentifiers(forBookID: book.id, anchors: book.recordAnchors)
                     }
                     self.currentBook = book
                     self.loadRestorePoint = nil

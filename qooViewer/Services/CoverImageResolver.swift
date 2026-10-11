@@ -207,8 +207,9 @@ nonisolated enum CoverImageResolver {
     /// Concurrency(`NonisolatedNonsendingByDefault`)が有効で、`nonisolated async`関数は
     /// 呼び出し側のアクタ ―― ここではCollectionCoverExtractorのMainActor ―― を引き継いで走る。
     /// 本体を開く経路はBookLoader/PageLoaderが自分で外へ逃げるので影響が無いが、外部カバー
-    /// ファイルの経路(`Data(contentsOf:)`と復号)はここで直に走るため、付けないと未接続の
-    /// ボリューム上の外部カバー1枚でメインが止まる。
+    /// ファイルの経路(復号)はここで直に走るため、付けないと外部カバー1枚の復号でメインが止まる。
+    /// ファイルの読み込み・木の走査は、さらに `FileIO` の上へ出してある(2026-10-11 の規約監査 ―― `@concurrent` は協調スレッド
+    /// プールで走るので、応答しない共有の上ではプールのスレッドを塞ぐ)。
     /// - Parameter skipsNotDownloadedPages: 表紙にするページの実体(フォルダの本の画像・中の書庫・中の PDF)が手元に無い
     ///   (iCloud などに追い出された)なら作らずに nil(ファイルブラウザの一覧の絵。2026-09-14 の 2 回目の監査 ―― 以前は頼まれていない
     ///   ダウンロードを起こした)。棚の表紙の抽出は既定の false(利用者がコレクションに入れた本)。
@@ -218,8 +219,10 @@ nonisolated enum CoverImageResolver {
     ) async -> CGImage? {
         // 1. 利用者が用意した画像が指定されていれば、本体を開かずにそれを読む。
         //    保管庫はこのアプリ自身の領域なので、セキュリティスコープの開始は要らない。
+        //    ファイルを読むのは `FileIO` の上で(2026-10-11 の規約監査。`@concurrent` は協調スレッドプールで走るので、書き出し用の
+        //    外部カバー ―― 利用者のファイル ―― が応答しない共有の上だとプールのスレッドを塞いだ)。復号は CPU の仕事なのでここで。
         if let imageFileURL = snapshot.imageFileURL {
-            guard let data = try? Data(contentsOf: imageFileURL) else { return nil }
+            guard let data = await FileIO.perform(qos: .utility, { try? Data(contentsOf: imageFileURL) }) else { return nil }
             return ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
         }
 
@@ -228,8 +231,10 @@ nonisolated enum CoverImageResolver {
         // **フォルダの本は、読み込む前に中の追い出された項目を見る**(2026-09-15 の 3 回目の監査)。`BookLoader.load` はフォルダの中の書庫・PDF を
         // 開いてページを並べるので、下の「対象のページが手元に無いか」の確認より先にダウンロードが起きていた。`withoutDownloading` は
         // スレッド単位で、`BookLoader` は別のタスクで走るので効かない。書庫・PDF の本そのものは呼び出し側が先に見ている。
-        if skipsNotDownloadedPages, (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
-           DatalessFiles.treeContainsDataless(url) {
+        // 木を辿るのは `FileIO` の上で(上と同じ理由。2026-10-11 の規約監査)。
+        if skipsNotDownloadedPages, await FileIO.perform(qos: .utility, {
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true && DatalessFiles.treeContainsDataless(url)
+        }) {
             return nil
         }
         guard let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList, caches: caches),
@@ -245,7 +250,7 @@ nonisolated enum CoverImageResolver {
             case .pdf(.file(let file), _): file
             case .pdf(.entry(let locator, _), _): locator.rootURL
             }
-            if DatalessFiles.isDataless(pageFile) { return nil }
+            if await FileIO.perform(qos: .utility, { DatalessFiles.isDataless(pageFile) }) { return nil }
         }
 
         // 3. 復号。カバーは1000px弱の小さな画像なので、grid用の経路をそのまま借りる。

@@ -1042,23 +1042,24 @@ struct ViewerView: View {
 
         // 保存先を決めてあっても、そのブックマークがもう解決できない(フォルダが消された・
         // 外付けが外れている)ことはある。その場合は下のパネルへ落として、その場で選び直せる
-        // ようにする ―― 黙って何もしないよりよい。
-        if preferences.bookExportDestinationMode(for: format) == .fixedFolder,
-           let fixedFolder = format.fixedFolder.lastFolder() {
-            openBookExport = OpenBookExportRequest(
-                format: format, viewModel: exportViewModel,
-                // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
-                // セキュリティスコープを開く必要がある。
-                destination: .init(url: fixedFolder, isSecurityScoped: true),
-                asksBeforeExporting: false
-            )
-            return
-        }
-
+        // ようにする ―― 黙って何もしないよりよい。解決はメインの外で(LastUsedFolderMemory.lastFolder。2026-10-11 の規約監査)。
+        //
         // フォルダの選択はこのウインドウのシート(2026-09-27。WindowSheet)。選んでいる間に同じ頼みが来ても、2 つ目のパネルは
         // WindowSheet が断る。その間にメニューバーから別の本へ移っていたら、書き出しのシートは出さない。
         let bookID = viewModel.book.id
+        let usesFixedFolder = preferences.bookExportDestinationMode(for: format) == .fixedFolder
         Task {
+            if usesFixedFolder, let fixedFolder = await format.fixedFolder.lastFolder() {
+                guard openBookExport == nil, viewModel.book.id == bookID else { return }
+                openBookExport = OpenBookExportRequest(
+                    format: format, viewModel: exportViewModel,
+                    // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
+                    // セキュリティスコープを開く必要がある。
+                    destination: .init(url: fixedFolder, isSecurityScoped: true),
+                    asksBeforeExporting: false
+                )
+                return
+            }
             guard let chosen = await ExportDestinationPanel.present(
                 for: format, startingAt: nil, locale: preferences.effectiveLocale, window: hostWindow
             ), openBookExport == nil, viewModel.book.id == bookID else { return }

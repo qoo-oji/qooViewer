@@ -22,6 +22,7 @@ struct SeriesRulesView: View {
     @State private var showsAllSettings = false
     @State private var editing: RulesEditing
     @State private var confirmsReset = false
+    @Environment(\.locale) private var locale
 
     init(settings: MetadataRulesStore) {
         self.settings = settings
@@ -142,8 +143,10 @@ struct SeriesRulesView: View {
                 StatusBar(editing: editing, half: .series, confirmsReset: $confirmsReset)
             }
         }
-        .navigationTitle("Series and volume extraction")
-        .navigationSubtitle(LocalizedStringKey(subtitle))
+        // 窓の題は表示言語で引いた文字列で渡す(`LocalizedStringKey` だと OS の言語で引かれ、`Window` の題を上書きした。
+        // CLAUDE.md「Localization」。2026-10-11 の規約監査)。文言も `Window` の題と揃える。
+        .navigationTitle(String(localized: "Series and Volume Extraction", language: locale))
+        .navigationSubtitle(locale.displayLanguageBundle.localizedString(forKey: subtitle, value: nil, table: nil))
         .confirmationDialog("Reset every series rule to the default?", isPresented: $confirmsReset) {
             Button("Reset to the default", role: .destructive) { editing.reset(.series) }
         } message: {

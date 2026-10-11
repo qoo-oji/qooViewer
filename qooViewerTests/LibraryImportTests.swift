@@ -696,7 +696,7 @@ struct LibraryImportTests {
         )
         _ = origin.metadata.upsert(
             bookID: source.book.id, author: "著者", title: "題名", series: "シリーズ", seriesIndex: "1",
-            sourceURL: source.book.sourceURL
+            anchors: .probe(source.book.sourceURL)
         )
 
         let (file, result) = await origin.buildExportFile(.everything)
@@ -987,10 +987,10 @@ struct LibraryImportTests {
         let image = source.temp.file("cover.png")
         try PageImageFactory.png(number: 9).write(to: image)
         try await library.layouts.setShelfCoverImage(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, fileURL: image
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL), fileURL: image
         )
         library.layouts.setCoverCropAnchor(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .end
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL), anchor: .end
         )
         library.layouts.setReadingDirectionOverride(for: source.book, .rightToLeft)
         library.layouts.setPageLayoutState(for: source.book, pageKey: source.key(1), state: .spreadRight)

@@ -225,12 +225,12 @@ private struct ShelfCoverExportContentView: View {
         panel.message = String(
             localized: "Choose where to save the exported zip file.", language: locale
         )
-        if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.libraryIO.panelStartFolder() {
             panel.directoryURL = lastFolder
         }
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
-            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+            Task { await LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent()) }
             Task { await viewModel.export(to: url) }
         }
     }

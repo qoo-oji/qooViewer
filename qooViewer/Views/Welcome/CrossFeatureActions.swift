@@ -228,8 +228,9 @@ enum HomeBookOpenWith {
     static func applications(forBookAt path: String) -> [OpenWithApplications.Application] {
         let name = (path as NSString).lastPathComponent
         let isFile = isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)
+        // `URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する(2026-10-11 の規約監査)。向きは名前で決めたものを渡す。
         return OpenWithApplications.shared.applications(
-            for: URL(fileURLWithPath: path), isDirectory: !isFile, isPackage: false
+            for: URL(filePath: path, directoryHint: isFile ? .notDirectory : .isDirectory), isDirectory: !isFile, isPackage: false
         )
     }
 }
@@ -260,7 +261,7 @@ extension FileBrowserBookSheet.Export {
     ) async -> FileBrowserBookSheet.Export? {
         let destination: OpenBookExportSheet.Destination
         let asks: Bool
-        if preferences.bookExportDestinationMode(for: format) == .fixedFolder, let fixed = format.fixedFolder.lastFolder() {
+        if preferences.bookExportDestinationMode(for: format) == .fixedFolder, let fixed = await format.fixedFolder.lastFolder() {
             destination = .init(url: fixed, isSecurityScoped: true)
             asks = false
         } else {

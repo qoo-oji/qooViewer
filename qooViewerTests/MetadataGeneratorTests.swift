@@ -37,9 +37,9 @@ struct MetadataGeneratorTests {
         expectFresh("1 冊を直した")
         // まとめての書き込み(upsertAll): 足す・直す・外す。
         store.upsertAll([
-            .init(bookID: third, values: values("月の庭 3"), sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
-            .init(bookID: second, values: values("月の庭 2 改"), sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
-            .init(bookID: first, values: nil, sourceURL: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+            .init(bookID: third, values: values("月の庭 3"), anchors: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+            .init(bookID: second, values: values("月の庭 2 改"), anchors: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
+            .init(bookID: first, values: nil, anchors: nil, fieldsVersion: BookMetadata.currentFieldsVersion),
         ])
         expectFresh("まとめて足す・直す・外す")
         #expect(store.allRecords()[first] == nil)

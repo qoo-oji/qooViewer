@@ -63,12 +63,15 @@ struct BookExportViewModelTests {
         func close() { library.close() }
 
         func makeViewModel() -> StubExportViewModel {
-            StubExportViewModel(
+            let viewModel = StubExportViewModel(
                 bookmarkStore: library.bookmarks, layoutStore: library.layouts,
                 metadataStore: library.metadata, preferences: preferences,
                 // 対象一覧は組み立てない(登録済みの全本の実在確認が走るため)。
                 loadsEligibleRows: false
             )
+            // 書き出したファイルを置く窓口は、変更の知らせ先を持たないもの(共有の FileOperationService.shared に触れない)。
+            viewModel.fileOperations = FileOperationService()
+            return viewModel
         }
 
         /// ページの中身を持たない、材料集めから見えるぶんだけの本。
@@ -163,7 +166,7 @@ struct BookExportViewModelTests {
     // MARK: - 読み方向の優先順位(DB > 開いている本 > 既定)
 
     @Test("読み方向は、本ごとの上書き → 開いている本の表示 → 環境設定の既定 の順に決まる")
-    func theReadingDirectionFollowsItsPriority() throws {
+    func theReadingDirectionFollowsItsPriority() async throws {
         let env = try Environment()
         defer { env.close() }
         env.preferences.defaultReadingDirectionSetting = .leftToRight
@@ -176,19 +179,19 @@ struct BookExportViewModelTests {
 
         // 3つとも無いときは環境設定の既定。**必ず確定した値になる**(nil のままにすると、
         // Apple Books が既定の左開きで開いてしまう。PreparedBook.readingDirection 参照)。
-        #expect(viewModel.prepare(row: row, book: book, displayState: nil).readingDirection
+        #expect(await viewModel.prepare(row: row, book: book, displayState: nil).readingDirection
             == .leftToRight)
         // 開いている本の表示は、環境設定より優先される。
-        #expect(viewModel.prepare(row: row, book: book, displayState: openRightToLeft)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: openRightToLeft)
             .readingDirection == .rightToLeft)
         // 本ごとの上書きがあれば、それがいちばん強い。
         env.library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
-        #expect(viewModel.prepare(row: row, book: book, displayState: openRightToLeft)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: openRightToLeft)
             .readingDirection == .leftToRight)
     }
 
     @Test("見開きの強制も同じ順序で決まる(こちらは上書きが無ければ nil のまま)")
-    func theForcedDisplayModeFollowsTheSamePriority() throws {
+    func theForcedDisplayModeFollowsTheSamePriority() async throws {
         let env = try Environment()
         defer { env.close() }
         let viewModel = env.makeViewModel()
@@ -198,16 +201,16 @@ struct BookExportViewModelTests {
             readingDirection: .leftToRight, displayMode: .single
         )
 
-        #expect(viewModel.prepare(row: row, book: book, displayState: nil).forcedDisplayMode == nil)
-        #expect(viewModel.prepare(row: row, book: book, displayState: openSingle)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: nil).forcedDisplayMode == nil)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: openSingle)
             .forcedDisplayMode == .single)
         env.library.layouts.setForcedDisplayMode(for: book, .spread)
-        #expect(viewModel.prepare(row: row, book: book, displayState: openSingle)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: openSingle)
             .forcedDisplayMode == .spread)
     }
 
     @Test("書き出しウインドウでは、上書きが無ければ最後にビューアで表示していた読み方向・見開きを使う")
-    func theLastShownStateFillsInWithoutAnOverride() throws {
+    func theLastShownStateFillsInWithoutAnOverride() async throws {
         let env = try Environment()
         defer { env.close() }
         env.preferences.defaultReadingDirectionSetting = .rightToLeft
@@ -218,16 +221,16 @@ struct BookExportViewModelTests {
         env.library.context.insert(
             BookReadingState(bookID: book.id, displayMode: .single, readingDirection: .leftToRight))
 
-        let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: row, book: book, displayState: nil)
         #expect(prepared.readingDirection == .leftToRight)
         #expect(prepared.forcedDisplayMode == .single)
         // 本ごとの上書きのほうが強い。
         env.library.layouts.setReadingDirectionOverride(for: book, .rightToLeft)
-        #expect(viewModel.prepare(row: row, book: book, displayState: nil).readingDirection == .rightToLeft)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: nil).readingDirection == .rightToLeft)
     }
 
     @Test("まだ取り込んでいないファイル自身の指定は、最後の表示状態・既定より先に使い、取り込み済みなら見ない")
-    func anUnimportedSourceHintComesBeforeTheLastShownState() throws {
+    func anUnimportedSourceHintComesBeforeTheLastShownState() async throws {
         let env = try Environment()
         defer { env.close() }
         env.preferences.defaultReadingDirectionSetting = .leftToRight
@@ -236,7 +239,7 @@ struct BookExportViewModelTests {
         book.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: .rightToLeft, forcedDisplayMode: .single)
         let row = env.row(for: book)
 
-        let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: row, book: book, displayState: nil)
         #expect(prepared.readingDirection == .rightToLeft)
         #expect(prepared.forcedDisplayMode == .single)
 
@@ -244,7 +247,7 @@ struct BookExportViewModelTests {
         env.library.layouts.importSourceLayoutIfNeeded(for: book)
         env.library.layouts.setReadingDirectionOverride(for: book, nil)
         env.library.layouts.setForcedDisplayMode(for: book, nil)
-        let afterImport = viewModel.prepare(row: row, book: book, displayState: nil)
+        let afterImport = await viewModel.prepare(row: row, book: book, displayState: nil)
         #expect(afterImport.readingDirection == .leftToRight)
         #expect(afterImport.forcedDisplayMode == nil)
     }
@@ -252,7 +255,7 @@ struct BookExportViewModelTests {
     // MARK: - ブックマークの解決
 
     @Test("鍵を持つブックマークは鍵で、持たない古い行は従来順の番号で解決する")
-    func bookmarksAreResolvedByKeyOrByLegacyIndex() throws {
+    func bookmarksAreResolvedByKeyOrByLegacyIndex() async throws {
         let env = try Environment()
         defer { env.close() }
         let viewModel = env.makeViewModel()
@@ -267,14 +270,14 @@ struct BookExportViewModelTests {
         // 範囲外の番号を持つ壊れた行は落とす。
         env.library.bookmarks.addBookmark(bookID: book.id, pageIndex: 99, name: "broken")
 
-        let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: row, book: book, displayState: nil)
         #expect(prepared.bookmarks.map(\.name) == ["keyed", "legacy"])
         // 鍵を持つ行は、番号(0)ではなく鍵(p3)が権威。
         #expect(prepared.bookmarks.map(\.pageKey) == ["p3", "p2"])
     }
 
     @Test("除外ページは、含めない設定なら古いブックマークの番号の数え方からも外れる")
-    func excludedPagesShiftTheLegacyBookmarkIndices() throws {
+    func excludedPagesShiftTheLegacyBookmarkIndices() async throws {
         let env = try Environment()
         defer { env.close() }
         let viewModel = env.makeViewModel()
@@ -284,11 +287,11 @@ struct BookExportViewModelTests {
         env.library.bookmarks.addBookmark(bookID: book.id, pageIndex: 1, name: "legacy")
 
         // 既定(除外ページを含めない)では、p1 が消えるので番号1は p3。
-        #expect(viewModel.prepare(row: row, book: book, displayState: nil)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: nil)
             .bookmarks.map(\.pageKey) == ["p3"])
 
         viewModel.includeExcludedPages = true
-        #expect(viewModel.prepare(row: row, book: book, displayState: nil)
+        #expect(await viewModel.prepare(row: row, book: book, displayState: nil)
             .bookmarks.map(\.pageKey) == ["p2"])
     }
 
@@ -307,7 +310,7 @@ struct BookExportViewModelTests {
         // 同名ファイルの確認には先に答えておく(この経路では画面が無い)。
         viewModel.resolveOverwrite(.overwrite, applyToRemaining: true)
 
-        let prepared = viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
         try await viewModel.write(prepared, to: env.temporary.url)
 
         // バグ修正の要: Exporter は書き始めに出力先を消すので、直接書くと**元ファイルが消え**、
@@ -331,7 +334,7 @@ struct BookExportViewModelTests {
         viewModel.failsToWrite = true
         viewModel.resolveOverwrite(.overwrite, applyToRemaining: true)
 
-        let prepared = viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
         await #expect(throws: (any Error).self) {
             try await viewModel.write(prepared, to: env.temporary.url)
         }
@@ -352,7 +355,7 @@ struct BookExportViewModelTests {
         let book = env.book("book.cbz")
         viewModel.resolveOverwrite(.skip, applyToRemaining: true)
 
-        let prepared = viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
         await #expect(throws: BookExportViewModel.ExportSkippedByUser.self) {
             try await viewModel.write(prepared, to: env.temporary.url)
         }
@@ -446,7 +449,7 @@ struct BookExportViewModelTests {
     // MARK: - 題・著者の種と付け替え(2026-10-04 の監査 TW-1・TW-5)
 
     @Test("題・著者の欄は、触っていなければメタデータの今の値へ付いていき、書き換えた欄はそのまま残る(TW-1)")
-    func seededTitlesFollowTheMetadataUntilEdited() throws {
+    func seededTitlesFollowTheMetadataUntilEdited() async throws {
         let env = try Environment()
         defer { env.close() }
         let viewModel = env.makeViewModel()
@@ -468,7 +471,7 @@ struct BookExportViewModelTests {
         viewModel.prepareOpenBook(book)
         #expect(viewModel.titleOverrides[book.id] == "書き出し用の題")
         #expect(viewModel.authorOverrides[book.id] == "架空の三")
-        let prepared = viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
+        let prepared = await viewModel.prepare(row: env.row(for: book), book: book, displayState: nil)
         #expect(prepared.title == "書き出し用の題")
         #expect(prepared.author == "架空の三")
     }
@@ -486,7 +489,7 @@ struct BookExportViewModelTests {
     }
 
     @Test("書き出しウインドウのチェックと題・著者の編集は、本が付け替えられたら新しい bookID へ付いていく(TW-5)")
-    func checksAndEditsFollowARelocatedBook() throws {
+    func checksAndEditsFollowARelocatedBook() async throws {
         let env = try Environment()
         defer { env.close() }
         let viewModel = env.makeViewModel()
@@ -504,7 +507,7 @@ struct BookExportViewModelTests {
         #expect(viewModel.titleOverrides[moved] == "書き出し用の題")
         #expect(viewModel.titleOverrides[book.id] == nil)
         let movedRow = BookExportViewModel.Row(bookID: moved, hasLayout: false, hasBookmarks: false, hasMetadata: false)
-        #expect(viewModel.prepare(row: movedRow, book: book, displayState: nil).title == "書き出し用の題")
+        #expect(await viewModel.prepare(row: movedRow, book: book, displayState: nil).title == "書き出し用の題")
     }
 
     @Test("カバー名の控えは、ほかの画面でカバーを変えたら捨てて求め直す(TW-2)")

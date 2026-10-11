@@ -2372,14 +2372,16 @@ private struct SmartBookThumbnail: View {
         }
         // スピナーは、絵が少し待っても届かないときだけ出す(2026-09-27、表示の切り替えの監査)。ディスクキャッシュから引ける
         // 絵は数ミリ秒で届くので、すぐ出すと戻るたびにスピナーが一瞬ずつ瞬いていた。
-        let spinnerTimer: Task<Void, Never>? = image == nil && !isSpinnerDue
-            ? Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(250))
-                guard !Task.isCancelled else { return }
+        // 時限は `DispatchQueue.main.asyncAfter`(CLAUDE.md「待ちを見せる」の決まり。2026-10-11 の規約監査 ―― 以前の `Task.sleep` は
+        // 協調スレッドプールが塞がっていると発火せず、絵が届かないままスピナーも出なかった)。
+        let spinnerTimer: SpinnerTimer? = image == nil && !isSpinnerDue ? SpinnerTimer() : nil
+        if let spinnerTimer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                guard !spinnerTimer.isCancelled else { return }
                 isSpinnerDue = true
             }
-            : nil
-        defer { spinnerTimer?.cancel() }
+        }
+        defer { spinnerTimer?.isCancelled = true }
         // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
         let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, savesToDisk: savesToDisk,
                                                 knownKey: book.thumbnailKey)
@@ -2394,6 +2396,11 @@ private struct SmartBookThumbnail: View {
         loadedContentKey = contentKey
         onImageRetained(made)
     }
+}
+
+/// 表紙のスピナーを出すまでの時限の取り消し印(`asyncAfter` は取り消せないので、届いたときに見る)。
+private final class SpinnerTimer {
+    var isCancelled = false
 }
 
 /// 対象フォルダの欄の受け口(使えないときは付けない ―― 付けたまま断ると、ウインドウ全体の受け口へ回らない)。

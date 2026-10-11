@@ -244,6 +244,30 @@ nonisolated struct BookRelocationNotice: Sendable {
     }
 }
 
+/// 待っている間に本が移ったら、移った先の bookID へ付いていく小さな控え(2026-10-11 の規約監査のレビュー)。
+///
+/// メインの外での解決を待ってから bookID で書く所(一括リネームの表紙のブックマークなど)が使う。CLAUDE.md の決まりどおり、
+/// 書き込みの宛先は付け替えの知らせ(`.booksDidRelocate`)でだけ動かす。作ってから `current` を読むまでの間だけ知らせを受ける。
+@MainActor
+final class BookIDFollower {
+    private(set) var current: String
+    private var observer: NSObjectProtocol?
+
+    init(_ bookID: String) {
+        current = bookID
+        observer = NotificationCenter.default.addObserver(forName: .booksDidRelocate, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let notice = BookRelocationNotice(note) else { return }
+                self.current = notice.current(self.current)
+            }
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+}
+
 extension Notification.Name {
     /// 本の保存データを新しいパスへ付け替えた(`BookRelocationNotice`)。
     static let booksDidRelocate = Notification.Name("qooViewer.booksDidRelocate")

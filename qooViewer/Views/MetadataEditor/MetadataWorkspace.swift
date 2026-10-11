@@ -507,9 +507,6 @@ final class MetadataWorkspace {
 
     // MARK: - DB へ書く
 
-    /// 本の場所の手がかりをその場で(メインで)作ってよい冊数(`commit`)。
-    private static let inlineLocatorLimit = 20
-
     /// 行に本の場所の手がかりが足りないか(ブックマークか識別子が無い)。
     private static func needsLocator(_ row: BookMetadata) -> Bool {
         row.bookmarkData == nil || FileNodeIdentifier.needsBackfill(row.fileNodeIdentifier)
@@ -520,9 +517,9 @@ final class MetadataWorkspace {
     private func commit(_ ids: some Sequence<String>, lockValues: [String: BookMetadataValues] = [:]) {
         var mounts: MountTable?
         let sorted = Set(ids).sorted()
-        // 多くの本をまとめて書くときは、手がかりをメインの外で作って後から入れる(`BookMetadataStore.fillLocators`。
-        // 2026-09-23 の 3 回目の監査の低: 「すべて選択」してロックすると、数千冊ぶんのブックマークの作成と stat をメインで行っていた)。
-        let defersLocators = sorted.count > Self.inlineLocatorLimit
+        // 手がかりはメインの外で作って後から入れる(`BookMetadataStore.fillLocators`。2026-09-23 の 3 回目の監査の低: 「すべて選択」
+        // してロックすると、数千冊ぶんのブックマークの作成と stat をメインで行っていた。そのときは 20 冊までをその場(メイン)で
+        // 作っていたが、それもやめて常に外で作る ―― 2026-10-11 の規約監査)。
         var deferred: [String] = []
         let entries = sorted.compactMap { id -> BookMetadataStore.BatchEntry? in
             // 付け替え済みでまだ組み直していない本は、新しい bookID の行へ書く(`writeID`。2026-10-04 のレビューの R4-2)。
@@ -534,20 +531,18 @@ final class MetadataWorkspace {
             // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
             // 無いと、アプリの外で名前を変えたときに行が古いパスに取り残される(開いたときの追従は識別子、起動後の追従は
             // ブックマークで探す。2026-09-22 の監査)。手がかりはストアが「まだ無いときだけ」書く。見つからない本とネットワークの
-            // 本には触らない(メインで stat するため)。
-            var sourceURL: URL?
+            // 本には触らない(外で作るにしても、応答しない共有で FileIO のスレッドを塞がないように)。
             if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
                 // `URL(fileURLWithPath:)`(isDirectory 無し)はフォルダかどうかを lstat する ―― 下のネットワークの判定より前に触っていた
                 // (2026-10-06 の応答性の点検 R3-6)。パスから作るだけにする。
                 let url = URL(filePath: target)
                 if mounts == nil { mounts = MountTable.current() }
-                if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
+                if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url),
+                   store.metadata(forBookID: target).map(Self.needsLocator) ?? true {
+                    deferred.append(target)
+                }
             }
-            if defersLocators, sourceURL != nil, store.metadata(forBookID: target).map(Self.needsLocator) ?? true {
-                deferred.append(target)
-                sourceURL = nil
-            }
-            return BookMetadataStore.BatchEntry(bookID: target, values: values, sourceURL: sourceURL, state: state)
+            return BookMetadataStore.BatchEntry(bookID: target, values: values, state: state)
         }
         guard !entries.isEmpty else { return }
         isWritingBack = true

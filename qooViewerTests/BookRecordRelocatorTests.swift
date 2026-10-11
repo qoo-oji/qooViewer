@@ -27,7 +27,7 @@ struct BookRecordRelocatorTests {
         #expect(library.bookmarks.addBookmark(
             bookID: book.path, pageIndex: 0, name: "p1", fileNodeIdentifier: FileNodeIdentifier.current(for: book)
         ))
-        _ = library.metadata.upsert(bookID: book.path, author: "A", title: "T", series: "", seriesIndex: "", sourceURL: book)
+        _ = library.metadata.upsert(bookID: book.path, author: "A", title: "T", series: "", seriesIndex: "", anchors: .probe(book))
         library.context.insert(BookReadingState(bookID: book.path))
         try library.context.save()
         return collection
@@ -270,7 +270,7 @@ struct BookRecordRelocatorTests {
             guard !wroteWhilePlanning.value else { return }
             wroteWhilePlanning.value = true
             library.metadata.upsertAll([BookMetadataStore.BatchEntry(
-                bookID: book.path, values: BookMetadataValues(title: "打ちかけの題"), sourceURL: nil,
+                bookID: book.path, values: BookMetadataValues(title: "打ちかけの題"), anchors: nil,
                 state: BookMetadataRowState(isLocked: false))])
         }
         let rowSeenAtNotice = RelocatorTestBox<String?>(nil)

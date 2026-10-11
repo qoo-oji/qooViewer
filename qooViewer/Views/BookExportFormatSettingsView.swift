@@ -158,7 +158,7 @@ struct BookExportFormatSettingsView: View {
         panel.directoryURL = format.fixedFolder.folderPanelStartDirectory()
             ?? format.lastUsedFolder.folderPanelStartDirectory()
         guard let folder = await WindowSheet.chooseURLs(panel)?.first else { return false }
-        format.fixedFolder.remember(folder, panelDirectory: panel.directoryURL)
+        await format.fixedFolder.remember(folder, panelDirectory: panel.directoryURL)
         fixedFolderGeneration &+= 1
         return true
     }

@@ -885,7 +885,7 @@ final class FavoritesStore: ObservableObject {
             title: book.title,
             folder: folder,
             sortOrder: books(in: folder).count,
-            fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
+            fileNodeIdentifier: book.recordFileNodeIdentifier
         )
         modelContext.insert(favorite)
         // 新しいお気に入りが増えたぶん、登録先フォルダの中身が変わったとみなしupdatedAtを
@@ -953,7 +953,7 @@ final class FavoritesStore: ObservableObject {
                 title: request.book.title,
                 folder: request.folder,
                 sortOrder: sortOrder,
-                fileNodeIdentifier: FileNodeIdentifier.current(for: request.book.sourceURL)
+                fileNodeIdentifier: request.book.recordFileNodeIdentifier
             )
             modelContext.insert(favorite)
             if let folder = request.folder {
@@ -971,12 +971,10 @@ final class FavoritesStore: ObservableObject {
         return results
     }
 
+    /// 開いたときにメインの外で作ったブックマーク(`MangaBook.recordBookmarkData`。2026-10-11 の規約監査 ―― 以前はここで
+    /// メインで作っていた)。
     private func makeBookmarkData(for book: MangaBook) -> Data? {
-        try? book.sourceURL.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        book.recordBookmarkData
     }
 
     // MARK: - 開く前のURL解決・存在確認
@@ -1001,13 +999,6 @@ final class FavoritesStore: ObservableObject {
     /// 識別子で引くための索引(BookmarkStore の同名のコメント)。
     func fileNodeIndex() -> FileNodeIndex<FavoriteBook> {
         FileNodeIndex(allFavoriteBooks(), inode: { $0.fileNodeIdentifier?.inodeNumber })
-    }
-
-    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<FavoriteBook>? = nil) -> URL? {
-        for favorite in index?.rows(withInode: identifier) ?? allFavoriteBooks() where favorite.fileNodeIdentifier == identifier {
-            if let url = resolvedURL(for: favorite) { return url }
-        }
-        return nil
     }
 
     /// 開く直前に使う便利メソッド。ブックマークの解決と存在確認の両方が成功した場合にのみURLを返す

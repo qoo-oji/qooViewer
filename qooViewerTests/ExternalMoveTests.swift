@@ -18,7 +18,7 @@ struct ExternalMoveTests {
 
     /// 利用者が登録した(ロックした)メタデータの行を、ブックマークと識別子つきで作る。
     private func registerLocked(_ url: URL, in library: InMemoryLibrary) {
-        _ = library.metadata.upsert(bookID: url.path, author: "A", title: "T", series: "", seriesIndex: "", sourceURL: url)
+        _ = library.metadata.upsert(bookID: url.path, author: "A", title: "T", series: "", seriesIndex: "", anchors: .probe(url))
     }
 
     @Test("新しいパスに読みだけの行があっても、付け替えは直した行で置き換える")
@@ -162,7 +162,7 @@ struct ExternalMoveTests {
         func book(_ name: String, author: String) throws -> URL {
             let url = temporary.file(name)
             try Data(author.utf8).write(to: url)
-            _ = library.metadata.upsert(bookID: url.path, author: author, title: "T", series: "", seriesIndex: "", sourceURL: url)
+            _ = library.metadata.upsert(bookID: url.path, author: author, title: "T", series: "", seriesIndex: "", anchors: .probe(url))
             return url
         }
         // Finder で 2 巻 → 3 巻、1 巻 → 2 巻と振り直した。見つかる一覧は [1 → 2, 2 → 3](記録したパスの順)。

@@ -164,10 +164,8 @@ nonisolated enum CbzExporter {
         var comicInfo = await pageLoader.sourceComicInfo(bookSourceURL: input.book.sourceURL) ?? ComicInfo()
 
         do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            let archive = try Archive(url: destinationURL, accessMode: .create)
+            // zip の作成と書き込みは FileIO の上で(ExportArchiveWriter。2026-10-11 の規約監査)。
+            let archive = try await ExportArchiveWriter.create(at: destinationURL)
 
             // ComicInfoの`Page@Image`は「アーカイブ内の画像を名前順に並べたときの位置」を
             // 指す(0始まり)。書き込んだ順ではない。
@@ -215,7 +213,7 @@ nonisolated enum CbzExporter {
                     imageData = exportable.data
                 }
 
-                try addEntry(to: archive, path: entry.fileName, data: imageData, compressed: shouldCompress(entry.fileName))
+                try await addEntry(to: archive, path: entry.fileName, data: imageData, compressed: shouldCompress(entry.fileName))
 
                 var page = ComicInfoPage(image: imageIndexByPlannedIndex[outputIndex])
                 if entry.isFrontCover {
@@ -256,11 +254,13 @@ nonisolated enum CbzExporter {
             // compactMapで落ちる要素は無い。
             applyMetadata(to: &comicInfo, input: input, options: options, pages: comicInfoPages.compactMap { $0 })
             if !comicInfo.isEmpty {
-                try addEntry(
+                try await addEntry(
                     to: archive, path: ComicInfoXML.fileName,
                     data: Data(ComicInfoXML.makeDocument(comicInfo).utf8), compressed: true
                 )
             }
+            // 閉じる(最後の吐き出しと fclose)のも FileIO の上で(ExportArchiveWriter.close)。
+            await archive.close()
         } catch let error as CbzExportError {
             throw error
         } catch {
@@ -504,21 +504,10 @@ nonisolated enum CbzExporter {
         !alreadyCompressedExtensions.contains((fileName as NSString).pathExtension.lowercased())
     }
 
-    private static func addEntry(to archive: Archive, path: String, data: Data, compressed: Bool) throws {
-        try archive.addEntry(
-            with: path,
-            type: .file,
-            uncompressedSize: Int64(data.count),
-            // ZIPFoundation は日時を UTC として書くので、書き出す時刻が現地時刻で入るようにずらして渡す(ZipDOSTime)。
-            // 省くと既定の「いま」が UTC のまま入り、日本では展開したファイルが 9 時間前の日時になる。
-            modificationDate: ZipDOSTime.zipFoundationDate(forLocal: Date()),
-            compressionMethod: compressed ? .deflate : .none,
-            // 格納のエントリは 1MB ずつ渡す(既定の 16KB だと、写しと書き込みの呼び出しが 16KB ごとに 1 回。2026-10-05 の効率の監査 C5)。
-            // 格納ではチャンクの切り方が中身・CRC・見出しに出ないので、書き出すバイト列は同じ。deflate は既定のまま(圧縮の出力が
-            // 入力の切り方に依らないことを確かめていない)。
-            bufferSize: compressed ? defaultWriteChunkSize : 1 << 20
-        ) { position, size in
-            data.subdata(in: Int(position)..<(Int(position) + size))
-        }
+    private static func addEntry(to archive: ExportArchiveWriter, path: String, data: Data, compressed: Bool) async throws {
+        // 格納のエントリは 1MB ずつ渡す(既定の 16KB だと、写しと書き込みの呼び出しが 16KB ごとに 1 回。2026-10-05 の効率の監査 C5)。
+        // 格納ではチャンクの切り方が中身・CRC・見出しに出ないので、書き出すバイト列は同じ。deflate は既定のまま(圧縮の出力が
+        // 入力の切り方に依らないことを確かめていない)。日時の扱いは ExportArchiveWriter.addEntry のコメント。
+        try await archive.addEntry(path: path, data: data, compressed: compressed, storedChunkSize: 1 << 20)
     }
 }

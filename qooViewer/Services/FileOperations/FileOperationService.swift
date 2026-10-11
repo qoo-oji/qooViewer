@@ -39,6 +39,28 @@ actor FileOperationService {
     /// 永久に来ない(qooLibrary 実測)ので、待つのをやめられるようにする。
     nonisolated static let trashTimeout: Duration = .seconds(120)
 
+    // MARK: - 書き出したファイルを置く
+
+    /// 書き出し(EPUB/CBZ/PDF)が出力先と同じフォルダへ書いた一時ファイルを、出力先の名前で置く(2026-10-11 の規約監査)。
+    /// 同名のファイルがあれば置き換える(置き換えるかは呼び出し側が利用者に尋ね済み)。
+    ///
+    /// 以前は書き出し側が `FileManager` で直に置き換えていて、`FileSystemChange` が出なかった ―― 開いているファイルブラウザ・
+    /// サイドパネルの一覧が、FSEvents の届かないネットワークボリュームでは新しいファイルを出さなかった。
+    ///
+    /// 知らせは `created` だけ(`replaced` にしない)。`replaced` は「そこにあった本の保存データは新しい項目のものではない」として
+    /// 付け替え役が保存データを消す合図だが、書き出しの置き換えは同じ本を作り直す使い方(cbz を開いて同じ場所へ cbz で書き出す)が
+    /// 普通にあり、以前もここで保存データを消していなかった(中身が変わったことは、次に開いたときに指紋で分かる ―― ContentFingerprint)。
+    func placeExportedFile(_ temporaryURL: URL, at destinationURL: URL) async throws {
+        try await FileIO.perform {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+            } else {
+                try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
+            }
+        }
+        changeObserver?(FileSystemChange(created: [destinationURL]))
+    }
+
     // MARK: - 新規フォルダ
 
     /// フォルダを 1 つ作る。**既にあれば失敗する**(`withIntermediateDirectories: true` は既存でも

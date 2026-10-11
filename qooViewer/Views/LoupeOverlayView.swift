@@ -95,7 +95,10 @@ final class LoupeNSView: NSView {
         super.updateTrackingAreas()
         if let trackingArea {
             removeTrackingArea(trackingArea)
+            self.trackingArea = nil
         }
+        // ウインドウに載っていない間は張らない(viewDidMoveToWindowのコメント参照)。
+        guard window != nil else { return }
         let area = NSTrackingArea(
             rect: bounds,
             options: [.mouseMoved, .activeAlways, .inVisibleRect],
@@ -138,8 +141,22 @@ final class LoupeNSView: NSView {
     /// 使えるようになる瞬間)で、まだマウス位置を把握していなければ現在のカーソル位置を
     /// 取得しておく。updateNSView側の保険(まだwindowが無い早い段階での呼び出し)より
     /// こちらの方が確実に発火するタイミング。
+    ///
+    /// **ウインドウから外れたら、トラッキング領域・閉包・画像を手放す**(2026-10-11 の規約監査。MouseExitTrackingView と同じ)。
+    /// `NSTrackingArea` は `owner` を強参照し、このビューは領域を強参照するので、`owner: self` で張ると「ビュー → 領域 → ビュー」の
+    /// 輪ができる。以前は `dismantleNSView` だけで切っていたが、ウインドウを閉じる経路では `dismantleNSView` が呼ばれないことを
+    /// 実測している(WindowMouseExitAccessor の型コメント)ので、拡大鏡を出したまま閉じると `onDismiss` が掴んだ ViewerView の写しと
+    /// スロットの画像(1 枚最大 256MB)が残りえた。ウインドウへ戻れば `updateTrackingAreas` が張り直し、閉包と画像は次の
+    /// `updateNSView` で入り直す。
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else {
+            removeMouseTracking()
+            onDismiss = nil
+            slots = []
+            slotWidths = []
+            return
+        }
         if !hasMouseLocation {
             refreshMouseLocationFromScreen()
         }

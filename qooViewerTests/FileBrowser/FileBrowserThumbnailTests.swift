@@ -447,7 +447,7 @@ struct FileBrowserThumbnailTests {
         let loaded = try await FixtureBook.load(bookEntry.url)
         let third = try #require(loaded.pages.count == 3 ? loaded.pages[2] : nil)
         library.layouts.setShelfCoverPageKey(
-            forBookID: bookEntry.id, sourceURL: bookEntry.url, pageKey: third.sortKey, displayName: "003.png"
+            forBookID: bookEntry.id, anchors: .probe(bookEntry.url), pageKey: third.sortKey, displayName: "003.png"
         )
         let shelfPage = try await number()
         #expect(abs((shelfPage ?? 0) - 80) <= 2, "表紙に指定したページの絵になっていない: \(String(describing: shelfPage))")
@@ -675,7 +675,7 @@ struct FileBrowserThumbnailTests {
         let third = try #require(loaded.pages.count == 3 ? loaded.pages[2] : nil)
         let revisionBefore = provider.revision
         library.layouts.setShelfCoverPageKey(
-            forBookID: bookEntry.id, sourceURL: bookEntry.url, pageKey: third.sortKey, displayName: "003.png"
+            forBookID: bookEntry.id, anchors: .probe(bookEntry.url), pageKey: third.sortKey, displayName: "003.png"
         )
         #expect(provider.revision != revisionBefore)
         // 作った絵は JPEG を通るので、色の番号は少しずれうる(ディスクキャッシュのテストと同じ許容)。
@@ -686,7 +686,7 @@ struct FileBrowserThumbnailTests {
         let image = temporary.file("cover.png")
         try PageImageFactory.png(number: 9).write(to: image)
         let generated = provider.generatedCount
-        try await library.layouts.setShelfCoverImage(forBookID: bookEntry.id, sourceURL: bookEntry.url, fileURL: image)
+        try await library.layouts.setShelfCoverImage(forBookID: bookEntry.id, anchors: .probe(bookEntry.url), fileURL: image)
         #expect(try await number(pixelSize: 256) == 9)
         #expect(provider.generatedCount == generated)
 

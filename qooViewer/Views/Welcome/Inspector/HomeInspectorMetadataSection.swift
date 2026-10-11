@@ -113,7 +113,8 @@ struct HomeInspectorMetadataSection: View {
     /// 書く・読む相手の bookID(付け替えに付いていく。`movedBookID`)。
     private var targetBookID: String { movedBookID ?? bookID }
     /// 書く相手の実体。付け替えられていれば新しいパス。
-    private var targetSourceURL: URL { movedBookID.map { URL(fileURLWithPath: $0) } ?? sourceURL }
+    /// パスから作るだけ(`URL(fileURLWithPath:)` は向きを渡さないと lstat する。2026-10-11 の規約監査)。
+    private var targetSourceURL: URL { movedBookID.map { URL(filePath: $0) } ?? sourceURL }
 
     private struct LoadedRow: Equatable {
         let values: BookMetadataValues
@@ -642,8 +643,8 @@ struct HomeInspectorMetadataSection: View {
             values.volumeSort = proposed.volumeSort
             values = values.trimmed
         }
-        metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: targetSourceURL,
-                                                              state: state)])
+        metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, state: state)])
+        fillLocatorIfNeeded(bookID: bookID, url: targetSourceURL)
         if narrowsEditsAfterUnlock {
             MetadataWorkspace.narrowEditsAfterUnlock(bookID: bookID, values: values, written: state, store: metadataStore)
         }
@@ -651,6 +652,20 @@ struct HomeInspectorMetadataSection: View {
         load()
         // 書かなかった読めない巻数(並べ替え用)は欄に戻す(打ちかけとして残り、案内も出たまま)。
         if let invalidVolumeSortText { self.volumeSortText = invalidVolumeSortText }
+    }
+
+    /// 行に本の場所の手がかり(ブックマークと識別子)が無ければ、メインの外で作って後から入れる(`BookMetadataStore.fillLocators`。
+    /// メタデータの編集ウインドウの `commit` と同じ)。以前は書き込みに本の URL を渡し、ストアがメインで作っていた ―― ネットワークの本でも
+    /// 欄を確定するたびにメインでブックマークの作成と stat が走った(2026-10-11 の規約監査)。繋がっていないボリュームの本には触らない。
+    private func fillLocatorIfNeeded(bookID: String, url: URL) {
+        guard let row = metadataStore.metadata(forBookID: bookID),
+              row.bookmarkData == nil || FileNodeIdentifier.needsBackfill(row.fileNodeIdentifier),
+              !MountTable.current().isOnAnUnmountedVolume(url)
+        else { return }
+        Task { [metadataStore] in
+            let anchors = await FileIO.perform(qos: .utility) { BookRowAnchors.probe(url) }
+            metadataStore.fillLocators([bookID: (anchors.bookmarkData, anchors.fileNodeIdentifier)])
+        }
     }
 }
 

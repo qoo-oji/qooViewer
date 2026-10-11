@@ -10,7 +10,7 @@ import Testing
 struct NonBookFolderSweeperTests {
     /// メタデータと読書位置を付ける(棚を 1 冊として開いていた頃に残ったものと同じ形)。
     private func record(_ path: String, in library: InMemoryLibrary) throws {
-        _ = library.metadata.upsert(bookID: path, author: "A", title: "T", series: "", seriesIndex: "", sourceURL: nil)
+        _ = library.metadata.upsert(bookID: path, author: "A", title: "T", series: "", seriesIndex: "", anchors: nil)
         library.context.insert(BookReadingState(bookID: path))
         try library.context.save()
     }
@@ -82,7 +82,7 @@ struct NonBookFolderSweeperTests {
         }
         // 識別子(ボリュームの UUID を含む)つきの行と、パスだけの行(読書位置だけ)。
         _ = library.metadata.upsert(bookID: identified.path, author: "A", title: "T", series: "", seriesIndex: "",
-                                    sourceURL: identified)
+                                    anchors: .probe(identified))
         library.context.insert(BookReadingState(bookID: pathOnly.path))
         try library.context.save()
 

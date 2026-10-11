@@ -41,8 +41,12 @@ final class CoverOverrideController: ObservableObject {
 
     /// bookIDから元ファイル/フォルダのURLを解決する手立て。呼び出し元ごとに手がかり
     /// (どのストアのブックマークを見るか)が違うため、閉包で受け取る
-    /// (BookExportViewModel.resolveURL / MetadataEditorViewModelのそれぞれの列)。
-    private let resolveURL: (String) -> URL?
+    /// (BookExportViewModel.resolveSourceURL / MetadataEditorModel.locateBook)。
+    ///
+    /// **非同期**(2026-10-11 の規約監査)。以前は同期の閉包で、書き出しウインドウ・メタデータの編集ウインドウのカバー列が、見えている
+    /// 行ごとにメインでブックマークを解いて存在を確かめていた(ネットワークの本では行ごとに往復を待った)。渡す側は解決を `FileIO` の
+    /// 上で行う(`StoredBookLocator`)。
+    private let resolveURL: @MainActor (String) async -> URL?
 
     /// 本を読むときにページ一覧のディスクキャッシュ(`BookPageListCache`)を読み書きするか。シークレットウインドウからの
     /// 1 冊書き出しでは false(`BookExportViewModel.usesPageListCache` が渡す)。false のときは既定のカバー名もキャッシュを見ずに読む。
@@ -117,6 +121,11 @@ final class CoverOverrideController: ObservableObject {
 
     /// `.layoutDataDidChange` の購読(`invalidateCoverNames`)。
     private var layoutChangeSubscription: AnyCancellable?
+    /// `.booksDidRelocate` の購読(`inFlightWriteTargets` と `pendingCropAnchors` を付いていかせる)。
+    private var relocationSubscription: AnyCancellable?
+    /// 行に添える手がかりを求めている書き込み(印 → 今の bookID)。待っている間に本が移ったら、知らせ(`BookRelocationNotice`)で
+    /// 移った先へ付いていき、そちらへ書く(CLAUDE.md「書き込みの宛先は付け替えの知らせでだけ動かす」。2026-10-11 のレビュー)。
+    private var inFlightWriteTargets: [UUID: String] = [:]
 
     /// カバー列に表示する名前のキャッシュ(bookID -> 表示名)。上書き設定がある場合は
     /// BookLayoutSettingsに保存済みの値をそのまま使えるが、既定(先頭ページ)の場合は本を
@@ -155,7 +164,7 @@ final class CoverOverrideController: ObservableObject {
 
     init(
         target: Target, layoutStore: LayoutStore, preferences: AppPreferences,
-        resolveURL: @escaping (String) -> URL?
+        resolveURL: @escaping @MainActor (String) async -> URL?
     ) {
         self.target = target
         self.layoutStore = layoutStore
@@ -173,6 +182,14 @@ final class CoverOverrideController: ObservableObject {
                     } else {
                         self?.invalidateCoverNames(forBookIDs: nil)
                     }
+                }
+            }
+        relocationSubscription = NotificationCenter.default.publisher(for: .booksDidRelocate)
+            .sink { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, let notice = BookRelocationNotice(notification) else { return }
+                    self.inFlightWriteTargets = self.inFlightWriteTargets.mapValues { notice.current($0) }
+                    self.pendingCropAnchors = notice.rekeyed(self.pendingCropAnchors)
                 }
             }
     }
@@ -311,10 +328,13 @@ final class CoverOverrideController: ObservableObject {
             let excludedKeys = Set(
                 layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
             )
+            // 行の値は待つ前に読む(待っている間に書き換わりうる)。
+            let coverPageKey = settings?.coverPageKey
+            let pageOrderOverride = settings?.pageOrderOverride
             snapshot = CoverImageResolver.OverrideSnapshot(
-                coverPageKey: settings?.coverPageKey,
-                imageFileURL: layoutStore.resolvedExternalCoverURL(forBookID: bookID),
-                pageOrderOverride: settings?.pageOrderOverride,
+                coverPageKey: coverPageKey,
+                imageFileURL: await layoutStore.resolvedExternalCoverURL(forBookID: bookID),
+                pageOrderOverride: pageOrderOverride,
                 excludedKeys: excludedKeys
             )
         }
@@ -324,7 +344,7 @@ final class CoverOverrideController: ObservableObject {
         if target == .coverImage, let imageURL = snapshot.imageFileURL, imageURL.startAccessingSecurityScopedResource() {
             scopedURLs.append(imageURL)
         }
-        let bookURL = snapshot.imageFileURL == nil ? resolveURL(bookID) : nil
+        let bookURL = snapshot.imageFileURL == nil ? await resolveURL(bookID) : nil
         if let bookURL, bookURL.startAccessingSecurityScopedResource() {
             scopedURLs.append(bookURL)
         }
@@ -348,14 +368,20 @@ final class CoverOverrideController: ObservableObject {
     /// セキュリティスコープ付きアクセスは、ピッカーが開いている間ずっとサムネイルを読めるよう
     /// 開いたままにする。**ピッカーを閉じたら必ずendCoverPicker(bookID:)を呼ぶこと**
     /// (pickerScopedURLByBookIDのコメント参照)。
+    ///
+    /// 返す本は居場所の事実(`sourceFacts`)を持つ ―― ページを選んだときに行を作る書き込み(`setCover`)がメインでファイルに触らない
+    /// ように、読み込みの後に `FileIO` の上で求めておく(2026-10-11 の規約監査)。
     func loadBookForCoverPicker(bookID: String) async -> MangaBook? {
-        guard let url = resolveURL(bookID) else { return nil }
+        guard let url = await resolveURL(bookID), !Task.isCancelled else { return nil }
         if pickerScopedURLByBookID[bookID] == nil, url.startAccessingSecurityScopedResource() {
             pickerScopedURLByBookID[bookID] = url
         }
-        let book = try? await BookLoader.load(
+        var book = try? await BookLoader.load(
             from: url, cachesPageList: cachesPageList(forBookID: url.path), caches: diskCaches
         )
+        if let sourceURL = book?.sourceURL {
+            book?.sourceFacts = await BookSourceFacts.gather(sourceURL, makesBookmark: allowsCoverChanges(forBookID: bookID))
+        }
         // 読み込んでいる間にピッカーが閉じられていたら(.taskが取り消される)、endCoverPickerは
         // 既に通り過ぎている。ここで閉じないと終了まで残る。
         if Task.isCancelled {
@@ -376,8 +402,8 @@ final class CoverOverrideController: ObservableObject {
     private func loadBookForCoverName(bookID: String) async -> MangaBook? {
         await acquireNameLoadSlot()
         defer { releaseNameLoadSlot() }
-        // 順番を待っている間に行が画面外へ流れていたら、読まずに戻る。
-        guard !Task.isCancelled, let url = resolveURL(bookID) else { return nil }
+        // 順番を待っている間に行が画面外へ流れていたら、読まずに戻る(場所を解いている間に流れたときも)。
+        guard !Task.isCancelled, let url = await resolveURL(bookID), !Task.isCancelled else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         return try? await BookLoader.load(
@@ -432,8 +458,9 @@ final class CoverOverrideController: ObservableObject {
         case .coverImage:
             layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
         case .collectionCover:
+            // 手がかりはピッカーが本を読んだときにメインの外で求めたもの(`loadBookForCoverPicker`)。
             layoutStore.setShelfCoverPageKey(
-                forBookID: bookID, sourceURL: book.sourceURL,
+                forBookID: bookID, anchors: book.recordAnchors,
                 pageKey: page.sortKey, displayName: coverName
             )
         }
@@ -463,13 +490,15 @@ final class CoverOverrideController: ObservableObject {
         do {
             switch target {
             case .coverImage:
-                try layoutStore.setExternalCover(forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL)
-                resolvedCoverNames[bookID] = fileURL.lastPathComponent
+                let (target, anchors) = await rowAnchorsFollowingRelocation(forBookID: bookID)
+                try await layoutStore.setExternalCover(forBookID: target, anchors: anchors, fileURL: fileURL)
+                resolvedCoverNames[target] = fileURL.lastPathComponent
             case .collectionCover:
                 // 表紙は画像をアプリの中へ複製する(元ファイルが消えても壊れないようにするため。
                 // CollectionCoverSourceStoreの型コメント参照)。画像として読めなければ失敗。
-                try await layoutStore.setShelfCoverImage(forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL)
-                resolvedCoverNames[bookID] = String(
+                let (target, anchors) = await rowAnchorsFollowingRelocation(forBookID: bookID)
+                try await layoutStore.setShelfCoverImage(forBookID: target, anchors: anchors, fileURL: fileURL)
+                resolvedCoverNames[target] = String(
                     localized: "Selected Image", language: preferences.effectiveLocale
                 )
             }
@@ -522,16 +551,57 @@ final class CoverOverrideController: ObservableObject {
 
     // MARK: - カバーの切り出し位置(コレクションのグリッド表示にだけ効く)
 
-    /// 本ごとの切り出し位置の上書き(nil = そのライブラリの設定に従う)。
+    /// 本ごとの切り出し位置の上書き(nil = そのライブラリの設定に従う)。書き込みを待っている指定があればそれ(`setCropAnchor`)。
     func cropAnchor(forBookID bookID: String) -> CoverCropAnchor? {
-        layoutStore.bookLayoutSettings(forBookID: bookID)?.coverCropAnchor
+        if let pending = pendingCropAnchors[bookID] { return pending }
+        return layoutStore.bookLayoutSettings(forBookID: bookID)?.coverCropAnchor
     }
 
+    /// 行がまだ無い本で、行を作る手がかりを求めている間の指定(本 → 最後に選ばれた位置)。
+    private var pendingCropAnchors: [String: CoverCropAnchor?] = [:]
+
+    /// 行が既にある本はその場で書く。無い本は、行に添える手がかり(ブックマークと識別子)をメインの外で求めてから書く
+    /// (2026-10-11 の規約監査。以前はメインで本の場所を解いて手がかりを作っていた)。待っている間に選び直されたら、
+    /// 最後に選ばれた位置を書く(メニューのチェックもその値を出す ―― `cropAnchor`)。
     func setCropAnchor(forBookID bookID: String, _ anchor: CoverCropAnchor?) {
         guard allowsCoverChanges(forBookID: bookID) else { return }
-        layoutStore.setCoverCropAnchor(
-            forBookID: bookID, sourceURL: resolveURL(bookID), anchor: anchor
-        )
+        if layoutStore.bookLayoutSettings(forBookID: bookID) != nil, pendingCropAnchors[bookID] == nil {
+            layoutStore.setCoverCropAnchor(forBookID: bookID, anchors: nil, anchor: anchor)
+            noteCoverDidChange()
+            return
+        }
+        // 「自動のままにする」で行の無い本には何も書かない(LayoutStore.setCoverCropAnchor と同じ)。待っている指定も無ければ。
+        guard anchor != nil || pendingCropAnchors[bookID] != nil else { return }
+        let isAlreadyWaiting = pendingCropAnchors[bookID] != nil
+        pendingCropAnchors[bookID] = .some(anchor)
         noteCoverDidChange()
+        guard !isAlreadyWaiting else { return }
+        Task {
+            let (target, anchors) = await rowAnchorsFollowingRelocation(forBookID: bookID)
+            guard let latest = pendingCropAnchors.removeValue(forKey: target) else { return }
+            guard allowsCoverChanges(forBookID: target) else { return }
+            layoutStore.setCoverCropAnchor(forBookID: target, anchors: anchors, anchor: latest)
+            noteCoverDidChange()
+        }
+    }
+
+    /// `rowAnchors` を求め、その間に本が移っていれば移った先の bookID も返す(`inFlightWriteTargets`)。
+    ///
+    /// 移っていたら手がかりは捨てる(nil)。別のボリュームへ移した(写して消した)本では、古い場所の識別子と消えたファイルへの
+    /// ブックマークになるため(MetadataGenerator.relocate と同じ。2026-10-11 のレビュー)。行の手がかりは、次にその本を開いたときの
+    /// 補完が埋める。移った先に行が既にあれば(付け替えで運ばれた)、もともと手がかりは要らない。
+    private func rowAnchorsFollowingRelocation(forBookID bookID: String) async -> (bookID: String, anchors: BookRowAnchors?) {
+        let token = UUID()
+        inFlightWriteTargets[token] = bookID
+        let anchors = await rowAnchors(forBookID: bookID)
+        let target = inFlightWriteTargets.removeValue(forKey: token) ?? bookID
+        guard target == bookID, layoutStore.bookLayoutSettings(forBookID: target) == nil else { return (target, nil) }
+        return (target, anchors)
+    }
+
+    /// 行がまだ無い本に添える手がかり。本の場所を解いて(`resolveURL`)、`FileIO` の上で作る。行が既にあれば要らない(nil)。
+    private func rowAnchors(forBookID bookID: String) async -> BookRowAnchors? {
+        guard layoutStore.bookLayoutSettings(forBookID: bookID) == nil else { return nil }
+        return await BookRowAnchors.gather(await resolveURL(bookID))
     }
 }

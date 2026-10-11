@@ -29,18 +29,42 @@ struct LastUsedFolderMemory {
         self.defaults = defaults
     }
 
-    func lastFolder() -> URL? {
+    /// 記憶しているフォルダ(ブックマークから解決したもの。書き出し先など、権限の要る使い方をするとき)。
+    ///
+    /// **解決はメインの外で**(2026-10-11 の規約監査。以前は同期で、書き出しウインドウの「書き出す」ボタンの題を決めるために
+    /// 描くたびにメインで解いていた ―― 保存先が応答しない共有の上だと窓の描画ごと止まった)。繋がっていない共有へは繋ぎに行かない
+    /// (BookmarkResolution)。パネルの最初の場所を決めるだけなら、解かずに `panelStartFolder()` を使う。
+    ///
+    /// 期限は `resolveLimit`(過ぎたら nil ―― 呼び出し側はパネルへ落とし、その場で選び直せる)。応答しない共有の上の保存先で、
+    /// 「書き出す」を押した後に長く待たせない。
+    func lastFolder() async -> URL? {
         guard let data = defaults.data(forKey: defaultsKey) else { return nil }
-        // パネルの最初の場所を決めるだけなので、繋がっていない共有へは繋ぎに行かない(BookmarkResolution)。
-        return BookmarkResolution.resolve(data)
+        return try? await FileIO.withDeadline(Self.resolveLimit) {
+            await FileIO.perform { BookmarkResolution.resolve(data) }
+        }
+    }
+
+    /// `lastFolder()` の期限。
+    static let resolveLimit: Duration = .seconds(5)
+
+    /// 記憶しているフォルダがあるか(解決はしない。ボタンの題など、描くたびに読む所のため)。
+    var hasRememberedFolder: Bool { defaults.data(forKey: defaultsKey) != nil }
+
+    /// パネル(ファイルを選ぶ・保存する)の最初の場所。**解決しない** ―― 記憶したときのパスから作るだけ(パネルは別のプロセスで動くので
+    /// 開始位置に権限は要らない。`folderPanelStartDirectory(current:)` と同じ考え方)。後から動かしたフォルダなら、パネルが
+    /// 既定の場所から始まるだけ。
+    func panelStartFolder() -> URL? {
+        lastFolderPath().map { URL(filePath: $0, directoryHint: .isDirectory) }
     }
 
     /// - Parameter panelDirectory: フォルダを選ぶパネルなら、閉じた時点で見ていた場所(`NSOpenPanel.directoryURL`)。
     ///   次に開くときの位置になる(`folderPanelStartDirectory(current:)`)。
-    func remember(_ folderURL: URL, panelDirectory: URL? = nil) {
-        guard let data = try? folderURL.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-        ) else { return }
+    ///
+    /// ブックマークを作るのはメインの外で(2026-10-11 の規約監査。選んだフォルダが応答しない共有の上でもメインを止めない)。
+    func remember(_ folderURL: URL, panelDirectory: URL? = nil) async {
+        guard let data = await FileIO.perform({
+            try? folderURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        }) else { return }
         defaults.set(data, forKey: defaultsKey)
         // 表示用のパスも一緒に控える(lastFolderPath()のコメント参照)。
         defaults.set(folderURL.path, forKey: pathDefaultsKey)
@@ -72,7 +96,7 @@ struct LastUsedFolderMemory {
         if let panelPath = defaults.string(forKey: panelDirectoryDefaultsKey) {
             return URL(fileURLWithPath: panelPath, isDirectory: true)
         }
-        return (current ?? lastFolder())?.deletingLastPathComponent()
+        return (current ?? panelStartFolder())?.deletingLastPathComponent()
     }
 
     /// 同じフォルダを指すパスか。**文字列だけで比べる**(2026-09-27 の監査): 以前の `URL(fileURLWithPath:).standardizedFileURL` は

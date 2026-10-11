@@ -47,7 +47,7 @@ struct AppStoresWiringTests {
         #expect(stores.bookmarkStore.addBookmark(
             bookID: book.path, pageIndex: 0, name: "p1", fileNodeIdentifier: FileNodeIdentifier.current(for: book)
         ))
-        _ = stores.metadataStore.upsert(bookID: book.path, author: "A", title: "T", series: "", seriesIndex: "", sourceURL: book)
+        _ = stores.metadataStore.upsert(bookID: book.path, author: "A", title: "T", series: "", seriesIndex: "", anchors: .probe(book))
         stores.favoriteLocations.add(shelf)
         stores.secretFolderStore.add(shelf)
         _ = stores.smartLibraryStore.addFolder(shelf)

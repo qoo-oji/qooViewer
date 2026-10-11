@@ -33,7 +33,20 @@ enum ContentFingerprint {
     }
 
     /// 今開こうとしているMangaBookから、現在の指紋を計算する。
+    ///
+    /// 更新日時・大きさは、本を開いたときにメインの外で求めたもの(`MangaBook.sourceFacts`)を使う(2026-10-11 の規約監査 ――
+    /// 以前は本を開くたびにここでメインで stat し、ネットワークボリュームでは最初の見開きを読む前に往復を待った)。
+    /// 事実を持たない本(テストが直接組んだ本)だけ、その場で問い合わせる。
     static func current(for book: MangaBook) -> Snapshot {
+        if let facts = book.sourceFacts {
+            return Snapshot(
+                pageCount: book.pages.count,
+                modificationDate: facts.modificationDate,
+                fileSize: facts.fileSize,
+                isDirectory: facts.isDirectory
+            )
+        }
+        BookSourceFacts.noteMissingFacts(book, "ContentFingerprint.current")
         let sourceResourceValues = try? book.sourceURL.resourceValues(
             forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]
         )

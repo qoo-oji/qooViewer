@@ -135,9 +135,16 @@ actor ThumbnailDiskCache {
         /// 属性の問い合わせ1回だけなので、本を開く時点で1度呼ぶぶんには軽い。
         init(sourceURL: URL, bookID: String, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat) {
             let values = try? sourceURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            self.init(bookID: bookID, modificationDate: values?.contentModificationDate,
+                      fileSize: values?.fileSize.map(Int64.init),
+                      contrastCorrectionEnabled: contrastCorrectionEnabled, maxPixelSize: maxPixelSize)
+        }
+
+        /// 本体の更新日時・サイズを呼び出し側が求めてある版(PageLoader は `FileIO` の上で 1 度だけ問い合わせる。2026-10-11 の規約監査)。
+        init(bookID: String, modificationDate: Date?, fileSize: Int64?, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat) {
             self.bookID = bookID
-            self.modificationDate = values?.contentModificationDate
-            self.fileSize = values?.fileSize.map(Int64.init)
+            self.modificationDate = modificationDate
+            self.fileSize = fileSize
             self.contrastCorrectionEnabled = contrastCorrectionEnabled
             self.maxPixelSize = maxPixelSize
         }

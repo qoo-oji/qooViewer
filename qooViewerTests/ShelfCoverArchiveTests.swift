@@ -48,15 +48,15 @@ struct ShelfCoverArchiveTests {
         // 画像を指定した本(書庫の本 = 拡張子は落ちる)。
         let chosen = try makeImage(temporary, "chosen.png", number: 21)
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/第1巻.cbz", sourceURL: nil, fileURL: chosen
+            forBookID: "/books/第1巻.cbz", anchors: nil, fileURL: chosen
         )
         // 本の中のページを指定した本(出さない)。
         library.layouts.setShelfCoverPageKey(
-            forBookID: "/books/第2巻.cbz", sourceURL: nil, pageKey: "001.png", displayName: "001.png"
+            forBookID: "/books/第2巻.cbz", anchors: nil, pageKey: "001.png", displayName: "001.png"
         )
         // 何も指定していない本(出さない)。
         library.layouts.setCoverPageKey(
-            forBookID: "/books/第3巻.cbz", sourceURL: nil, pageKey: "001.png", displayName: "001.png"
+            forBookID: "/books/第3巻.cbz", anchors: nil, pageKey: "001.png", displayName: "001.png"
         )
 
         let entries = library.layouts.shelfCoverArchiveEntries()
@@ -86,7 +86,7 @@ struct ShelfCoverArchiveTests {
 
         for bookID in ["/books/フォルダの本", "/books/書庫の本.cbz", "/books/文書.pdf"] {
             try await library.layouts.setShelfCoverImage(
-                forBookID: bookID, sourceURL: nil, fileURL: image
+                forBookID: bookID, anchors: nil, fileURL: image
             )
         }
         let names = library.layouts.shelfCoverArchiveEntries().map(\.fileName).sorted()
@@ -101,7 +101,7 @@ struct ShelfCoverArchiveTests {
         let image = try makeImage(temporary, "a.png", number: 1)
         for bookID in ["/A/第1巻.cbz", "/B/第1巻.cbz", "/C/第1巻.cbz"] {
             try await library.layouts.setShelfCoverImage(
-                forBookID: bookID, sourceURL: nil, fileURL: image
+                forBookID: bookID, anchors: nil, fileURL: image
             )
         }
 
@@ -127,7 +127,7 @@ struct ShelfCoverArchiveTests {
         let temporary = try TemporaryDirectory("cover-zip-dates")
         let image = try makeImage(temporary, "a.png", number: 1)
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/本.cbz", sourceURL: nil, fileURL: image
+            forBookID: "/books/本.cbz", anchors: nil, fileURL: image
         )
 
         let zipURL = temporary.file("covers.zip")
@@ -145,7 +145,7 @@ struct ShelfCoverArchiveTests {
         let temporary = try TemporaryDirectory("cover-zip-manifest")
         let image = try makeImage(temporary, "a.png", number: 1)
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/本.cbz", sourceURL: nil, fileURL: image
+            forBookID: "/books/本.cbz", anchors: nil, fileURL: image
         )
 
         let zipURL = temporary.file("covers.zip")
@@ -166,10 +166,10 @@ struct ShelfCoverArchiveTests {
         let temporary = try TemporaryDirectory("cover-zip-skip")
         let image = try makeImage(temporary, "a.png", number: 1)
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/生きている.cbz", sourceURL: nil, fileURL: image
+            forBookID: "/books/生きている.cbz", anchors: nil, fileURL: image
         )
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/消えた.cbz", sourceURL: nil, fileURL: image
+            forBookID: "/books/消えた.cbz", anchors: nil, fileURL: image
         )
         // 保管庫の実体だけを消す(行は残る)。
         let lostName = try #require(library.layouts.shelfCoverImageFileName(forBookID: "/books/消えた.cbz"))
@@ -220,13 +220,13 @@ struct ShelfCoverArchiveTests {
         let zipURL = temporary.file("covers.zip")
 
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/第1巻.cbz", sourceURL: nil,
+            forBookID: "/books/第1巻.cbz", anchors: nil,
             fileURL: try makeImage(temporary, "one.png", number: 1)
         )
         _ = try ShelfCoverArchive.write(entries: library.layouts.shelfCoverArchiveEntries(), to: zipURL)
 
         try await library.layouts.setShelfCoverImage(
-            forBookID: "/books/第2巻.cbz", sourceURL: nil,
+            forBookID: "/books/第2巻.cbz", anchors: nil,
             fileURL: try makeImage(temporary, "two.png", number: 2)
         )
         let result = try ShelfCoverArchive.write(

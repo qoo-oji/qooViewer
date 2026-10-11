@@ -56,30 +56,39 @@ struct ExportFormatViewModelTests {
         }
 
         func cbz() -> CbzExportViewModel {
-            CbzExportViewModel(
+            let viewModel = CbzExportViewModel(
                 bookmarkStore: library.bookmarks, layoutStore: library.layouts,
                 metadataStore: library.metadata, preferences: preferences, loadsEligibleRows: false
             )
+            // 書き出したファイルを置く窓口は、変更の知らせ先を持たないもの(共有の FileOperationService.shared に触れない)。
+            viewModel.fileOperations = FileOperationService()
+            return viewModel
         }
 
         func epub() -> EpubExportViewModel {
-            EpubExportViewModel(
+            let viewModel = EpubExportViewModel(
                 bookmarkStore: library.bookmarks, layoutStore: library.layouts,
                 metadataStore: library.metadata, preferences: preferences, loadsEligibleRows: false
             )
+            // 書き出したファイルを置く窓口は、変更の知らせ先を持たないもの(共有の FileOperationService.shared に触れない)。
+            viewModel.fileOperations = FileOperationService()
+            return viewModel
         }
 
         func pdf() -> PDFExportViewModel {
-            PDFExportViewModel(
+            let viewModel = PDFExportViewModel(
                 bookmarkStore: library.bookmarks, layoutStore: library.layouts,
                 metadataStore: library.metadata, preferences: preferences, loadsEligibleRows: false
             )
+            // 書き出したファイルを置く窓口は、変更の知らせ先を持たないもの(共有の FileOperationService.shared に触れない)。
+            viewModel.fileOperations = FileOperationService()
+            return viewModel
         }
 
         /// 材料を集めて、その形式で 1 冊書き出す。返すのは書き出したファイル。
         func write(_ viewModel: BookExportViewModel, name: String = "out") async throws -> URL {
             let folder = try source.temp.directory("\(name)-\(UUID().uuidString)")
-            let prepared = viewModel.prepare(row: row, book: book, displayState: nil)
+            let prepared = await viewModel.prepare(row: row, book: book, displayState: nil)
             try await viewModel.write(prepared, to: folder)
             return folder.appendingPathComponent("\(row.displayName).\(viewModel.outputFileExtension)")
         }
@@ -308,7 +317,7 @@ struct ExportFormatViewModelTests {
 
         for viewModel in [environment.cbz() as BookExportViewModel, environment.epub()] {
             #expect(viewModel.supportsCoverSelection)
-            let prepared = viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
+            let prepared = await viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
             guard case .existingPage(let pageKey) = prepared.coverOverride else {
                 Issue.record("カバーの上書きが \(viewModel.format) に渡っていない")
                 continue
@@ -319,7 +328,7 @@ struct ExportFormatViewModelTests {
         // PDF は「ページではないカバー」の仕組みを持たないため、DB に指定があっても無視する。
         let pdf = environment.pdf()
         #expect(!pdf.supportsCoverSelection)
-        #expect(pdf.prepare(row: environment.row, book: environment.book, displayState: nil).coverOverride == nil)
+        #expect(await pdf.prepare(row: environment.row, book: environment.book, displayState: nil).coverOverride == nil)
     }
 
     /// カバーの選び方は `CoverOverrideController` へ切り出してあり(改善要望5 §5.2)、
@@ -344,7 +353,7 @@ struct ExportFormatViewModelTests {
                 == page.location(inBookAt: environment.book.sourceURL).fullPath
         )
 
-        let prepared = viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
+        let prepared = await viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
         guard case .existingPage(let pageKey) = prepared.coverOverride else {
             Issue.record("カバーの上書きが書き出しへ渡っていない")
             return
@@ -359,7 +368,7 @@ struct ExportFormatViewModelTests {
         // 同じ結果になる `LayoutStore.clearCoverOverride` で確かめる。
         environment.library.layouts.clearCoverOverride(forBookID: environment.book.id)
         #expect(
-            viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
+            await viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
                 .coverOverride == nil
         )
     }

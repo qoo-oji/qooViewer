@@ -99,7 +99,7 @@ struct ShelfCoverImportTests {
         try PageImageFactory.png(number: 12).write(to: image)
         for bookID in books {
             try await library.layouts.setShelfCoverImage(
-                forBookID: bookID, sourceURL: nil, fileURL: image
+                forBookID: bookID, anchors: nil, fileURL: image
             )
         }
         let zipURL = temporary.file("\(label).zip")
@@ -410,7 +410,7 @@ struct ShelfCoverImportTests {
 
         viewModel.setPresented(false)
         let image = temporary.file("cover-export-reopen-source.png")
-        try await library.layouts.setShelfCoverImage(forBookID: "/books/第2巻.cbz", sourceURL: nil, fileURL: image)
+        try await library.layouts.setShelfCoverImage(forBookID: "/books/第2巻.cbz", anchors: nil, fileURL: image)
         viewModel.setPresented(true)
 
         // 以前は最初に開いたときの一覧のままで、新しい表紙は zip に入らなかった。
@@ -437,7 +437,7 @@ struct ShelfCoverImportTests {
 
         // 一覧に無かった表紙が増えていたら、それは選ぶ(既定は全部)。
         let image = temporary.file("cover-export-keep-source.png")
-        try await library.layouts.setShelfCoverImage(forBookID: "/books/第3巻.cbz", sourceURL: nil, fileURL: image)
+        try await library.layouts.setShelfCoverImage(forBookID: "/books/第3巻.cbz", anchors: nil, fileURL: image)
         await viewModel.export(to: temporary.file("covers-2.zip"))
         #expect(viewModel.selectedBookIDs == ["/books/第1巻.cbz", "/books/第3巻.cbz"])
     }

@@ -75,6 +75,8 @@ struct ExportWindowContent<Options: View>: View {
     /// 同じくEnvironmentのdismissアクションでウインドウを閉じる。
     @Environment(\.dismiss) private var dismiss
     @State private var insufficientSpaceMessage: String?
+    /// 固定の保存先のブックマークを解いている間(`startExportButtonTapped`)。ボタンを淡色にし、長引けば回転表示を出す。
+    @State private var isResolvingDestination = false
     /// 形式ごとの出力オプション(optionsクロージャ)を出すポップオーバーの表示状態
     /// (ユーザー要望: チェックボックス類は常時表示ではなく、ボタンを押したときだけ出す)。
     @State private var isOptionsPopoverPresented = false
@@ -491,6 +493,10 @@ struct ExportWindowContent<Options: View>: View {
             // ユーザー要望: 「出力を開始」ボタンの左に「キャンセル」ボタンを追加してほしい。
             // 他のウインドウ(FavoriteFolderPickerView.bottomBar等)と同じ並び
             // (キャンセル→既定ボタン)・同じキーボードショートカットの割り当て方に揃える。
+            if isResolvingDestination {
+                DelayedProgressIndicator(controlSize: .small)
+            }
+
             Button("Cancel") {
                 dismiss()
             }
@@ -500,13 +506,13 @@ struct ExportWindowContent<Options: View>: View {
             // パネルが出ないときは付けない(コンテキストメニューの「EPUBとして書き出す」に
             // 「…」を付けていないのと同じ理由。BookExportFormat.menuTitleKey参照)。
             Button(
-                fixedDestination == nil
-                    ? viewModel.format.startExportTitleKey
-                    : viewModel.format.startExportWithoutPanelTitleKey
+                usesFixedDestination
+                    ? viewModel.format.startExportWithoutPanelTitleKey
+                    : viewModel.format.startExportTitleKey
             ) {
                 startExportButtonTapped()
             }
-            .disabled(viewModel.selectedBookIDs.isEmpty || viewModel.isBusy)
+            .disabled(viewModel.selectedBookIDs.isEmpty || viewModel.isBusy || isResolvingDestination)
             .keyboardShortcut(.defaultAction)
         }
         .padding()
@@ -527,26 +533,43 @@ struct ExportWindowContent<Options: View>: View {
     ///
     /// 保存先は形式の性質であって、どの画面から呼んだかで変わるものではないので、
     /// 設定は両方の経路に等しく効かせる。
-    private var fixedDestination: URL? {
-        guard preferences.bookExportDestinationMode(for: viewModel.format) == .fixedFolder else {
-            return nil
-        }
-        // 決めてあってもブックマークが解決できない(フォルダが消された・外付けが外れている)
-        // ことはある。その場合はnilを返してパネルへ落とし、その場で選び直せるようにする
-        // (ViewerView.startOpenBookExportと同じ考え方)。
-        return viewModel.format.fixedFolder.lastFolder()
+    ///
+    /// ボタンの題を決めるために描くたびに読むので、**ブックマークは解かない**(記憶があるかだけ。2026-10-11 の規約監査 ―― 以前は
+    /// 描くたびにメインで解き、保存先が応答しない共有の上だと窓の描画ごと止まった)。解くのは押したとき(`startExportButtonTapped`)。
+    private var usesFixedDestination: Bool {
+        preferences.bookExportDestinationMode(for: viewModel.format) == .fixedFolder
+            && viewModel.format.fixedFolder.hasRememberedFolder
     }
 
     private func startExportButtonTapped() {
         let locale = preferences.effectiveLocale
 
-        if let fixedDestination {
-            // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
-            // セキュリティスコープを開いておく(OpenBookExportSheet.runと同じ理由)。
-            startExport(to: fixedDestination, isSecurityScoped: true, locale: locale)
+        if usesFixedDestination {
+            // 解いている間に窓を閉じられたら、続けない(閉じた窓へパネルを出さない。2026-10-11 のレビュー)。
+            let token = viewModel.presentationToken
+            isResolvingDestination = true
+            Task {
+                // 決めてあってもブックマークが解決できない(フォルダが消された・外付けが外れている)
+                // ことはある。その場合はパネルへ落とし、その場で選び直せるようにする
+                // (ViewerView.startOpenBookExportと同じ考え方)。解決はメインの外で。
+                let fixed = await viewModel.format.fixedFolder.lastFolder()
+                isResolvingDestination = false
+                guard viewModel.isStillPresented(token) else { return }
+                if let fixedDestination = fixed {
+                    // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
+                    // セキュリティスコープを開いておく(OpenBookExportSheet.runと同じ理由)。
+                    startExport(to: fixedDestination, isSecurityScoped: true, locale: locale)
+                } else {
+                    chooseDestinationAndExport(locale: locale)
+                }
+            }
             return
         }
+        chooseDestinationAndExport(locale: locale)
+    }
 
+    /// 保存先をパネルで選んでもらってから書き出す。
+    private func chooseDestinationAndExport(locale: Locale) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -556,7 +579,8 @@ struct ExportWindowContent<Options: View>: View {
         panel.directoryURL = configuration.lastUsedFolder.folderPanelStartDirectory()
         WindowSheet.beginChoosing(panel) { urls in
             guard let destination = urls?.first else { return }
-            configuration.lastUsedFolder.remember(destination, panelDirectory: panel.directoryURL)
+            let panelDirectory = panel.directoryURL
+            Task { await configuration.lastUsedFolder.remember(destination, panelDirectory: panelDirectory) }
             // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
             startExport(to: destination, isSecurityScoped: false, locale: locale)
         }

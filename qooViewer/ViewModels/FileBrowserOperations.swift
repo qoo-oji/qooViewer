@@ -833,10 +833,13 @@ final class FileBrowserOperations: ObservableObject {
         // 帯が既に出ていれば(前段の帯から実行の帯へ替わる)、猶予を置かずに差し替える ―― 古い題のまま中止ボタンも無い帯を 400ms
         // 残さない(コードレビュー)。
         if activity != nil { activity = pending }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
-            guard let self, let pending = self.pendingActivity, pending.id == id else { return }
-            self.activity = pending
+        // 猶予は `DispatchQueue.main.asyncAfter` で計る(CLAUDE.md「待ちを見せる」の決まり。2026-10-11 の規約監査 ―― 以前の `Task.sleep`
+        // は協調スレッドプールが塞がっていると発火せず、まさに待ちが長いとき(応答しない共有へのコピー)に帯が出なかった)。
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay.fileIOSeconds) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let pending = self.pendingActivity, pending.id == id else { return }
+                self.activity = pending
+            }
         }
         return id
     }
@@ -1045,9 +1048,11 @@ nonisolated final class ProgressRelay: @unchecked Sendable {
         isScheduled = true
         lock.unlock()
         guard schedules else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.interval)
-            if let value = self.take() { deliver(value) }
+        // 間引きの時限も `asyncAfter` で(上の帯の猶予と同じ理由。`Task.sleep` ではプールが塞がると数字が止まった)。
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.interval.fileIOSeconds) {
+            MainActor.assumeIsolated {
+                if let value = self.take() { deliver(value) }
+            }
         }
     }
 

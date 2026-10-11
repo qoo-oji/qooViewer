@@ -42,26 +42,26 @@ struct FolderMemoryTests {
     }
 
     @Test("何も覚えていなければ nil(初回はパネルが OS の既定の場所から始まる)")
-    func afreshMemoryIsEmpty() throws {
+    func afreshMemoryIsEmpty() async throws {
         let fixture = try Fixture("folder-memory-empty")
         let subject = memory(fixture)
-        #expect(subject.lastFolder() == nil)
+        #expect(await subject.lastFolder() == nil)
         #expect(subject.lastFolderPath() == nil)
     }
 
     @Test("覚えたフォルダを解決して返す")
-    func aRememberedFolderComesBack() throws {
+    func aRememberedFolderComesBack() async throws {
         let fixture = try Fixture("folder-memory-round")
         let subject = memory(fixture)
-        subject.remember(fixture.alpha)
-        #expect(subject.lastFolder()?.path == fixture.alpha.path)
+        await subject.remember(fixture.alpha)
+        #expect(await subject.lastFolder()?.path == fixture.alpha.path)
     }
 
     @Test("保存されるのはパスの文字列ではなくブックマーク(サンドボックスで次の起動でも開けるように)")
-    func whatIsStoredIsABookmark() throws {
+    func whatIsStoredIsABookmark() async throws {
         let fixture = try Fixture("folder-memory-bookmark")
         let subject = memory(fixture, key: "test.bookmarkShape")
-        subject.remember(fixture.alpha)
+        await subject.remember(fixture.alpha)
 
         let stored = fixture.suite.storedDomain
         let data = try #require(stored["test.bookmarkShape"] as? Data)
@@ -74,10 +74,10 @@ struct FolderMemoryTests {
     }
 
     @Test("表示用のパスは別のキーに、ブックマークを解決せずに読めるよう控える")
-    func theDisplayPathIsStoredSeparately() throws {
+    func theDisplayPathIsStoredSeparately() async throws {
         let fixture = try Fixture("folder-memory-path")
         let subject = memory(fixture, key: "test.withPath")
-        subject.remember(fixture.alpha)
+        await subject.remember(fixture.alpha)
 
         // 未接続のボリュームで秒単位ブロックしうる解決を、環境設定の画面のためだけに走らせない。
         #expect(subject.lastFolderPath() == fixture.alpha.path)
@@ -88,62 +88,62 @@ struct FolderMemoryTests {
     // フォルダを選ぶパネルの開始位置(2026-09-17、よく使う項目の「＋」に揃えた)。選んだフォルダの中に入った状態で開かない。
 
     @Test("前回パネルを閉じた時点で見ていた場所から始める(選んだフォルダの中ではない)")
-    func theFolderPanelStartsWhereThePanelWasClosed() throws {
+    func theFolderPanelStartsWhereThePanelWasClosed() async throws {
         let fixture = try Fixture("folder-memory-panel-start")
         let subject = memory(fixture)
-        subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
+        await subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
         #expect(subject.folderPanelStartDirectory()?.path == fixture.temporary.url.path)
         // 前回選んだものと同じ保存先を渡されたときも同じ。
         #expect(subject.folderPanelStartDirectory(current: fixture.alpha)?.path == fixture.temporary.url.path)
     }
 
     @Test("選んだフォルダの中まで入って決めたなら、その中から始める")
-    func theFolderPanelStartsInsideWhenItWasClosedInside() throws {
+    func theFolderPanelStartsInsideWhenItWasClosedInside() async throws {
         let fixture = try Fixture("folder-memory-panel-inside")
         let subject = memory(fixture)
-        subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
+        await subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
         #expect(subject.folderPanelStartDirectory()?.path == fixture.alpha.path)
     }
 
     @Test("前回このパネルで選んだものと違う保存先を渡されたら、その親から始める")
-    func aDifferentCurrentFolderStartsAtItsParent() throws {
+    func aDifferentCurrentFolderStartsAtItsParent() async throws {
         let fixture = try Fixture("folder-memory-panel-other")
         let subject = memory(fixture)
         let inner = try fixture.temporary.directory("beta/inner")
-        subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
+        await subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
         #expect(subject.folderPanelStartDirectory(current: inner)?.path == fixture.beta.path)
     }
 
     @Test("閉じた場所を覚えていない(以前に選んだ・場所を渡さずに覚え直した)なら、選んだフォルダの親から始める")
-    func withoutAPanelDirectoryTheParentIsUsed() throws {
+    func withoutAPanelDirectoryTheParentIsUsed() async throws {
         let fixture = try Fixture("folder-memory-panel-legacy")
         let subject = memory(fixture)
         let inner = try fixture.temporary.directory("alpha/inner")
-        subject.remember(fixture.beta, panelDirectory: fixture.beta)
+        await subject.remember(fixture.beta, panelDirectory: fixture.beta)
         // 場所を渡さずに覚え直すと、前の選択のときの場所は残らない。
-        subject.remember(inner)
+        await subject.remember(inner)
         #expect(subject.folderPanelStartDirectory()?.path == fixture.alpha.path)
         #expect(memory(fixture, key: "test.nothing").folderPanelStartDirectory() == nil)
     }
 
     @Test("覚え直すと上書きされる")
-    func rememberingAgainReplacesIt() throws {
+    func rememberingAgainReplacesIt() async throws {
         let fixture = try Fixture("folder-memory-replace")
         let subject = memory(fixture)
-        subject.remember(fixture.alpha)
-        subject.remember(fixture.beta)
-        #expect(subject.lastFolder()?.path == fixture.beta.path)
+        await subject.remember(fixture.alpha)
+        await subject.remember(fixture.beta)
+        #expect(await subject.lastFolder()?.path == fixture.beta.path)
         #expect(subject.lastFolderPath() == fixture.beta.path)
     }
 
     @Test("忘れるとキーが全部消える(「初期設定に戻す」がここまで届くように)")
-    func forgettingClearsBothKeys() throws {
+    func forgettingClearsBothKeys() async throws {
         let fixture = try Fixture("folder-memory-forget")
         let subject = memory(fixture, key: "test.forgetting")
-        subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
+        await subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
         subject.forget()
 
-        #expect(subject.lastFolder() == nil)
+        #expect(await subject.lastFolder() == nil)
         #expect(subject.lastFolderPath() == nil)
         #expect(fixture.suite.storedDomain["test.forgetting"] == nil)
         #expect(fixture.suite.storedDomain["test.forgetting.path"] == nil)
@@ -151,18 +151,18 @@ struct FolderMemoryTests {
     }
 
     @Test("用途ごとに別のキーで、お互いに干渉しない")
-    func eachPurposeKeepsItsOwnFolder() throws {
+    func eachPurposeKeepsItsOwnFolder() async throws {
         let fixture = try Fixture("folder-memory-keys")
         let epub = memory(fixture, key: "test.epub")
         let pdf = memory(fixture, key: "test.pdf")
-        epub.remember(fixture.alpha)
-        pdf.remember(fixture.beta)
+        await epub.remember(fixture.alpha)
+        await pdf.remember(fixture.beta)
 
-        #expect(epub.lastFolder()?.path == fixture.alpha.path)
-        #expect(pdf.lastFolder()?.path == fixture.beta.path)
+        #expect(await epub.lastFolder()?.path == fixture.alpha.path)
+        #expect(await pdf.lastFolder()?.path == fixture.beta.path)
         epub.forget()
-        #expect(epub.lastFolder() == nil)
-        #expect(pdf.lastFolder()?.path == fixture.beta.path)
+        #expect(await epub.lastFolder() == nil)
+        #expect(await pdf.lastFolder()?.path == fixture.beta.path)
     }
 
     @Test("出荷時の用途が使うキーは、保存済みの設定の識別子なので変えられない")
@@ -193,7 +193,7 @@ struct FolderMemoryTests {
     // MARK: - LastActiveBookStore
 
     @Test("何も記録していなければ nil(前回ウェルカム画面なら次回もウェルカム画面)")
-    func noRecordedBookResolvesToNil() throws {
+    func noRecordedBookResolvesToNil() async throws {
         let fixture = try Fixture("last-book-empty")
         #expect(LastActiveBookStore.resolve(defaults: fixture.suite.defaults) == nil)
     }

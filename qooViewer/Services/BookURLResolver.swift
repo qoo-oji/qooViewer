@@ -15,7 +15,7 @@ import Foundation
 /// `nonisolated`: このプロジェクトの既定のアクター隔離はMainActorのため、明示しないと
 /// メインアクター限定になってしまう(Services/ArchiveReading.swift冒頭のコメント参照)。
 nonisolated enum BookURLResolver {
-    /// 1冊分の解決材料。優先順位は、従来の
+    /// 1冊分の解決材料。優先順位は、従来の(メインで同期に解いていた、2026-10-11 に外した)
     /// `bookmarkStore.resolvedURLFromBookmarkData ?? layoutStore.resolvedURL ?? metadataStore.resolvedURL`
     /// という呼び出しの連鎖をそのまま写したもの(挙動を変えないため、素のパスへのフォールバックが
     /// どの段階で効くかも含めて同じ順序で評価する)。

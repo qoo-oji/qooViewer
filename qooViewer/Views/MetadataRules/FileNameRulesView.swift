@@ -13,6 +13,7 @@ struct FileNameRulesView: View {
     @State private var pane: Pane = .presets
     @State private var editing: RulesEditing
     @State private var confirmsReset = false
+    @Environment(\.locale) private var locale
 
     init(settings: MetadataRulesStore) {
         self.settings = settings
@@ -51,7 +52,9 @@ struct FileNameRulesView: View {
             Divider()
             StatusBar(editing: editing, half: .fileNames, confirmsReset: $confirmsReset)
         }
-        .navigationTitle("File name parsing")
+        // 窓の題は表示言語で引いた文字列で渡す(`LocalizedStringKey` だと OS の言語で引かれ、`Window` の題を上書きした。
+        // CLAUDE.md「Localization」。2026-10-11 の規約監査)。文言も `Window` の題と揃える。
+        .navigationTitle(String(localized: "File Name Parsing", language: locale))
         .confirmationDialog("Reset every rule set to the default?", isPresented: $confirmsReset) {
             Button("Reset to the default", role: .destructive) { editing.reset(.fileNames) }
         } message: {

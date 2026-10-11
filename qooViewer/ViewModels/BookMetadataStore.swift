@@ -112,14 +112,13 @@ final class BookMetadataStore: ObservableObject {
     /// 未登録状態へ戻す。「登録済みだが中身が何も無い」行は、一覧の色分け上は登録済みに
     /// 見えるのに実際には何の情報も持たないという分かりにくい状態になるため。
     ///
-    /// - Parameter sourceURL: 分かる場合は本の実URL。セキュリティスコープ付きブックマークと
-    ///   ファイルノード識別子の生成に使う(今この本を開けている=このURLへのアクセス権を
-    ///   持っている、という前提。LayoutStore.existingOrNewSettingsと同じ考え方)。
-    ///   一覧から登録する場合など、URLが手元に無い場合はnilでよい。
+    /// - Parameter anchors: 分かる場合は本の場所の手がかり(セキュリティスコープ付きブックマークとファイルノード識別子)。
+    ///   **メインの外で作ってから渡す**(`BookRowAnchors.gather` / `MangaBook.recordAnchors`。2026-10-11 の規約監査 ―― 以前は
+    ///   本の URL を受け取り、ここでメインで作っていた)。一覧から登録する場合など、手元に無い場合はnilでよい。
     @discardableResult
-    func upsert(bookID: String, values: BookMetadataValues, sourceURL: URL? = nil,
+    func upsert(bookID: String, values: BookMetadataValues, anchors: BookRowAnchors? = nil,
                 fieldsVersion: Int = BookMetadata.currentFieldsVersion) -> BookMetadata? {
-        switch applyUpsert(bookID: bookID, values: values, sourceURL: sourceURL, fieldsVersion: fieldsVersion) {
+        switch applyUpsert(bookID: bookID, values: values, anchors: anchors, fieldsVersion: fieldsVersion) {
         case .updated(let metadata):
             saveAndNotify(bookID: bookID)
             return metadata
@@ -146,14 +145,14 @@ final class BookMetadataStore: ObservableObject {
         series: String,
         seriesIndex: String,
         volumeSort: Double? = nil,
-        sourceURL: URL? = nil
+        anchors: BookRowAnchors? = nil
     ) -> BookMetadata? {
         // 4 つの欄だけの登録は、以前の版の欄の登録と同じ扱い(空の欄を埋めるかを、メタデータの編集ウインドウで尋ねる)。
         // 既にいまの版の行なら、その版のまま。
         upsert(bookID: bookID, values: mergedLegacyValues(bookID: bookID, author: author, title: title,
                                                          series: series, seriesIndex: seriesIndex,
                                                          volumeSort: volumeSort),
-               sourceURL: sourceURL, fieldsVersion: metadata(forBookID: bookID)?.fieldsVersion ?? 0)
+               anchors: anchors, fieldsVersion: metadata(forBookID: bookID)?.fieldsVersion ?? 0)
     }
 
     /// 4 つの欄を、既にある行のほかの欄に重ねたもの。
@@ -193,7 +192,7 @@ final class BookMetadataStore: ObservableObject {
         for entry in entries {
             let outcome: UpsertOutcome
             if let values = entry.values {
-                outcome = applyUpsert(bookID: entry.bookID, values: values, sourceURL: entry.sourceURL,
+                outcome = applyUpsert(bookID: entry.bookID, values: values, anchors: entry.anchors,
                                       fieldsVersion: entry.fieldsVersion, state: entry.state,
                                       onlyIfUnlocked: entry.onlyIfUnlocked)
             } else if let existing = metadata(forBookID: entry.bookID) {
@@ -277,8 +276,8 @@ final class BookMetadataStore: ObservableObject {
         let bookID: String
         /// 登録する値。nil なら登録を外す。
         let values: BookMetadataValues?
-        /// 分かる場合は本の実URL(upsert(...)のsourceURLと同じ意味)。
-        let sourceURL: URL?
+        /// 分かる場合は本の場所の手がかり(upsert(...)のanchorsと同じ意味。メインの外で作ったもの)。
+        let anchors: BookRowAnchors?
         /// 欄の版(BookMetadata.fieldsVersion)。以前の保存データの JSON から読んだ行は 0。
         let fieldsVersion: Int
         /// ロックと直した欄。nil なら今の行のまま(新しい行は、`onlyIfUnlocked` でなければロックして作る ―― 保存データの
@@ -288,12 +287,12 @@ final class BookMetadataStore: ObservableObject {
         /// 新しい行はロックせずに作る。
         var onlyIfUnlocked = false
 
-        init(bookID: String, values: BookMetadataValues?, sourceURL: URL? = nil,
+        init(bookID: String, values: BookMetadataValues?, anchors: BookRowAnchors? = nil,
              fieldsVersion: Int = BookMetadata.currentFieldsVersion, state: BookMetadataRowState? = nil,
              onlyIfUnlocked: Bool = false) {
             self.bookID = bookID
             self.values = values
-            self.sourceURL = sourceURL
+            self.anchors = anchors
             self.fieldsVersion = fieldsVersion
             self.state = state
             self.onlyIfUnlocked = onlyIfUnlocked
@@ -309,7 +308,7 @@ final class BookMetadataStore: ObservableObject {
         case noChange
     }
 
-    private func applyUpsert(bookID: String, values: BookMetadataValues, sourceURL: URL?,
+    private func applyUpsert(bookID: String, values: BookMetadataValues, anchors: BookRowAnchors?,
                              fieldsVersion: Int, state: BookMetadataRowState? = nil,
                              onlyIfUnlocked: Bool = false) -> UpsertOutcome {
         let values = values.trimmed
@@ -335,13 +334,13 @@ final class BookMetadataStore: ObservableObject {
             // 識別子・ブックマークは、これまで取れていなかった場合にだけ補完する
             // (既存の値を、解決できないかもしれない新しい値で上書きしない)。
             var filled = false
-            if let sourceURL {
-                if existing.bookmarkData == nil {
-                    existing.bookmarkData = Self.makeBookmarkData(for: sourceURL)
-                    filled = existing.bookmarkData != nil
+            if let anchors {
+                if existing.bookmarkData == nil, let bookmark = anchors.bookmarkData {
+                    existing.bookmarkData = bookmark
+                    filled = true
                 }
                 if FileNodeIdentifier.needsBackfill(existing.fileNodeIdentifier),
-                   let identifier = FileNodeIdentifier.current(for: sourceURL) {
+                   let identifier = anchors.fileNodeIdentifier {
                     existing.inodeNumber = identifier.inodeNumber
                     existing.volumeDeviceNumber = identifier.volumeDeviceNumber
                     existing.volumeUUID = identifier.volumeUUID
@@ -353,8 +352,8 @@ final class BookMetadataStore: ObservableObject {
 
         let created = BookMetadata(
             bookID: bookID,
-            bookmarkData: sourceURL.flatMap(Self.makeBookmarkData(for:)),
-            fileNodeIdentifier: sourceURL.flatMap(FileNodeIdentifier.current(for:))
+            bookmarkData: anchors?.bookmarkData,
+            fileNodeIdentifier: anchors?.fileNodeIdentifier
         )
         created.values = values
         created.fieldsVersion = fieldsVersion
@@ -374,14 +373,14 @@ final class BookMetadataStore: ObservableObject {
     /// - Returns: 取り込んだか。
     @discardableResult
     func importSourceMetadata(bookID: String, source: SourceBookMetadata, rules: CompiledRules,
-                              sourceURL: URL? = nil) -> Bool {
+                              anchors: BookRowAnchors? = nil) -> Bool {
         let row = metadata(forBookID: bookID)
         guard row?.isLocked != true, row?.didImportSourceMetadata != true else { return false }
         let current = row?.rowState ?? BookMetadataRowState(isLocked: false)
         var state = current
         state.edits = MetadataParsing.merging(source, into: current.edits)
         let values = MetadataParsing.values(forBookID: bookID, edits: state.edits, ruleSet: state.ruleSet, rules: rules)
-        let outcome = applyUpsert(bookID: bookID, values: values, sourceURL: sourceURL,
+        let outcome = applyUpsert(bookID: bookID, values: values, anchors: anchors,
                                   fieldsVersion: BookMetadata.currentFieldsVersion, state: state)
         guard let imported = metadata(forBookID: bookID) else {
             if case .removed = outcome { saveAndNotify(bookID: bookID) }
@@ -607,35 +606,22 @@ final class BookMetadataStore: ObservableObject {
         return relocated
     }
 
-    /// bookIDからこの本の実URLを解決する(LayoutStore.resolvedURLと同じ考え方)。
-    /// セキュリティスコープ付きブックマークが無い/解決できない場合は素のパスへフォールバックし、
-    /// どちらでもファイルが見つからなければnilを返す。
-    func resolvedURL(forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background) -> URL? {
-        if let data = metadata(forBookID: bookID)?.bookmarkData {
-            if let url = BookmarkResolution.resolve(data, purpose: purpose), FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        let fallbackURL = URL(fileURLWithPath: bookID)
-        guard FileManager.default.fileExists(atPath: fallbackURL.path) else { return nil }
-        return fallbackURL
-    }
-
     /// ファイルノード識別子・セキュリティスコープ付きブックマークを持たない行について、
     /// 本を開けた(=アクセス権を持っている)タイミングで補完する。
     /// LayoutStore.backfillFileNodeIdentifierと同じ考え方。
-    /// - Parameter knownIdentifier: 呼び出し側が求めた本の識別子(`reconcileBookIDIfMoved` と同じ)。省けばここで求める。
-    func backfillIdentifiers(forBookID bookID: String, sourceURL: URL, knownIdentifier: FileNodeIdentifier?? = nil) {
+    /// - Parameter anchors: 本を開いたときにメインの外で求めた手がかり(`MangaBook.recordAnchors`。2026-10-11 の規約監査 ――
+    ///   以前は本の URL を受け取り、ここでメインでブックマークを作っていた)。
+    func backfillIdentifiers(forBookID bookID: String, anchors: BookRowAnchors) {
         guard let metadata = metadata(forBookID: bookID) else { return }
         var didChange = false
         if FileNodeIdentifier.needsBackfill(metadata.fileNodeIdentifier),
-           let identifier = knownIdentifier ?? FileNodeIdentifier.current(for: sourceURL) {
+           let identifier = anchors.fileNodeIdentifier {
             metadata.inodeNumber = identifier.inodeNumber
             metadata.volumeDeviceNumber = identifier.volumeDeviceNumber
             metadata.volumeUUID = identifier.volumeUUID
             didChange = true
         }
-        if metadata.bookmarkData == nil, let data = Self.makeBookmarkData(for: sourceURL) {
+        if metadata.bookmarkData == nil, let data = anchors.bookmarkData {
             metadata.bookmarkData = data
             didChange = true
         }
@@ -667,7 +653,7 @@ final class BookMetadataStore: ObservableObject {
         (makeBookmarkData(for: url), FileNodeIdentifier.current(for: url))
     }
 
-    /// 手がかりの無い行に、メインの外で作った手がかりを入れる(`upsertAll` の `sourceURL` と同じく、まだ無いときだけ)。
+    /// 手がかりの無い行に、メインの外で作った手がかりを入れる(`upsertAll` の `anchors` と同じく、まだ無いときだけ)。
     /// 行の値・形は変えないので、変更の知らせは出さない。
     func fillLocators(_ locators: [String: (bookmark: Data?, identifier: FileNodeIdentifier?)]) {
         let byBookID = metadataByBookID()

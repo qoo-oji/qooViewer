@@ -253,12 +253,12 @@ private struct ShelfCoverImportContentView: View {
         panel.message = String(
             localized: "Choose a zip file of collection covers to import.", language: locale
         )
-        if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.libraryIO.panelStartFolder() {
             panel.directoryURL = lastFolder
         }
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
-            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+            Task { await LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent()) }
             didAutoSizeColumns = false
             Task {
                 await viewModel.load(zipAt: url)

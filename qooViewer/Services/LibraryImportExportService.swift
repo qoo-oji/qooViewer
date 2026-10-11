@@ -100,7 +100,7 @@ enum LibraryImportExportService {
         var result = ExportResult()
 
         if selection.includeFavorites {
-            let (favorites, skipped) = exportFavorites(favoritesStore: favoritesStore)
+            let (favorites, skipped) = await exportFavorites(favoritesStore: favoritesStore)
             file.favorites = favorites
             result.skippedFavoritesBookIDs = skipped
         }
@@ -124,11 +124,11 @@ enum LibraryImportExportService {
             file.metadataRules = metadataRulesStore.exportableRulesBundle
         }
         if selection.includeCollections {
-            file.libraries = exportCollections(collectionStore: collectionStore)
+            file.libraries = await exportCollections(collectionStore: collectionStore)
         }
         if let backupStores {
             if selection.includeReadingStates {
-                file.readingStates = exportReadingStates(
+                file.readingStates = await exportReadingStates(
                     modelContext: backupStores.modelContext, favoritesStore: favoritesStore,
                     bookmarkStore: bookmarkStore, layoutStore: layoutStore
                 )
@@ -161,20 +161,20 @@ enum LibraryImportExportService {
     private static func exportReadingStates(
         modelContext: ModelContext, favoritesStore: FavoritesStore,
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore
-    ) -> [ExportedBookReadingState] {
+    ) async -> [ExportedBookReadingState] {
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        return states.map { state in
-            var identifier = layoutStore.bookLayoutSettings(forBookID: state.bookID)?.fileNodeIdentifier
-            if identifier == nil,
-               let url = resolveURL(
-                   bookID: state.bookID, fileNodeIdentifier: nil,
-                   favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
-               ) {
-                let didAccess = url.startAccessingSecurityScopedResource()
-                identifier = FileNodeIdentifier.current(for: url)
-                if didAccess { url.stopAccessingSecurityScopedResource() }
+        // 行の値は待つ前に写し取る(待っている間にほかの窓が行を消しうる)。
+        var entries: [ExportedBookReadingState] = []
+        var hints: [(index: Int, hint: BookLocatorHints)] = []
+        for state in states {
+            let identifier = layoutStore.bookLayoutSettings(forBookID: state.bookID)?.fileNodeIdentifier
+            if identifier == nil {
+                hints.append((entries.count, bookLocatorHints(
+                    bookID: state.bookID, fileNodeIdentifier: nil,
+                    favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                )))
             }
-            return ExportedBookReadingState(
+            entries.append(ExportedBookReadingState(
                 bookID: state.bookID,
                 inodeNumber: identifier?.inodeNumber,
                 volumeDeviceNumber: identifier?.volumeDeviceNumber,
@@ -189,9 +189,17 @@ enum LibraryImportExportService {
                 recordedSourceModificationDate: state.recordedSourceModificationDate,
                 recordedSourceFileSize: state.recordedSourceFileSize,
                 isAtLastPage: state.isAtLastPage ? true : nil
-            )
+            ))
         }
-        .sorted { $0.bookID < $1.bookID }
+        // 識別子の取れない本の場所探しと識別子の取得は、まとめて `FileIO` の上で(`locateAll`)。
+        let located = await locateAll(hints.map(\.hint), identifies: true)
+        for (pending, found) in zip(hints, located) {
+            guard let identifier = found?.identifier else { continue }
+            entries[pending.index].inodeNumber = identifier.inodeNumber
+            entries[pending.index].volumeDeviceNumber = identifier.volumeDeviceNumber
+            entries[pending.index].volumeUUID = identifier.volumeUUID
+        }
+        return entries.sorted { $0.bookID < $1.bookID }
     }
 
     // MARK: - スマートライブラリの書き出し(2026-09-23)
@@ -221,20 +229,28 @@ enum LibraryImportExportService {
             .sorted { $0.bookID < $1.bookID }
     }
 
+    /// 書き出すお気に入り 1 冊ぶんの、行から写し取った値(`exportFavorites`)。
+    nonisolated private struct PendingFavoriteExport: Sendable {
+        let bookID: String
+        let title: String
+        let folderID: String?
+        let identifier: FileNodeIdentifier?
+        let bookmarkData: Data
+    }
+
     /// フォルダ階層をルートから再帰的にたどり、フラットな配列2つ(folders/books)に展開する。
     ///
     /// ユーザー要望(後方互換性): 識別子を持たない古いFavoriteBook行についても、
     /// favoritesStore.resolvedExistingURL(for:)でファイルの実在が確認できる場合は、そこから
     /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarks/
     /// exportLayoutsの同種の処理と同じ理由)。
-    private static func exportFavorites(favoritesStore: FavoritesStore) -> (ExportedFavorites, [String]) {
+    ///
+    /// 存在の確かめと識別子の取得は、まとめて `FileIO` の上で(2026-10-11 の規約監査。以前は 1 冊ごとにメインで解いていた ――
+    /// `resolveURL` から置き換えた節のコメント)。
+    private static func exportFavorites(favoritesStore: FavoritesStore) async -> (ExportedFavorites, [String]) {
         var folders: [ExportedFavoriteFolder] = []
-        var books: [ExportedFavoriteBook] = []
-        // ユーザー要望: ファイルが見つからなかった本のパスを、エクスポート画面下部にまとめて
-        // 表示したい。お気に入りはブックマーク/レイアウトと違い、実ファイルが見つからなくても
-        // (bookID/タイトルなどの参考情報だけで)従来通りエクスポート自体は行うが、その本の
-        // パスはここに集めておく。
-        var skipped: [String] = []
+        // 行の値は待つ前に写し取る(待っている間にほかの窓が行を消しうる)。
+        var pendingBooks: [PendingFavoriteExport] = []
 
         func walk(_ folder: FavoriteFolder?, folderID: String?) {
             for sub in favoritesStore.subfolders(of: folder) {
@@ -243,58 +259,150 @@ enum LibraryImportExportService {
                 walk(sub, folderID: subID)
             }
             for book in favoritesStore.books(in: folder) {
-                var fileNodeIdentifier = book.fileNodeIdentifier
-                let resolvedURL = favoritesStore.resolvedExistingURL(for: book)
-                if fileNodeIdentifier == nil, let resolvedURL {
-                    let didAccess = resolvedURL.startAccessingSecurityScopedResource()
-                    fileNodeIdentifier = FileNodeIdentifier.current(for: resolvedURL)
-                    if didAccess { resolvedURL.stopAccessingSecurityScopedResource() }
-                    if let fileNodeIdentifier {
-                        favoritesStore.backfillFileNodeIdentifier(forBookID: book.bookID, identifier: fileNodeIdentifier)
-                    }
-                }
-                if resolvedURL == nil {
-                    skipped.append(book.bookID)
-                }
-                books.append(
-                    ExportedFavoriteBook(
-                        bookID: book.bookID,
-                        inodeNumber: fileNodeIdentifier?.inodeNumber,
-                        volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
-                        volumeUUID: fileNodeIdentifier?.volumeUUID,
-                        title: book.title,
-                        folderId: folderID
-                    )
-                )
+                pendingBooks.append(PendingFavoriteExport(
+                    bookID: book.bookID, title: book.title, folderID: folderID,
+                    identifier: book.fileNodeIdentifier, bookmarkData: book.bookmarkData
+                ))
             }
         }
         walk(nil, folderID: nil)
+
+        // (在るか, 今の識別子)。識別子は記録に無い本だけ求める。
+        let probes = pendingBooks.map { (bookmarkData: $0.bookmarkData, needsIdentifier: $0.identifier == nil) }
+        let probed: [(exists: Bool, identifier: FileNodeIdentifier?)] = await FileIO.perform(qos: .utility) {
+            probes.map { book in
+                guard let url = FavoritesStore.resolvedURL(fromBookmark: book.bookmarkData) else { return (false, nil) }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.fileExists(atPath: url.path) else { return (false, nil) }
+                return (true, book.needsIdentifier ? FileNodeIdentifier.current(for: url) : nil)
+            }
+        }
+
+        var books: [ExportedFavoriteBook] = []
+        // ユーザー要望: ファイルが見つからなかった本のパスを、エクスポート画面下部にまとめて
+        // 表示したい。お気に入りはブックマーク/レイアウトと違い、実ファイルが見つからなくても
+        // (bookID/タイトルなどの参考情報だけで)従来通りエクスポート自体は行うが、その本の
+        // パスはここに集めておく。
+        var skipped: [String] = []
+        for (book, result) in zip(pendingBooks, probed) {
+            var fileNodeIdentifier = book.identifier
+            if fileNodeIdentifier == nil, let found = result.identifier {
+                fileNodeIdentifier = found
+                favoritesStore.backfillFileNodeIdentifier(forBookID: book.bookID, identifier: found)
+            }
+            if !result.exists {
+                skipped.append(book.bookID)
+            }
+            books.append(
+                ExportedFavoriteBook(
+                    bookID: book.bookID,
+                    inodeNumber: fileNodeIdentifier?.inodeNumber,
+                    volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
+                    volumeUUID: fileNodeIdentifier?.volumeUUID,
+                    title: book.title,
+                    folderId: book.folderID
+                )
+            )
+        }
         return (ExportedFavorites(folders: folders, books: books), skipped)
     }
 
-    /// bookIDからこの本のURLを解決する。
+    // MARK: - 本の場所を探す
+
+    // bookIDからこの本のURLを解決する(以前の `resolveURL`)。
+    //
+    // ユーザー要望: iノード番号による管理に変更したい。ファイルノード識別子(fileNodeIdentifier)が
+    // 分かっている場合は、まずそれを手がかりに(お気に入り/レイアウト/ブックマークいずれかの)
+    // ローカルのセキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す。
+    // この方法なら、エクスポート後にファイルがリネーム・移動されていても正しく解決できる
+    // (JSONのbookID(パス)は参考情報として残すが、この解決処理では優先して使わない)。
+    // 手がかりが無い/見つからない場合のみ、従来通りbookID(パス)に基づく解決(ブックマーク由来・
+    // レイアウト由来のどちらかのセキュリティスコープ付きブックマーク、それも無ければ生パス)にフォールバックする。
+    //
+    // ■ 解決はメインの外でまとめて(2026-10-11 の規約監査)
+    // 以前は `resolveURL` がメインで同期に、1 冊ごとにブックマークを解いて存在を確かめていた(書き出し・取り込みの全カテゴリで、
+    // 本の数だけ)。応答しない共有の上の本が 1 冊あるだけで、その 1 冊で約 30 秒メインが止まった。いまはコレクションの取り込み
+    // (2026-09-13)と同じ形 ―― メインでは手がかり(ブックマークのバイト列)を集めるだけ(`bookLocatorHints`)、解決と存在確認・
+    // 識別子の取得は `FileIO` の上で(`locate` / `locateAll`)。手がかりの優先順は以前と同じ(識別子が一致する
+    // お気に入り → レイアウト → ブックマーク、次に bookID のブックマーク → レイアウト、最後に記録したパス)。
+    // 違いは、識別子で見つけたお気に入りの場所も**在ることを確かめる**ことと、確かめる前にセキュリティスコープを開くこと
+    // (許可の無い場所の本も見つかる。StoredBookLocator と同じ)。
+
+    /// 手がかりで見つけた本の場所。
+    nonisolated struct LocatedBook: Sendable {
+        let url: URL
+        /// 見つけた場所の今の識別子(`locate(_:identifies:)` に true を渡したときだけ)。
+        let identifier: FileNodeIdentifier?
+    }
+
+    /// 手がかりから本の場所を探す。**ブロッキングする**(ボリュームへの問い合わせ)ので、`FileIO` の上で呼ぶ。
     ///
-    /// ユーザー要望: iノード番号による管理に変更したい。ファイルノード識別子(fileNodeIdentifier)が
-    /// 分かっている場合は、まずそれを手がかりに(お気に入り/レイアウト/ブックマークいずれかの)
-    /// ローカルのセキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す。
-    /// この方法なら、エクスポート後にファイルがリネーム・移動されていても正しく解決できる
-    /// (JSONのbookID(パス)は参考情報として残すが、この解決処理では優先して使わない)。
-    /// 手がかりが無い/見つからない場合のみ、従来通りbookID(パス)に基づく解決(ブックマーク由来・
-    /// レイアウト由来のどちらかのセキュリティスコープ付きブックマーク、それも無ければ
-    /// LayoutStore.resolvedURL(forBookID:)自身が持つ生パスへのフォールバック)にフォールバックする。
+    /// - Parameter identifies: 見つけた場所の識別子も求めるか(スコープを開いている間に求める)。
+    nonisolated static func locate(_ hints: BookLocatorHints, identifies: Bool) -> LocatedBook? {
+        for data in hints.bookmarks {
+            guard let url = BookmarkResolution.resolve(data) else { continue }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            return LocatedBook(url: url, identifier: identifies ? FileNodeIdentifier.current(for: url) : nil)
+        }
+        guard hints.fallsBackToRecordedPath else { return nil }
+        let recorded = URL(fileURLWithPath: hints.bookID)
+        guard FileManager.default.fileExists(atPath: recorded.path) else { return nil }
+        return LocatedBook(url: recorded, identifier: identifies ? FileNodeIdentifier.current(for: recorded) : nil)
+    }
+
+    /// 何冊ぶんもまとめて、1 回の `FileIO` で探す(並びは `hints` のまま)。
+    static func locateAll(_ hints: [BookLocatorHints], identifies: Bool) async -> [LocatedBook?] {
+        guard !hints.isEmpty else { return [] }
+        return await FileIO.perform(qos: .utility) { hints.map { locate($0, identifies: identifies) } }
+    }
+
+    /// 1 冊ぶんの手がかりを集める(解決はしない。メインで DB を読むだけ)。
     ///
     /// - Parameter indexes: 識別子で引く索引(`FileNodeIndexes`)。行を書き換えない段でだけ渡す。nil なら全行から(答えは同じ)。
-    private static func resolveURL(
+    /// - Parameter collectionStore: 渡せば、識別子が一致するコレクションの行のブックマークも最後に試す(コレクションの取り込み)。
+    private static func bookLocatorHints(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        indexes: FileNodeIndexes? = nil
-    ) -> URL? {
+        collectionStore: CollectionStore? = nil, indexes: FileNodeIndexes? = nil
+    ) -> BookLocatorHints {
+        var bookmarks: [Data] = []
         if let fileNodeIdentifier {
-            if let url = favoritesStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.favorites) { return url }
-            if let url = layoutStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.layouts) { return url }
-            if let url = bookmarkStore.resolvedURL(matching: fileNodeIdentifier, index: indexes?.bookmarks) { return url }
+            bookmarks += favoritesStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.favorites)
+            bookmarks += layoutStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.layouts)
+            bookmarks += bookmarkStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.bookmarks)
         }
-        return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+        bookmarks += bookmarkStore.bookmarks(forBookID: bookID).compactMap(\.bookmarkData)
+        if let data = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData {
+            bookmarks.append(data)
+        }
+        if let fileNodeIdentifier, let collectionStore {
+            bookmarks += collectionStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.collections)
+        }
+        return BookLocatorHints(bookID: bookID, bookmarks: bookmarks)
+    }
+
+    /// 取り込む全件の手がかりを集める(行を書き換えない段の頭で。識別子の索引を作って使い、ときどきメインを譲る ―― 譲った後は
+    /// 索引を取り直す。`yieldPeriodically`)。
+    private static func gatherHints(
+        _ books: [(bookID: String, identifier: FileNodeIdentifier?)],
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+    ) async -> [BookLocatorHints] {
+        var indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+        var hints: [BookLocatorHints] = []
+        hints.reserveCapacity(books.count)
+        for (index, book) in books.enumerated() {
+            if await yieldPeriodically(index) {
+                indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+            }
+            hints.append(bookLocatorHints(
+                bookID: book.bookID, fileNodeIdentifier: book.identifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore, indexes: indexes
+            ))
+        }
+        return hints
     }
 
     /// 識別子で行を引く索引を、取り込みの 1 段ぶん作ったもの(2026-10-05 の効率の監査 A5)。以前は 1 件ごとに各ストアの全行を
@@ -317,18 +425,29 @@ enum LibraryImportExportService {
 
     /// bookIDの本を実際に読み込む(URL解決 + セキュリティスコープの開始/終了 + BookLoader)。
     /// 失敗した場合(URLが解決できない/ファイルが見つからない/読み込みエラー)はnilを返す。
+    ///
+    /// 場所の解決と、読み込んだ本の居場所の事実(識別子・指紋・ブックマーク。`BookSourceFacts`)は `FileIO` の上で求める
+    /// (`resolveURL` から置き換えた節のコメント)。返す本の `sourceFacts` が埋まっているので、レイアウトの行を作る書き込み
+    /// (`LayoutStore.applyImportedLayout`)もメインでファイルに触らない。
+    ///
+    /// - Parameter makesBookmark: 行に添えるブックマークも作るか(レイアウトの取り込み ―― 行を作る ―― だけ。識別子しか使わない
+    ///   ブックマークの書き出し・取り込みでは作らない)。
     private static func loadBook(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        cachesPageList: Bool
+        cachesPageList: Bool, makesBookmark: Bool
     ) async -> MangaBook? {
-        guard let url = resolveURL(
+        let hints = bookLocatorHints(
             bookID: bookID, fileNodeIdentifier: fileNodeIdentifier,
             favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
-        ) else { return nil }
+        )
+        guard let url = await FileIO.perform(qos: .utility, { locate(hints, identifies: false)?.url }) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        return try? await BookLoader.load(from: url, cachesPageList: cachesPageList)
+        guard var book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList) else { return nil }
+        let sourceURL = book.sourceURL
+        book.sourceFacts = await FileIO.perform(qos: .utility) { BookSourceFacts.probe(sourceURL, makesBookmark: makesBookmark) }
+        return book
     }
 
     private static func exportBookmarks(
@@ -347,7 +466,7 @@ enum LibraryImportExportService {
             guard let book = await loadBook(
                 bookID: group.bookID, fileNodeIdentifier: fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                cachesPageList: cachesPageList
+                cachesPageList: cachesPageList, makesBookmark: false
             ) else {
                 skipped.append(group.bookID)
                 continue
@@ -357,8 +476,9 @@ enum LibraryImportExportService {
             // 今読み込めたbook.sourceURLから識別子を取得し直し、書き出すJSONに含める。
             // ついでにDB側の該当行にも補完しておく(BookmarkStore.backfillFileNodeIdentifier参照。
             // 次回以降のエクスポートで再び同じ手間をかけずに済む)。
+            // 識別子は読み込みと一緒に FileIO の上で求めてある(`loadBook` の `sourceFacts`)。
             if fileNodeIdentifier == nil {
-                fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
+                fileNodeIdentifier = book.sourceFacts?.fileNodeIdentifier
                 if let fileNodeIdentifier {
                     bookmarkStore.backfillFileNodeIdentifier(forBookID: group.bookID, identifier: fileNodeIdentifier)
                 }
@@ -402,40 +522,30 @@ enum LibraryImportExportService {
     /// レイアウト設定はpageKeyをそのまま使うため、本を読み込み直す必要が無く軽量に書き出せる。
     ///
     /// ユーザー要望(後方互換性): 識別子を持たない古いBookLayoutSettings行についても、
-    /// layoutStore.resolvedURL(forBookID:)でファイルの実在が確認できる場合は、そこから
+    /// LayoutStore.resolvedURL(bookmarkData:bookID:)(FileIO の上)でファイルの実在が確認できる場合は、そこから
     /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarksの
     /// 同種の処理と同じ理由)。resolvedURL自体はbookmarkDataの解決またはbookIDの生パスへの
     /// フォールバックのどちらもfileExistsで確認済みのURLしか返さないため、ここで本自体を
     /// 読み込み直す(BookLoader)必要は無い。
+    ///
+    /// 存在の確かめと識別子の取得は、まとめて `FileIO` の上で(2026-10-11 の規約監査。以前は 1 冊ごとにメインで解いていた)。
     private static func exportLayouts(layoutStore: LayoutStore) async -> ([ExportedBookLayoutEntry], [String]) {
-        var result: [ExportedBookLayoutEntry] = []
-        // ユーザー要望: exportFavoritesと同じ理由で、ファイルが見つからなかった本のパスを
-        // 集めておく(レイアウト設定自体は従来通り、実ファイルの有無に関わらずエクスポートする)。
-        var skipped: [String] = []
+        // 行の値は待つ前に写し取る(待っている間にほかの窓が行を消しうる)。
+        var entries: [ExportedBookLayoutEntry] = []
+        var probes: [(bookmarkData: Data?, bookID: String, needsIdentifier: Bool)] = []
         for bookID in layoutStore.layoutBookIDs {
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let overrides = layoutStore.pageOverrides(forBookID: bookID)
             guard settings != nil || !overrides.isEmpty else { continue }
 
-            var fileNodeIdentifier = settings?.fileNodeIdentifier
-            let resolvedURL = layoutStore.resolvedURL(forBookID: bookID)
-            if fileNodeIdentifier == nil, let resolvedURL {
-                let didAccess = resolvedURL.startAccessingSecurityScopedResource()
-                fileNodeIdentifier = FileNodeIdentifier.current(for: resolvedURL)
-                if didAccess { resolvedURL.stopAccessingSecurityScopedResource() }
-                if let fileNodeIdentifier {
-                    layoutStore.backfillFileNodeIdentifier(forBookID: bookID, identifier: fileNodeIdentifier)
-                }
-            }
-            if resolvedURL == nil {
-                skipped.append(bookID)
-            }
+            let fileNodeIdentifier = settings?.fileNodeIdentifier
+            probes.append((settings?.bookmarkData, bookID, fileNodeIdentifier == nil))
 
             var pages: [String: ExportedPageState] = [:]
             for override in overrides {
                 pages[override.pageKey] = ExportedPageState(state: override.state.rawValue)
             }
-            result.append(
+            entries.append(
                 ExportedBookLayoutEntry(
                     bookID: bookID,
                     inodeNumber: fileNodeIdentifier?.inodeNumber,
@@ -450,7 +560,37 @@ enum LibraryImportExportService {
                 )
             )
         }
-        return (result, skipped)
+
+        // (見つかったか, 今の識別子)。識別子は記録に無い本だけ求める。
+        let sendableProbes = probes
+        let probed: [(found: Bool, identifier: FileNodeIdentifier?)] = await FileIO.perform(qos: .utility) {
+            sendableProbes.map { probe in
+                guard let url = LayoutStore.resolvedURL(bookmarkData: probe.bookmarkData, bookID: probe.bookID) else {
+                    return (false, nil)
+                }
+                guard probe.needsIdentifier else { return (true, nil) }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                return (true, FileNodeIdentifier.current(for: url))
+            }
+        }
+
+        // ユーザー要望: exportFavoritesと同じ理由で、ファイルが見つからなかった本のパスを
+        // 集めておく(レイアウト設定自体は従来通り、実ファイルの有無に関わらずエクスポートする)。
+        var skipped: [String] = []
+        for (index, result) in probed.enumerated() {
+            let bookID = probes[index].bookID
+            if let identifier = result.identifier {
+                entries[index].inodeNumber = identifier.inodeNumber
+                entries[index].volumeDeviceNumber = identifier.volumeDeviceNumber
+                entries[index].volumeUUID = identifier.volumeUUID
+                layoutStore.backfillFileNodeIdentifier(forBookID: bookID, identifier: identifier)
+            }
+            if !result.found {
+                skipped.append(bookID)
+            }
+        }
+        return (entries, skipped)
     }
 
     // MARK: - コレクションの書き出し
@@ -465,9 +605,41 @@ enum LibraryImportExportService {
     ///
     /// 並びは追加日時の昇順で固定する。同じ内容のライブラリから書き出したJSONが毎回同じ並びに
     /// なり、差分を取りやすい(exportMetadataがbookID順に揃えているのと同じ理由)。
-    private static func exportCollections(collectionStore: CollectionStore) -> [ExportedLibrary] {
-        collectionStore.libraries.map { library in
-            ExportedLibrary(
+    ///
+    /// 識別子を持たない行の実体探しと識別子の取得は、まとめて `FileIO` の上で(2026-10-11 の規約監査。以前は 1 冊ごとにメインで
+    /// 解いていた)。
+    private static func exportCollections(collectionStore: CollectionStore) async -> [ExportedLibrary] {
+        // 行の値は待つ前に写し取る(待っている間にほかの窓が行を消しうる)。識別子の欄は後から埋める。
+        var missing: [(path: [Int], bookID: String, bookmarkData: Data)] = []
+        var libraries: [ExportedLibrary] = []
+        for library in collectionStore.libraries {
+            var collections: [ExportedCollection] = []
+            // 並びそのものには指定を効かせない(applyingPins: false)。ここは差分を取りやすく
+            // するための固定の並びで、画面の見え方とは別物。
+            for collection in collectionStore.collections(in: library, sort: .dateAddedAscending, applyingPins: false) {
+                var books: [ExportedCollectionBook] = []
+                for item in collectionStore.items(in: collection, sort: .dateAddedAscending) {
+                    let identifier = item.fileNodeIdentifier
+                    if identifier == nil {
+                        missing.append(([libraries.count, collections.count, books.count], item.bookID, item.bookmarkData))
+                    }
+                    books.append(ExportedCollectionBook(
+                        bookID: item.bookID,
+                        inodeNumber: identifier?.inodeNumber,
+                        volumeDeviceNumber: identifier?.volumeDeviceNumber,
+                        volumeUUID: identifier?.volumeUUID,
+                        title: item.title,
+                        addedAt: item.addedAt
+                    ))
+                }
+                collections.append(ExportedCollection(
+                    name: collection.name,
+                    createdAt: collection.createdAt,
+                    autoFolderPath: collection.autoFolderPath,
+                    books: books
+                ))
+            }
+            libraries.append(ExportedLibrary(
                 // 既定のライブラリは表示言語の見出しで書き出す(DBの文字列は表示に使って
                 // いないため。BookLibrary.displayName参照)。
                 name: library.displayName(language: AppLanguage.currentLocale),
@@ -477,45 +649,28 @@ enum LibraryImportExportService {
                 // 常に先頭/末尾の指定は**名前で**書き出す(ExportedLibrary.pinnedFirstCollection)。
                 pinnedFirstCollection: collectionStore.pinnedFirstCollection(in: library)?.name,
                 pinnedLastCollection: collectionStore.pinnedLastCollection(in: library)?.name,
-                // 並びそのものには指定を効かせない(applyingPins: false)。ここは差分を取りやすく
-                // するための固定の並びで、画面の見え方とは別物。
-                collections: collectionStore
-                    .collections(in: library, sort: .dateAddedAscending, applyingPins: false)
-                    .map { collection in
-                        ExportedCollection(
-                            name: collection.name,
-                            createdAt: collection.createdAt,
-                            autoFolderPath: collection.autoFolderPath,
-                            books: collectionStore.items(in: collection, sort: .dateAddedAscending)
-                                .map { exportedBook(for: $0, collectionStore: collectionStore) }
-                        )
-                    }
-            )
+                collections: collections
+            ))
         }
-    }
 
-    private static func exportedBook(
-        for item: CollectionItem, collectionStore: CollectionStore
-    ) -> ExportedCollectionBook {
-        var identifier = item.fileNodeIdentifier
-        if identifier == nil, let url = collectionStore.resolvedExistingURL(for: item) {
-            let didAccess = url.startAccessingSecurityScopedResource()
-            identifier = FileNodeIdentifier.current(for: url)
-            if didAccess { url.stopAccessingSecurityScopedResource() }
-            if let identifier {
-                collectionStore.backfillFileNodeIdentifier(
-                    forBookID: item.bookID, identifier: identifier
-                )
+        let bookmarks = missing.map(\.bookmarkData)
+        let identifiers: [FileNodeIdentifier?] = await FileIO.perform(qos: .utility) {
+            bookmarks.map { data in
+                guard let url = CollectionStore.existingURL(fromBookmark: data) else { return nil }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                return FileNodeIdentifier.current(for: url)
             }
         }
-        return ExportedCollectionBook(
-            bookID: item.bookID,
-            inodeNumber: identifier?.inodeNumber,
-            volumeDeviceNumber: identifier?.volumeDeviceNumber,
-            volumeUUID: identifier?.volumeUUID,
-            title: item.title,
-            addedAt: item.addedAt
-        )
+        for (pending, identifier) in zip(missing, identifiers) {
+            guard let identifier else { continue }
+            let (l, c, b) = (pending.path[0], pending.path[1], pending.path[2])
+            libraries[l].collections[c].books[b].inodeNumber = identifier.inodeNumber
+            libraries[l].collections[c].books[b].volumeDeviceNumber = identifier.volumeDeviceNumber
+            libraries[l].collections[c].books[b].volumeUUID = identifier.volumeUUID
+            collectionStore.backfillFileNodeIdentifier(forBookID: pending.bookID, identifier: identifier)
+        }
+        return libraries
     }
 
     // MARK: - JSONの読み書き
@@ -529,8 +684,10 @@ enum LibraryImportExportService {
         try await FileIO.perform { try data.write(to: url, options: .atomic) }
     }
 
-    static func read(from url: URL) throws -> QooLibraryExportFile {
-        let data = try Data(contentsOf: url)
+    /// 読み込みは FileIO の上で、復号はここ(メイン)で(`write` と同じ分け方。2026-10-11 の規約監査 ―― 以前はパネルの完了ハンドラ
+    /// から同期で読み、選んだファイルが応答しない共有の上だとメインが止まった)。
+    static func read(from url: URL) async throws -> QooLibraryExportFile {
+        let data = try await FileIO.perform { try Data(contentsOf: url) }
         return try JSONDecoder().decode(QooLibraryExportFile.self, from: data)
     }
 
@@ -635,7 +792,7 @@ enum LibraryImportExportService {
         var summary = ImportSummary()
 
         if let favorites = file.favorites, policies.favorites != .ignore {
-            applyFavorites(
+            await applyFavorites(
                 favorites, policy: policies.favorites,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 summary: &summary
@@ -788,24 +945,21 @@ enum LibraryImportExportService {
             let existing = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
             return Dictionary(existing.map { ($0.bookID, $0) }, uniquingKeysWith: { first, _ in first })
         }
+        // 他のカテゴリと同じく、ファイルノード識別子での照合を優先する(別の端末・移動後で
+        // パスが変わっていても引き継げる)。手がかりはメインで集め(この段は読書位置の行しか書かないので、識別子の索引を作って
+        // 使う ―― FileNodeIndexes。メインを譲った後は取り直す)、解決はまとめて FileIO の上で(`locateAll`)。
+        let located = await locateAll(await gatherHints(
+            entries.map { ($0.bookID, $0.fileNodeIdentifier) },
+            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+        ), identifies: false)
         var byBookID = fetchByBookID()
-        // この段は読書位置の行しか書かないので、識別子の索引を作って使う(FileNodeIndexes)。メインを譲った後は取り直す(yieldPeriodically)。
-        var indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
         for (index, entry) in entries.enumerated() {
             if await yieldPeriodically(index) {
                 // 譲っている間の書き込みを残すため、ここまでの分を保存してから取り直す。
                 try? modelContext.save()
                 byBookID = fetchByBookID()
-                indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
             }
-            // 他のカテゴリと同じく、ファイルノード識別子での照合を優先する(別の端末・移動後で
-            // パスが変わっていても引き継げる)。
-            let resolvedURL = resolveURL(
-                bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                indexes: indexes
-            )
-            let bookID = resolvedURL?.path ?? entry.bookID
+            let bookID = located[index]?.url.path ?? entry.bookID
             // フォルダの本のページの鍵は絶対パスなので、本が別のパスで見つかったら鍵も付け替える(PageKeyRelocation。ブックマーク・
             // レイアウトの取り込みと同じ。2026-09-23 の 3 回目の監査の低 ―― 以前はそのまま写し、ページ番号へ落ちていた)。
             let lastPageKey = entry.lastPageKey.map {
@@ -871,22 +1025,18 @@ enum LibraryImportExportService {
         var batch: [BookMetadataStore.BatchEntry] = []
         batch.reserveCapacity(entries.count)
         var sourceImported = Set<String>()
-        // 書き込みはループの後の upsertAll だけなので、識別子の索引を作って使う(FileNodeIndexes)。メインを譲った後は取り直す
-        // (yieldPeriodically)。
-        var indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
+        // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
+        // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。手がかりはメインで集め
+        // (書き込みはループの後の upsertAll だけなので、識別子の索引を作って使う)、解決はまとめて FileIO の上で(`locateAll`)。
+        let located = await locateAll(await gatherHints(
+            entries.map { ($0.bookID, $0.fileNodeIdentifier) },
+            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+        ), identifies: false)
         // 手がかりを後から作る本(bookID → 見つかった場所)。
         var locatorTargets: [String: URL] = [:]
         for (index, entry) in entries.enumerated() {
-            if await yieldPeriodically(index) {
-                indexes = FileNodeIndexes(favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore)
-            }
-            // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
-            // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。
-            let resolvedURL = resolveURL(
-                bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                indexes: indexes
-            )
+            await yieldPeriodically(index)
+            let resolvedURL = located[index]?.url
             let bookID = resolvedURL?.path ?? entry.bookID
             // 「足す」は、利用者が手を入れた行を変えない ―― 画面の約束は「既存のものは変えない」。置き換えるのはファイル名の読み
             // だけの行(`isParsedOnly`。2026-09-22 から解析した本はすべて行を持つので、それを「まだ無い」とみなす)。以前はロックした
@@ -894,7 +1044,7 @@ enum LibraryImportExportService {
             if policy == .merge, let existing = metadataStore.metadata(forBookID: bookID), !existing.isParsedOnly { continue }
             // 書き出した版の欄の版のまま入れる。版の無い以前のファイル(formatVersion 4 以前・qooMeta の書き出し)の行は、
             // qooMeta の欄が無ければ以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる。importedFieldsVersion)。
-            batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: nil,
+            batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values,
                                                       fieldsVersion: entry.importedFieldsVersion,
                                                       state: entry.importedState))
             if let resolvedURL { locatorTargets[bookID] = resolvedURL }
@@ -929,61 +1079,44 @@ enum LibraryImportExportService {
         let collection: Int
     }
 
-    /// 取り込む本1冊ぶんの、場所を探す手がかり。メインアクターの外へ持ち出せる値だけで作る。
+    /// 本1冊ぶんの、場所を探す手がかり。メインアクターの外へ持ち出せる値だけで作る(`bookLocatorHints`)。
     nonisolated struct BookLocatorHints: Sendable {
         let bookID: String
         /// 試す順に並べたセキュリティスコープ付きブックマーク。
         let bookmarks: [Data]
-    }
-
-    /// 1冊ぶんの手がかりを、以前の`resolveURL` + `collectionStore.resolvedURL(matching:)` +
-    /// 素のパス、と**同じ優先順**で集める(解決はしない)。
-    private static func bookLocatorHints(
-        bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
-        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        collectionStore: CollectionStore, indexes: FileNodeIndexes? = nil
-    ) -> BookLocatorHints {
-        var bookmarks: [Data] = []
-        if let fileNodeIdentifier {
-            bookmarks += favoritesStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.favorites)
-            bookmarks += layoutStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.layouts)
-            bookmarks += bookmarkStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.bookmarks)
-        }
-        bookmarks += bookmarkStore.bookmarks(forBookID: bookID).compactMap(\.bookmarkData)
-        if let data = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData {
-            bookmarks.append(data)
-        }
-        if let fileNodeIdentifier {
-            bookmarks += collectionStore.bookmarkDataCandidates(matching: fileNodeIdentifier, index: indexes?.collections)
-        }
-        return BookLocatorHints(bookID: bookID, bookmarks: bookmarks)
+        /// どのブックマークでも見つからなければ、記録したパス(bookID)そのものを試すか。
+        var fallsBackToRecordedPath = true
     }
 
     /// 手がかりから、コレクションへ登録する材料を作る。見つからなければその本はnil。
     ///
-    /// **メインアクターの外で走る**(applyCollectionsのコメント参照)。
+    /// **`FileIO` の上で走る**(applyCollectionsのコメント参照)。以前は `@concurrent` で協調スレッドプールの上を走り、応答しない共有の
+    /// 本があるとプールのスレッドを塞いだ(同じ形の `CollectionStore.makePendingItems` は先に FileIO へ移してあった。2026-10-11 の
+    /// 規約監査で揃えた)。
     ///
     /// **ブックマークを解決したURLは、アクセスを開始してから触る**(監査で指摘 2026-09-13)。
     /// 以前は開始しないまま存在確認とブックマークの生成をしていたので、許可済みフォルダの外に
     /// ある本は、実在して有効なブックマークもあるのに「見つからない」として飛ばされえた。
     /// 見つからなかったブックマークは次の候補へ進む(以前はお気に入り由来の1件目が解決できた
     /// 時点で打ち切り、それが消えた場所を指していても次を試さなかった)。
-    @concurrent nonisolated static func makePendingItems(
+    static func makePendingItems(
         for hints: [BookLocatorHints]
     ) async -> [CollectionStore.PendingItem?] {
-        hints.map { hint in
-            for data in hint.bookmarks {
-                guard let url = FavoritesStore.resolvedURL(fromBookmark: data) else { continue }
-                let didAccess = url.startAccessingSecurityScopedResource()
-                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-                guard FileManager.default.fileExists(atPath: url.path),
-                      let item = CollectionStore.makePendingItem(for: url)
-                else { continue }
-                return item
+        await FileIO.perform(qos: .utility) {
+            hints.map { hint in
+                for data in hint.bookmarks {
+                    guard let url = FavoritesStore.resolvedURL(fromBookmark: data) else { continue }
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                    guard FileManager.default.fileExists(atPath: url.path),
+                          let item = CollectionStore.makePendingItem(for: url)
+                    else { continue }
+                    return item
+                }
+                let fallback = URL(fileURLWithPath: hint.bookID)
+                guard FileManager.default.fileExists(atPath: fallback.path) else { return nil }
+                return CollectionStore.makePendingItem(for: fallback)
             }
-            let fallback = URL(fileURLWithPath: hint.bookID)
-            guard FileManager.default.fileExists(atPath: fallback.path) else { return nil }
-            return CollectionStore.makePendingItem(for: fallback)
         }
     }
 
@@ -1200,9 +1333,42 @@ enum LibraryImportExportService {
         _ favorites: ExportedFavorites, policy: ImportPolicy,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         summary: inout ImportSummary
-    ) {
+    ) async {
         if policy == .overwrite {
             favoritesStore.deleteAllFavorites()
+        }
+
+        // マージ時、この本がどこか(別のフォルダも含む)に既に登録済みなら追加しない
+        // (マージ=まだ無いものだけを足す、という方針。詳細はImportPolicyのコメント参照)。
+        //
+        // ユーザー要望: iノード番号による管理に変更したい。bookID(パス)が一致するかだけでなく、
+        // ファイルノード識別子が一致する登録が既にあるかどうかも確認する(JSONのbookIDは
+        // 参考情報として残すが、重複判定の主たる手段にはしない)。
+        let candidates = favorites.books.filter { bookEntry in
+            guard policy == .merge else { return true }
+            if !favoritesStore.existingFavorites(forBookID: bookEntry.bookID).isEmpty { return false }
+            if let identifier = bookEntry.fileNodeIdentifier, !favoritesStore.existingFavorites(matching: identifier).isEmpty {
+                return false
+            }
+            return true
+        }
+        // ユーザー要望: JSONのファイルパスは参考情報として残すが、インポート時にはまず
+        // ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
+        // セキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す
+        // (bookLocatorHints参照)。見つからない場合のみ、JSONのbookID(パス)へフォールバックする。
+        // 解決はまとめて FileIO の上で(`locateAll`。2026-10-11 の規約監査)。登録する本の居場所の事実(ブックマークと識別子)も
+        // 同じ所で求めておく(`forceAddFavorites` がメインでファイルに触らないように。`BookSourceFacts`)。
+        let hints = await gatherHints(
+            candidates.map { ($0.bookID, $0.fileNodeIdentifier) },
+            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+        )
+        let located: [(url: URL, facts: BookSourceFacts)?] = await FileIO.perform(qos: .utility) {
+            hints.map { hint in
+                guard let url = locate(hint, identifies: false)?.url else { return nil }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                return (url, BookSourceFacts.probe(url, makesBookmark: true))
+            }
         }
 
         // JSON内のフォルダid(このファイル内だけで通用する一時的な文字列) -> 実際に作成/解決した
@@ -1259,32 +1425,9 @@ enum LibraryImportExportService {
         // (最初の1件だけを採用する)を保つ。
         var queuedResolvedPaths: Set<String> = []
 
-        for bookEntry in favorites.books {
-            // マージ時、この本がどこか(別のフォルダも含む)に既に登録済みなら追加しない
-            // (マージ=まだ無いものだけを足す、という方針。詳細はImportPolicyのコメント参照)。
-            //
-            // ユーザー要望: iノード番号による管理に変更したい。bookID(パス)が一致するかだけでなく、
-            // ファイルノード識別子が一致する登録が既にあるかどうかも確認する(JSONのbookIDは
-            // 参考情報として残すが、重複判定の主たる手段にはしない)。
-            if policy == .merge {
-                var alreadyRegistered = !favoritesStore.existingFavorites(forBookID: bookEntry.bookID).isEmpty
-                if !alreadyRegistered, let identifier = bookEntry.fileNodeIdentifier {
-                    alreadyRegistered = !favoritesStore.existingFavorites(matching: identifier).isEmpty
-                }
-                if alreadyRegistered { continue }
-            }
+        for (bookEntry, found) in zip(candidates, located) {
             let folder = resolveFolder(bookEntry.folderId)
-            // ユーザー要望: JSONのファイルパスは参考情報として残すが、インポート時にはまず
-            // ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
-            // セキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す
-            // (resolveURL参照)。見つからない場合のみ、JSONのbookID(パス)へフォールバックする。
-            guard let url = resolveURL(
-                bookID: bookEntry.bookID, fileNodeIdentifier: bookEntry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
-            ) ?? {
-                let fallback = URL(fileURLWithPath: bookEntry.bookID)
-                return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
-            }() else { continue }
+            guard let (url, facts) = found else { continue }
             if policy == .merge, queuedResolvedPaths.contains(url.path) { continue }
             // FavoritesStoreの登録APIはすべてMangaBookを要求するが、forceAddFavorite(s)が実際に
             // 参照するのはbook.id/book.sourceURL/book.titleだけ(セキュリティスコープ付き
@@ -1292,7 +1435,8 @@ enum LibraryImportExportService {
             // 十分間に合う(この本を今開いているわけではないので、実際のページを読み込む
             // 必要が無い)。book.idにはbookEntry.bookID(参考情報のJSON上のパス)ではなく、
             // 実際に解決できたurlのpathを使う(お気に入りの検索キーが実体と一致するようにする)。
-            let stubBook = MangaBook(id: url.path, title: bookEntry.title, sourceURL: url, pages: [])
+            var stubBook = MangaBook(id: url.path, title: bookEntry.title, sourceURL: url, pages: [])
+            stubBook.sourceFacts = facts
             pendingRequests.append(FavoritesStore.BulkFavoriteRequest(book: stubBook, folder: folder))
             queuedResolvedPaths.insert(url.path)
         }
@@ -1321,7 +1465,7 @@ enum LibraryImportExportService {
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                cachesPageList: cachesPageList
+                cachesPageList: cachesPageList, makesBookmark: false
             ) else {
                 summary.bookmarksSkippedBookIDs.append(entry.bookID)
                 continue
@@ -1335,7 +1479,8 @@ enum LibraryImportExportService {
             // ファイルをバックアップからコピーしてきた場合など、実体のinodeがJSONの記録時点と
             // 変わっているケースに対応するため。qooViewer改善要望.md「ファイルパスならば実在する
             // 場合、inodeをDB上のinodeはそのファイルパスから再取得してinodeで設定すること」参照)。
-            let resolvedFileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
+            // 読み込みと一緒に FileIO の上で(スコープを開いたまま)求めてある(`loadBook` の `sourceFacts`。2026-10-11 の規約監査)。
+            let resolvedFileNodeIdentifier = book.sourceFacts?.fileNodeIdentifier
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let excludedKeys = Set(
                 layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
@@ -1395,7 +1540,7 @@ enum LibraryImportExportService {
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                cachesPageList: cachesPageList
+                cachesPageList: cachesPageList, makesBookmark: true
             ) else {
                 summary.layoutsSkippedBookIDs.append(entry.bookID)
                 continue

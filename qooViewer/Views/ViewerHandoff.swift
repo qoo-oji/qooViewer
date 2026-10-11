@@ -29,7 +29,11 @@ final class ViewerHandoff: ObservableObject {
     private var pending: Entry?
     /// 待ち終わりのきっかけ(最初の見開きが揃った知らせと、`maximumWait` の時限)。
     private var readinessSubscription: AnyCancellable?
-    private var timeoutTask: Task<Void, Never>?
+    /// `maximumWait` の時限の世代(待ちをやめる・待ち直すたびに進める。届いた時限が古ければ何もしない)。
+    ///
+    /// 時限は `DispatchQueue.main.asyncAfter`(CLAUDE.md「待ちを見せる」の決まり。2026-10-11 の規約監査 ―― 以前の `Task.sleep` は
+    /// 協調スレッドプールが塞がっていると発火せず、「長くて `maximumWait`」の約束が効かずに前の中身が出たまま待たされた)。
+    private var timeoutGeneration = 0
 
     /// 最初の見開きを待つ長さの上限。デコードは合成の本で 30〜50ms、大きな画像で 100〜200ms ほど。
     static let maximumWait: Duration = .milliseconds(300)
@@ -66,10 +70,11 @@ final class ViewerHandoff: ObservableObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.showPending(bookID: bookID) }
             }
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.maximumWait)
-            guard !Task.isCancelled else { return }
-            self?.showPending(bookID: bookID)
+        timeoutGeneration &+= 1
+        let generation = timeoutGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maximumWait.fileIOSeconds) { [weak self] in
+            guard let self, self.timeoutGeneration == generation else { return }
+            self.showPending(bookID: bookID)
         }
     }
 
@@ -88,8 +93,7 @@ final class ViewerHandoff: ObservableObject {
     private func stopWaiting() {
         readinessSubscription?.cancel()
         readinessSubscription = nil
-        timeoutTask?.cancel()
-        timeoutTask = nil
+        timeoutGeneration &+= 1
     }
 
     /// 待っている本を捨てる(使わなかったビューモデルの資源を手放す)。

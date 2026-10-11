@@ -35,6 +35,10 @@ struct LibraryImportWindow: View {
     /// カテゴリごとの取り込み方針(ピッカー)。開き直すたびに既定から始める(`resetForNextOpen`)。
     @State private var policies = Self.defaultPolicies
     @State private var isImporting = false
+    /// 選んだファイルを読んでいる間(読み込みは FileIO の上。`LibraryImportExportService.read`)。
+    @State private var isReadingFile = false
+    /// 読み始めるたびに進める番号。後から選び直した・窓をまっさらに戻した後に届いた古い読み込みの結果は捨てる。
+    @State private var readGeneration = 0
     /// 直前の読み込みの結果と、そのとき**実際に使った**ファイル・方針(下の `ImportOutcome`)。
     @State private var outcome: ImportOutcome?
     @State private var loadErrorMessage: String?
@@ -115,7 +119,14 @@ struct LibraryImportWindow: View {
                 // ようにする。
                 Section {
                     Group {
-                        if let sourceFileName {
+                        if isReadingFile {
+                            HStack(spacing: 6) {
+                                DelayedProgressIndicator(controlSize: .small)
+                                Text("Loading…")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if let sourceFileName {
                             Text(sourceFileName)
                                 .font(.headline)
                         } else {
@@ -244,6 +255,8 @@ struct LibraryImportWindow: View {
     }
 
     private func resetForNextOpen() {
+        readGeneration &+= 1
+        isReadingFile = false
         loadedFile = nil
         sourceFileName = nil
         policies = Self.defaultPolicies
@@ -278,7 +291,7 @@ struct LibraryImportWindow: View {
             Button("Import Saved Data") {
                 importButtonTapped()
             }
-            .disabled(loadedFile == nil || isImporting)
+            .disabled(loadedFile == nil || isImporting || isReadingFile)
             .keyboardShortcut(.defaultAction)
         }
         .padding()
@@ -466,29 +479,43 @@ struct LibraryImportWindow: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
         panel.message = String(localized: "Choose a JSON file exported from qooViewer.", language: locale)
-        if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.libraryIO.panelStartFolder() {
             panel.directoryURL = lastFolder
         }
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first, !isImporting else { return }
-            LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
+            Task { await LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent()) }
 
-            do {
-                let file = try LibraryImportExportService.read(from: url)
-                loadedFile = file
-                sourceFileName = url.lastPathComponent
-                outcome = nil
-                loadErrorMessage = nil
-            } catch {
-                // 読めなかったら前のファイルも手放す(2026-10-04 の監査 TW-9)。以前は前のファイルを持ったままで、エラーの下で
-                // 「保存データを読み込む」が押せ、押すと前のファイルが読み込まれた。
-                loadedFile = nil
-                sourceFileName = nil
-                outcome = nil
-                loadErrorMessage = String(
-                    format: String(localized: "This file couldn't be read: %@", language: locale),
-                    error.localizedDescription
-                )
+            // 読むのは FileIO の上(選んだファイルが応答しない共有の上でもメインを止めない。2026-10-11 の規約監査)。読んでいる間は
+            // 前のファイルを手放し、「保存データを読み込む」を押せなくする(下の失敗と同じ理由)。
+            readGeneration &+= 1
+            let generation = readGeneration
+            isReadingFile = true
+            loadedFile = nil
+            sourceFileName = nil
+            outcome = nil
+            loadErrorMessage = nil
+            Task {
+                let result: Result<QooLibraryExportFile, Error>
+                do {
+                    result = .success(try await LibraryImportExportService.read(from: url))
+                } catch {
+                    result = .failure(error)
+                }
+                guard generation == readGeneration else { return }
+                isReadingFile = false
+                switch result {
+                case .success(let file):
+                    loadedFile = file
+                    sourceFileName = url.lastPathComponent
+                case .failure(let error):
+                    // 読めなかったら前のファイルも手放す(2026-10-04 の監査 TW-9)。以前は前のファイルを持ったままで、エラーの下で
+                    // 「保存データを読み込む」が押せ、押すと前のファイルが読み込まれた。
+                    loadErrorMessage = String(
+                        format: String(localized: "This file couldn't be read: %@", language: locale),
+                        error.localizedDescription
+                    )
+                }
             }
         }
     }

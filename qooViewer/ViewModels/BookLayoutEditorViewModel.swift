@@ -284,10 +284,14 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // シークレットフォルダの本(既存の保存データを編集しに来た)は、ページ一覧とサムネイルのディスクキャッシュを書かない
         // (SecretFolderStore。保存データの編集は止めないが、新しい痕跡は残さない ―― シークレットウインドウと同じ)。
         let isSecret = SecretFolderStore.isSecretAppWide(url) || SecretFolderStore.isSecretAppWide(path: bookID)
-        guard let loaded = try? await BookLoader.load(from: url, cachesPageList: !isSecret, caches: diskCaches) else {
+        guard var loaded = try? await BookLoader.load(from: url, cachesPageList: !isSecret, caches: diskCaches) else {
             loadState = .failed
             return
         }
+        // レイアウトの行を作る書き込み(並べ替え・除外・読み方向)が使う居場所の事実(識別子・指紋・ブックマーク)を、メインの外で
+        // 求めておく(`MangaBook.sourceFacts`。2026-10-11 の規約監査 ―― 以前は行を作るときにメインで問い合わせていた)。
+        let sourceURL = loaded.sourceURL
+        loaded.sourceFacts = await BookSourceFacts.gather(sourceURL, makesBookmark: true)
         // 読み込み中に右ペインが画面から外れて解放済みになっていたら、ここで新しい
         // PageLoaderを作らない(作っても使われないまま1世代ぶん抱え込まれるだけのため。
         // releaseResources()のコメント参照)。

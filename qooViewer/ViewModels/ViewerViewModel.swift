@@ -915,7 +915,7 @@ final class ViewerViewModel: ObservableObject {
         // 行を作っていた ―― ほかの本と見比べないので、メタデータ生成の読みと食い違った)。
         // シークレットウインドウの本は知らせない。除外フォルダの本はメタデータ生成が外す。
         if !skipsPersistence {
-            MetadataGenerator.appWide?.noteBookOpened(book.id, sourceURL: book.sourceURL)
+            MetadataGenerator.appWide?.noteBookOpened(book.id, anchors: book.recordAnchors)
         }
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {
@@ -2128,7 +2128,7 @@ final class ViewerViewModel: ObservableObject {
         } else {
             metadataStore.importSourceMetadata(bookID: book.id, source: metadata,
                                                rules: MetadataRulesStore.currentAppWideRules,
-                                               sourceURL: book.sourceURL)
+                                               anchors: book.recordAnchors)
         }
         refreshDisplayTitle()
     }
@@ -2309,7 +2309,8 @@ final class ViewerViewModel: ObservableObject {
             reloadBookmarks()
             return
         }
-        let fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
+        // 開いたときにメインの外で求めた識別子(`MangaBook.sourceFacts`。2026-10-11 の規約監査)。
+        let fileNodeIdentifier = book.recordFileNodeIdentifier
         for entry in entries {
             guard book.pages.indices.contains(entry.pageIndex) else { continue }
             guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
@@ -2379,12 +2380,9 @@ final class ViewerViewModel: ObservableObject {
         // セキュリティスコープ付きブックマークを一緒に保存しておく(FavoriteBook.bookmarkDataと
         // 同じ理由。「ブックマークの編集」ウインドウから、今開いていない本を新たに開いてジャンプ
         // する機能(要望2〜4)のために必要。今この本を開けている=このURLへのアクセス権を
-        // 持っている、という前提でここで生成する)。
-        let bookmarkData = try? book.sourceURL.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        // 持っている、という前提で開いたときにメインの外で作ってある ―― `MangaBook.sourceFacts`。2026-10-11 の規約監査:
+        // 以前は追加のたびにここでメインで作り、識別子も問い合わせていた)。
+        let bookmarkData = book.recordBookmarkData
         let bookmark = Bookmark(
             bookID: book.id,
             pageIndex: index,
@@ -2392,7 +2390,7 @@ final class ViewerViewModel: ObservableObject {
             pageKey: book.pages.indices.contains(index) ? book.pages[index].sortKey : nil,
             name: "\(pagePrefix) \(index + 1)",
             bookmarkData: bookmarkData,
-            fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
+            fileNodeIdentifier: book.recordFileNodeIdentifier
         )
         modelContext.insert(bookmark)
         try? modelContext.save()
@@ -3341,7 +3339,10 @@ final class ViewerViewModel: ObservableObject {
             // ViewerViewの.disabled(...)のコメント参照)。
             origin: rawBook.origin,
             // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
-            isInSecretFolder: rawBook.isInSecretFolder
+            isInSecretFolder: rawBook.isInSecretFolder,
+            // これも引き継ぎ必須(落とすと、レイアウト・ブックマークの行を作るたびにメインで元ファイルへ問い合わせる ――
+            // MangaBook.sourceFacts。2026-10-11 の規約監査のレビュー)。
+            sourceFacts: rawBook.sourceFacts
         )
         return (adjustedBook, .unaffected, settings, overridesByKey)
     }

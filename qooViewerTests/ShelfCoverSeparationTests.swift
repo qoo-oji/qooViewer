@@ -66,7 +66,7 @@ struct ShelfCoverSeparationTests {
     ) throws {
         // 行を作る入り口は公開 API しか無いので、いったんページ指定で作ってから書き換える。
         library.layouts.setCoverPageKey(
-            forBookID: bookID, sourceURL: sourceURL, pageKey: "001.png", displayName: "001.png"
+            forBookID: bookID, anchors: .probe(sourceURL), pageKey: "001.png", displayName: "001.png"
         )
         let settings = try #require(library.layouts.bookLayoutSettings(forBookID: bookID))
         settings.coverPageKey = nil
@@ -128,7 +128,7 @@ struct ShelfCoverSeparationTests {
         let url = try makeFolderBook(temporary)
         let item = try register(url, in: library)
         library.layouts.setCoverPageKey(
-            forBookID: item.bookID, sourceURL: url, pageKey: "002.png", displayName: "002.png"
+            forBookID: item.bookID, anchors: .probe(url), pageKey: "002.png", displayName: "002.png"
         )
 
         let extractor = makeExtractor(library, suite: suite)
@@ -162,7 +162,7 @@ struct ShelfCoverSeparationTests {
 
         // 分離後に、利用者が書き出し用のカバー画像を指定し直した状況を作る。
         library.layouts.setCoverPageKey(
-            forBookID: item.bookID, sourceURL: url, pageKey: "001.png", displayName: "001.png"
+            forBookID: item.bookID, anchors: .probe(url), pageKey: "001.png", displayName: "001.png"
         )
         let second = makeExtractor(library, suite: suite)
         defer { second.releaseResources() }
@@ -217,10 +217,10 @@ struct ShelfCoverSeparationTests {
         let bookID = url.path
 
         library.layouts.setCoverPageKey(
-            forBookID: bookID, sourceURL: url, pageKey: "001.png", displayName: "001.png"
+            forBookID: bookID, anchors: .probe(url), pageKey: "001.png", displayName: "001.png"
         )
         library.layouts.setShelfCoverPageKey(
-            forBookID: bookID, sourceURL: url, pageKey: "002.png", displayName: "002.png"
+            forBookID: bookID, anchors: .probe(url), pageKey: "002.png", displayName: "002.png"
         )
 
         var settings = try #require(library.layouts.bookLayoutSettings(forBookID: bookID))
@@ -235,7 +235,7 @@ struct ShelfCoverSeparationTests {
 
         // 逆向きも同じ。
         library.layouts.setShelfCoverPageKey(
-            forBookID: bookID, sourceURL: url, pageKey: "002.png", displayName: "002.png"
+            forBookID: bookID, anchors: .probe(url), pageKey: "002.png", displayName: "002.png"
         )
         library.layouts.clearCoverOverride(forBookID: bookID)
         settings = try #require(library.layouts.bookLayoutSettings(forBookID: bookID))
@@ -252,7 +252,7 @@ struct ShelfCoverSeparationTests {
         let imageURL = temporary.file("chosen.png")
         try PageImageFactory.png(number: 9).write(to: imageURL)
 
-        try await library.layouts.setShelfCoverImage(forBookID: bookID, sourceURL: nil, fileURL: imageURL)
+        try await library.layouts.setShelfCoverImage(forBookID: bookID, anchors: nil, fileURL: imageURL)
         let storedName = try #require(library.layouts.shelfCoverImageFileName(forBookID: bookID))
         let storedURL = try #require(library.layouts.coverSourceStore.url(forFileName: storedName))
 
@@ -278,7 +278,7 @@ struct ShelfCoverSeparationTests {
         let imageURL = temporary.file("chosen.png")
         try PageImageFactory.png(number: 4).write(to: imageURL)
         try await library.layouts.setShelfCoverImage(
-            forBookID: item.bookID, sourceURL: url, fileURL: imageURL
+            forBookID: item.bookID, anchors: .probe(url), fileURL: imageURL
         )
         // 本ごと消す(未接続のボリューム上にある本と同じ状況)。
         try FileManager.default.removeItem(at: url)

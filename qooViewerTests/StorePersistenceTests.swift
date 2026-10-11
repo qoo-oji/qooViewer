@@ -32,11 +32,11 @@ struct StorePersistenceTests {
             let container = try store.openCurrent()
             let layouts = LayoutStore(modelContext: container.mainContext, coverSourceStore: sources)
             layouts.setShelfCoverPageKey(
-                forBookID: "/books/page", sourceURL: nil, pageKey: "003.jpg", displayName: "003.jpg"
+                forBookID: "/books/page", anchors: nil, pageKey: "003.jpg", displayName: "003.jpg"
             )
             // zipの読み込みと同じ入口(検査に通れば元のバイトのまま保存する)。
-            try await layouts.setShelfCoverImage(forBookID: "/books/image", sourceURL: nil, data: imageData)
-            layouts.setCoverCropAnchor(forBookID: "/books/image", sourceURL: nil, anchor: .end)
+            try await layouts.setShelfCoverImage(forBookID: "/books/image", anchors: nil, data: imageData)
+            layouts.setCoverCropAnchor(forBookID: "/books/image", anchors: nil, anchor: .end)
             storedImageName = layouts.shelfCoverImageFileName(forBookID: "/books/image")
         }
         let name = try #require(storedImageName)

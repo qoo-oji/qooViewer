@@ -81,16 +81,7 @@ struct MetadataEditorWindow: View {
                               layoutStore: layoutStore, metadataStore: metadataStore, folderAccess: folderAccess,
                               generator: metadataGenerator, modelContext: modelContext),
                 preferences: preferences,
-                relocator: bookRecordRelocator,
-                // ゴミ箱の中まで追った場所は「見つからない」(BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11: 「開く」でゴミ箱の中の
-                // 本を開き、保存データがゴミ箱の中のパスへ付け替わっていた)。見つからなければ呼び出し側は素のパス(元の場所)を使う。
-                resolveURL: { [weak metadataStore, weak bookmarkStore, weak layoutStore, weak collectionStore] bookID in
-                    BookLocationResolver.outsideTrash(bookmarkStore?.resolvedURLFromBookmarkData(forBookID: bookID))
-                        ?? BookLocationResolver.outsideTrash(layoutStore?.resolvedURL(forBookID: bookID))
-                        ?? BookLocationResolver.outsideTrash(metadataStore?.resolvedURL(forBookID: bookID))
-                        ?? BookLocationResolver.outsideTrash(collectionStore?.anyBookmarkData(forBookID: bookID)
-                            .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) })
-                })
+                relocator: bookRecordRelocator)
             self.model = model
             await model.open()
         }
@@ -152,13 +143,35 @@ final class MetadataEditorModel {
     /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
     @ObservationIgnored private var relocationAttempted: Set<String> = []
 
-    /// 本の実体の URL(保存データのブックマークから。右クリックの「コレクションに登録」など。2026-09-23)。
-    @ObservationIgnored let resolveURL: (String) -> URL?
+    /// 本の実体の URL(保存データのブックマークから。右クリックの「コレクションに登録」・カバー列など。2026-09-23)。
+    ///
+    /// **メインの外で解く**(`StoredBookLocator`、裏の解決 `.background`。2026-10-11 の規約監査 ―― 以前は同期の閉包で、メインで
+    /// 各ストアのブックマークを順に解いて存在を確かめていた。「コレクションに登録」では選んだ冊数ぶん、カバー列では見えている行ごと)。
+    /// 手がかりの順(ブックマーク → レイアウト → メタデータ → コレクション)とゴミ箱の中を「見つからない」とする決まり
+    /// (BookLocationResolver.outsideTrash。2026-10-04 の監査 O-11)は以前と同じ。見つからなければ nil(呼び出し側は素のパスを使う)。
+    func locateBook(_ bookID: String) async -> URL? {
+        await Self.locateBook(bookID, stores: stores)
+    }
+
+    private static func locateBook(_ bookID: String, stores: Stores) async -> URL? {
+        let material = locatorMaterial(forBookID: bookID, stores: stores)
+        guard case .found(let url) = await StoredBookLocator.resolve(material, purpose: .background) else { return nil }
+        return url
+    }
+
+    /// 何冊もまとめて(`locateBook` と同じ解き方。1 回の FileIO で)。
+    func locateBooks(_ bookIDs: [String]) async -> [URL?] {
+        await StoredBookLocator.resolveAll(bookIDs.map { locatorMaterial(forBookID: $0) }, purpose: .background)
+    }
 
     /// 「開く」の前に場所を解決する材料(StoredBookLocator。2026-10-04 の監査 O-12 ―― 「開く」はメインの外で期限つき・`.userOpen` で
     /// 解決する。以前は上の resolveURL(既定の `.background`、メインで同期)で、繋がっていないボリュームの本は解決できず素のパスで
     /// 新しい窓を開いてエラーにした)。
     func locatorMaterial(forBookID bookID: String) -> StoredBookLocator.Material {
+        Self.locatorMaterial(forBookID: bookID, stores: stores)
+    }
+
+    private static func locatorMaterial(forBookID bookID: String, stores: Stores) -> StoredBookLocator.Material {
         StoredBookLocator.material(
             forBookID: bookID, bookmarkStore: stores.bookmarkStore, layoutStore: stores.layoutStore,
             metadataStore: stores.metadataStore, collectionStore: stores.collectionStore
@@ -167,16 +180,17 @@ final class MetadataEditorModel {
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
          preferences: AppPreferences, relocator: BookRecordRelocator?, fileSystemChanges: FileSystemChangeCenter = .shared,
-         rulesPicked: MetadataRulesPicked? = nil, resolveURL: @escaping (String) -> URL?) {
+         rulesPicked: MetadataRulesPicked? = nil) {
         self.fileSystemChanges = fileSystemChanges
         self.rulesPicked = rulesPicked ?? .shared
-        self.resolveURL = resolveURL
         self.relocator = relocator
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.stores = stores
+        // ストアはアプリで 1 つずつなので、閉包が持っても窓を残さない。
         coverController = CoverOverrideController(target: .collectionCover, layoutStore: stores.layoutStore,
-                                                  preferences: preferences, resolveURL: resolveURL)
+                                                  preferences: preferences,
+                                                  resolveURL: { [stores] bookID in await Self.locateBook(bookID, stores: stores) })
     }
 
     /// 開くたびに進める番号(`close` で進む)。待っている間に閉じられた・作り直しが重なった `open` は、待ち終えてから何もしない
@@ -1103,9 +1117,9 @@ struct MetadataBookTableView: View {
 }
 
 extension MetadataBookTableView {
-    /// 本の実体の URL。保存データのブックマークから解決し、無ければパス(対象フォルダなど、読む許可のある場所の本)。
-    fileprivate func bookURL(_ book: MetadataBookRow) -> URL {
-        model.resolveURL(book.id) ?? URL(filePath: book.id)
+    /// 本の実体の URL。保存データのブックマークからメインの外で解決し、無ければパス(対象フォルダなど、読む許可のある場所の本)。
+    fileprivate func bookURL(_ book: MetadataBookRow) async -> URL {
+        await model.locateBook(book.id) ?? URL(filePath: book.id)
     }
 
     /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(「お気に入りの編集」ウインドウから開くのと同じ)。
@@ -1134,13 +1148,23 @@ extension MetadataBookTableView {
     }
 
     fileprivate func showInFileBrowser(_ book: MetadataBookRow) {
-        FileBrowserReveal.revealWithoutWindow(bookURL(book), preferences: preferences, openWindow: openWindow)
+        let preferences = preferences
+        let openWindow = openWindow
+        Task { @MainActor in
+            let url = await bookURL(book)
+            FileBrowserReveal.revealWithoutWindow(url, preferences: preferences, openWindow: openWindow)
+        }
     }
 
-    /// 「コレクションに登録」▸ コレクション。結果は一覧の下に知らせる。
+    /// 「コレクションに登録」▸ コレクション。結果は一覧の下に知らせる。本の場所はまとめてメインの外で解く(`locateBooks`)。
     fileprivate func addToCollection(_ books: [MetadataBookRow], collectionID: UUID) {
-        let urls = books.map(bookURL)
-        collectionAdding.add(urls, to: collectionID) { [self] message in showToast(message) }
+        let ids = books.map(\.id)
+        let adding = collectionAdding
+        Task { @MainActor in
+            let located = await model.locateBooks(ids)
+            let urls = zip(ids, located).map { id, url in url ?? URL(filePath: id) }
+            adding.add(urls, to: collectionID) { [self] message in showToast(message) }
+        }
     }
 
     /// 「コレクションに登録」のサブメニュー(ライブラリが 1 つなら 1 段。CollectionMenuLibrary.addMenuNodes と同じ形)。
@@ -1165,19 +1189,27 @@ extension MetadataBookTableView {
             NSWorkspace.shared.activateFileViewerSelecting(found)
             return
         }
-        var folders: [URL] = []
-        for book in books {
-            var folder = URL(filePath: book.id).deletingLastPathComponent()
-            while folder.path != "/" && !FileManager.default.fileExists(atPath: folder.path) {
-                folder = folder.deletingLastPathComponent()
+        // 残っているフォルダを辿るのはメインの外で(親ごとに在るかを確かめる ―― 応答しない共有の上の本では 1 回ごとに待つ。
+        // 2026-10-11 の規約監査)。
+        let paths = books.map(\.id)
+        Task { @MainActor in
+            let folders = await FileIO.perform { () -> [URL] in
+                var folders: [URL] = []
+                for path in paths {
+                    var folder = URL(filePath: path).deletingLastPathComponent()
+                    while folder.path != "/" && !FileManager.default.fileExists(atPath: folder.path) {
+                        folder = folder.deletingLastPathComponent()
+                    }
+                    if folder.path != "/", !folders.contains(folder) { folders.append(folder) }
+                }
+                return folders
             }
-            if folder.path != "/", !folders.contains(folder) { folders.append(folder) }
+            guard !folders.isEmpty else {
+                UserFeedback.beep()
+                return
+            }
+            for folder in folders { NSWorkspace.shared.open(folder) }
         }
-        guard !folders.isEmpty else {
-            UserFeedback.beep()
-            return
-        }
-        for folder in folders { NSWorkspace.shared.open(folder) }
     }
 }
 

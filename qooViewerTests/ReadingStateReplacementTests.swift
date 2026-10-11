@@ -180,8 +180,8 @@ struct ReadingStateReplacementTests {
         let book = try await harness.makeBook(pageCount: 4)
         let layouts = harness.library.layouts
         layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
-        layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: book.pages[1].sortKey, displayName: "p02.png")
-        layouts.setCoverCropAnchor(forBookID: book.id, sourceURL: book.sourceURL, anchor: .end)
+        layouts.setShelfCoverPageKey(forBookID: book.id, anchors: .probe(book.sourceURL), pageKey: book.pages[1].sortKey, displayName: "p02.png")
+        layouts.setCoverCropAnchor(forBookID: book.id, anchors: .probe(book.sourceURL), anchor: .end)
 
         // ページが増えた(枚数が変わったので「差し替えられた」と判断される)。
         try FileManager.default.copyItem(
@@ -209,7 +209,7 @@ struct ReadingStateReplacementTests {
         let layouts = harness.library.layouts
         layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
         // 「設定を破棄」でも行が残る本(表紙を選び直してある)。行が消えれば指紋は記録されない。
-        layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: book.pages[1].sortKey, displayName: "p02.png")
+        layouts.setShelfCoverPageKey(forBookID: book.id, anchors: .probe(book.sourceURL), pageKey: book.pages[1].sortKey, displayName: "p02.png")
         try FileManager.default.copyItem(
             at: book.sourceURL.appendingPathComponent("p04.png"), to: book.sourceURL.appendingPathComponent("p05.png")
         )

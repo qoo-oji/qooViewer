@@ -24,14 +24,14 @@ struct MetadataEditorModelTests {
                           layoutStore: library.layouts, metadataStore: library.metadata, folderAccess: access,
                           generator: generator, modelContext: library.context),
             preferences: library.preferences, relocator: relocator, fileSystemChanges: center,
-            rulesPicked: MetadataRulesPicked(), resolveURL: { _ in nil })
+            rulesPicked: MetadataRulesPicked())
     }
 
     /// 本(中身は何でもよい)を作り、ロックした行を場所の手がかり(ブックマーク)つきで登録する。
     private func registerBook(_ url: URL, in library: InMemoryLibrary) throws {
         try Data("a".utf8).write(to: url)
         library.metadata.upsertAll([BookMetadataStore.BatchEntry(
-            bookID: url.path, values: BookMetadataValues(title: "架空の題"), sourceURL: url, state: .locked)])
+            bookID: url.path, values: BookMetadataValues(title: "架空の題"), anchors: .probe(url), state: .locked)])
         #expect(library.metadata.metadata(forBookID: url.path)?.bookmarkData != nil)
     }
 

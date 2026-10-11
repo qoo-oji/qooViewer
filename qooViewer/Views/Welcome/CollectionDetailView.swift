@@ -742,8 +742,9 @@ struct CollectionDetailView: View {
             let path = item.bookID
             let name = (path as NSString).lastPathComponent
             let isFile = isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)
+            // `URL(fileURLWithPath:)` は向きを渡さないとパスを lstat する(2026-10-11 の規約監査)。向きは名前で決めたものを渡す。
             let applications = OpenWithApplications.shared.applications(
-                for: URL(fileURLWithPath: path), isDirectory: !isFile, isPackage: false
+                for: URL(filePath: path, directoryHint: isFile ? .notDirectory : .isDirectory), isDirectory: !isFile, isPackage: false
             )
             let itemID = item.id
             Menu(title) {

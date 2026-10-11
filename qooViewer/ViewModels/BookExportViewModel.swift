@@ -276,6 +276,9 @@ class BookExportViewModel: ObservableObject {
     var diskCaches: BookDiskCaches = .shared {
         didSet { coverController.diskCaches = diskCaches }
     }
+    /// 書き出したファイルを出力先へ置く窓口(`write`。アプリの変更の知らせを出す ―― FileOperationService.placeExportedFile)。
+    /// テストは知らせ先を持たないものを入れられる。
+    var fileOperations: FileOperationService = .shared
 
     /// これらの画面はWindow(id:)という単一インスタンスのシーンで開くため、一度表示された
     /// ViewModelはウインドウを閉じても(BookmarkListView.BookmarkEditorViewの
@@ -402,6 +405,13 @@ class BookExportViewModel: ObservableObject {
         }
         // カバー画像のために開いたセキュリティスコープ付きアクセスは、coverControllerが
         // 自分のdeinitで閉じる(CoverOverrideController.securityScopedURLsのコメント参照)。
+    }
+
+    /// いま出ている回の印(待つ前に取り、待った後に `isStillPresented` で確かめる。閉じた・開き直した後に、待っていた操作を続けない)。
+    final var presentationToken: Int? { isPresented ? presentationSerial : nil }
+
+    final func isStillPresented(_ token: Int?) -> Bool {
+        token != nil && presentationToken == token
     }
 
     /// 書き出しウインドウが出た・閉じた(ExportWindowContent の `auxiliaryWindowPresence` ―― 補助ウインドウの共通の決まり)。
@@ -621,27 +631,35 @@ class BookExportViewModel: ObservableObject {
     /// CoverOverrideControllerへ丸ごと移した。ここに残っているのは、その結果としてDBに
     /// 書かれた上書きをExporterの語彙へ詰め替えるresolveCoverOverride(settings:)だけ。
     ///
-    /// lazyなのは、URLの解決手段(resolveURL(forBookID:))がこのViewModel自身の持ち物で、
+    /// lazyなのは、URLの解決手段(resolveSourceURL(forBookID:))がこのViewModel自身の持ち物で、
     /// 格納プロパティの初期化中はまだselfを閉包へ渡せないため。
+    ///
+    /// 解決は書き出しの本体と同じ `resolveSourceURL`(メインの外で期限つき。2026-10-11 の規約監査 ―― 以前はカバー列が見えている
+    /// 行ごとに、同期の `resolveURL(forBookID:)` でメインでブックマークを解いていた)。
     private(set) lazy var coverController = CoverOverrideController(
         target: .coverImage, layoutStore: layoutStore, preferences: preferences,
-        resolveURL: { [weak self] bookID in self?.resolveURL(forBookID: bookID) }
+        resolveURL: { [weak self] bookID in await self?.resolveSourceURL(forBookID: bookID) }
     )
 
 
     /// BookLayoutSettingsの上書き設定を、Exporterが受け取るExportCoverOverrideへ変換する
     /// (未設定ならnil=既定の先頭ページ)。
-    private func resolveCoverOverride(settings: BookLayoutSettings?) -> ExportCoverOverride? {
+    ///
+    /// 外部の画像の解決と読み込みはメインの外で(2026-10-11 の規約監査。以前は書き出す本ごとに、利用者の画像を丸ごとメインで読んでいた)。
+    private func resolveCoverOverride(settings: BookLayoutSettings?) async -> ExportCoverOverride? {
         guard supportsCoverSelection, let settings else { return nil }
         if let pageKey = settings.coverPageKey {
             return .existingPage(pageKey: pageKey)
         }
         guard settings.externalCoverBookmarkData != nil,
-              let url = layoutStore.resolvedExternalCoverURL(forBookID: settings.bookID)
+              let url = await layoutStore.resolvedExternalCoverURL(forBookID: settings.bookID)
         else { return nil }
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = await FileIO.perform(qos: .userInitiated) { () -> Data? in
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            return try? Data(contentsOf: url)
+        }
+        guard let data else { return nil }
         let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
         return .externalFile(data: data, fileExtension: ext)
     }
@@ -773,30 +791,9 @@ class BookExportViewModel: ObservableObject {
 
     // MARK: - bookIDからのURL解決
 
-    /// 各ストアが持つセキュリティスコープ付きブックマークからURLを解決する
-    /// (LibraryImportExportService.resolveURLと同じ考え方)。
-    ///
-    /// バグ修正: メタデータの登録がある本を対象へ加えた際、この解決経路にBookMetadataStoreを
-    /// 足し忘れていた。メタデータだけを持つ本(EPUB/PDFを単体で開いたときの自動取り込み分が
-    /// まさにこれ)は、BookmarkStore/LayoutStoreのどちらもブックマークを持たないため、
-    /// 生パスに対するFileManager.fileExistsへフォールバックする。サンドボックス下では
-    /// アクセス権の無いパスに対する存在確認自体が失敗するため、実在していても一覧から
-    /// 落ちていた(BookMetadata.bookmarkDataは、まさにこの用途のために持っている)。
-    private func resolveURL(forBookID bookID: String) -> URL? {
-        // いま開いている本を書き出す経路では、ユーザーが実際に開いた(=アクセス権のある)URLを
-        // そのまま渡してもらう。この本はどのストアにも1行も無いことがあり(レイアウトも
-        // ブックマークもメタデータも付けずに読んでいる本)、その場合は下の3つがすべてnilを
-        // 返して「元のファイル/フォルダが見つかりません」になってしまう。
-        if let direct = directSourceURLs[bookID] { return direct }
-        return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
-            ?? layoutStore.resolvedURL(forBookID: bookID)
-            ?? metadataStore.resolvedURL(forBookID: bookID)
-            ?? collectionStore?.anyBookmarkData(forBookID: bookID)
-                .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) }
-    }
-
-    /// 書き出す本の場所(`exportOne`)。開いている本の URL があればそれ。ほかは保存データの手がかり(ブックマーク → レイアウト →
-    /// メタデータ → コレクション、どれも無ければ記録したパス)を **FileIO の上で期限つき**で解く(`StoredBookLocator`。2026-10-05 の監査の
+    /// 書き出す本の場所(`exportOne` とカバー列)。開いている本の URL があればそれ ―― この本はどのストアにも1行も無いことがあり
+    /// (レイアウトもブックマークもメタデータも付けずに読んでいる本)、保存データからは見つからない。ほかは保存データの手がかり
+    /// (ブックマーク → レイアウト → メタデータ → コレクション、どれも無ければ記録したパス)を **FileIO の上で期限つき**で解く(`StoredBookLocator`。2026-10-05 の監査の
     /// 範囲外の指摘 ―― 以前は `resolveURL(forBookID:)` で 1 冊ごとにメインでブックマークを解き、応答しない共有の上の本では書き出しの
     /// 間メインが止まった)。ゴミ箱の中まで追った場所は見つからない扱い(ほかの入口と同じ)。
     private func resolveSourceURL(forBookID bookID: String) async -> URL? {
@@ -883,7 +880,7 @@ class BookExportViewModel: ObservableObject {
     /// 対象一覧(rows)を通らないのが要点。一覧は「レイアウト・ブックマーク・メタデータの
     /// いずれかを持つ本」だけを載せるが、この経路はその有無に関わらず書き出す。
     /// 本のURLも、ストアに1行も無い本のために呼び出し側から直接受け取る
-    /// (resolveURL(forBookID:)参照。ユーザーが実際に開いた=アクセス権のあるURL)。
+    /// (resolveSourceURL(forBookID:)参照。ユーザーが実際に開いた=アクセス権のあるURL)。
     ///
     /// - Parameter displayState: 画面での表示状態。DBに保存が無い読み方向・見開き強制を
     ///   これで補う(OpenBookDisplayState参照)。
@@ -902,7 +899,7 @@ class BookExportViewModel: ObservableObject {
     final func prepareOpenBook(_ book: MangaBook) -> Row {
         let bookID = book.id
         // この本はどのストアにも1行も無いことがあるので、ユーザーが実際に開いた
-        // (=アクセス権のある)URLを控えておく(resolveURL(forBookID:)参照)。
+        // (=アクセス権のある)URLを控えておく(resolveSourceURL(forBookID:)参照)。
         directSourceURLs[bookID] = book.sourceURL
         let row = Row(
             bookID: bookID,
@@ -1011,7 +1008,7 @@ class BookExportViewModel: ObservableObject {
             from: sourceURL, cachesPageList: usesPageListCache && !SecretFolderStore.isSecretAppWide(sourceURL),
             caches: diskCaches)
         // 読んでいる間に付け替えられたら、保存データ(レイアウト・ブックマーク・題の編集)は新しい bookID で引く(TW-5)。
-        try await write(prepare(row: followingRelocations(row, since: noticesBeforeLoading), book: book, displayState: openBookDisplayState), to: destinationFolder)
+        try await write(await prepare(row: followingRelocations(row, since: noticesBeforeLoading), book: book, displayState: openBookDisplayState), to: destinationFolder)
     }
 
     /// 読み込み済みの本から、1冊ぶんの材料をDB・環境設定・画面の状態から集める。
@@ -1022,7 +1019,7 @@ class BookExportViewModel: ObservableObject {
     ///
     /// - Parameter displayState: 「いま開いている本を書き出す」経路でだけ渡る画面の状態
     ///   (`OpenBookDisplayState`)。3つの書き出しウインドウからは nil。
-    func prepare(row: Row, book: MangaBook, displayState: OpenBookDisplayState?) -> PreparedBook {
+    func prepare(row: Row, book: MangaBook, displayState: OpenBookDisplayState?) async -> PreparedBook {
         let settings = layoutStore.bookLayoutSettings(forBookID: row.bookID)
         var overrides: [String: PageLayoutState] = [:]
         for override in layoutStore.pageOverrides(forBookID: row.bookID) {
@@ -1081,7 +1078,7 @@ class BookExportViewModel: ObservableObject {
                 ?? lastShown?.readingDirection
                 ?? preferences.defaultReadingDirection,
             bookmarks: exportBookmarks,
-            coverOverride: resolveCoverOverride(settings: settings),
+            coverOverride: await resolveCoverOverride(settings: settings),
             title: titleOverrides[row.bookID],
             author: authorOverrides[row.bookID],
             metadata: metadataStore.metadata(forBookID: row.bookID)
@@ -1131,13 +1128,8 @@ class BookExportViewModel: ObservableObject {
             throw error
         }
         do {
-            try await FileIO.perform {
-                if FileManager.default.fileExists(atPath: destinationFileURL.path) {
-                    _ = try FileManager.default.replaceItemAt(destinationFileURL, withItemAt: temporaryURL)
-                } else {
-                    try FileManager.default.moveItem(at: temporaryURL, to: destinationFileURL)
-                }
-            }
+            // 置くのは FileOperationService を通して(ファイルブラウザ・サイドパネルへ変更が届くように。2026-10-11 の規約監査)。
+            try await fileOperations.placeExportedFile(temporaryURL, at: destinationFileURL)
         } catch {
             await Self.removeTemporaryFile(temporaryURL)
             throw error

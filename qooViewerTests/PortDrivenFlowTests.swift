@@ -143,6 +143,7 @@ struct PortDrivenFlowTests {
                 preferences: preferences, loadsEligibleRows: false
             )
             viewModel.diskCaches = caches
+            viewModel.fileOperations = FileOperationService()
             viewModel.usesPageListCache = records
             let book = MangaBook(id: source.path, title: "book-\(records)", sourceURL: source, pages: [])
 

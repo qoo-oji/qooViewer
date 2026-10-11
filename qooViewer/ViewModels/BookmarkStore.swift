@@ -316,23 +316,6 @@ final class BookmarkStore: ObservableObject {
         }
     }
 
-    /// bookIDに紐づくいずれかのBookmark.bookmarkDataからURLを解決する(生パスへのフォールバックは
-    /// 行わない。LayoutStore.resolvedURL(forBookID:)と組み合わせて使う想定で、そちらが生パスへの
-    /// フォールバックを持つため、ここで重複して持たせる必要が無い)。
-    /// JSON書き出し(6節)で、ブックマークを持つ本のページを読み込む(pageIndex→pageKey変換)ために
-    /// 使う(詳細はLibraryImportExportService.resolveURL参照)。
-    func resolvedURLFromBookmarkData(
-        forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background
-    ) -> URL? {
-        for candidate in bookmarks(forBookID: bookID) {
-            guard let data = candidate.bookmarkData else { continue }
-            if let url = BookmarkResolution.resolve(data, purpose: purpose), FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        return nil
-    }
-
     /// ユーザー要望: ブックマークが付いている本が、同一ボリューム内で移動・リネームされた場合
     /// でもブックマークを引き継げるようにしたい(ボリュームを跨いだ移動は諦める)。
     ///
@@ -447,16 +430,6 @@ final class BookmarkStore: ObservableObject {
     /// 識別子で引くための索引(`bookmarkDataCandidates(matching:index:)` のコメント)。
     func fileNodeIndex() -> FileNodeIndex<Bookmark> {
         FileNodeIndex(allBookmarks(), inode: { $0.fileNodeIdentifier?.inodeNumber })
-    }
-
-    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<Bookmark>? = nil) -> URL? {
-        for bookmark in index?.rows(withInode: identifier) ?? allBookmarks() where bookmark.fileNodeIdentifier == identifier {
-            guard let data = bookmark.bookmarkData else { continue }
-            if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        return nil
     }
 
     /// ユーザー要望(後方互換性): ファイルノード識別子を持たない古いブックマーク行(この属性を
@@ -856,7 +829,7 @@ final class BookmarkStore: ObservableObject {
     }
 
     /// この本を指すセキュリティスコープ付きブックマークのうち、最初に見つかったもの。
-    /// resolvedURLFromBookmarkData(forBookID:)と違い、ファイルの実在確認は行わずデータ自体を返す
+    /// ファイルの実在確認は行わずデータ自体を返す
     /// (「本ごとの保存データを削除」ウインドウが、実在するかどうかを自分で判定するために使う)。
     func anyBookmarkData(forBookID bookID: String) -> Data? {
         (bookmarksByBookID()[bookID] ?? []).compactMap(\.bookmarkData).first

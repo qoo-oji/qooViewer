@@ -23,7 +23,7 @@ import Foundation
 /// 外付けを複数使っていて挿す順番が変わる、ハブの都合で列挙順が変わる、といった普通の状況で、
 /// 無変更のファイルが「別のファイル」と判定される。この状態で本をリネームすると、5つのストア
 /// (お気に入り・ブックマーク・レイアウト・メタデータ・コレクション)の追従がすべて黙って失敗し、
-/// 保存データの読み込み時の照合(`resolvedURL(matching:)`)も外れる。
+/// 保存データの読み込み時の照合(`bookmarkDataCandidates(matching:)`)も外れる。
 ///
 /// そこで**ボリュームの同定は`volumeUUID`(URLResourceKeyの`.volumeUUIDStringKey`)を主とする**。
 /// 同じ実測で、st_devが変わった条件でもUUIDは一致していた(`.volumeIdentifierKey`のほうは

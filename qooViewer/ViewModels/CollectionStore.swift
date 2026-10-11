@@ -1424,15 +1424,6 @@ final class CollectionStore: ObservableObject {
         FileNodeIndex(allItems(), inode: { $0.fileNodeIdentifier?.inodeNumber })
     }
 
-    /// ファイルノード識別子が一致する登録から、現在の実際のURLを解決する
-    /// (JSON取り込みが、古いパスの本を見つけ直すために使う)。
-    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
-        for item in allItems() where item.fileNodeIdentifier == identifier {
-            if let url = resolvedURL(for: item) { return url }
-        }
-        return nil
-    }
-
     // MARK: - 開く前のURL解決・存在確認
 
     /// 保存済みのブックマークからURLを解決する(実体の存在確認はしない)。

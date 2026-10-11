@@ -301,7 +301,7 @@ struct LibraryFeatureToggleTests {
 
         first.setLibraryFeatureEnabled(false)
         library.layouts.setShelfCoverPageKey(
-            forBookID: item.bookID, sourceURL: url,
+            forBookID: item.bookID, anchors: .probe(url),
             pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
         )
         await first.waitUntilIdle()
@@ -352,7 +352,7 @@ struct LibraryFeatureToggleTests {
         extractor.setLibraryFeatureEnabled(false)
         for url in [firstURL, secondURL, failedURL] {
             library.layouts.setShelfCoverPageKey(
-                forBookID: url.path, sourceURL: url, pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
+                forBookID: url.path, anchors: .probe(url), pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
             )
         }
         let remembered = suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) ?? []
@@ -409,7 +409,7 @@ struct LibraryFeatureToggleTests {
 
         extractor.setLibraryFeatureEnabled(false)
         library.layouts.setShelfCoverPageKey(
-            forBookID: item.bookID, sourceURL: url, pageKey: "002.png", displayName: "002.png"
+            forBookID: item.bookID, anchors: .probe(url), pageKey: "002.png", displayName: "002.png"
         )
         // アプリ自身が本の名前を変えた(ファイルブラウザの操作)。保存データと一緒に控えも付け替わる。
         let moved = temporary.file("renamed.zip")
@@ -442,7 +442,7 @@ struct LibraryFeatureToggleTests {
         let original = try makeFolderBook(temporary, named: "before")
         let item = try register(original, in: library)
         library.metadata.upsert(
-            bookID: original.path, author: "a", title: "t", series: "", seriesIndex: "", sourceURL: original
+            bookID: original.path, author: "a", title: "t", series: "", seriesIndex: "", anchors: .probe(original)
         )
         let moved = temporary.file("after")
         try FileManager.default.moveItem(at: original, to: moved)

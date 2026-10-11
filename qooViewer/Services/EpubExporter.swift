@@ -298,15 +298,13 @@ nonisolated enum EpubExporter {
         let navXML = makeNavDocument(title: bookTitle, tocEntries: tocEntries, fallbackHref: firstPageHref)
 
         do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            let archive = try Archive(url: destinationURL, accessMode: .create)
+            // zip の作成と書き込みは FileIO の上で(ExportArchiveWriter。2026-10-11 の規約監査)。
+            let archive = try await ExportArchiveWriter.create(at: destinationURL)
 
             // mimetypeファイルはEPUB仕様上、zip内の最初のエントリかつ無圧縮(格納)である必要がある。
-            try addEntry(to: archive, path: "mimetype", data: Data("application/epub+zip".utf8), compressed: false)
-            try addEntry(to: archive, path: "META-INF/container.xml", data: Data(containerXML.utf8), compressed: true)
-            try addEntry(to: archive, path: "OEBPS/nav.xhtml", data: Data(navXML.utf8), compressed: true)
+            try await addEntry(to: archive, path: "mimetype", data: Data("application/epub+zip".utf8), compressed: false)
+            try await addEntry(to: archive, path: "META-INF/container.xml", data: Data(containerXML.utf8), compressed: true)
+            try await addEntry(to: archive, path: "OEBPS/nav.xhtml", data: Data(navXML.utf8), compressed: true)
 
             // 画像の生データ(デコードなし、画質を落とさない)は、以前は全ページぶんを先に
             // imageDataByFileName辞書へ集めてからまとめて書き込んでいたが、ページ数が多い本では
@@ -345,11 +343,11 @@ nonisolated enum EpubExporter {
                     pageResolutions.append(PixelSize(width: pixelSize.width, height: pixelSize.height))
                 }
                 let pageXHTML = makePageDocument(title: bookTitle, imageFileName: item.imageFileName, pixelSize: pixelSize)
-                try addEntry(
+                try await addEntry(
                     to: archive, path: "OEBPS/\(textDirectory)/\(item.xhtmlFileName)",
                     data: Data(pageXHTML.utf8), compressed: true
                 )
-                try addEntry(
+                try await addEntry(
                     to: archive, path: "OEBPS/\(imagesDirectory)/\(item.imageFileName)",
                     data: imageData, compressed: true
                 )
@@ -359,7 +357,7 @@ nonisolated enum EpubExporter {
             // 含まれない既存ページをカバーに選んだ場合)は、通常のページとは別にここで書き出す。
             // spineには追加しない(通常の読書対象ではなく、カバーとしてのみ扱う)。
             if let standalone = resolvedCover?.standaloneFile {
-                try addEntry(
+                try await addEntry(
                     to: archive, path: "OEBPS/\(imagesDirectory)/\(standalone.fileName)",
                     data: standalone.data, compressed: true
                 )
@@ -371,7 +369,7 @@ nonisolated enum EpubExporter {
                         title: bookTitle, imageFileName: standalone.fileName,
                         pixelSize: ImageDecoder.pixelSize(of: standalone.data)
                     )
-                    try addEntry(
+                    try await addEntry(
                         to: archive, path: "OEBPS/\(textDirectory)/\(standaloneCoverXHTMLFileName)",
                         data: Data(coverXHTML.utf8), compressed: true
                     )
@@ -393,7 +391,9 @@ nonisolated enum EpubExporter {
                 cover: resolvedCover, coverGuideHref: coverGuideHref,
                 originalResolution: representativeResolution(of: pageResolutions)
             )
-            try addEntry(to: archive, path: "OEBPS/package.opf", data: Data(opfXML.utf8), compressed: true)
+            try await addEntry(to: archive, path: "OEBPS/package.opf", data: Data(opfXML.utf8), compressed: true)
+            // 閉じる(最後の吐き出しと fclose)のも FileIO の上で(ExportArchiveWriter.close)。
+            await archive.close()
         } catch let error as EpubExportError {
             throw error
         } catch {
@@ -403,18 +403,8 @@ nonisolated enum EpubExporter {
 
     // MARK: - ZIPFoundationへの書き込み
 
-    private static func addEntry(to archive: Archive, path: String, data: Data, compressed: Bool) throws {
-        try archive.addEntry(
-            with: path,
-            type: .file,
-            uncompressedSize: Int64(data.count),
-            // ZIPFoundation は日時を UTC として書くので、書き出す時刻が現地時刻で入るようにずらして渡す(ZipDOSTime)。
-            // 省くと既定の「いま」が UTC のまま入り、日本では展開したファイルが 9 時間前の日時になる。
-            modificationDate: ZipDOSTime.zipFoundationDate(forLocal: Date()),
-            compressionMethod: compressed ? .deflate : .none
-        ) { position, size in
-            data.subdata(in: Int(position)..<(Int(position) + size))
-        }
+    private static func addEntry(to archive: ExportArchiveWriter, path: String, data: Data, compressed: Bool) async throws {
+        try await archive.addEntry(path: path, data: data, compressed: compressed)
     }
 
     // MARK: - ファイル名の決定(7.2節)

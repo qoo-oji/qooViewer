@@ -203,7 +203,7 @@ struct CollectionCoverExtractorTests {
         let attemptsAfterFirst = extractor.extractionAttemptCount
 
         // 切り出し位置は表示のたびに効かせる値なので、抽出はやり直さない。
-        library.layouts.setCoverCropAnchor(forBookID: item.bookID, sourceURL: url, anchor: .start)
+        library.layouts.setCoverCropAnchor(forBookID: item.bookID, anchors: .probe(url), anchor: .start)
         await extractor.waitUntilIdle()
         #expect(extractor.extractionAttemptCount == attemptsAfterFirst)
         #expect(item.coverState == .ready)
@@ -211,7 +211,7 @@ struct CollectionCoverExtractorTests {
         // 書き出し用のカバー画像は棚の絵とは別物なので、こちらを変えても作り直さない
         // (2026-09-11の分離。ShelfCoverSeparationTests 参照)。
         library.layouts.setCoverPageKey(
-            forBookID: item.bookID, sourceURL: url,
+            forBookID: item.bookID, anchors: .probe(url),
             pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
         )
         await extractor.waitUntilIdle()
@@ -221,7 +221,7 @@ struct CollectionCoverExtractorTests {
         // コレクション表紙のページ指定は絵そのものが変わるので、pending へ戻して作り直す。
         // フォルダの本の sortKey は絶対パス(PageRef.sortKey)。
         library.layouts.setShelfCoverPageKey(
-            forBookID: item.bookID, sourceURL: url,
+            forBookID: item.bookID, anchors: .probe(url),
             pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
         )
         await extractor.waitUntilIdle()
@@ -328,7 +328,7 @@ struct CollectionCoverExtractorTests {
         try FixtureFolder.make(at: mixed, pages: [.init("a.png", number: 1), .init("B.png", number: 2)])
         let item = try register(mixed, in: library)
         library.layouts.setShelfCoverPageKey(
-            forBookID: item.bookID, sourceURL: mixed,
+            forBookID: item.bookID, anchors: .probe(mixed),
             pageKey: mixed.appendingPathComponent("a.png").path, displayName: "a.png"
         )
         let first = CollectionCoverExtractor(

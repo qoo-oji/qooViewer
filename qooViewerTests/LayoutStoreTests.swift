@@ -225,9 +225,9 @@ struct LayoutStoreTests {
         library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
         library.layouts.setPageOrderOverride(for: book, Array(source.keys.reversed()))
         library.layouts.setPageLayoutState(for: book, pageKey: source.keys[0], state: .single)
-        library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: source.keys[1], displayName: "002.jpg")
+        library.layouts.setShelfCoverPageKey(forBookID: book.id, anchors: .probe(book.sourceURL), pageKey: source.keys[1], displayName: "002.jpg")
         library.layouts.setCoverPageKey(for: book, pageKey: source.keys[2], displayName: "003.jpg")
-        library.layouts.setCoverCropAnchor(forBookID: book.id, sourceURL: book.sourceURL, anchor: .center)
+        library.layouts.setCoverCropAnchor(forBookID: book.id, anchors: .probe(book.sourceURL), anchor: .center)
         library.layouts.setContrastCorrectionEnabled(for: book, true)
         library.bookmarks.addBookmark(bookID: book.id, pageIndex: 0, pageKey: source.keys[0], name: "印")
 
@@ -313,7 +313,7 @@ struct LayoutStoreTests {
         let source = try await makeSource("layout-cover-bookid")
 
         library.layouts.setCoverPageKey(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL,
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL),
             pageKey: source.keys[2], displayName: "003.jpg"
         )
         #expect(settings(library, source.book)?.coverPageKey == source.keys[2])
@@ -334,8 +334,8 @@ struct LayoutStoreTests {
         try Data("not really a jpeg".utf8).write(to: coverFile)
 
         library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[0], displayName: "001.jpg")
-        try library.layouts.setExternalCover(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, fileURL: coverFile
+        try await library.layouts.setExternalCover(
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL), fileURL: coverFile
         )
         #expect(settings(library, source.book)?.coverPageKey == nil)
         #expect(settings(library, source.book)?.externalCoverFileName == "cover.jpg")
@@ -373,7 +373,7 @@ struct LayoutStoreTests {
 
         library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[1], displayName: "002.jpg")
         library.layouts.setCoverCropAnchor(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .start
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL), anchor: .start
         )
         library.layouts.clearCoverOverride(forBookID: source.book.id)
 
@@ -387,10 +387,10 @@ struct LayoutStoreTests {
         defer { library.close() }
         let bookID = "/books/never-touched-\(UUID().uuidString).cbz"
 
-        library.layouts.setCoverCropAnchor(forBookID: bookID, sourceURL: nil, anchor: nil)
+        library.layouts.setCoverCropAnchor(forBookID: bookID, anchors: nil, anchor: nil)
         #expect(library.layouts.bookLayoutSettings(forBookID: bookID) == nil)
 
-        library.layouts.setCoverCropAnchor(forBookID: bookID, sourceURL: nil, anchor: .center)
+        library.layouts.setCoverCropAnchor(forBookID: bookID, anchors: nil, anchor: .center)
         #expect(library.layouts.bookLayoutSettings(forBookID: bookID)?.coverCropAnchor == .center)
     }
 
@@ -404,7 +404,7 @@ struct LayoutStoreTests {
         let source = try await makeSource("layout-cover-fingerprint")
 
         library.layouts.setCoverCropAnchor(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .end
+            forBookID: source.book.id, anchors: .probe(source.book.sourceURL), anchor: .end
         )
         #expect(settings(library, source.book)?.recordedPageCount == nil)
         #expect(library.layouts.checkContentReplacement(book: source.book) == .unaffected)

@@ -276,7 +276,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 }
                 do {
                     let wasReencoded = try await sources.layoutStore.setShelfCoverImage(
-                        forBookID: bookID, sourceURL: await sourceURLForNewRow(forBookID: bookID), data: data
+                        forBookID: bookID, anchors: await anchorsForNewRow(forBookID: bookID), data: data
                     )
                     imported += 1
                     importedRowIDs.insert(row.id)
@@ -323,18 +323,19 @@ final class ShelfCoverImportViewModel: ObservableObject {
         for index in rows.indices where importedRowIDs.contains(rows[index].id) { rows[index].selectedBookID = nil }
     }
 
-    /// 行を作るときの本のURL(BookLayoutSettingsの行がまだ無い本のため。行があれば使われないので解かない)。
+    /// 行を作るときの手がかり(BookLayoutSettingsの行がまだ無い本のため。行があれば使われないので解かない)。
     /// 手がかりの並び(ブックマーク → レイアウト → メタデータ)は以前と同じで、**解くのは FileIO の上で期限つき**
     /// (`StoredBookLocator`。2026-10-05 の監査の範囲外の指摘 ―― 以前は表紙 1 枚ごとにメインでブックマークを解き、応答しない共有の
-    /// 上の本が多いと読み込みの間メインが止まった)。解けなければ nil(行は手がかり無しで作る ―― 以前の nil と同じ)。
-    private func sourceURLForNewRow(forBookID bookID: String) async -> URL? {
+    /// 上の本が多いと読み込みの間メインが止まった)。解けた場所から作る行の手がかり(ブックマークと識別子)も FileIO の上で
+    /// (`BookRowAnchors`。2026-10-11 の規約監査 ―― 以前はストアがメインで作っていた)。解けなければ nil(行は手がかり無しで作る)。
+    private func anchorsForNewRow(forBookID bookID: String) async -> BookRowAnchors? {
         guard sources.layoutStore.bookLayoutSettings(forBookID: bookID) == nil else { return nil }
         let material = StoredBookLocator.material(
             forBookID: bookID, bookmarkStore: sources.bookmarkStore, layoutStore: sources.layoutStore,
             metadataStore: sources.metadataStore
         )
         guard case .found(let url) = await StoredBookLocator.resolve(material, purpose: .background) else { return nil }
-        return url
+        return await BookRowAnchors.gather(url)
     }
 
     // MARK: - 表示用

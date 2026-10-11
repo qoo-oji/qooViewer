@@ -391,6 +391,10 @@ struct BulkRenameBookmarksSheet: View {
     /// 除外したページのブックマークは番号を据え置くので、番号 0 だけで見ると、除外した元の先頭ページのブックマークを
     /// 表紙と取り違えた(2026-10-04、監査 BE-1)。
     private func isOnCoverPage(_ bookmark: Bookmark) -> Bool {
+        Self.isOnCoverPage(bookmark, coverPageKey: coverPageKey)
+    }
+
+    private static func isOnCoverPage(_ bookmark: Bookmark, coverPageKey: String?) -> Bool {
         if let coverPageKey, let key = bookmark.pageKey { return key == coverPageKey }
         return bookmark.pageIndex == 0
     }
@@ -424,32 +428,60 @@ struct BulkRenameBookmarksSheet: View {
     /// bookmarkStore.renameBookmarks(bookID:renames:)へまとめて渡すことで、この「一括
     /// リネーム」の実行1回につき保存・再フェッチ・通知を1回にまとめる。
     private func applyRenaming(bookID: String, bookmarks: [Bookmark]) {
-        var sorted = bookmarks
+        // 画面の設定は今のうちに値へ写し取る(下の Task はシートを閉じた後に走る)。
+        let options = renameOptions
+        let coverPageKey = coverPageKey
+        let store = bookmarkStore
 
         // 先頭ページにブックマークが無い場合は自動で追加する(5節)。本を今開いているかどうかに
         // 関わらず動作させる必要があるため、BookmarkStore.addBookmark(bookID:pageIndex:name:)を
         // 直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか使えないため)。
         // 名前の決定そのものは、この後の共通の規則(BulkBookmarkRenaming)に任せる。
-        if assignFixedCover, !sorted.contains(where: isOnCoverPage) {
-            // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
-            // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。
-            var fileNodeIdentifier: FileNodeIdentifier?
-            if let url = layoutStore.resolvedURL(forBookID: bookID) {
-                let didAccess = url.startAccessingSecurityScopedResource()
-                fileNodeIdentifier = FileNodeIdentifier.current(for: url)
-                if didAccess { url.stopAccessingSecurityScopedResource() }
+        guard assignFixedCover, !bookmarks.contains(where: isOnCoverPage) else {
+            Self.rename(bookmarks, bookID: bookID, coverPageKey: coverPageKey, options: options, store: store)
+            return
+        }
+        // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
+        // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。解決はメインの外で
+        // (FileIO。2026-10-11 の規約監査 ―― 以前はここだけメインで同期に解いていた。BookmarkDetailPane の側は
+        // 2026-10-06 に移してあった)。DB を読む部分だけをここで済ませ、Sendable な値だけを渡す。
+        //
+        // 解決には期限を付け、過ぎたら識別子なしで作る(以前もそうだったように、識別子は無くてよい)。待っている間に本が移ったら、
+        // 移った先の bookID へ書く(`BookIDFollower`。2026-10-11 のレビュー)。
+        let bookmarkData = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData
+        let follower = BookIDFollower(bookID)
+        Task {
+            let lookup = try? await FileIO.withDeadline(StoredBookLocator.limit) {
+                await FileIO.perform { () -> FileNodeIdentifier? in
+                    guard let url = LayoutStore.resolvedURL(bookmarkData: bookmarkData, bookID: bookID) else { return nil }
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                    return FileNodeIdentifier.current(for: url)
+                }
             }
+            let target = follower.current
+            // 移っていたら、古い場所で求めた識別子は使わない(別のボリュームへ写して消した本では消えたファイルのもの)。
+            let fileNodeIdentifier = target == bookID ? lookup.flatMap { $0 } : nil
             // pageKey: 鍵なしで作ると「1.36以前の番号だけの行」と区別が付かず、次に本を
             // 開いたときに番号0が従来順として解釈される(並びが入れ替わる命名の本では、
             // 実効順の1ページ目=表紙とは別のページに化ける。coverPageKeyのコメント参照)。
-            bookmarkStore.addBookmark(
-                bookID: bookID, pageIndex: 0, pageKey: coverPageKey,
-                name: String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale),
+            // フォルダの本は表紙のページの鍵も絶対パス(PageKeyRelocation)。
+            let targetCoverKey = coverPageKey.map { PageKeyRelocation.relocated($0, fromBookID: bookID, toBookID: target) ?? $0 }
+            store.addBookmark(
+                bookID: target, pageIndex: 0, pageKey: targetCoverKey,
+                name: options.coverName,
                 fileNodeIdentifier: fileNodeIdentifier
             )
-            sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
+            let sorted = store.bookmarks(forBookID: target).sorted { $0.pageIndex < $1.pageIndex }
+            Self.rename(sorted, bookID: target, coverPageKey: targetCoverKey, options: options, store: store)
         }
+    }
 
+    /// 名前を決めて書く(`applyRenaming`)。ページ順のブックマークを渡す。
+    private static func rename(
+        _ sorted: [Bookmark], bookID: String, coverPageKey: String?,
+        options: BulkBookmarkRenaming.Options, store: BookmarkStore
+    ) {
         // 経緯(ユーザー報告): 他にも「一括で処理できるはずのSQLite書き込みを個別に行っている
         // 箇所」がないか確認してほしい、との依頼を受けて見つかった箇所。以前はここで
         // bookmarkStore.rename(_:to:)を対象ブックマーク数ぶんループで個別に呼んでおり、
@@ -457,12 +489,18 @@ struct BulkRenameBookmarksSheet: View {
         // 珍しくない)。まとめて1回で渡すことで、この「一括リネーム」の実行1回につき
         // 保存・再フェッチ・通知を1回にまとめる。
         let bookmarkByID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0) })
+        let targets = sorted.map {
+            BulkBookmarkRenaming.Target(
+                id: $0.id, pageIndex: $0.pageIndex, currentName: $0.name,
+                isOnFirstPage: isOnCoverPage($0, coverPageKey: coverPageKey)
+            )
+        }
         let pendingRenames = BulkBookmarkRenaming
-            .renames(for: renameTargets(sorted), options: renameOptions)
+            .renames(for: targets, options: options)
             .compactMap { rename -> (bookmark: Bookmark, newName: String)? in
                 guard let bookmark = bookmarkByID[rename.id] else { return nil }
                 return (bookmark, rename.newName)
             }
-        bookmarkStore.renameBookmarks(bookID: bookID, renames: pendingRenames)
+        store.renameBookmarks(bookID: bookID, renames: pendingRenames)
     }
 }

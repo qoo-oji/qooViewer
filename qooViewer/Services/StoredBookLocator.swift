@@ -68,6 +68,16 @@ nonisolated enum StoredBookLocator {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// 何冊もまとめて、1 回の `FileIO` で解決する(メタデータの編集ウインドウの「コレクションに登録」。2026-10-11 の規約監査 ――
+    /// 以前は選んだ冊数ぶんメインで同期に解いていた)。冊数に比例して長くなるので期限は付けない。呼び出し側が取り消したら、
+    /// 残りは解かずに nil を返す。
+    static func resolveAll(_ materials: [Material], purpose: BookmarkResolution.Purpose) async -> [URL?] {
+        guard !materials.isEmpty else { return [] }
+        return await FileIO.perform {
+            materials.map { Cancellation.isRequestedInCurrentScope ? nil : resolveNow($0, purpose: purpose) }
+        }
+    }
+
     /// `FileIO` の上で、期限つきで解決する。
     static func resolve(_ material: Material, purpose: BookmarkResolution.Purpose = .userOpen) async -> Outcome {
         do {

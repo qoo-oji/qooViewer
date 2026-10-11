@@ -1553,10 +1553,12 @@ final class FileBrowserState: ObservableObject {
 
     /// FSEvents はリンクを解いた実際のパスで知らせる(`/var/…` は `/private/var/…`)。表示中のフォルダを両方の書き方で持つ。
     /// ブロッキングしうる問い合わせ(リンクの解決)をするので、ネットワーク上のフォルダには使わない(そもそも見張らない)。
-    nonisolated static func watchedFolderSpellings(of folder: URL) -> Set<String> {
+    /// メインからは `resolvingLinks: false`(文字列だけで作れる書き方)で呼び、リンクを解いた書き方は `FileIO` の上で求める
+    /// (`updateWatcher`。2026-10-11 の規約監査)。
+    nonisolated static func watchedFolderSpellings(of folder: URL, resolvingLinks: Bool = true) -> Set<String> {
         let path = MountTable.normalized(folder.path)
         var spellings: Set<String> = [path]
-        let resolved = MountTable.normalized(folder.resolvingSymlinksInPath().path)
+        let resolved = resolvingLinks ? MountTable.normalized(folder.resolvingSymlinksInPath().path) : path
         spellings.insert(resolved)
         // resolvingSymlinksInPath は頭の /private を外す(MountTable.normalized のコメント)ので、付けた形も足す。
         for candidate in [path, resolved] {
@@ -1575,7 +1577,16 @@ final class FileBrowserState: ObservableObject {
         var paths: Set<String> = []
         if isVisible, let currentFolder, !MountTable.current().isRemote(currentFolder) {
             paths = [currentFolder.path]
-            watchedFolderIDs = Self.watchedFolderSpellings(of: currentFolder)
+            // リンクの解決はメインの外で(2026-10-11 の規約監査 ―― 以前はフォルダを移るたびにメインで解いていた。ネットワークの判定は
+            // 解く前のパスなので、ネットワークボリュームを指すローカルのリンクを辿ると先で止まりえた)。解き終えるまでは文字列だけで
+            // 作れる書き方で見比べ、解き終えて同じフォルダのままなら差し替える。
+            watchedFolderIDs = Self.watchedFolderSpellings(of: currentFolder, resolvingLinks: false)
+            let folder = currentFolder
+            Task { [weak self] in
+                let spellings = await FileIO.perform { Self.watchedFolderSpellings(of: folder) }
+                guard let self, self.isVisible, self.currentFolder == folder else { return }
+                self.watchedFolderIDs = spellings
+            }
         } else {
             watchedFolderIDs = []
         }

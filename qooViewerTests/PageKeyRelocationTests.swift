@@ -58,8 +58,8 @@ struct PageKeyRelocationTests {
         let second = book.pages[1].sortKey
         let third = book.pages[2].sortKey
         library.layouts.setPageLayoutState(for: book, pageKey: second, state: .single)
-        library.layouts.setCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: third, displayName: "003.png")
-        library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: second, displayName: "002.png")
+        library.layouts.setCoverPageKey(forBookID: book.id, anchors: .probe(book.sourceURL), pageKey: third, displayName: "003.png")
+        library.layouts.setShelfCoverPageKey(forBookID: book.id, anchors: .probe(book.sourceURL), pageKey: second, displayName: "002.png")
         library.layouts.setPageOrderOverride(for: book, [third, book.pages[0].sortKey, second])
         #expect(library.bookmarks.addBookmark(
             bookID: book.id, pageIndex: 2, pageKey: third, name: "p3", fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
@@ -142,8 +142,8 @@ struct PageKeyRelocationTests {
         // 以前の版の結果を作る: bookID は新しいパス、鍵は昔のパスのまま。
         let oldRoot = temporary.file("book-before").path
         library.layouts.setPageLayoutState(for: book, pageKey: "\(oldRoot)/002.png", state: .single)
-        library.layouts.setCoverPageKey(forBookID: book.id, sourceURL: folder, pageKey: "\(oldRoot)/003.png", displayName: "003.png")
-        library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: folder, pageKey: "\(oldRoot)/002.png", displayName: "002.png")
+        library.layouts.setCoverPageKey(forBookID: book.id, anchors: .probe(folder), pageKey: "\(oldRoot)/003.png", displayName: "003.png")
+        library.layouts.setShelfCoverPageKey(forBookID: book.id, anchors: .probe(folder), pageKey: "\(oldRoot)/002.png", displayName: "002.png")
         // 並べ替えは昔の鍵と今の鍵が混ざっていても直る(直した先が既にある鍵と重なれば、先に出てきたほうを残す)。
         library.layouts.setPageOrderOverride(
             for: book, ["\(oldRoot)/003.png", "\(oldRoot)/001.png", "\(book.id)/002.png", "\(oldRoot)/002.png"]

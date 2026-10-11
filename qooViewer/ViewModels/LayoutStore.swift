@@ -152,21 +152,16 @@ final class LayoutStore: ObservableObject {
         }
     }
 
-    /// bookIDからこの本のURLを解決する。Bookmark.bookmarkData/BookmarkListView.resolvedURLと
-    /// 同じロジック(セキュリティスコープ付きブックマークがあればそれを解決し、実際にファイル/
+    /// bookIDからこの本のURLを解決する(セキュリティスコープ付きブックマークがあればそれを解決し、実際にファイル/
     /// フォルダがまだ存在するか確認する。無ければbookIDの素のパスへフォールバックする)。
-    /// 「ブックマーク・レイアウトの編集」ウインドウが、今開いていない本のサムネイルを
-    /// 読み込む・EPUB出力する際に使う。
-    func resolvedURL(forBookID bookID: String, purpose: BookmarkResolution.Purpose = .background) -> URL? {
-        Self.resolvedURL(bookmarkData: bookLayoutSettings(forBookID: bookID)?.bookmarkData, bookID: bookID, purpose: purpose)
-    }
-
-    /// 上の実体。ブックマークの解決と存在確認は、対象が未接続の外付け/ネットワークボリュームを
-    /// 指していると秒単位ブロックしうるため、メインアクターの外からも呼べるよう`nonisolated`に
+    ///
+    /// ブックマークの解決と存在確認は、対象が未接続の外付け/ネットワークボリュームを
+    /// 指していると秒単位ブロックしうるため、**`FileIO` の上から呼ぶ**(`nonisolated`に
     /// してある(このプロジェクトの既定のアクター隔離はMainActorのため、明示しないと
     /// メインアクター限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
     /// DBを読む部分(bookLayoutSettings)は呼び出し側がメインアクターで済ませ、ここへは
-    /// Sendableな値だけを渡す。
+    /// Sendableな値だけを渡す。メインから同期に解く版(`resolvedURL(forBookID:)`)は、呼び出し元がすべて `FileIO` へ移ったので
+    /// 2026-10-11 の規約監査で外した(ほかのストアの同期の解決 ―― `resolvedURL(matching:)` など ―― も同じ)。
     ///
     /// `purpose`: 利用者が開く操作なら `.userOpen`(繋がっていないボリュームへ繋ぎに行く)。既定は繋ぎに行かない(BookmarkResolution)。
     nonisolated static func resolvedURL(
@@ -362,16 +357,6 @@ final class LayoutStore: ObservableObject {
         FileNodeIndex(allBookLayoutSettings(), inode: { $0.fileNodeIdentifier?.inodeNumber })
     }
 
-    func resolvedURL(matching identifier: FileNodeIdentifier, index: FileNodeIndex<BookLayoutSettings>? = nil) -> URL? {
-        for settings in index?.rows(withInode: identifier) ?? allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
-            guard let data = settings.bookmarkData else { continue }
-            if let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        return nil
-    }
-
     /// ユーザー要望(後方互換性): ファイルノード識別子を持たない古いBookLayoutSettings行
     /// (この属性を追加する前に作成されたもの)について、ファイルパス(bookID)なら実在が確認
     /// できている場合に、そのパスから改めて識別子を取得して補完する。BookmarkStore.
@@ -449,9 +434,9 @@ final class LayoutStore: ObservableObject {
         if let existing = bookLayoutSettings(forBookID: book.id) {
             return existing
         }
-        let created = BookLayoutSettings(
-            bookID: book.id, fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
-        )
+        // 識別子・指紋・ブックマークは、本を開いたときにメインの外で求めたもの(`MangaBook.sourceFacts`。2026-10-11 の規約監査 ――
+        // 以前はここでメインで 3 回元ファイルに問い合わせ、EPUB/PDF を初めて開くときは最初の見開きを読む前に走っていた)。
+        let created = BookLayoutSettings(bookID: book.id, fileNodeIdentifier: book.recordFileNodeIdentifier)
         let fingerprint = ContentFingerprint.current(for: book)
         created.recordedPageCount = fingerprint.pageCount
         created.recordedSourceModificationDate = fingerprint.modificationDate
@@ -459,12 +444,8 @@ final class LayoutStore: ObservableObject {
         // セキュリティスコープ付きブックマークを一緒に保存しておく(ViewerViewModel.addBookmarkと
         // 同じ理由。「ブックマーク・レイアウトの編集」ウインドウから、ブックマークを1件も
         // 持たない本のサムネイルを読み込むために必要。今この本を開けている=このURLへの
-        // アクセス権を持っている、という前提でここで生成する)。
-        created.bookmarkData = try? book.sourceURL.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        // アクセス権を持っている、という前提で開いたときに作ってある)。
+        created.bookmarkData = book.recordBookmarkData
         modelContext.insert(created)
         cacheInsertedSettings(created)
         return created
@@ -480,17 +461,16 @@ final class LayoutStore: ObservableObject {
     /// 読まないと分からないためで、**中途半端な指紋を書くくらいなら書かない**
     /// (指紋が無い行はcheckContentReplacementが「判定できない」として扱う。実際にその本を
     /// 開いたときに既存の経路が埋める)。
-    private func existingOrNewSettings(forBookID bookID: String, sourceURL: URL?) -> BookLayoutSettings {
+    ///
+    /// 手がかり(識別子とブックマーク)は呼び出し側が**メインの外で**作って渡す(`BookRowAnchors.gather`。2026-10-11 の規約監査 ――
+    /// 以前は本の URL を受け取り、ここでメインで作っていた。書き出しウインドウ・メタデータの編集ウインドウのカバー列から呼ばれ、
+    /// ネットワークの本では 1 回ごとに往復を待った)。
+    private func existingOrNewSettings(forBookID bookID: String, anchors: BookRowAnchors?) -> BookLayoutSettings {
         if let existing = bookLayoutSettings(forBookID: bookID) {
             return existing
         }
-        let created = BookLayoutSettings(
-            bookID: bookID,
-            fileNodeIdentifier: sourceURL.flatMap { FileNodeIdentifier.current(for: $0) }
-        )
-        created.bookmarkData = try? sourceURL?.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-        )
+        let created = BookLayoutSettings(bookID: bookID, fileNodeIdentifier: anchors?.fileNodeIdentifier)
+        created.bookmarkData = anchors?.bookmarkData
         modelContext.insert(created)
         cacheInsertedSettings(created)
         return created
@@ -504,10 +484,10 @@ final class LayoutStore: ObservableObject {
     ///
     /// この変更で**カバーを作り直す必要は無い** ―― 保存してあるのは切っていない画像で、
     /// 枠へ合わせるのは表示のたびに行う(CoverImageResolver.cropped(_:to:anchor:)のコメント参照)。
-    func setCoverCropAnchor(forBookID bookID: String, sourceURL: URL?, anchor: CoverCropAnchor?) {
+    func setCoverCropAnchor(forBookID bookID: String, anchors: BookRowAnchors?, anchor: CoverCropAnchor?) {
         // 「自動のままにする」という指定で、まだ1行も無い本に空の行を作らない。
         guard anchor != nil || bookLayoutSettings(forBookID: bookID) != nil else { return }
-        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        let settings = existingOrNewSettings(forBookID: bookID, anchors: anchors)
         guard settings.coverCropAnchor != anchor else { return }
         settings.coverCropAnchor = anchor
         settings.updatedAt = Date()
@@ -679,16 +659,16 @@ final class LayoutStore: ObservableObject {
     }
 
     /// 上の、**本を読み込まずに**書く版(コレクションのメタデータ編集シート・「メタデータの編集」
-    /// ウインドウのカバー列から使う。existingOrNewSettings(forBookID:sourceURL:)のコメント参照)。
+    /// ウインドウのカバー列から使う。existingOrNewSettings(forBookID:anchors:)のコメント参照)。
     ///
     /// MangaBook版と別の入り口にしてあるのは、行を新しく作るときに差し替え検知の指紋を
     /// 記録できるかどうかだけが違うため ―― 本を開いている呼び出し元からその機会を奪わないよう、
     /// 実際の書き込みだけを下のapplyCoverPageKeyへ寄せてある。
     func setCoverPageKey(
-        forBookID bookID: String, sourceURL: URL?, pageKey: String, displayName: String
+        forBookID bookID: String, anchors: BookRowAnchors?, pageKey: String, displayName: String
     ) {
         applyCoverPageKey(
-            to: existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL), bookID: bookID,
+            to: existingOrNewSettings(forBookID: bookID, anchors: anchors), bookID: bookID,
             pageKey: pageKey, displayName: displayName
         )
     }
@@ -706,24 +686,17 @@ final class LayoutStore: ObservableObject {
 
     /// 本に含まれない専用ファイルをカバーに指定する。このファイルは本の一部として扱わない
     /// (LayoutStore/BookLoaderのどこからも参照しない)ため、ビューアのページ一覧には現れない。
-    func setExternalCover(for book: MangaBook, fileURL: URL) throws {
-        let data = try externalCoverBookmarkData(for: fileURL)
+    /// **本を読み込まずに**書く(setCoverPageKey(forBookID:anchors:pageKey:displayName:)と同じ事情)。画像のブックマークもメインの
+    /// 外で作る(2026-10-11 の規約監査。呼び出し元の無かった MangaBook 版はこのとき外した)。
+    func setExternalCover(forBookID bookID: String, anchors: BookRowAnchors?, fileURL: URL) async throws {
+        let data = try await FileIO.perform { try Self.externalCoverBookmarkData(for: fileURL) }
         applyExternalCover(
-            to: existingOrNewSettings(for: book), bookID: book.id, fileURL: fileURL, bookmarkData: data
-        )
-    }
-
-    /// 上の、**本を読み込まずに**書く版(setCoverPageKey(forBookID:sourceURL:pageKey:displayName:)
-    /// と同じ事情)。
-    func setExternalCover(forBookID bookID: String, sourceURL: URL?, fileURL: URL) throws {
-        let data = try externalCoverBookmarkData(for: fileURL)
-        applyExternalCover(
-            to: existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL), bookID: bookID,
+            to: existingOrNewSettings(forBookID: bookID, anchors: anchors), bookID: bookID,
             fileURL: fileURL, bookmarkData: data
         )
     }
 
-    private func externalCoverBookmarkData(for fileURL: URL) throws -> Data {
+    nonisolated private static func externalCoverBookmarkData(for fileURL: URL) throws -> Data {
         try fileURL.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         )
@@ -785,9 +758,9 @@ final class LayoutStore: ObservableObject {
     /// 本に含まれる既存ページを表紙にする。displayNameはsetCoverPageKeyと同じ扱い
     /// (選んだ時点の「本の中での相対パス」を、本を読み直さずに一覧へ出すためのキャッシュ)。
     func setShelfCoverPageKey(
-        forBookID bookID: String, sourceURL: URL?, pageKey: String, displayName: String
+        forBookID bookID: String, anchors: BookRowAnchors?, pageKey: String, displayName: String
     ) {
-        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        let settings = existingOrNewSettings(forBookID: bookID, anchors: anchors)
         // 画像指定から切り替えるときは、参照が外れる複製を消してから差し替える
         // (残すと二度と参照されないJPEGが保管庫に溜まる)。
         coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
@@ -803,12 +776,12 @@ final class LayoutStore: ObservableObject {
     /// 要るURLならあらかじめアクセスを開始しておくこと。
     /// 復号と再エンコードはメインアクターの外で行う(大きな画像を指定されても画面が
     /// 止まらないように。CollectionCoverSourceStore.store(imageAt:)参照)。
-    func setShelfCoverImage(forBookID bookID: String, sourceURL: URL?, fileURL: URL) async throws {
+    func setShelfCoverImage(forBookID bookID: String, anchors: BookRowAnchors?, fileURL: URL) async throws {
         let didAccess = fileURL.startAccessingSecurityScopedResource()
         defer { if didAccess { fileURL.stopAccessingSecurityScopedResource() } }
         // 先に複製を作る ―― 途中で失敗したときに、いま出ている表紙を壊さないため。
         let storedName = try await coverSourceStore.store(imageAt: fileURL)
-        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        let settings = existingOrNewSettings(forBookID: bookID, anchors: anchors)
         coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
         settings.shelfCoverImageFileName = storedName
         settings.shelfCoverPageKey = nil
@@ -826,7 +799,7 @@ final class LayoutStore: ObservableObject {
     /// - Returns: こちらで焼き直したか(上限より大きい・終端を確かめられない形式だった)。
     ///   呼び出し側はこれを結果の一覧に出して、どれが無劣化で入ったのかを分かるようにする。
     @discardableResult
-    func setShelfCoverImage(forBookID bookID: String, sourceURL: URL?, data: Data) async throws -> Bool {
+    func setShelfCoverImage(forBookID bookID: String, anchors: BookRowAnchors?, data: Data) async throws -> Bool {
         // **同じ絵をもう一度読み込んだときは何もしない。**
         //
         // 検査に通った画像は元のバイトのまま保存する(ImageIntegrityCheck参照)ので、書き出した
@@ -835,9 +808,10 @@ final class LayoutStore: ObservableObject {
         // 焼き直され、**同じzipを当てるたびにJPEGの世代が1つずつ増えていく**
         // (実測 2026-09-11: 131冊の往復で表示用の絵が131枚とも書き換わった)。
         // 中身が同じなら、そのまま黙って戻る。
+        // 保管庫の画像を読むのはメインの外で(zip の読み込みでは 1 冊ずつ続く。2026-10-11 の規約監査)。
         if let existing = bookLayoutSettings(forBookID: bookID)?.shelfCoverImageFileName,
            let existingURL = coverSourceStore.url(forFileName: existing),
-           let existingData = try? Data(contentsOf: existingURL, options: .mappedIfSafe),
+           let existingData = await FileIO.perform(qos: .utility, { try? Data(contentsOf: existingURL, options: .mappedIfSafe) }),
            existingData == data {
             return false
         }
@@ -846,7 +820,7 @@ final class LayoutStore: ObservableObject {
             imported: data, into: coverSourceStore
         )
         let stored = try outcome.get()
-        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        let settings = existingOrNewSettings(forBookID: bookID, anchors: anchors)
         coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
         settings.shelfCoverImageFileName = stored.fileName
         settings.shelfCoverPageKey = nil
@@ -972,11 +946,14 @@ final class LayoutStore: ObservableObject {
         return (images, pages, completed)
     }
 
-    /// externalCoverBookmarkDataからURLを解決する(resolvedURL(forBookID:)と同じ考え方)。
-    func resolvedExternalCoverURL(forBookID bookID: String) -> URL? {
+    /// externalCoverBookmarkDataからURLを解決する(resolvedURL(bookmarkData:bookID:)と同じ考え方)。解決と存在確認はメインの外で
+    /// (2026-10-11 の規約監査。以前はメインで同期に解き、書き出しウインドウのカバーの吹き出し・書き出しの準備で待った)。
+    func resolvedExternalCoverURL(forBookID bookID: String) async -> URL? {
         guard let data = bookLayoutSettings(forBookID: bookID)?.externalCoverBookmarkData else { return nil }
-        guard let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return url
+        return await FileIO.perform(qos: .utility) {
+            guard let url = BookmarkResolution.resolve(data), FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
+        }
     }
 
     // MARK: - ページ単位の設定(PageLayoutOverride)
