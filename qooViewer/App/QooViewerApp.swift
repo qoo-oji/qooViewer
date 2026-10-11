@@ -604,6 +604,10 @@ struct QooViewerApp: App {
         _menuBarRefresher = StateObject(wrappedValue: MenuBarMenuRefresher(observing: stores))
         // メニューバーの言語を起動時の値で決めておく(AppLanguage.menuBarLocale のコメント。監査 M-7)。
         _ = AppLanguage.menuBarLocale
+        #if DEBUG
+        // Debug ビルドだけの制御口(スクリプトから画面を操作せずに動かし、状態を読む。DebugControlPort の型コメント)。
+        DebugControlPort.startIfNeeded(stores: stores)
+        #endif
     }
 
     /// 本を表示するウインドウ("main"/"book"/"normal"/"private" の4つのWindowGroup)の中身。
@@ -2857,6 +2861,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ファイルブラウザの「置き換える」の途中で落ちたときに残った退避を、元の場所へ戻して知らせる
         // (改善要望7 段階4b。ReplaceBackupRecovery)。フォルダのアクセス権は AppStores の生成時に開いている。
         ReplaceBackupRecovery.runAtLaunch()
+        #if DEBUG
+        // Debug の制御口の「Finder から開く」は、この delegate の application(_:open:) を通す。
+        DebugControlPort.shared?.appDelegate = self
+        #endif
 
         // バグ修正(ビルド時の警告): [weak self]でキャプチャしたselfをそのままネストした
         // Task { @MainActor in ... }の中で再び参照すると、「弱参照(var相当)を並行実行される

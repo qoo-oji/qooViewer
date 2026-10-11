@@ -123,6 +123,9 @@ final class AppState: ObservableObject {
             guard let home = self?.homeMenu else { return false }
             return home.isShown && home.mode == .browser
         }
+        #if DEBUG
+        DebugLiveInstances.didCreate("AppState")
+        #endif
     }
 
     @Published var currentBook: MangaBook?
@@ -1123,6 +1126,9 @@ final class AppState: ObservableObject {
     var temporaryCopies: TemporaryCopyRegistry = .shared
 
     deinit {
+        #if DEBUG
+        DebugLiveInstances.didRelease("AppState")
+        #endif
         securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
         // 持ち主の数はメインの上(deinit はどの糸で走るか決まっていない)。最後の持ち主だったものだけ消す。
         let owned = ownedTemporaryCopies

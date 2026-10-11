@@ -447,6 +447,9 @@ final class ViewerViewModel: ObservableObject {
         self.preferences = preferences
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
+        #if DEBUG
+        DebugLiveInstances.didCreate("ViewerViewModel")
+        #endif
         self.skipsPersistence = skipsPersistence
 
         // 差し替え検知(2.5節)を先に済ませる。指紋の照合はファイルへの問い合わせを伴うため、
@@ -1246,6 +1249,9 @@ final class ViewerViewModel: ObservableObject {
     }
 
     deinit {
+        #if DEBUG
+        DebugLiveInstances.didRelease("ViewerViewModel")
+        #endif
         // releaseResources()が走っていれば、そこで既に減らしてある。
         if !hasReleasedResources {
             Self.unregisterOpenBook(openBookRegistryID)

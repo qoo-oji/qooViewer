@@ -58,6 +58,23 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 
 ## 実物のアプリを外から操作する
 
+- **まず Debug の制御口を使う**(2026-10-11、`App/DebugControlPort.swift`、Debug ビルドだけ)。起動中のアプリを画面を操作せずに動かし、
+  状態を値で読める。相手は `scripts/dev/qoo-debug-control.py`:
+  - `wait-ready` → `state`(窓ごとの題・frame・タブの組・シークレットか・ホームのモード・ファイルブラウザのフォルダ・出ている本の
+    id/ページ数/いまのページ・見開き・読み方向・表示モード、機能の ON/OFF、`openBookIDs`、`RunningWorkRegistry`、生きている
+    `AppState`/`ViewerViewModel`/`PageLoader` の数)、`menu`(`NSApp.mainMenu` を `update()` してから題・淡色・隠し・キー・入れ子)。
+  - 動かす頼み: `open PATH [--via finder]`(`--via finder` は Finder から渡したのと同じ `application(_:open:)`)、
+    `send closeBook` / `perform '{"action":"moveNext"}'`(ViewerAction の rawValue)/ `jumpToPage '{"index":3}'` /
+    `selectHomeMode '{"mode":"browser"}'` / `setPreference '{"key":"libraryFeatureEnabled","value":false}'`(機能の ON/OFF と
+    読み取り専用だけ)/ `performMenuItem '{"path":["ファイル","…"]}'`(表示言語の題。淡色なら押さずに断る)/ `newWindow` /
+    `closeWindow '{"windowNumber":N}'`。どれも既存の入口を通す。
+  - 置き場所はコンテナの `tmp/qooViewer-debug-control/`(署名していない CI のビルドでは `$(getconf DARWIN_USER_TEMP_DIR)`、
+    環境変数 `QOO_DEBUG_CONTROL_DIR` で変えられる)。`inbox/` に置いた頼みに `outbox/` で答える。
+  - アプリを隠して起動(`open -g -j <app>`)すれば、画面に何も出さずに状態を読める。終わりは
+    `osascript -e 'tell application id "com.qooProject.qooViewer.debug" to quit'`。
+  - **ウインドウを閉じた後のリーク**は `state` の `liveInstances` で数えられる(下の「閉じたウインドウが解放されるかの測り方」の
+    `heap` の代わりの最初の当たり)。CI の起動の確かめも同じ口を使う(`scripts/ci/smoke-control-port.sh`)。
+  - 見た目(色・縁取り・位置の 1 フレームの乱れ)と、ファイル選択パネル・ドラッグ・トラックパッドの実物は、この口では確かめられない。
 - **Debug ビルドのコンテナは `com.qooProject.qooViewer.debug`**(普段使いのアプリとは保存データが別。
   → [02](02-project-and-build.md))。`defaults` のドメイン名もこちら。実データが要る確認は、
   普段使いのアプリで行うか、Debug 側に検証用のデータを作って行う。

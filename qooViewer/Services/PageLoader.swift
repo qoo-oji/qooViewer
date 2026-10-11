@@ -273,6 +273,9 @@ actor PageLoader {
             guard let self else { return [] }
             return await MemoryUsageItem.items(from: self.cacheStatistics())
         }
+        #if DEBUG
+        DebugLiveInstances.didCreate("PageLoader")
+        #endif
     }
 
     /// リソースモニタ向けに、3つのメモリキャッシュの中身と先読みの状態をまとめて返す。
@@ -321,6 +324,9 @@ actor PageLoader {
     /// アーカイブ展開・デコードにCPUとディスクI/Oを使い続けることになる(特に
     /// prefetch(around:)は最大21ページぶんを同時に抱えうる)。ここで明示的に打ち切る。
     deinit {
+        #if DEBUG
+        DebugLiveInstances.didRelease("PageLoader")
+        #endif
         for entry in prefetchTasks.values {
             entry.task.cancel()
         }
