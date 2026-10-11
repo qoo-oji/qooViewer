@@ -117,8 +117,10 @@ def expected_page_count(relative):
 
 def book_shown(path):
     def predicate(snapshot):
+        # ビューアが出て(並べたページがある)、読み込みも待ちも終わっている。
         return any(
-            (content.get("book") or {}).get("id") == path and not content["isLoading"] and not content["isWaitingToOpen"]
+            (content.get("book") or {}).get("id") == path and content["book"]["shownPageCount"] > 0
+            and not content["isLoading"] and not content["isWaitingToOpen"]
             for content in contents(snapshot)
         )
     return predicate
@@ -156,7 +158,7 @@ def check_page_turns(directory):
     book = front(snapshot)["book"]
     send(directory, "perform", {"action": "moveNext"})
     wait_until(directory, "the page to move forward", lambda s: front(s)["book"]["currentPageIndex"] > book["currentPageIndex"])
-    last = book["pageCount"] - 1
+    last = book["shownPageCount"] - 1
     send(directory, "jumpToPage", {"index": last})
     wait_until(directory, "the jump to the last page", lambda s: last in (
         front(s)["book"]["currentPageIndex"], front(s)["book"].get("partnerPageIndex")))

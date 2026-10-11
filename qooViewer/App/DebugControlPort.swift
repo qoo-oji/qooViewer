@@ -345,7 +345,9 @@ enum DebugStateDump {
             entry["book"] = [
                 "id": book.id,
                 "title": book.title,
-                "pageCount": state.currentBookPages.count,
+                // 読み込んだ本のページ数(除外の前)と、ビューアが並べているページ数(ビューアが出るまでは 0)。
+                "pageCount": book.pages.count,
+                "shownPageCount": state.currentBookPages.count,
                 "currentPageIndex": state.currentPageIndex,
                 "partnerPageIndex": state.currentPartnerPageIndex ?? NSNull(),
                 "isSpreadMode": state.isSpreadMode,

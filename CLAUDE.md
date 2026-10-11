@@ -30,6 +30,16 @@ still shows a spinning cursor while main-actor tests run, which is expected. Tes
 host triggers a macOS removable-volume permission dialog on every launch). Fixture regeneration is
 `scripts/fixtures/build-fixtures.sh` (local only; needs `7zz` and `rar`); details in
 `docs/02-project-and-build.md`. Everything about the UI is still verified by running the app.
+**Ports for verifying without the GUI (2026-10-11; docs/02「テストの口」, docs/12)** — keep new code reachable through them:
+disk caches are injected as `BookDiskCaches` (`BookLoader.load(caches:)`, `PageLoader(diskCaches:)`, `ViewerViewModel(diskCaches:)` …; the
+`cachesPageList`/`usesThumbnailDiskCache` flags keep their privacy meaning), never read `BookPageListCache.shared`/`ThumbnailDiskCache.shared`
+directly in new loading code; `AppStores(dependencies:)` builds the composition root (`Dependencies.live()` in the app, `AppStoresHarness` in
+tests) — new wiring goes through `Dependencies`, not `isRunningTests`; **beep only through `UserFeedback.beep()`** (tests count it with
+`UserFeedback.$recorder`); sheets/panels go through `WindowSheet` and **chosen URLs are read from `beginChoosing`/`chooseURLs`**, never
+`panel.url(s)` (tests answer with `SheetScripting.$responder`); viewer input decisions live in `ViewerInputRouter`/`ViewerWheelInput`/
+`ViewerScrollPlanner` (the view only executes). Debug builds carry `DebugControlPort` (`scripts/dev/qoo-debug-control.py`: state, menu tree,
+open, perform, feature toggles, live instance counts) — prefer it to AX/screenshots for state checks; CI drives it in
+`scripts/ci/smoke-control-port.py`.
 
 ```bash
 # Build (Debug)
@@ -68,7 +78,7 @@ CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Releas
 treated as errors (passed as `QOO_CI_WARNINGS_AS_ERRORS=YES`, routed through `Configurations/Shared.xcconfig`
 so it reaches only the app target, not the SwiftPM dependencies), runs `qooViewerTests` in the Debug job
 and validates what its export tests wrote (EPUBCheck + the ComicInfo v2.0 XSD, via
-`scripts/ci/validate-exports.sh`); a third job builds Debug, runs the tests and smoke-launches the app on the
+`scripts/ci/validate-exports.sh`) and drives the built Debug app through the control port (`scripts/ci/smoke-control-port.py`); a third job builds Debug, runs the tests and smoke-launches (and control-port-drives) the app on the
 `xcode-27` runner (macOS 27 + Xcode 27; public preview, arm64 only — there is no `macos-27` runner and `macos-26`
 carries no Xcode 27). `check.yml` runs
 `scripts/ci/check-all.sh` — repository consistency checks (Team ID leak, Info.plist ↔ `imageExtensions`,
