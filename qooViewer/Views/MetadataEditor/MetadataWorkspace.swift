@@ -207,6 +207,8 @@ final class MetadataWorkspace {
     private var pendingSearch: Task<Void, Never>?
     /// ロック・鍵を外したあとの絞り込みなど、順に流す仕事。
     private var tail: Task<Void, Never>?
+    /// 行の手がかり(ブックマークと識別子)を外で作って入れる仕事(`commit`)。頼んだ順に 1 つずつ。`settle` が待つ。
+    @ObservationIgnored private var locatorWork: Task<Void, Never>?
     @ObservationIgnored private let generator: MetadataGenerator
     @ObservationIgnored private let store: BookMetadataStore
     @ObservationIgnored private var subscription: AnyCancellable?
@@ -550,7 +552,9 @@ final class MetadataWorkspace {
         isWritingBack = false
         if !deferred.isEmpty {
             let ids = deferred
-            Task { [store] in
+            let previous = locatorWork
+            locatorWork = Task { [store] in
+                await previous?.value
                 let locators = await FileIO.perform(qos: .utility) {
                     Dictionary(ids.map { ($0, BookMetadataStore.makeLocator(for: URL(fileURLWithPath: $0))) },
                                uniquingKeysWith: { a, _ in a })
@@ -681,6 +685,11 @@ final class MetadataWorkspace {
         while let current = tail {
             await current.value
             if tail == current { break }
+        }
+        // 手がかりの書き込みも済ませる(以前は 20 冊まではその場で書いていた ―― `commit`。テストと窓を閉じる前の待ち合わせのため)。
+        while let current = locatorWork {
+            await current.value
+            if locatorWork == current { break }
         }
         // 外の書き込みでメタデータ生成が待っている回(少し待ってから読む)も、ここで読ませる。
         await generator.update()
