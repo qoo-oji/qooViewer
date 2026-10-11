@@ -172,11 +172,13 @@ nonisolated enum StorageUsageScanner {
     static func scan(_ locations: Locations) -> StorageUsage? {
         let rootPath = comparablePath(locations.containerRoot)
         // 内訳のフォルダがあれば 0 から数え始める。コンテナの中にあれば、下の 1 回の走査で振り分けるための接頭辞を持つ。
-        func bucket(_ directory: URL?) -> Bucket {
+        // `walksOutside: false` は、コンテナの外にあっても辿らずに 0 から始める(この起動の一時ファイルは下の splitTemporary が
+        // 1 回で数える。2026-10-11 のレビュー ―― 以前はここで辿った値を捨てて、もう一度辿っていた)。
+        func bucket(_ directory: URL?, walksOutside: Bool = true) -> Bucket {
             guard let directory, isExistingDirectory(directory) else { return Bucket(directory: directory) }
             let path = comparablePath(directory)
             guard path.hasPrefix(rootPath + "/") else {
-                return Bucket(directory: directory, size: directorySize(at: directory))
+                return Bucket(directory: directory, size: walksOutside ? directorySize(at: directory) : DirectorySize(bytes: 0, fileCount: 0))
             }
             return Bucket(directory: directory, size: DirectorySize(bytes: 0, fileCount: 0), prefix: path)
         }
@@ -200,12 +202,13 @@ nonisolated enum StorageUsageScanner {
             }
         }
         var buckets: [Name: Bucket] = [:]
-        for name in Name.allCases { buckets[name] = bucket(directory(name)) }
+        for name in Name.allCases { buckets[name] = bucket(directory(name), walksOutside: name != .session) }
         // この起動の一時ファイルのうち、ネットワークボリュームの写し(`.staged`)。コンテナの外なら別に辿る。
         var staged = DirectorySize(bytes: 0, fileCount: 0)
         var nested = DirectorySize(bytes: 0, fileCount: 0)
         if buckets[.session]?.prefix == nil, let session = buckets[.session], session.size != nil, let directory = session.directory {
             (nested, staged) = splitTemporary(in: directory)
+            buckets[.session]?.size = DirectorySize(bytes: nested.bytes + staged.bytes, fileCount: nested.fileCount + staged.fileCount)
         }
         // 他の起動が残した一時ファイル(`tmp/` 直下の残骸)。直下の一覧で決め、中身の量は下の 1 回の走査で数える。
         var stale = staleTemporaryEntries(in: locations.temporaryRoot)

@@ -134,3 +134,26 @@ struct MemoryUsageRegistryTests {
         #expect(budget.retainedByteCount == 0)
     }
 }
+
+/// PageLoader がリソースモニタへ毎秒届ける項目(`memoryUsageItems`)。鍵の一覧を写さない近道が、全部を写す `cacheStatistics()` からの
+/// 項目と同じ値になること(2026-10-11 のレビュー)。
+@MainActor
+struct PageLoaderMemoryItemsTests {
+    @Test("PageLoader の届ける項目は、cacheStatistics から組んだ項目と同じ")
+    func memoryUsageItemsMatchTheFullStatistics() async throws {
+        let temporary = try TemporaryDirectory("page-loader-memory-items")
+        let directory = temporary.file("book")
+        try FixtureFolder.make(at: directory, pages: (1...4).map { FixtureFolder.Page(String(format: "p%02d.png", $0), number: UInt8($0)) })
+        let book = try await FixtureBook.load(directory)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        _ = await loader.pageImage(at: 0)
+        _ = await loader.thumbnail(at: 1)
+        _ = await loader.gridThumbnail(at: 2, maxPixelSize: 128, usesDiskCache: false)
+
+        let quick = await loader.memoryUsageItems()
+        let full = MemoryUsageItem.items(from: await loader.cacheStatistics())
+        #expect(quick == full)
+        #expect(quick.first { $0.kind == .pageImages }?.count == 1)
+        await loader.releaseAllResources()
+    }
+}

@@ -81,6 +81,14 @@ struct DebugControlPortTests {
         #expect(inner.first?["title"] as? String == "Inner")
     }
 
+    @Test("返事のファイル名は頼みのファイル名だけ(outbox の外を指す名前・隠しファイル・区切りを含む名前は使わない)")
+    func replyNamesStayInsideTheOutbox() {
+        #expect(DebugControlPort.isSafeReplyName("1791678932904-c3d37685"))
+        for unsafe in ["", "../ready", ".hidden", "a/b", "..", "名前", String(repeating: "a", count: 200)] {
+            #expect(DebugControlPort.isSafeReplyName(unsafe) == false, "\(unsafe)")
+        }
+    }
+
     @Test("生きているインスタンスの数は、作った数と手放した数の差")
     func liveInstancesCountCreatesAndReleases() {
         let name = "Probe-\(UUID().uuidString)"

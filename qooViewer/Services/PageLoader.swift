@@ -271,7 +271,7 @@ actor PageLoader {
         imageCache.totalCostLimit = imageCacheLimitBytes
         memoryRegistration.activate(in: MemoryUsageRegistry.forCurrentProcess, role: memoryUsageRole) { [weak self] in
             guard let self else { return [] }
-            return await MemoryUsageItem.items(from: self.cacheStatistics())
+            return await self.memoryUsageItems()
         }
         #if DEBUG
         DebugLiveInstances.didCreate("PageLoader")
@@ -295,6 +295,18 @@ actor PageLoader {
             nestedArchives: nestedArchives,
             prefetchingIndices: Set(prefetchTasks.keys)
         )
+    }
+
+    /// リソースモニタの「メモリ」の内訳(MemoryUsageRegistry)へ届ける項目。`MemoryUsageItem.items(from: cacheStatistics())` と同じ値だが、
+    /// 毎秒・モニタの数だけ呼ばれるので、キャッシュの鍵の一覧と先読みのページは写さない(2026-10-11 のレビュー。PagePixelCache.memoryUsage)。
+    func memoryUsageItems() -> [MemoryUsageItem] {
+        var nestedArchives = resolver.statistics()
+        nestedArchives.decompressionBufferBytes += scanReaderDecoderBytes
+        return [
+            imageCache.memoryUsage(.pageImages),
+            thumbnailCache.memoryUsage(.thumbnails),
+            gridThumbnailCache.memoryUsage(.gridThumbnails),
+        ] + MemoryUsageItem.items(nestedArchives: nestedArchives)
     }
 
     /// 環境設定「メモリに残しておくページ画像」が変わったときにViewerViewModelから呼ぶ。

@@ -16,15 +16,17 @@ import AppKit
 /// - 頼む側は `inbox/<id>.json`(`{"id", "command", "arguments"}`)を**一時ファイルから rename で**置く。アプリは処理して
 ///   `outbox/<id>.json`(`{"id", "ok", "result" | "error"}`)を書き、inbox のファイルを消す。
 /// - 監視はフォルダの書き込みの知らせ(`DispatchSource`)。サンドボックスの中でもアプリ自身のコンテナなので許可は要らない。
+/// - ファイルの読み書きはすべて FileIO の上(メインで I/O しない約束。CLAUDE.md)。返事のファイル名は頼みのファイル名から作り、
+///   頼みの中の `id` は使わない(`../` を含む id で outbox の外へ書かせない。2026-10-11 のレビュー)。
 ///
 /// テストホストの中では始めない(テストは入口を直に叩く)。
 @MainActor
 final class DebugControlPort {
     private(set) static var shared: DebugControlPort?
 
-    let directory: URL
-    private var inbox: URL { directory.appendingPathComponent("inbox", isDirectory: true) }
-    private var outbox: URL { directory.appendingPathComponent("outbox", isDirectory: true) }
+    nonisolated let directory: URL
+    private nonisolated var inbox: URL { directory.appendingPathComponent("inbox", isDirectory: true) }
+    private nonisolated var outbox: URL { directory.appendingPathComponent("outbox", isDirectory: true) }
     private let stores: AppStores
     /// 外から本を渡す経路(Finder の「開く」と同じ。AppDelegate が起動の終わりに自分を入れる)。
     weak var appDelegate: AppDelegate?
@@ -37,8 +39,8 @@ final class DebugControlPort {
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("qooViewer-debug-control", isDirectory: true)
         let port = DebugControlPort(directory: directory, stores: stores)
-        guard port.start() else { return }
         shared = port
+        Task { await port.start() }
     }
 
     /// 作るだけで聞き始めない(`start` しない)。テストは `perform(_:arguments:)` を直に呼ぶ。
@@ -47,21 +49,24 @@ final class DebugControlPort {
         self.stores = stores
     }
 
-    private func start() -> Bool {
-        let manager = FileManager.default
-        do {
-            try manager.createDirectory(at: inbox, withIntermediateDirectories: true)
-            try manager.createDirectory(at: outbox, withIntermediateDirectories: true)
-        } catch {
-            NSLog("DebugControlPort: could not create %@: %@", directory.path, String(describing: error))
-            return false
+    private func start() async {
+        let inbox = inbox, outbox = outbox, directory = directory
+        let descriptor = await FileIO.perform(qos: .utility) { () -> Int32 in
+            let manager = FileManager.default
+            do {
+                try manager.createDirectory(at: inbox, withIntermediateDirectories: true)
+                try manager.createDirectory(at: outbox, withIntermediateDirectories: true)
+            } catch {
+                NSLog("DebugControlPort: could not create %@: %@", directory.path, String(describing: error))
+                return -1
+            }
+            // 前の起動の残りは捨てる(古い頼みを今の状態で実行しない)。
+            for stale in (try? manager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? [] {
+                try? manager.removeItem(at: stale)
+            }
+            return Darwin.open(inbox.path, O_EVTONLY)
         }
-        // 前の起動の残りは捨てる(古い頼みを今の状態で実行しない)。
-        for stale in (try? manager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? [] {
-            try? manager.removeItem(at: stale)
-        }
-        let descriptor = Darwin.open(inbox.path, O_EVTONLY)
-        guard descriptor >= 0 else { return false }
+        guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write], queue: .main)
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.scanInbox() }
@@ -69,56 +74,71 @@ final class DebugControlPort {
         source.setCancelHandler { Darwin.close(descriptor) }
         source.resume()
         self.source = source
-        write(["pid": ProcessInfo.processInfo.processIdentifier,
-               "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
-               "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""],
-              to: directory.appendingPathComponent("ready.json"))
+        await Self.write(["pid": ProcessInfo.processInfo.processIdentifier,
+                          "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
+                          "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""],
+                         to: directory.appendingPathComponent("ready.json"))
         NSLog("DebugControlPort: listening at %@", directory.path)
-        return true
+        // 聞き始める前に置かれていた頼み。
+        scanInbox()
     }
 
     // MARK: - 受け取り
 
     private func scanInbox() {
-        let files = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
-        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where file.pathExtension == "json" {
-            let name = file.lastPathComponent
-            guard processing.insert(name).inserted else { continue }
-            let data = try? Data(contentsOf: file)
-            try? FileManager.default.removeItem(at: file)
-            Task { @MainActor in
-                defer { self.processing.remove(name) }
-                await self.handle(data: data, fallbackID: file.deletingPathExtension().lastPathComponent)
+        let inbox = inbox
+        Task { @MainActor in
+            // 頼みを読み、inbox から消す(読んだものだけ)。読み書きは FileIO の上。
+            let requests = await FileIO.perform(qos: .userInitiated) { () -> [(name: String, data: Data?)] in
+                let files = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
+                return files.filter { $0.pathExtension == "json" }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                    .map { file in
+                        let data = try? Data(contentsOf: file)
+                        try? FileManager.default.removeItem(at: file)
+                        return (file.deletingPathExtension().lastPathComponent, data)
+                    }
+            }
+            for request in requests where self.processing.insert(request.name).inserted {
+                await self.handle(data: request.data, replyName: request.name)
+                self.processing.remove(request.name)
             }
         }
     }
 
-    private func handle(data: Data?, fallbackID: String) async {
+    /// 返事のファイル名にしてよい名前(頼みのファイル名。英数字と `-` `_` `.` だけ、`.` で始まらない)。
+    nonisolated static func isSafeReplyName(_ name: String) -> Bool {
+        guard !name.isEmpty, !name.hasPrefix("."), name.count <= 128 else { return false }
+        return name.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "-_.".unicodeScalars.contains($0) }
+            && name.unicodeScalars.allSatisfy(\.isASCII)
+    }
+
+    private func handle(data: Data?, replyName: String) async {
+        guard Self.isSafeReplyName(replyName) else { return }
+        let replyURL = outbox.appendingPathComponent("\(replyName).json")
         guard let data, let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            reply(id: fallbackID, error: "the request is not a JSON object")
+            await Self.write(["id": replyName, "ok": false, "error": "the request is not a JSON object"], to: replyURL)
             return
         }
-        let id = request["id"] as? String ?? fallbackID
+        // `id` は返事の中に写すだけ(ファイル名には使わない)。
+        let id = request["id"] as? String ?? replyName
         let command = request["command"] as? String ?? ""
         let arguments = request["arguments"] as? [String: Any] ?? [:]
+        let reply: [String: Any]
         do {
-            let result = try await perform(command, arguments: arguments)
-            write(["id": id, "ok": true, "result": result], to: outbox.appendingPathComponent("\(id).json"))
+            reply = ["id": id, "ok": true, "result": try await perform(command, arguments: arguments)]
         } catch {
-            reply(id: id, error: String(describing: error))
+            reply = ["id": id, "ok": false, "error": String(describing: error)]
         }
+        await Self.write(reply, to: replyURL)
     }
 
-    private func reply(id: String, error: String) {
-        write(["id": id, "ok": false, "error": error], to: outbox.appendingPathComponent("\(id).json"))
-    }
-
-    private func write(_ object: [String: Any], to url: URL) {
+    /// 読む側が書きかけを読まないよう、一時ファイルから置き換える(FileIO の上で)。
+    private static func write(_ object: [String: Any], to url: URL) async {
         guard let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]
         ) else { return }
-        // 読む側が書きかけを読まないよう、一時ファイルから置き換える。
-        try? data.write(to: url, options: .atomic)
+        await FileIO.perform(qos: .utility) { try? data.write(to: url, options: .atomic) }
     }
 
     // MARK: - 頼み
@@ -180,13 +200,14 @@ final class DebugControlPort {
         }
     }
 
-    /// 頼みの相手(いちばん前の、本を出す窓)。
+    /// 頼みの相手(いちばん前の、本を出す窓)。開いている本・ホームに対する操作なので、プライバシーで選び直さない(開く頼みは `open` を参照)。
     private func frontmost() throws -> AppState {
         guard let state = stores.launchCoordinator.frontmostContentAppState() else { throw Failure("no content window") }
         return state
     }
 
-    /// 本を開く。`via: "finder"` は Finder から渡したのと同じ経路(環境設定の「Finder から」の開き方に従う)、既定はいちばん前の窓で開く。
+    /// 本を開く。`via: "finder"` は Finder から渡したのと同じ経路(環境設定の「Finder から」の開き方に従う)、既定はいちばん前の
+    /// 窓のうち、焦点の外から開くときの相手(`frontmostContentAppStateForUnfocusedOpen`)で開く。
     private func open(_ arguments: [String: Any]) throws -> Any {
         guard let path = arguments["path"] as? String else { throw Failure("missing path") }
         let url = URL(fileURLWithPath: path)
@@ -195,7 +216,11 @@ final class DebugControlPort {
             guard let delegate = appDelegate else { throw Failure("the app delegate is not ready") }
             delegate.application(NSApp, open: [url])
         default:
-            try frontmost().open(url: url)
+            // 外からの頼みなので、メニューが焦点の外から開くときと同じ相手(シークレットかどうかを新しい窓と揃える。CLAUDE.md)。
+            guard let state = stores.launchCoordinator.frontmostContentAppStateForUnfocusedOpen() else {
+                throw Failure("no content window")
+            }
+            state.open(url: url)
         }
         return ["path": url.path]
     }

@@ -40,6 +40,9 @@ def candidate_dirs(explicit):
 
 
 def is_alive(pid):
+    # 0 以下は「自分のプロセスグループ」などを指すので、生きているとは見なさない。
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True

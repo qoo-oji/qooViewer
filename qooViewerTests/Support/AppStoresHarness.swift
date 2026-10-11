@@ -72,9 +72,11 @@ final class AppStoresHarness {
         // 受け手(AppStores.handleFileSystemChange)は同じ知らせの購読者で、こちらより先に繋いである。届いた時点で走り終えている。
     }
 
+    /// 購読と裏の仕事を畳む。借りた suite は**ここでは返さない**(ストアはまだ suite を持っていて、畳んだ後に残った書き込み ――
+    /// 待ち行列の Task・deinit の中の didSet ―― が、返した後に別のテストへ貸された suite に落ちうる。2026-10-11 のレビュー)。
+    /// 返すのはハーネスが手放されるとき(deinit)。
     func close() {
         stores.releaseResources()
-        suite.release()
     }
 
     deinit {

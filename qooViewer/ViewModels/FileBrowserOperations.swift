@@ -930,8 +930,8 @@ final class FileBrowserOperations: ObservableObject {
         // 走っている操作の後ろに並んでいる間に一番上が変わって、何もしなかった(`FileCommandStack.undo` の `expecting`)。待たせた末に
         // 黙らない(2026-10-06 の応答性の点検 R6-4)。
         if outcome == .nothingToDo {
-            // テストの間は鳴らさない(CLAUDE.md「file-operation sounds are silent」)。
-            if !RuntimeEnvironment.isRunningTests { UserFeedback.beep() }
+            // テストの間は UserFeedback が鳴らさない(記録先があれば数える。CLAUDE.md「file-operation sounds are silent」)。
+            UserFeedback.beep()
             return
         }
         guard outcome.needsAttention, let problem = FileBrowserProblem.undo(outcome, isRedo: isRedo) else { return }

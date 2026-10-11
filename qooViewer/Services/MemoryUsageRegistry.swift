@@ -63,13 +63,23 @@ nonisolated final class MemoryUsageRegistry: @unchecked Sendable {
 
     /// 全員に尋ねて、持ち主ごとにまとめる。並びは届け出た順(持ち主の最初の届け出の順)。
     /// 項目を足すだけの届け出(`role == nil`)は、同じ持ち主の本体が無ければ捨てる(本体が先に手放された)。
+    ///
+    /// **尋ねるのは同時に**(2026-10-11 のレビュー)。持ち主の多くは actor(PageLoader)で、PDF のページを描いている間などは答えが
+    /// 遅れる。1 人ずつ待つと、開いている本の数だけ遅れが足し算になり、毎秒の計測(リソースモニタの表示・異常の連続回数)が止まった。
     func report() async -> [MemoryUsageOwner] {
         let entries = state.withLock { Array($0.entries.values) }.sorted { $0.order < $1.order }
+        let answers = await withTaskGroup(of: (Int, [MemoryUsageItem]).self) { group in
+            for (index, entry) in entries.enumerated() {
+                group.addTask { (index, await entry.provider()) }
+            }
+            var answers = [[MemoryUsageItem]](repeating: [], count: entries.count)
+            for await (index, items) in group { answers[index] = items }
+            return answers
+        }
         var owners: [UUID: MemoryUsageOwner] = [:]
         var extras: [UUID: [MemoryUsageItem]] = [:]
         var order: [UUID] = []
-        for entry in entries {
-            let items = await entry.provider()
+        for (entry, items) in zip(entries, answers) {
             if let role = entry.role {
                 if owners[entry.ownerID] == nil { order.append(entry.ownerID) }
                 owners[entry.ownerID] = MemoryUsageOwner(id: entry.ownerID, role: role, items: items)
@@ -238,10 +248,15 @@ nonisolated struct MemoryUsageItem: Equatable, Sendable {
                             limitBytes: statistics.thumbnailLimitBytes, count: statistics.thumbnails.count),
             MemoryUsageItem(kind: .gridThumbnails, usedBytes: statistics.gridThumbnails.totalBytes,
                             limitBytes: statistics.gridThumbnailLimitBytes, count: statistics.gridThumbnails.count),
-            MemoryUsageItem(kind: .nestedArchives, usedBytes: statistics.nestedArchives.inMemoryBytes,
-                            limitBytes: statistics.nestedArchives.inMemoryLimitBytes,
-                            count: statistics.nestedArchives.inMemoryArchiveCount),
-            MemoryUsageItem(kind: .sevenZipDecoder, usedBytes: statistics.nestedArchives.decompressionBufferBytes),
+        ] + items(nestedArchives: statistics.nestedArchives)
+    }
+
+    /// 入れ子の書庫と 7z のデコーダの 2 項目。
+    static func items(nestedArchives: NestedArchiveResolver.Statistics) -> [MemoryUsageItem] {
+        [
+            MemoryUsageItem(kind: .nestedArchives, usedBytes: nestedArchives.inMemoryBytes,
+                            limitBytes: nestedArchives.inMemoryLimitBytes, count: nestedArchives.inMemoryArchiveCount),
+            MemoryUsageItem(kind: .sevenZipDecoder, usedBytes: nestedArchives.decompressionBufferBytes),
         ]
     }
 }
