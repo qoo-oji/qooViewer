@@ -32,6 +32,10 @@ final class DebugControlPort {
     weak var appDelegate: AppDelegate?
     private var source: DispatchSourceFileSystemObject?
     private var processing: Set<String> = []
+    /// 読み取りの最中か・その間にまた知らせが来たか(読み取りは 1 本ずつ。2 本が同じファイルを見て、後の 1 本が消えた後の
+    /// ファイルを読んで「JSON ではない」と答えていた ―― CI で実測、2026-10-11)。
+    private var isScanning = false
+    private var needsRescan = false
 
     static func startIfNeeded(stores: AppStores) {
         guard shared == nil, !RuntimeEnvironment.isRunningTests else { return }
@@ -86,15 +90,20 @@ final class DebugControlPort {
     // MARK: - 受け取り
 
     private func scanInbox() {
+        guard !isScanning else {
+            needsRescan = true
+            return
+        }
+        isScanning = true
         let inbox = inbox
         Task { @MainActor in
-            // 頼みを読み、inbox から消す(読んだものだけ)。読み書きは FileIO の上。
-            let requests = await FileIO.perform(qos: .userInitiated) { () -> [(name: String, data: Data?)] in
+            // 頼みを読み、inbox から消す(読めたものだけ)。読み書きは FileIO の上。
+            let requests = await FileIO.perform(qos: .userInitiated) { () -> [(name: String, data: Data)] in
                 let files = (try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)) ?? []
                 return files.filter { $0.pathExtension == "json" }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
-                    .map { file in
-                        let data = try? Data(contentsOf: file)
+                    .compactMap { file in
+                        guard let data = try? Data(contentsOf: file) else { return nil }
                         try? FileManager.default.removeItem(at: file)
                         return (file.deletingPathExtension().lastPathComponent, data)
                     }
@@ -102,6 +111,11 @@ final class DebugControlPort {
             for request in requests where self.processing.insert(request.name).inserted {
                 await self.handle(data: request.data, replyName: request.name)
                 self.processing.remove(request.name)
+            }
+            self.isScanning = false
+            if self.needsRescan {
+                self.needsRescan = false
+                self.scanInbox()
             }
         }
     }
@@ -196,13 +210,24 @@ final class DebugControlPort {
             window.performClose(nil)
             return [:] as [String: Any]
         case "nudge":
-            // 何もしないイベントを 1 つ流す。SwiftUI・AppKit の後始末(閉じたウインドウの解放など)は次のイベントまで遅れることがあるので
-            // (docs/12「閉じた直後に数えない」)、数える前にこれを送る。
+            // 何もしないイベントを流し、窓を描き直させる。SwiftUI・AppKit の後始末(閉じた本のビューの解放など)は次のイベント・
+            // 次の描画まで遅れることがある(docs/12「閉じた直後に数えない」。実機ではカーソルを動かして待っていた)ので、数える前に送る。
             if let event = NSEvent.otherEvent(
                 with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
                 context: nil, subtype: 0, data1: 0, data2: 0
             ) {
                 NSApp.postEvent(event, atStart: false)
+            }
+            for window in NSApp.windows where window.isVisible {
+                if let moved = NSEvent.mouseEvent(
+                    with: .mouseMoved, location: NSPoint(x: 1, y: 1), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+                ) {
+                    NSApp.postEvent(moved, atStart: false)
+                }
+                window.contentView?.needsLayout = true
+                window.layoutIfNeeded()
+                window.displayIfNeeded()
             }
             return [:] as [String: Any]
         case "quit":

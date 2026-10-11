@@ -45,6 +45,24 @@ def load_client():
 
 client = load_client()
 results = []
+app_pid = None
+
+
+def dump_retainers(class_name):
+    """残っているインスタンスの持ち主を出す(heap / leaks。docs/12「閉じたウインドウが解放されるかの測り方」)。診断のためだけ。"""
+    if not app_pid:
+        return
+    try:
+        listing = subprocess.run(["heap", "-q", "--noContent", f"--addresses={class_name}", str(app_pid)],
+                                 capture_output=True, text=True, timeout=60).stdout
+        print(f"--- heap --addresses={class_name}\n{listing[-4000:]}")
+        addresses = [token for token in listing.split() if token.startswith("0x")]
+        if addresses:
+            tree = subprocess.run(["leaks", f"--traceTree={addresses[0]}", str(app_pid)],
+                                  capture_output=True, text=True, timeout=120).stdout
+            print(f"--- leaks --traceTree={addresses[0]}\n{tree[:12000]}")
+    except Exception as error:  # noqa: BLE001 ―― 診断が取れなくても本題の失敗は残す
+        print(f"(could not inspect {class_name}: {error})")
 
 
 class SmokeFailure(Exception):
@@ -182,9 +200,13 @@ def check_menu(directory):
 def check_release(directory):
     send(directory, "closeBook")
     wait_until(directory, "Home to come back", lambda s: front(s).get("book") is None and front(s).get("homeMode"))
-    wait_until(directory, "ViewerViewModel and PageLoader to be released", lambda s: (
-        s["liveInstances"].get("ViewerViewModel", 0) == 0 and s["liveInstances"].get("PageLoader", 0) == 0
-    ), timeout=20, nudges=True)
+    try:
+        wait_until(directory, "ViewerViewModel and PageLoader to be released", lambda s: (
+            s["liveInstances"].get("ViewerViewModel", 0) == 0 and s["liveInstances"].get("PageLoader", 0) == 0
+        ), timeout=20, nudges=True)
+    except SmokeFailure:
+        dump_retainers("ViewerViewModel")
+        raise
 
 
 @step("feature switches pick the Home mode")
@@ -239,6 +261,8 @@ def main():
     log = open(os.path.join(directory, "app.log"), "w")
     process = subprocess.Popen([os.path.join(args.app, "Contents", "MacOS", "qooViewer")], env=environment,
                                stdout=log, stderr=subprocess.STDOUT)
+    global app_pid
+    app_pid = process.pid
     failed = False
     try:
         if not client.wait_ready(directory, 60):
