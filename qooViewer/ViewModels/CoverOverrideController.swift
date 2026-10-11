@@ -260,7 +260,8 @@ final class CoverOverrideController: ObservableObject {
     /// 済ませる。無い場合だけ従来どおり読み込む(その読み込み自体がBookLoader.load経由で
     /// キャッシュを埋めるため、次回以降は読み込み無しで解決できる)。
     private func resolveDefaultCoverName(forBookID bookID: String, generation: Int) async {
-        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        // 行の値は待つ前に写し取る(待っている間に行が消えうる。本の場所の解決が非同期になって待ちが増えた ―― 2026-10-11 の規約監査)。
+        let pageOrderOverride = layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride
         let excludedKeys = Set(
             layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
         )
@@ -276,7 +277,7 @@ final class CoverOverrideController: ObservableObject {
                 (isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName
             let ordered = EffectivePageOrder.orderedPages(
                 for: cached.pages, pageOrderSource: pageOrderSource,
-                pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+                pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
             )
             if let first = ordered.first {
                 // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
@@ -298,7 +299,7 @@ final class CoverOverrideController: ObservableObject {
 
         guard let book = await loadBookForCoverName(bookID: bookID) else { return }
         let ordered = EffectivePageOrder.orderedPages(
-            for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+            for: book, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
         )
         guard let first = ordered.first else { return }
         storeCoverName(first.location(inBookAt: book.sourceURL).fullPath, forBookID: bookID, generation: generation)

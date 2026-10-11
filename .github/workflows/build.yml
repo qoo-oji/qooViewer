@@ -262,6 +262,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      # テストホストが落ちたときのクラッシュレポート(qooViewer*.ips)も上げる ―― どこで落ちたかのバックトレースは xcresult に残らない(2026-10-11)。
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -273,6 +274,7 @@ jobs:
             ${{ runner.temp }}/xcodebuild-test.log
             ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log
+            ~/Library/Logs/DiagnosticReports/qooViewer*
           retention-days: 7
           if-no-files-found: ignore
 
@@ -386,6 +388,7 @@ jobs:
             exit 1
           fi
 
+      # テストホストが落ちたときのクラッシュレポート(qooViewer*.ips)も上げる ―― どこで落ちたかのバックトレースは xcresult に残らない(2026-10-11)。
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -397,5 +400,6 @@ jobs:
             ${{ runner.temp }}/xcodebuild-test.log
             ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log
+            ~/Library/Logs/DiagnosticReports/qooViewer*
           retention-days: 7
           if-no-files-found: ignore

@@ -342,13 +342,10 @@ struct PageLoaderTests {
         #expect(await loader.cacheStatistics().prefetchingIndices.isEmpty)
     }
 
-    /// 走っている先読みタスクが無くなるまで待つ。**時間で待たないこと**(段階 2 の教訓)。
+    /// 走っている先読みタスクが無くなるまで待つ。**時間で待たないこと**(段階 2 の教訓)。以前は `Task.yield()` を 200 回回して
+    /// 見ていたが、フォルダの本のページを FileIO の上で読むようになり(2026-10-11)、重い機械では回し終える前に終わらなかった。
     private func waitForPrefetchToSettle(_ loader: PageLoader) async throws {
-        for _ in 0..<200 {
-            if await loader.cacheStatistics().prefetchingIndices.isEmpty { return }
-            await Task.yield()
-        }
-        Issue.record("先読みが終わらない")
+        await loader.waitForPrefetches()
     }
 
     // MARK: - 本の差し替え

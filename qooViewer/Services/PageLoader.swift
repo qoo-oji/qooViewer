@@ -1442,6 +1442,15 @@ actor PageLoader {
         !prefetchTasks.isEmpty
     }
 
+    /// 走っている先読みが全部終わるまで待つ(**テストのための口**。フォルダの本のページは FileIO の上で読むので、`Task.yield()` を
+    /// 何回か回すだけでは終わりを待てない ―― 2026-10-11 の規約監査)。待つ間に始まった先読みも待つ。
+    func waitForPrefetches() async {
+        while !prefetchTasks.isEmpty {
+            let tasks = prefetchTasks.values.map(\.task)
+            for task in tasks { await task.value }
+        }
+    }
+
     /// ユーザーがどちらへ読み進めているか(prefetch(around:)のdirection)。
     enum PrefetchDirection: Sendable {
         case unknown
