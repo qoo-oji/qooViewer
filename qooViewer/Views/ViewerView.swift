@@ -86,24 +86,8 @@ struct ViewerView: View {
     /// そのまま使う。読者が本を開いてすぐにクリックでページ送りしたくなるほど短い時間ではないため、
     /// 通常の読書体験への影響は無い。
     private var clickZoneArmDelay: TimeInterval { NSEvent.doubleClickInterval }
-    /// 直前にスクロールホイールでページ送りを実行した時刻。一部のマウス/ドライバが
-    /// 1ノッチの回転を複数の細かいscrollWheelイベントに分けて送ってくることがあり、
-    /// それによって1ノッチのつもりが2回ページ送りされてしまう現象を防ぐために使う
-    /// (handleScroll参照)。
-    @State private var lastWheelActionAt: Date?
-    private let wheelActionCooldown: TimeInterval = 0.04
-    /// 直前にトラックパッドのスワイプ(3本指/4本指設定の場合)でページ送りを実行した時刻
-    /// (handleSwipe参照)。
-    @State private var lastSwipeActionAt: Date?
-    /// handleSwipe(3本指/4本指設定の場合の.swipeイベント)用の連続発火防止の間隔。
-    /// 2本指設定の場合(handleTrackpadScrollGesture)はジェスチャー全体を1回だけ判定する
-    /// 作りになっており、この定数は使わない(詳細はhandleSwipeのコメント参照)。
-    private let swipeActionCooldown: TimeInterval = 0.3
-    /// 現在進行中の2本指トラックパッド操作(.scrollWheelイベントのphaseで区切られる
-    /// 一連のジェスチャー)における、縦横それぞれの動きの累計値
-    /// (handleTrackpadScrollGesture参照)。
-    @State private var trackpadGestureDeltaX: CGFloat = 0
-    @State private var trackpadGestureDeltaY: CGFloat = 0
+    /// ホイール・スワイプ・2本指のトラックパッドの連続発火の間引き(直前に送った時刻・ジェスチャーの積算。ViewerWheelInput)。
+    @State private var wheelInput = ViewerWheelInput()
     @State private var isCursorHidden = false
     /// カーソルの自動非表示のタイマー(`CursorAutoHideTimer`)。
     @State private var cursorAutoHide = CursorAutoHideTimer()
@@ -559,223 +543,95 @@ struct ViewerView: View {
             // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
             // ここでの処理には影響しない)。
             guard let hostWindow, event.window === hostWindow else { return event }
-            // マウス移動(.mouseMoved)は、カーソル自動非表示の解除・ツールバー/プログレスバーの
-            // 自動表示のトリガーとして、サムネイル一覧表示中かどうかに関わらず常に処理する必要が
-            // ある。下のshowThumbnailGridガードより後ろにあると、サムネイル一覧を開いている間
-            // マウスを動かしてもregisterMouseActivity()が呼ばれず、カーソル自動非表示のタイマーが
-            // 解除されない(ユーザー報告: サムネイル一覧上でカーソルが見えなくなる)。
-            if event.type == .mouseMoved {
+            let resolvedKeyAction = event.type == .keyDown
+                ? RemappableKey.from(nsEvent: event).flatMap {
+                    keyBindingStore.resolvedAction(for: $0, in: viewModel.scalingMode)
+                }
+                : nil
+            let input = ViewerInputEvent(
+                event, resolvedKeyAction: resolvedKeyAction,
+                isPointerInDockedSidePanel: event.type != .keyDown
+                    && appState.dockedSidePanelScreenFrame.contains(NSEvent.mouseLocation)
+            )
+            // どのイベントを何に使うかの判定は ViewerInputRouter(Models/ViewerInputRouting.swift。理由のコメントもそちら。
+            // 2026-10-11 にテストできる形へ移した)。ここは判定を実行するだけ。
+            switch ViewerInputRouter.route(input, in: inputContext(hostWindow: hostWindow)) {
+            case .pass:
+                return event
+            case .consume:
+                return nil
+            case .mouseMoved:
                 registerMouseActivity()
                 updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
                 return event
-            }
-            // サムネイル一覧(ThumbnailGridView)を表示している間は、スクロール/スワイプによる
-            // ページ送りやキーボードショートカットが背後の本へ影響しないようにする(以前は
-            // 独立したシートとして表示していたため、シート自身が別ウインドウ扱いとなり
-            // event.window（上のガード）が一致せず自動的に素通りしていた。同一ウインドウ内の
-            // 重ね表示に変更したことに伴い、ここで明示的に無視する必要がある)。
-            // サイドパネル(フォルダブラウザ + 本の中身ブラウザ、ContentView.swift側で管理)
-            // 表示中も、サムネイル一覧と同じ理由で背後の本のページ送りへ影響しないようにする。
-            // 例外: サムネイル一覧の表示中でも、「ページ一覧を表示/非表示」に割り当てられた
-            // キーだけは通す。この操作はトグルなので、開いたときと同じキーでもう一度押したら
-            // 閉じられる必要がある(ユーザー報告: tキーで開いたページ一覧がtキーで閉じられず、
-            // パネルの外側をクリックするしかなかった)。
-            // マウス側は、パネルを閉じるクリックを拾う専用のモニタ
-            // (installThumbnailGridDismissMonitorIfNeeded)が閉じる役目を果たしている。
-            if showThumbnailGrid, !appState.isSidePanelFloatingOverlay,
-               event.type == .keyDown, !(hostWindow.firstResponder is NSTextView),
-               let key = RemappableKey.from(nsEvent: event),
-               keyBindingStore.resolvedAction(for: key, in: viewModel.scalingMode)
-                   == .showThumbnailGrid
-            {
-                perform(.showThumbnailGrid)
+            case .perform(let action):
+                perform(action)
                 return nil
-            }
-            // ページ一覧のキー(2026-09-27、監査 32): Esc・Return・Enter で閉じる、矢印キーで表示中のページを動かす
-            // (パネルの外のクリックで閉じるのは従来どおり)。修飾キーの付いたキーはメニューへ渡す。
-            if showThumbnailGrid, !appState.isSidePanelFloatingOverlay,
-               event.type == .keyDown, !(hostWindow.firstResponder is NSTextView),
-               event.modifierFlags.intersection([.command, .option, .control]).isEmpty
-            {
-                switch event.keyCode {
-                case 53, 36, 76:
-                    showThumbnailGrid = false
-                    return nil
-                case 123, 124, 125, 126:
-                    moveThumbnailGridCursor(event.keyCode)
-                    return nil
-                default:
-                    break
-                }
-            }
-            guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
-            // 「情報を見る」のパネルを出している間は、背後の本を送らない(2026-10-04 の監査 V-11。以前は送れて、パネルが黙って
-            // 別のページの情報に変わった)。Esc・Return・Enter で閉じる(ページ一覧と同じ)。修飾キーの付いたキーはメニューへ渡す。
-            if isShowingPageInfoPanel {
-                switch event.type {
-                case .keyDown:
-                    guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
-                    if [53, 36, 76].contains(event.keyCode) { isShowingPageInfoPanel = false }
-                    return nil
-                case .scrollWheel, .swipe:
-                    return nil
-                default:
-                    return event
-                }
-            }
-            // 常時表示のサイドパネルの上での操作は、パネル自身のスクロールに任せて
-            // ページ送りには使わない(ユーザー報告: 一覧の上でホイールを回すと、一覧が
-            // スクロールすると同時にページ送りまで起きてしまう)。イベント自体は消費せず
-            // そのまま通す ―― 一覧のスクロールはこのモニタではなくパネル側の仕事のため。
-            // キー入力(.keyDown)は対象外。カーソルの位置に関わらず効くべきものであるため。
-            // 浮かせて表示しているパネルは、上のisSidePanelFloatingOverlayで既に除かれている。
-            if event.type != .keyDown,
-               appState.dockedSidePanelScreenFrame.contains(NSEvent.mouseLocation)
-            {
-                return event
-            }
-            switch event.type {
-            case .scrollWheel:
-                // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
-                // phase/momentumPhase(.began/.changed/.ended/momentum中など)が付与される。
-                // 通常の物理マウスホイールのノッチ操作では、これらは常に空(.phase == [])。
-                //
-                // 【調査で判明した重要な事実】「システム設定」>「トラックパッド」の
-                // 「ページ間をスワイプ」が2本指設定の場合、その操作は専用のイベント種別
-                // (NSEvent.swipe)としては届かず、通常の.scrollWheelイベントの並びとして
-                // 届く(ログで確認済み。横方向にスワイプしていても、deltaXが大きい
-                // .scrollWheelイベントが連続するだけで、.swipeイベントは一切発生しない)。
-                // そのため、1個ずつの.scrollWheelイベントのdeltaYだけを見てページ送りする
-                // 従来のhandleScrollのロジックのままでは、意図的な横方向スワイプの最中に
-                // 生じるわずかな縦方向のぶれ(deltaY)にまで反応してしまい、1回のつもりの
-                // スワイプで複数回・意図しないページ送りが発生する原因になっていた
-                // (これが一連の不具合報告の実際の原因だった)。
-                //
-                // 「スワイプでページ送り」がONのときは、トラックパッド由来の
-                // .scrollWheelイベントをhandleScrollには渡さず、代わりに
-                // handleTrackpadScrollGestureへ渡す。そちらでは指が触れてから離れるまでの
-                // 一連のイベント(1回のジェスチャー全体)をまとめて扱い、ジェスチャー全体で
-                // 見て横方向優位だった場合にだけ、ジェスチャーの終わりに1回だけページ送りを
-                // 行う。縦方向優位だった場合(2本指の縦スクロール)は何もしない
-                // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
-                // 影響を受けない。
-                let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
-                // 環境設定「2本指スクロールを反転」(AppPreferences.invertTwoFingerScrolling)は、
-                // phaseを伴うスクロール ― トラックパッドやMagic Mouseの、指でなぞる操作 ―
-                // だけを対象にする。物理マウスホイールのノッチ(phaseが空)は対象外。
-                let isInverted = preferences.invertTwoFingerScrolling && isTrackpadOriginated
-                // ホイールの割り当てを引くための修飾キー。shiftを受け付けないのは、macOSが
-                // ホイール由来のスクロールイベントについてshift押下時にdeltaXとdeltaYを
-                // 入れ替えるため、向きの判定が信用できないから(MouseTrigger参照)。
-                // nil(=control/command/shiftのいずれか)の場合、handleScrollは何もしない。
-                let wheelModifiers = MouseTrigger.Modifiers.from(
-                    event.modifierFlags, allowsShift: false
+            case .closeThumbnailGrid:
+                showThumbnailGrid = false
+                return nil
+            case .moveThumbnailGridCursor(let keyCode):
+                moveThumbnailGridCursor(keyCode)
+                return nil
+            case .closePageInfoPanel:
+                isShowingPageInfoPanel = false
+                return nil
+            case .trackpadGesture(let invertsScroll):
+                handleTrackpadScrollGesture(
+                    phase: event.phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY
                 )
-                // ピンチ拡大中は、2本指の横方向の動きは「拡大した画像を横へ動かしたい」で
-                // あってページ送りではない。ここを通すと、拡大して読んでいる最中に画像を
-                // 横へずらしただけでページが送られ(そのうえ拡大も解除され)てしまう。
-                // 3本指/4本指の.swipe(下のcase)は、スクロールと取り違えようのない
-                // 明示的なページ送り操作なので、拡大中でもそのまま働かせる。
-                if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated
-                    && viewModel.pinchZoomFactor == 1 {
-                    handleTrackpadScrollGesture(
-                        phase: event.phase,
-                        deltaX: event.scrollingDeltaX,
-                        deltaY: event.scrollingDeltaY
-                    )
-                    // このぶんの素のスクロールは、通常はイベントをそのまま通して
-                    // ScrollViewに任せる。反転が有効なときだけ肩代わりする
-                    // (performInvertedScrollのコメント参照)。
-                    if isInverted,
-                       performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) {
-                        return nil
-                    }
-                    break
-                }
-                if isInverted, isPageAreaScrollable {
-                    // 端でのページ送り判定(handleScroll)を先に済ませてから動かす。
-                    // 判定は「このイベントを処理する**前**の位置」で行う必要があるため
-                    // (handleScrollInScrollableModeのコメント参照)、順番を入れ替えられない。
-                    if !handleScroll(
-                        deltaY: event.scrollingDeltaY, isInverted: true, modifiers: wheelModifiers
-                    ) {
-                        performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
-                    }
+                // このぶんの素のスクロールは、通常はイベントをそのまま通してScrollViewに任せる。反転が有効なときだけ肩代わりする
+                // (performInvertedScrollのコメント参照)。
+                if invertsScroll,
+                   performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) {
                     return nil
                 }
-                handleScroll(deltaY: event.scrollingDeltaY, modifiers: wheelModifiers)
+                return event
+            case .wheel(let isInverted, let modifiers, let invertsScroll):
+                let handled = handleScroll(deltaY: event.scrollingDeltaY, isInverted: isInverted, modifiers: modifiers)
+                guard invertsScroll else { return event }
+                // 端でのページ送り判定を先に済ませてから動かす(順番を入れ替えられない。ViewerInputRouter のコメント)。
+                if !handled { performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) }
+                return nil
             case .magnify:
                 handleMagnify(event)
-                // 標準の処理(SwiftUIのScrollViewは既定でmagnificationを受け付けないが、
-                // 将来にわたって二重に処理されないことを保証するため)へは渡さない。
                 return nil
             case .smartMagnify:
                 handleSmartMagnify(event)
                 return nil
             case .swipe:
-                // 「ページ間をスワイプ」が3本指/4本指設定の場合は、こちらの専用イベントで
-                // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
                 handleSwipe(deltaX: event.deltaX)
-            case .keyDown:
-                // サイドパネルの絞り込み検索欄など、このウインドウ内のテキストフィールドを
-                // 編集している間は、キー入力をページ送り等のショートカットとして横取りしない
-                // (横取りすると「a」と打っただけでブックマークが追加される、といった挙動に
-                // なってしまう)。AppKitではテキストフィールドの編集中、実際のファースト
-                // レスポンダはフィールド自身ではなくウインドウ共有の「フィールドエディタ」
-                // (NSTextView)になるため、それを見て判定する。ブックマーク名の変更シートなどが
-                // 別ウインドウとして開く場合は、上のevent.window === hostWindowのガードで
-                // 既に除外されている(ここで拾うのは同じウインドウ内の入力欄)。
-                if hostWindow.firstResponder is NSTextView { return event }
-                // ⌘= も「拡大」にする。表示メニューの「拡大」は ⌘+ で、US 配列の ⌘=(Shift 無し)はメニューに届かない
-                // (ホームの HomeZoomInEqualsKeyMonitor と同じ理由。JIS 配列の ⇧⌘- も "=" なので Shift は問わない)。
-                if event.modifierFlags.intersection([.command, .option, .control]) == .command,
-                   event.charactersIgnoringModifiers == "=" {
-                    // 上限では、淡色のメニュー項目のキーと同じく鳴らす(2026-10-04 の監査 V-19)。
-                    if !viewModel.isLoupeActive, viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor {
-                        UserFeedback.beep()
-                    } else {
-                        performZoomStep(.zoomIn)
-                    }
-                    return nil
-                }
-                // ESCキー(keyCode 53)は、RemappableKey/keyBindingStoreによる
-                // カスタマイズ可能なキー割り当ての対象には含めず、常に固定の「閉じる」操作
-                // という慣習に合わせて別枠で扱う。拡大鏡(ルーペ)表示中に押すと、
-                // ページ送りなど他の操作には一切影響させずに拡大鏡だけを閉じる。
-                // 拡大鏡が出ていなければ、ピンチ拡大の解除に使う。どちらにも当てはまらない
-                // ときはイベントを消費せずそのまま通し、フルスクリーンの解除など
-                // macOS標準のESCの働きを妨げない。
-                if event.keyCode == 53 {
-                    if viewModel.isLoupeActive {
-                        viewModel.toggleLoupe()
-                        return nil
-                    }
-                    if viewModel.pinchZoomFactor > 1 {
-                        resetPinchZoom()
-                        return nil
-                    }
-                }
-                // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
-                // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
-                // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
-                // 経路に統合した(詳細はRemappableKey.from(nsEvent:)のコメント参照)。
-                if let key = RemappableKey.from(nsEvent: event),
-                   let action = keyBindingStore.resolvedAction(
-                       for: key, in: viewModel.scalingMode
-                   ) {
-                    perform(action)
-                    // イベントをここで消費し、これ以上(標準のフォーカス移動や
-                    // ビープ音などへ)伝播させない。
-                    return nil
-                }
-            default:
-                // .mouseMovedは上で早期リターン済みのため、マッチしている残りの型
-                // (.scrollWheel/.swipe/.magnify/.smartMagnify/.keyDown)はすべて明示的な
-                // caseで処理されており、ここには実質到達しない。
-                break
+                return event
+            case .zoomIn:
+                performZoomStep(.zoomIn)
+                return nil
+            case .beep:
+                UserFeedback.beep()
+                return nil
+            case .closeLoupe:
+                viewModel.toggleLoupe()
+                return nil
+            case .resetPinchZoom:
+                resetPinchZoom()
+                return nil
             }
-            return event
         }
+    }
+
+    /// 振り分け(ViewerInputRouter)に渡す、いまのビューアの状態。
+    private func inputContext(hostWindow: NSWindow) -> ViewerInputContext {
+        ViewerInputContext(
+            isThumbnailGridShown: showThumbnailGrid,
+            isSidePanelFloatingOverlay: appState.isSidePanelFloatingOverlay,
+            isPageInfoPanelShown: isShowingPageInfoPanel,
+            isEditingText: hostWindow.firstResponder is NSTextView,
+            isLoupeActive: viewModel.isLoupeActive,
+            pinchZoomFactor: viewModel.pinchZoomFactor,
+            maxPinchZoomFactor: viewModel.maxPinchZoomFactor,
+            isPageAreaScrollable: isPageAreaScrollable,
+            treatsTrackpadFlickAsWheel: preferences.treatTrackpadFlickAsWheel,
+            invertsTwoFingerScrolling: preferences.invertTwoFingerScrolling
+        )
     }
 
     /// コンテキストメニュー(右クリック、またはControl+左クリック)を起動したクリックの
@@ -3180,71 +3036,50 @@ struct ViewerView: View {
 
     // MARK: - スクロール送り(cooViewerの「1画面分下へ+次のページ」相当)
 
-    /// 端に着いているかどうかの判定に使う許容誤差。拡大率の計算にはどうしても浮動小数の
-    /// 誤差が乗るため、厳密比較にすると1px未満ずれているだけで「まだ動ける」と誤判定し、
-    /// ページが送られずその場で止まってしまう。
-    private static let scrollEdgeEpsilon: CGFloat = 1
+    // 端に着いているかどうかの許容誤差は ViewerScrollMetrics.edgeEpsilon(理由のコメントもそちら)。
 
     /// 「端まで」を表す十分大きな値。実際の可動範囲はSwiftUIがクランプしてくれるため、
     /// contentSizeがまだ新しいページのものに更新されていない瞬間に呼んでも、最終的に
     /// 正しい隅へ収まる。
     private static let scrollFarEdge: CGFloat = 1_000_000
 
-    /// 1画面分スクロールし、それ以上動けなければページを送る
-    /// (cooViewerのCustomImageView.next/prevと同じ3段階。ViewerAction.scrollAndMoveNext参照)。
+    /// いまのスクロール位置(スクロールできないモード・取れないときは nil)。
+    private var scrollMetrics: ViewerScrollMetrics? {
+        guard isPageAreaScrollable, let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return nil }
+        return ViewerScrollMetrics(bounds)
+    }
+
+    /// 1画面分スクロールし、それ以上動けなければページを送る(行き先の判定は ViewerScrollPlanner.oneScreen)。
     /// - allowPageChange: 縦にも横にも余地が無くなったときにページを送るかどうか。
     ///   falseだと、その場で止まる(ホイール動作「スクロール」= cooViewerのcanScrollMode == 1)。
     private func scrollByOneScreen(forward: Bool, allowPageChange: Bool = true) {
-        // 画面内に収めるモードにはスクロールという概念が無いので、素直にページ送りへ縮退する。
-        // この縮退があるおかげで、cooViewerがモード別のキー設定で実現していた既定の操作感を
-        // 1つの割り当てで再現できる(ViewerAction.scrollAndMoveNextのコメント参照)。
-        guard isPageAreaScrollable,
-              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else {
-            if allowPageChange { viewModel.advance(forward: forward) }
-            return
+        let bounds = isPageAreaScrollable ? ScrollViewBounds(scrollGeometryBox.scrollView) : nil
+        let step = ViewerScrollPlanner.oneScreen(
+            forward: forward, allowPageChange: allowPageChange, metrics: bounds.map { ViewerScrollMetrics($0) },
+            readingDirection: viewModel.readingDirection
+        )
+        switch step {
+        case .scroll(let point):
+            bounds?.scroll(to: point)
+        case .advance(let forward, let entersAtEnd):
+            pendingPageEntryAtEnd = entersAtEnd
+            viewModel.advance(forward: forward)
+        case .turnPage(let forward):
+            viewModel.advance(forward: forward)
+        case .none:
+            break
         }
-        let epsilon = Self.scrollEdgeEpsilon
-        let position = bounds.position
-        let screen = bounds.visibleSize
-
-        // 1. まだ縦に動けるなら、縦に1画面分動かすだけ
-        if scrollVerticallyByOneScreen(down: forward, bounds: bounds) { return }
-
-        // 2. 縦は端に着いている。横に余地があれば読み方向へ1画面分ずらし、縦は反対の端へ移す
-        //    (進むときは次の列の最上部から、戻るときは前の列の最下部から読み始める)
-        let forwardSign: CGFloat = viewModel.readingDirection == .rightToLeft ? -1 : 1
-        let step = (forward ? forwardSign : -forwardSign) * screen.width
-        let hasHorizontalRoom = step > 0
-            ? position.x < bounds.maxX - epsilon
-            : position.x > epsilon
-        if hasHorizontalRoom {
-            bounds.scroll(to: CGPoint(x: position.x + step, y: forward ? 0 : bounds.maxY))
-            return
-        }
-
-        // 3. どちらにも余地が無い ― ページを送る。戻る場合は、移動先のページを
-        //    読み終わり側の隅から表示し始める(cooViewerのsetStartFromEnd:YES相当)。
-        guard allowPageChange else { return }
-        pendingPageEntryAtEnd = !forward
-        viewModel.advance(forward: forward)
     }
 
-    /// 縦方向にだけ1画面分スクロールする(cooViewerの「1画面分下へ/上へ」相当)。
+    /// 縦方向にだけ1画面分スクロールする(cooViewerの「1画面分下へ/上へ」相当。ViewerScrollPlanner.verticalOneScreen)。
     /// 実際に動かせたらtrueを返す(横への回り込み・ページ送りは行わない)。
     @discardableResult
     private func scrollVerticallyByOneScreen(down: Bool, bounds: ScrollViewBounds?) -> Bool {
-        guard isPageAreaScrollable, let bounds else { return false }
-        let epsilon = Self.scrollEdgeEpsilon
-        let position = bounds.position
-        if down, position.y < bounds.maxY - epsilon {
-            bounds.scroll(to: CGPoint(x: position.x, y: position.y + bounds.visibleSize.height))
-            return true
-        }
-        if !down, position.y > epsilon {
-            bounds.scroll(to: CGPoint(x: position.x, y: position.y - bounds.visibleSize.height))
-            return true
-        }
-        return false
+        guard isPageAreaScrollable, let bounds,
+              let point = ViewerScrollPlanner.verticalOneScreen(down: down, metrics: ViewerScrollMetrics(bounds))
+        else { return false }
+        bounds.scroll(to: point)
+        return true
     }
 
     /// 決まった量だけスクロールする(cooViewerの「上/下/左/右へスクロール」= action 30〜33 相当)。
@@ -3270,10 +3105,9 @@ struct ViewerView: View {
     private func scrollToPageCorner(atEnd: Bool) {
         guard viewModel.scalingMode != .fitToScreen,
               let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
-        let isRightToLeft = viewModel.readingDirection == .rightToLeft
-        let startX: CGFloat = isRightToLeft ? bounds.maxX : 0
-        let endX: CGFloat = isRightToLeft ? 0 : bounds.maxX
-        bounds.scroll(to: CGPoint(x: atEnd ? endX : startX, y: atEnd ? bounds.maxY : 0))
+        bounds.scroll(to: ViewerScrollPlanner.pageCorner(
+            atEnd: atEnd, readingDirection: viewModel.readingDirection, metrics: ViewerScrollMetrics(bounds)
+        ))
     }
 
     // MARK: - ピンチ拡大(トラックパッドのピンチイン・ピンチアウト)
@@ -3634,148 +3468,30 @@ struct ViewerView: View {
         finishPageEntryScrollIfNeeded()
     }
 
-    /// スクロールできるモード(横幅に合わせる/同(単ページ)/拡大縮小しない)でホイールを回したときの処理。
-    /// cooViewerの`wheelAction:`の`canScrollMode`による分岐をそのまま移植したもの
-    /// (WheelScrollBehavior参照)。
-    ///
-    /// 「まだスクロールできるか」は、ScrollViewがこのイベントを処理する**前**の位置で判定する。
-    /// そのため、端に着くまでは普通にスクロールし、端に着いた状態でもう一度回したときに初めて
-    /// 横への回り込みやページ送りが起きる ― cooViewerと同じ操作感になる。
+    /// ホイールのイベント 1 つ。何に使うか(割り当ての実行・1画面送り・ScrollView に任せる)と連続発火の間引きは
+    /// ViewerWheelInput.wheel(理由のコメントもそちら。2026-10-11 にテストできる形へ移した)。
     /// - Parameter isInverted: 環境設定「2本指スクロールを反転」が、このイベントに効いているか
     ///   (AppPreferences.invertTwoFingerScrolling参照)。
-    /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
-    @discardableResult
-    private func handleScrollInScrollableMode(
-        deltaY: CGFloat, isInverted: Bool, modifiers: MouseTrigger.Modifiers?
-    ) -> Bool {
-        // 割り当ての対象外の修飾キー(control/command/shift)が押されている場合は、何もせず
-        // ScrollView標準のスクロールに任せる(handleScrollのmodifiers引数のコメント参照)。
-        guard let modifiers else { return false }
-
-        // 修飾キー付きのホイールは、スクロール操作ではなく**明示的な指示**なので、
-        // 「スクロールできるとき」(WheelScrollBehavior)の判定を通さず、割り当てられた操作を
-        // そのまま実行する。素のホイールでスクロールしたいモードでも、option+ホイールには
-        // 別の操作を割り当てておける、という使い分けのため。割り当てが無ければ従来どおり
-        // ScrollViewに任せる。
-        if !modifiers.isEmpty {
-            let direction: MouseTrigger.WheelDirection = deltaY > 0 ? .up : .down
-            guard deltaY > 2 || deltaY < -2 else { return false }
-            guard let action = wheelAction(direction, modifiers: modifiers), action != .none else {
-                return false
-            }
-            let now = Date()
-            if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
-                return false
-            }
-            lastWheelActionAt = now
-            perform(action)
-            return true
-        }
-
-        // ピンチ拡大中は、どのモードでもホイールをスクロール専用にする(ユーザーの判断)。
-        // 拡大して細部を読んでいる最中に端まで来たからといってページが送られると、
-        // 拡大も一緒に解除されて読んでいた場所を見失う。拡大を解除すれば、そのモード本来の
-        // 設定(WheelScrollBehavior)にそのまま戻る。
-        let behavior: WheelScrollBehavior = viewModel.pinchZoomFactor > 1
-            ? .scrollOnly
-            : keyBindingStore.wheelBehavior(in: viewModel.scalingMode)
-        // スクロールのみ: ScrollViewに任せる(何もしない)。
-        guard behavior != .scrollOnly else { return false }
-
-        guard deltaY > 2 || deltaY < -2 else { return false }
-        let now = Date()
-        if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
-            return false
-        }
-
-        // NSEvent.scrollingDeltaYは、ホイールを上へ回すと正になる(handleScrollのコメント参照)。
-        //
-        // 向きの意味が2種類あることに注意。
-        // - assignedForward: 「ホイール上/下」への**割り当て**を引くための向き。反転設定の
-        //   影響を受けない(反転は画像が動く向きだけを変える設定であり、割り当ての上下まで
-        //   入れ替えると「キー・マウス」設定側の入れ替えと二重になるため。
-        //   AppPreferences.invertTwoFingerScrolling参照)。
-        // - scrollForward: 実際にページの**内容が進む**向き。端まで来たときのスクロール送り
-        //   /ページ送りは、いま行っているスクロールの延長なので、こちらを使う。
-        let assignedForward = deltaY < 0
-        let scrollForward = isInverted ? deltaY > 0 : deltaY < 0
-
-        if behavior == .turnPage {
-            // スクロールには使わず、常に割り当てられた操作を行う。
-            lastWheelActionAt = now
-            perform(wheelAction(assignedForward ? .down : .up))
-            return true
-        }
-
-        // まだ縦に動ける間はScrollViewに任せ、端に着いてから初めてこちらが引き取る。
-        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return false }
-        let epsilon = Self.scrollEdgeEpsilon
-        let canStillScrollVertically =
-            scrollForward ? bounds.position.y < bounds.maxY - epsilon : bounds.position.y > epsilon
-        guard !canStillScrollVertically else { return false }
-
-        lastWheelActionAt = now
-        switch behavior {
-        case .scrollAndTurnPage:
-            scrollByOneScreen(forward: scrollForward)
-        case .scrollAndWrap:
-            // 横へは回り込むが、ページはめくらない(cooViewerのcanScrollMode == 1)。
-            scrollByOneScreen(forward: scrollForward, allowPageChange: false)
-        case .scrollOnly, .turnPage:
-            break  // 上で処理済み
-        }
-        return true
-    }
-
-    /// - Parameter isInverted: 環境設定「2本指スクロールを反転」が、このイベントに効いているか
-    ///   (AppPreferences.invertTwoFingerScrolling参照)。
+    /// - Parameter modifiers: このイベントの修飾キー。nilは「割り当ての対象外」(MouseTrigger.Modifiers.from参照)。
     /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
     ///   反転が有効なときの呼び出し側が、「操作したのでスクロールはしない」を判断するために使う。
     @discardableResult
-    ///
-    /// - Parameter modifiers: このイベントの修飾キー。**nilは「割り当ての対象外」を意味する**
-    ///   (control/command、およびホイールにおけるshift。MouseTrigger.Modifiers.from参照)。
-    ///   その場合はfalseを返すだけで何もせず、スクロール自体は呼び出し側の経路
-    ///   (ScrollView標準、または反転が有効ならperformInvertedScroll)にそのまま任される。
     private func handleScroll(
         deltaY: CGFloat, isInverted: Bool = false, modifiers: MouseTrigger.Modifiers?
     ) -> Bool {
-        // 「画面内に収める」モードにはスクロールする余地が無いため、従来どおりホイールの
-        // 割り当て(既定はページ送り)をそのまま実行する。
-        // それ以外のモードでは、環境設定「スクロールできるとき」(WheelScrollBehavior、
-        // cooViewerのCanScrollMode相当)に従う。
-        // 「画面内に収める」でもピンチ拡大中はスクロールできる余地があるため、そちらの経路に乗せる。
-        if isPageAreaScrollable {
-            return handleScrollInScrollableMode(
-                deltaY: deltaY, isInverted: isInverted, modifiers: modifiers
-            )
-        }
-        guard let modifiers else { return false }
-
-        // NSEvent.scrollingDeltaYの符号は、ホイールを物理的に上へ回す(指を上に動かす)と
-        // 正の値になる(以前の実装ではここが逆になっており、ホイールを上に回すと.wheelDownに
-        // 割り当てた操作が実行されてしまっていた。設定画面の「Scroll Wheel Up」という表示と
-        // 実際の動作が食い違うバグだったため、対応する分岐を入れ替えて修正している)。
-        guard deltaY > 2 || deltaY < -2 else { return false }
-
-        // 一部のマウス/ドライバでは、物理的には1ノッチしか回していなくても、その回転が
-        // ごく短い間隔の複数のscrollWheelイベントに分かれて届くことがある。それらを
-        // まとめて1回のページ送りとして扱うため、直前のページ送りからこの間隔未満での
-        // 連続発火は無視する(意図的に素早く連続でノッチを回したときの間隔は、通常
-        // これよりも空くため、そちらは取りこぼさない)。
-        let now = Date()
-        if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
+        let outcome = wheelInput.wheel(
+            deltaY: deltaY, isInverted: isInverted, modifiers: modifiers,
+            isPageAreaScrollable: isPageAreaScrollable, pinchZoomFactor: viewModel.pinchZoomFactor,
+            configuredBehavior: keyBindingStore.wheelBehavior(in: viewModel.scalingMode),
+            metrics: scrollMetrics, now: Date(), action: { wheelAction($0, modifiers: $1) }
+        )
+        switch outcome {
+        case .unhandled:
             return false
-        }
-        lastWheelActionAt = now
-
-        // ここは「向き→操作」の割り当てそのものなので、反転設定の影響を受けない
-        // (AppPreferences.invertTwoFingerScrolling参照)。そもそもこの分岐に来るのは
-        // スクロールする余地が無いときだけで、反転させる対象のスクロールが存在しない。
-        if deltaY > 0 {
-            perform(wheelAction(.up, modifiers: modifiers))
-        } else {
-            perform(wheelAction(.down, modifiers: modifiers))
+        case .perform(let action):
+            perform(action)
+        case .scrollByOneScreen(let forward, let allowPageChange):
+            scrollByOneScreen(forward: forward, allowPageChange: allowPageChange)
         }
         return true
     }
@@ -3813,79 +3529,19 @@ struct ViewerView: View {
         return true
     }
 
-    /// トラックパッドの「ページ間をスワイプ」ジェスチャーが3本指/4本指設定になっている
-    /// 場合の処理。この場合はNSEvent.swipeという専用のイベント種別で届く(2本指設定の
-    /// 場合は専用イベントではなく通常の.scrollWheelイベントとして届くため、
-    /// handleTrackpadScrollGestureで別途処理している。詳細は呼び出し元のコメント参照)。
-    /// 設定がONのときだけ、ホイールと同じ割り当て(既定はページ送り)として扱う。
-    ///
-    /// 2本指設定の場合(handleTrackpadScrollGesture)は、ジェスチャー全体をまとめて
-    /// 一度だけ判定する作りになっているため、1回のスワイプで複数回反応してしまう心配は
-    /// 構造的にない。一方、この3本指/4本指設定の場合に.swipeイベントが1回のフリックに対して
-    /// 実際に何回発生するのかは動作確認ができておらず不明なため、念のため
-    /// swipeActionCooldownによる連続発火防止を残している(handleScrollのwheelActionCooldownと
-    /// 同じ考え方)。
+    /// トラックパッドの「ページ間をスワイプ」が3本指/4本指設定のときの.swipeイベント。設定がONのときだけ、ホイールと同じ割り当て
+    /// (既定はページ送り)として扱う(間引きと向きの判定は ViewerWheelInput.swipe。理由のコメントもそちら)。
     private func handleSwipe(deltaX: CGFloat) {
-        guard preferences.treatTrackpadFlickAsWheel else { return }
-
-        let now = Date()
-        if let lastSwipeActionAt, now.timeIntervalSince(lastSwipeActionAt) < swipeActionCooldown {
-            return
-        }
-        lastSwipeActionAt = now
-
-        // NSEvent.swipeのdeltaXは、指を左から右へ払う(スワイプする)と正の値になる。
-        // 修飾キー付きのスワイプは扱わない(ホイールの素の割り当てをそのまま使う)。
-        if deltaX > 0 {
-            perform(wheelAction(.up))
-        } else if deltaX < 0 {
-            perform(wheelAction(.down))
+        if let direction = wheelInput.swipe(deltaX: deltaX, isEnabled: preferences.treatTrackpadFlickAsWheel, now: Date()) {
+            perform(wheelAction(direction))
         }
     }
 
-    /// トラックパッドの「ページ間をスワイプ」ジェスチャーが2本指設定になっている場合の処理。
-    /// 呼び出し元(scrollMonitorの.scrollWheelケース)のコメントに書いたとおり、この場合の
-    /// ジェスチャーは専用のイベント種別ではなく、通常の.scrollWheelイベントの並びとして届く。
-    /// 指が触れてから離れるまで(phaseが.beganで始まり.endedで終わる一連のイベント)を
-    /// 1回のジェスチャーとしてまとめ、その間のdeltaX/deltaYを積算しておいて、ジェスチャーが
-    /// 終わった時点で初めて「横方向優位だったか、縦方向優位だったか」を判定する。
-    ///
-    /// - 横方向優位だった場合: 意図的なページ送りスワイプとみなし、その時点で1回だけ
-    ///   ページ送りを行う(1個ずつのイベントに反応するわけではないので、1回のスワイプで
-    ///   複数回ページ送りされてしまうことはない)。
-    /// - 縦方向優位だった場合: 2本指の縦スクロールとみなし、何もしない(完全に無視する)。
-    ///
-    /// 指を離した後の慣性スクロール(momentumPhase)中のイベントは、呼び出し元で
-    /// phaseが空になるため、ここではそのまま無視される(判定は指を離した瞬間の
-    /// ジェスチャーの向きだけで決まる)。
+    /// トラックパッドの「ページ間をスワイプ」が2本指設定のときの.scrollWheelイベントの並び。ジェスチャー全体で横方向優位だったときだけ、
+    /// 指を離した時点で1回だけホイールの割り当てを実行する(判定は ViewerWheelInput.trackpadGesture。理由のコメントもそちら)。
     private func handleTrackpadScrollGesture(phase: NSEvent.Phase, deltaX: CGFloat, deltaY: CGFloat) {
-        if phase.contains(.began) {
-            trackpadGestureDeltaX = 0
-            trackpadGestureDeltaY = 0
-        }
-        guard !phase.isEmpty else { return }
-        trackpadGestureDeltaX += deltaX
-        trackpadGestureDeltaY += deltaY
-
-        guard phase.contains(.ended) else { return }
-        defer {
-            trackpadGestureDeltaX = 0
-            trackpadGestureDeltaY = 0
-        }
-
-        // 極端に小さい動き(触れただけ、など)まで反応しないよう、最低限の移動量を求める。
-        guard abs(trackpadGestureDeltaX) >= 10 else { return }
-        guard abs(trackpadGestureDeltaX) > abs(trackpadGestureDeltaY) else { return }
-
-        // ジェスチャー全体につき、ここに到達するのは(.endedを受け取る)1回だけなので、
-        // handleSwipeのような連続発火防止のクールダウンは不要。
-
-        // 指を左から右へ払う(スワイプする)と、積算したdeltaXは正の値になる。
-        // 修飾キー付きのスワイプは扱わない(handleSwipeと同じ)。
-        if trackpadGestureDeltaX > 0 {
-            perform(wheelAction(.up))
-        } else {
-            perform(wheelAction(.down))
+        if let direction = wheelInput.trackpadGesture(phase: phase, deltaX: deltaX, deltaY: deltaY) {
+            perform(wheelAction(direction))
         }
     }
 

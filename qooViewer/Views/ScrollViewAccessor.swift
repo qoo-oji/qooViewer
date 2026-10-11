@@ -156,3 +156,10 @@ struct ScrollViewBounds {
     }
 }
 
+
+extension ViewerScrollMetrics {
+    /// いまのスクロール位置の写し(ViewerScrollPlanner・ViewerWheelInput が判定に使う)。
+    init(_ bounds: ScrollViewBounds) {
+        self.init(position: bounds.position, maxX: bounds.maxX, maxY: bounds.maxY, visibleSize: bounds.visibleSize)
+    }
+}

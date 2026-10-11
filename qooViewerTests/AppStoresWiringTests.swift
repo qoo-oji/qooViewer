@@ -38,7 +38,9 @@ struct AppStoresWiringTests {
         let harness = try AppStoresHarness(label: "wiring-change")
         defer { harness.close() }
         let stores = harness.stores
-        let shelf = try harness.temporary.directory("shelf")
+        // パスは在るうちに standardizedFileURL で整えた綴りで扱う(ストアが覚える形。サンドボックスの外の CI では一時フォルダの
+        // `/private/var/…` が `/var/…` になり、綴りの違う知らせは付け替えに当たらない)。
+        let shelf = try harness.temporary.directory("shelf").standardizedFileURL
         let book = shelf.appendingPathComponent("book-a", isDirectory: true)
         try makeBookFolder(at: book)
 
@@ -52,16 +54,17 @@ struct AppStoresWiringTests {
 
         let renamed = harness.temporary.file("shelf-renamed")
         try FileManager.default.moveItem(at: shelf, to: renamed)
-        let newBookPath = renamed.appendingPathComponent("book-a").path
-        await harness.report(FileSystemChange(relocations: [.init(from: shelf, to: renamed)]))
+        let to = renamed.standardizedFileURL
+        let newBookPath = to.appendingPathComponent("book-a").path
+        await harness.report(FileSystemChange(relocations: [.init(from: shelf, to: to)]))
         await stores.lastFileSystemChangeHandling?.value
 
         #expect(stores.bookmarkStore.bookmarks(forBookID: newBookPath).count == 1)
         #expect(stores.bookmarkStore.bookmarks(forBookID: book.path).isEmpty)
         #expect(stores.metadataStore.metadata(forBookID: newBookPath)?.author == "A")
-        #expect(stores.favoriteLocations.items.map(\.path) == [renamed.path])
-        #expect(stores.secretFolderStore.folders.map(MountTable.normalized) == [MountTable.normalized(renamed.path)])
-        #expect(stores.smartLibraryStore.folders.map(\.path) == [renamed.path])
+        #expect(stores.favoriteLocations.items.map(\.path) == [to.path])
+        #expect(stores.secretFolderStore.folders.map(MountTable.normalized) == [MountTable.normalized(to.path)])
+        #expect(stores.smartLibraryStore.folders.map(\.path) == [to.path])
     }
 
     @Test("知らせの箱を渡さなければ購読しない(テストホストとして起動したアプリの形)")
@@ -69,14 +72,15 @@ struct AppStoresWiringTests {
         let unsubscribedCenter = FileSystemChangeCenter()
         let harness = try AppStoresHarness(label: "wiring-unsubscribed") { $0.changeCenter = nil }
         defer { harness.close() }
-        let folder = try harness.temporary.directory("favorite")
+        let folder = try harness.temporary.directory("favorite").standardizedFileURL
         harness.stores.favoriteLocations.add(folder)
 
         let renamed = harness.temporary.file("favorite-renamed")
         try FileManager.default.moveItem(at: folder, to: renamed)
+        let to = renamed.standardizedFileURL
         // 箱は誰も購読していない(ハーネスの箱にも、別の箱にも入れてみる)。
-        await harness.report(FileSystemChange(relocations: [.init(from: folder, to: renamed)]))
-        unsubscribedCenter.report(FileSystemChange(relocations: [.init(from: folder, to: renamed)]))
+        await harness.report(FileSystemChange(relocations: [.init(from: folder, to: to)]))
+        unsubscribedCenter.report(FileSystemChange(relocations: [.init(from: folder, to: to)]))
 
         #expect(harness.stores.lastFileSystemChangeHandling == nil)
         #expect(harness.stores.favoriteLocations.items.map(\.path) == [folder.path])

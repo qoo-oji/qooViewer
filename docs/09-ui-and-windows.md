@@ -187,6 +187,11 @@ ViewerView(本1冊)
 - クリックでのページ送りは、ホームのダブルクリックの2回目を読み捨てるため、本を開いてから
   `NSEvent.doubleClickInterval` の間は無効(`isClickZoneArmed`)。
 - ホイールは1ノッチが複数イベントに分かれるマウスがあるため 40ms のクールダウン。
+- ビューアのイベントモニタは**判定と実行を分けてある**(2026-10-11)。どのイベントを何に使うか(ページ一覧・情報パネル・サイドパネルの
+  上での扱い、⌘=、Esc の順)は `ViewerInputRouter`、ホイール・スワイプ・2本指のジェスチャーの間引きと「端まで来たら」は
+  `ViewerWheelInput`、1 画面送り・ページの入りの隅の行き先は `ViewerScrollPlanner`(Models/ViewerInputRouting.swift。理由のコメントも
+  そちら)。`ViewerView.makeScrollMonitor` は判定を受けて実行するだけ。入力の扱いを変えるときは判定の側を直し、
+  `ViewerInputRoutingTests` に場合を足す。
 
 ### ウインドウを前に出すクリック(WindowActivationClickFilter、2026-10-07、ユーザー要望)
 
