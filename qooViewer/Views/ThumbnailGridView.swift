@@ -767,6 +767,8 @@ private struct ThumbnailCell: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            // 2 行に収まらない名前の全体(セル下のキャプションと同じ。2026-10-12)。
+            .help(location.fullPath)
         }
         .padding(12)
         .task { await loadPreviewImageIfNeeded() }

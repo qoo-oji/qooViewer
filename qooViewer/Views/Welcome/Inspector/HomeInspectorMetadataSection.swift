@@ -325,6 +325,8 @@ struct HomeInspectorMetadataSection: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .line(key, index))
                     .accessibilityLabel(Text(key.label))
+                    // 欄より長い値は端が切れて見えるので、指したときに全体を出す(2026-10-12)。
+                    .help(lineBinding(key, index).wrappedValue)
             }
         }
     }
@@ -341,7 +343,8 @@ struct HomeInspectorMetadataSection: View {
                 .focused($focusedField, equals: focus)
                 .accessibilityLabel(Text(label))
                 .disabled(!isEnabled)
-                .help(help)
+                // 説明の無い欄は値そのもの(欄より長い値は端が切れて見える。2026-10-12)。
+                .help(help.isEmpty ? text.wrappedValue : help)
         }
     }
 

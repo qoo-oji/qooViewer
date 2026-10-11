@@ -25,10 +25,20 @@ final class FileBrowserOutlinedTextFieldCell: NSTextFieldCell {
     /// 輪郭の太さ(pt)。0なら何もしない(環境設定「外観」の「文字の影」が既定の0なら従来どおり)。
     var outlineWidth: CGFloat = 0
 
+    /// 展開ツールチップ(省略された名前を指したときに出る全体)を描いている最中か。
+    private var isDrawingExpansion = false
+
+    /// 展開ツールチップは不透明なツールチップの地の上に出るので、輪郭を掛けない(不透明な地を持つ部品と同じ扱い)。
+    override func draw(withExpansionFrame cellFrame: NSRect, in view: NSView) {
+        isDrawingExpansion = true
+        defer { isDrawingExpansion = false }
+        super.draw(withExpansionFrame: cellFrame, in: view)
+    }
+
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         // 選択中の行(アクセント色・灰色の不透明な地の上)には掛けない ―― 不透明な地を持つ部品と同じ扱い。
         // 灰色の地のときは文字の強調(`backgroundStyle`)が .normal なので、行が選ばれているかを見る。
-        if outlineWidth > 0, backgroundStyle != .emphasized, !isInSelectedRow(controlView),
+        if outlineWidth > 0, !isDrawingExpansion, backgroundStyle != .emphasized, !isInSelectedRow(controlView),
            !attributedStringValue.string.isEmpty {
             let outlined = NSMutableAttributedString(attributedString: attributedStringValue)
             let whole = NSRange(location: 0, length: outlined.length)
@@ -135,6 +145,10 @@ final class FileBrowserCellView: NSTableCellView {
         field.drawsBackground = false
         field.translatesAutoresizingMaskIntoConstraints = false
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // 列の幅に収まらず省略された名前は、指したときに全体を出す(Finder のリストと同じ展開ツールチップ。2026-10-12)。
+        // 既定は OFF で、view-based の NSTableView / NSOutlineView では文字欄ごとに入れる必要がある(NSControl.h の注記)。
+        // ファイルブラウザのリスト・ツリーとスマートライブラリのリストがこのセルを使う。
+        field.allowsExpansionToolTips = true
         label = field
         if showsIcon {
             let imageView = NSImageView(frame: .zero)

@@ -81,6 +81,7 @@ struct AddBooksPanel: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(collection?.name ?? target.name)
                 // 冊数は名前のすぐ隣に置く ―― 下に裸の数字だけを置いても何の数か読めない
                 // (サイドパネルの各見出しと、コレクションの中の見出しと同じ並べ方)。
                 Text("\(collectionCount)")

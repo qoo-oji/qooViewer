@@ -262,6 +262,8 @@ struct FileBrowserProgressBar: View {
                                 .font(.system(size: 11, weight: .medium))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                                // 題には項目の名前が入り、中間が省略されうる(2026-10-12)。
+                                .help(activity.title)
                             // 後ろに並んでいる操作(2026-10-06 の応答性の点検 R6-1)。
                             if operations.queuedOperationCount > 0 {
                                 Text(String(

@@ -546,7 +546,7 @@ private struct MemorySection: View, Equatable {
         } else if owner.items.count == 1, let item = owner.items.first {
             // 項目が 1 つだけの持ち主(一覧のセル・原寸大)は、持ち主の名前の 1 行。
             MemoryItemRow(item: item, title: owner.role.titleText, locale: locale)
-                .help(owner.role.helpKey)
+                .help(owner.role.helpText)
         } else {
             OwnerBlock(owner: owner, locale: locale)
         }
@@ -800,7 +800,7 @@ private struct OwnerBlock: View {
                         .truncationMode(.middle)
                 }
             }
-            .help(owner.role.helpKey)
+            .help(owner.role.helpText)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(owner.items.filter { Self.alwaysShownKinds.contains($0.kind) || $0.usedBytes > 0 }, id: \.kind) { item in
                     MemoryItemRow(item: item, locale: locale)
@@ -1032,6 +1032,13 @@ extension MemoryUsageRole {
         case .bookmarkEditor(let title), .exportCoverPicker(let title): return title
         default: return nil
         }
+    }
+
+    /// 持ち主の行の説明。本の名前を出す行は、名前の全体を先頭に添える(狭いパネルでは名前が省略される。2026-10-12)。
+    var helpText: Text {
+        let name: String? = if case .viewerBook(let title) = self { title } else { bookTitle }
+        guard let name, !name.isEmpty else { return Text(helpKey) }
+        return Text(verbatim: name + "\n") + Text(helpKey)
     }
 
     var helpKey: LocalizedStringKey {

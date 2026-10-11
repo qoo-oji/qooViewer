@@ -50,12 +50,15 @@ struct AutoRenameConfirmationSheet: View {
                                 .truncationMode(.head)
                                 .help(Text(verbatim: item.folder))
                         }
+                        // 名前・規則は列の幅で省略されるので、指したときに全体を出す(2026-10-12)。
                         TableColumn("Current Name") { item in
                             Text(verbatim: item.name).lineLimit(1).truncationMode(.middle)
+                                .help(Text(verbatim: item.name))
                         }
                         TableColumn("New Name") { item in
                             if let newName = item.newName {
                                 Text(verbatim: newName).lineLimit(1).truncationMode(.middle)
+                                    .help(Text(verbatim: newName))
                             } else if let message = item.skipMessage {
                                 Label(message, systemImage: "exclamationmark.triangle")
                                     .foregroundStyle(.secondary)
@@ -67,6 +70,7 @@ struct AutoRenameConfirmationSheet: View {
                             Text(verbatim: item.ruleNames.joined(separator: ", "))
                                 .lineLimit(1)
                                 .foregroundStyle(.secondary)
+                                .help(Text(verbatim: item.ruleNames.joined(separator: ", ")))
                         }
                     }
                 } else {
@@ -166,6 +170,7 @@ struct AutoRenameMoveSuggestionsSheet: View {
                     Text(verbatim: suggestion.ruleNames.joined(separator: ", "))
                         .lineLimit(1)
                         .foregroundStyle(.secondary)
+                        .help(Text(verbatim: suggestion.ruleNames.joined(separator: ", ")))
                 }
             }
             .contextMenu(forSelectionType: String.self) { ids in
@@ -273,6 +278,7 @@ struct AutoRenameActivityLogSheet: View {
                 }
                 TableColumn("Name") { entry in
                     Text(verbatim: entry.originalName).lineLimit(1).truncationMode(.middle)
+                        .help(Text(verbatim: entry.originalName))
                 }
                 TableColumn("Result") { entry in
                     resultText(entry)
@@ -281,6 +287,7 @@ struct AutoRenameActivityLogSheet: View {
                     Text(verbatim: entry.ruleNames.joined(separator: ", "))
                         .lineLimit(1)
                         .foregroundStyle(.secondary)
+                        .help(Text(verbatim: entry.ruleNames.joined(separator: ", ")))
                 }
             }
             .frame(minHeight: 300)
@@ -320,6 +327,7 @@ struct AutoRenameActivityLogSheet: View {
         case .renamed(let newName):
             Label { Text(verbatim: newName) } icon: { Image(systemName: "arrow.right") }
                 .lineLimit(1)
+                .help(Text(verbatim: newName))
         case .skipped(let result, let reason):
             Label(String(format: String(localized: "Left as it is: %@", language: locale), reason), systemImage: "minus.circle")
                 .foregroundStyle(.secondary)
@@ -330,11 +338,13 @@ struct AutoRenameActivityLogSheet: View {
                   systemImage: "xmark.octagon")
                 .foregroundStyle(.red)
                 .lineLimit(1)
-                .help(Text(verbatim: message))
+                // 新しい名前も省略されうるので、文の全体を出す(2026-10-12 ―― 以前は理由だけだった)。
+                .help(Text(verbatim: String(format: String(localized: "Couldn’t rename to “%1$@”: %2$@", language: locale), newName, message)))
         case .restored(let fromName):
             Label(String(format: String(localized: "Restored from “%@”", language: locale), fromName), systemImage: "arrow.uturn.backward")
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .help(Text(verbatim: String(format: String(localized: "Restored from “%@”", language: locale), fromName)))
         }
     }
 }

@@ -2083,6 +2083,8 @@ struct ViewerView: View {
                 Text(viewModel.displayTitle)
                     .font(.headline)
                     .lineLimit(1)
+                    // 狭いウインドウでは削られるので、指したときに全体を出す(2026-10-12)。
+                    .help(viewModel.displayTitle)
 
                 if viewModel.pageCount > 0 {
                     Text("(\(viewModel.currentIndex + 1) / \(viewModel.pageCount))")

@@ -285,12 +285,14 @@ struct BulkRenameBookmarksSheet: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                                .help(item.originalName)
                                 .frame(width: originalColumnWidth, alignment: .leading)
                             Image(systemName: "arrow.right")
                                 .foregroundStyle(.secondary)
                                 .font(.caption2)
                             Text(item.newName)
                                 .lineLimit(1)
+                                .help(item.newName)
                         }
                         .font(.caption)
                     }

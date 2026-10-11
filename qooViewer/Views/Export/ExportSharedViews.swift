@@ -72,6 +72,7 @@ struct ExportProgressSheet: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(viewModel.currentBookDisplayName ?? "")
                 .frame(width: 320)
             Text(
                 String(format: String(localized: "%d of %d", language: locale), viewModel.completedCount, viewModel.totalCount)

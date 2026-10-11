@@ -322,6 +322,8 @@ private struct WelcomeQuickOpenList: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
+        // 名前は中間を省略するので、指したときにパスごと出す(履歴の吹き出し・サイドパネルの履歴と同じ。2026-10-12)。
+        .help(item.bookID)
 
         if let titleKey = item.destructiveActionTitleKey,
            let destructiveAction = item.destructiveAction {

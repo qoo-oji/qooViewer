@@ -129,6 +129,7 @@ struct LibraryImportWindow: View {
                         } else if let sourceFileName {
                             Text(sourceFileName)
                                 .font(.headline)
+                                .help(sourceFileName)
                         } else {
                             Text("No File Selected")
                                 .font(.headline)

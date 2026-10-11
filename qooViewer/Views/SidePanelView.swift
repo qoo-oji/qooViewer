@@ -792,6 +792,10 @@ struct SidePanelView: View {
         }
         // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。枠の側も同じ。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrentBookRow || isHighlighted)
+        // 名前は中間を省略して 1 行に収めるので、指したときに全体を出す(お気に入り・ブックマーク・履歴の行と同じ。
+        // 2026-10-12 まではこの行と本の中身の行だけ出しておらず、長い名前の全体を見る手段が無かった)。
+        // SwiftUI には省略されたときだけ出す AppKit の「展開ツールチップ」が無いので、常に出す。
+        .help(entry.displayName)
 
         return Group {
             if entry.isDirectory {
@@ -1292,6 +1296,8 @@ private struct BookContentsSectionView: View {
         .background { if isHighlighted { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
+        // 省略された名前の全体(上段のフォルダの行と同じ。SidePanelView.folderRow)。
+        .help(entry.displayName)
 
         // 下段のコンテナ・画像はどちらも1つの意味しか持たない(上段のフォルダのような
         // 「移動する」「開く」の使い分けが無い)ため、設定に応じてクリック回数を
@@ -2657,6 +2663,8 @@ private struct SidePanelPageCell: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: previewSize)
+            // 2 行に収まらない名前の全体(行と同じ)。
+            .help(location.fullPath)
         }
         .padding(12)
         .task {

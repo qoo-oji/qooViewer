@@ -311,6 +311,8 @@ struct ExportWindowContent<Options: View>: View {
                         .truncationMode(.middle)
                     FormatBadgeView(bookID: row.bookID)
                 }
+                // 列の幅で中間が省略されるので、指したときにパスごと出す(2026-10-12)。
+                .help(row.bookID)
             }
             .width(min: ExportColumnWidths.fileNameMin, ideal: columnWidths.fileName)
             .customizationID("fileName")
@@ -319,18 +321,23 @@ struct ExportWindowContent<Options: View>: View {
             // タイトル列・著者名列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から
             // 取得したタイトル・著者名を、この画面で変更できるようにしたい)。
             TableColumn("Title") { row in
-                TextField("", text: viewModel.titleBinding(forBookID: row.bookID))
+                let title = viewModel.titleBinding(forBookID: row.bookID)
+                TextField("", text: title)
                     .textFieldStyle(.plain)
                     .lineLimit(1)
+                    // 列より長い値は端が切れて見えるので、指したときに全体を出す(2026-10-12)。
+                    .help(title.wrappedValue)
             }
             .width(min: ExportColumnWidths.titleMin, ideal: columnWidths.title)
             .customizationID("title")
             .disabledCustomizationBehavior([.reorder, .visibility])
 
             TableColumn("Author") { row in
-                TextField("", text: viewModel.authorBinding(forBookID: row.bookID))
+                let author = viewModel.authorBinding(forBookID: row.bookID)
+                TextField("", text: author)
                     .textFieldStyle(.plain)
                     .lineLimit(1)
+                    .help(author.wrappedValue)
             }
             .width(min: ExportColumnWidths.authorMin, ideal: columnWidths.author)
             .customizationID("author")
@@ -679,10 +686,12 @@ struct ExportCoverCell: View {
         .buttonStyle(.plain)
         // シークレットフォルダの本は変えさせない(CoverOverrideController.allowsCoverChanges)。
         .disabled(!controller.allowsCoverChanges(forBookID: bookID))
-        .help(!controller.allowsCoverChanges(forBookID: bookID)
+        // 先頭に名前の全体(列の幅で中間が省略される。2026-10-12 ―― 以前は操作の説明だけだった)。
+        .help(Text(verbatim: controller.coverDisplayName(forBookID: bookID) + "\n")
+            + (!controller.allowsCoverChanges(forBookID: bookID)
             ? Text("The cover of a book in a secret folder can't be changed, because it would have to be saved.")
             : controller.target == .coverImage
-            ? Text("Change Cover Image") : Text("Change Collection Cover"))
+            ? Text("Change Cover Image") : Text("Change Collection Cover")))
         .onHover { hovering in
             hoverPreviewTask?.cancel()
             guard hovering, !isCoverPickerPresented else {
@@ -758,6 +767,7 @@ private struct CoverHoverPreview: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .multilineTextAlignment(.center)
+                .help(controller.coverDisplayName(forBookID: bookID))
                 .frame(maxWidth: side)
         }
         .padding(12)
@@ -1055,13 +1065,15 @@ private struct CoverPickerPreviewPane: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
 
-            Text(verbatim: selected.map { $0.page.location(inBookAt: book?.sourceURL ?? URL(fileURLWithPath: bookID)).fullPath }
-                ?? controller.coverDisplayName(forBookID: bookID))
+            let caption = selected.map { $0.page.location(inBookAt: book?.sourceURL ?? URL(fileURLWithPath: bookID)).fullPath }
+                ?? controller.coverDisplayName(forBookID: bookID)
+            Text(verbatim: caption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .multilineTextAlignment(.center)
+                .help(caption)
         }
         .task(id: "\(selected?.page.sortKey ?? "")|\(pageLoader == nil)") {
             guard let selected, let pageLoader else { return }
@@ -1243,6 +1255,8 @@ private struct ExportCoverPickerPageRow: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            // 2 行に収まらない名前の全体(行と同じ。2026-10-12)。
+            .help(location.fullPath)
         }
         .padding(12)
         .task {

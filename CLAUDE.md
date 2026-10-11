@@ -718,6 +718,10 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   `AppState.privateRedirect` for `ContentView` — new entry points that open books must go through these. Each book window's
   WindowGroup value is kept equal to the shown book (`ContentView.windowValue`): `openWindow(id:value:)` fronts any window with
   an equal value instead of creating one. docs/06「シークレットフォルダ」, docs/plans/secret-folder-plan.md.
+- **A name that can be truncated shows its full text on hover** (2026-10-12, after the side panel's folder browser left long
+  file names unreadable): SwiftUI → `.help(fullText)` (no expansion tooltips there, so always on); AppKit lists → the text field's
+  `allowsExpansionToolTips = true` (`FileBrowserCellView` sets it for the file browser list/tree and the smart library list). Verified on
+  device for the side panel and the file browser; exceptions (hit-testing-off overlays, pop-up menu labels) in docs/09「その他の小さな約束」.
 - **Anything drawn on a frosted-glass surface must handle the text outline.** The five surfaces
   (`PanelSurface`) let the user fill them with an arbitrary colour, so text and icons can end up the
   same colour as the panel and vanish. When you **add or change any UI on one of those surfaces**,

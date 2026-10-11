@@ -284,6 +284,8 @@ private struct AutoRenameRuleRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundStyle(rule.isEnabled ? .primary : .secondary)
+                // 省略された名前の全体(2026-10-12)。
+                .help(rule.displayName(locale: locale))
             Spacer(minLength: 0)
             if hasProblem {
                 Image(systemName: "exclamationmark.triangle.fill")

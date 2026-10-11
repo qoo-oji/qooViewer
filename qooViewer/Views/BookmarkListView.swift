@@ -2902,6 +2902,8 @@ private struct PageRowView: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            // 2 行に収まらない名前の全体(サムネイルと同じ。2026-10-12)。
+            .help(row.fullPath)
         }
         .padding(12)
         .task {

@@ -196,7 +196,8 @@ struct SidePanelLibraryTreeSection: View {
         .contentShape(Rectangle())
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
-        .help(bookID)
+        // パス。行に出しているのがメタデータの題(パスに入っていない名前)なら、省略されたその全体も先頭に添える(2026-10-12)。
+        .help(bookID.contains(row.title) ? bookID : row.title + "\n" + bookID)
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { open(itemID) }
         .sidePanelContextHighlight(rowID: "libraryTreeBook:\(itemID.uuidString)")
         .contextMenu {

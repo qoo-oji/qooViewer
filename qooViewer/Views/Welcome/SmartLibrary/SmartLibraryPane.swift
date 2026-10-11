@@ -428,6 +428,8 @@ private struct SmartSidebarRow: View {
             Text(verbatim: title.isEmpty ? " " : title)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                // 省略された名前の全体(2026-10-12)。
+                .help(title)
             Spacer(minLength: 4)
             if let count {
                 Text(verbatim: "\(count)")
@@ -1021,11 +1023,14 @@ struct SmartLibraryContent: View {
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .help(series)
                 } else {
-                    Text(verbatim: state.selectedShelf?.name ?? String(localized: "All Books", language: locale))
+                    let shelfName = state.selectedShelf?.name ?? String(localized: "All Books", language: locale)
+                    Text(verbatim: shelfName)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .help(shelfName)
                 }
                 Text(verbatim: countText)
                     .font(.callout.monospacedDigit())
@@ -1992,8 +1997,13 @@ private struct SmartBookCell: View {
         .help(helpText)
     }
 
+    /// 指したときの説明。下の 2 行はどちらも 1 行で省略するので、出している題・著者の全体も入れる(2026-10-12 ―― 以前は
+    /// ファイル名とシリーズだけで、メタデータの題・著者が省略されると全体を見る手段が無かった)。
     private var helpText: String {
-        var lines = [book.fileName]
+        var lines: [String] = []
+        if book.displayTitle != MetadataRulesStore.baseName(forBookID: book.id) { lines.append(book.displayTitle) }
+        lines.append(book.fileName)
+        if !book.metadata.authors.isEmpty { lines.append(book.metadata.authors.joined(separator: "、")) }
         if !book.metadata.series.isEmpty {
             lines.append(book.metadata.volume.isEmpty ? book.metadata.series : "\(book.metadata.series) \(book.metadata.volume)")
         }
@@ -2106,7 +2116,8 @@ private struct SmartGroupCell: View {
             }
         }
         .contentShape(Rectangle())
-        .help(name)
+        // 下の 2 行はどちらも 1 行で省略するので、添え書き(シリーズの主な著者)の全体も入れる(2026-10-12)。
+        .help(subtitle.map { name + "\n" + $0 } ?? name)
     }
 }
 

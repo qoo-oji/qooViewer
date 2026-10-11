@@ -371,8 +371,10 @@ struct CollectionDetailView: View {
                     .buttonStyle(.plain)
                     .help("Rename Collection")
                 } else {
+                    // 省略された名前の全体(2026-10-12)。編集モードの側はボタンの説明(「名前を変更」)のまま。
                     Text(collection.name)
                         .font(.headline)
+                        .help(collection.name)
                 }
             }
             .lineLimit(1)
@@ -636,7 +638,7 @@ struct CollectionDetailView: View {
             }
         }
         .contentShape(Rectangle())
-        .help(item.title)
+        .help(help(for: item))
         // クリックで選び、ダブルクリックで開く(HomeGridInteraction。編集モードでも同じ)。
         .onTapGesture { clicked(item) }
         .contextMenuHover(id: item.id.uuidString, in: contextHighlight)
@@ -866,6 +868,13 @@ struct CollectionDetailView: View {
         case .fileName: return item.title
         case .title: return metadataTitle(for: item)
         }
+    }
+
+    /// セルを指したときの説明。ファイル名に加え、カバーの下にタイトルを出していればその全体も(1 行で中間を省略しているので、
+    /// 省略されたタイトルの全体を見る手段がほかに無い。2026-10-12 ―― 以前はファイル名だけだった)。
+    private func help(for item: CollectionItem) -> String {
+        guard let caption = caption(for: item), caption != item.title else { return item.title }
+        return caption + "\n" + item.title
     }
 
     /// 「メタデータの編集」がこの本に出すのと同じタイトル(登録済みならDBの値、未登録なら

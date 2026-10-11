@@ -114,7 +114,7 @@ final class BulkRenamePanel: NSObject, NSTextFieldDelegate {
             field.cell?.isScrollable = true
             field.cell?.wraps = false
         }
-        // 理由の文が長いときに、先頭の項目名が残るよう末尾を切る(全文はツールチップ)。
+        // 理由の文・例が長いときに、先頭の項目名が残るよう末尾を切る(全文はツールチップ)。
         exampleLabel.lineBreakMode = .byTruncatingTail
         exampleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -305,7 +305,8 @@ final class BulkRenamePanel: NSObject, NSTextFieldDelegate {
         }
         exampleLabel.stringValue = String(format: text("Example: %@"), plan.first?.newName ?? "")
         exampleLabel.textColor = .labelColor
-        exampleLabel.toolTip = nil
+        // 例の新しい名前も長いと末尾が切れるので、全文をツールチップに出す(2026-10-12。以前は理由の文のときだけ)。
+        exampleLabel.toolTip = exampleLabel.stringValue
         renameButton.isEnabled = BulkRename.canApply(mode)
     }
 

@@ -382,7 +382,9 @@ private struct NameCheckRow: View {
             Image(systemName: row.now.outcome.symbol).foregroundStyle(row.now.outcome.color)
                 .help(row.now.outcome.title.ui)
             VStack(alignment: .leading, spacing: 2) {
+                // 2 行に収まらない名前の全体(2026-10-12)。
                 Text(marked).font(.body.monospaced()).textSelection(.enabled).lineLimit(2)
+                    .help(String(marked.characters))
                 Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 0)

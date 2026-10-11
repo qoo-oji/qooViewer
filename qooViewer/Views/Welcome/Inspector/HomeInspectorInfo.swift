@@ -41,7 +41,8 @@ struct HomeInspectorTitle: View {
 struct HomeInspectorInfoRow {
     let label: LocalizedStringKey
     let value: String
-    /// 値が切れて見えるとき(場所)に全体を見せるツールチップ。
+    /// 値が切れて見えるときに全体を見せるツールチップ。nil なら値そのもの(2026-10-12 ―― 以前は nil なら出さず、
+    /// コレクション名・ライブラリ名が省略されると全体を見る手段が無かった)。場所は短く書いた値ではなくフルパスを渡す。
     var help: String?
 }
 
@@ -66,7 +67,7 @@ struct HomeInspectorInfoSection: View {
                                 .truncationMode(.middle)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .help(row.help ?? "")
+                                .help(row.help ?? row.value)
                         }
                     }
                 }

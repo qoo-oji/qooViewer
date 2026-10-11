@@ -53,6 +53,7 @@ struct CollectionSettingsPopover: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(collection?.name ?? "")
                     .frame(maxWidth: 300, alignment: .leading)
             }
 

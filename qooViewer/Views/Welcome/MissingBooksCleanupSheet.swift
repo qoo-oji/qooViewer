@@ -93,6 +93,7 @@ struct MissingBooksCleanupSheet: View {
                             .foregroundStyle(.secondary)
                             .truncationMode(.middle)
                             .lineLimit(1)
+                            .help(book.path)
                         if !book.collectionName.isEmpty {
                             Text(book.collectionName)
                                 .font(.caption)

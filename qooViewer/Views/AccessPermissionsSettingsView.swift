@@ -37,6 +37,7 @@ struct AccessPermissionsSettingsView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                                    .help(grant.path)
                                 if let status = statusText(grant.status) {
                                     Text(status)
                                         .font(.subheadline)

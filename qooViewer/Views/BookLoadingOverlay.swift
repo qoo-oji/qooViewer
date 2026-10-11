@@ -98,6 +98,7 @@ struct BookLoadingOverlay: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .help(name)
                 }
             }
             Button("Cancel", role: .cancel) { onCancel() }

@@ -48,6 +48,7 @@ struct LibrarySettingsPopover: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(library.displayName(language: locale))
                     .frame(maxWidth: 240, alignment: .leading)
             }
 

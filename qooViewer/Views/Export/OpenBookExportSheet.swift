@@ -111,6 +111,7 @@ struct OpenBookExportSheet: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(displayName)
             }
 
             Divider()
@@ -143,11 +144,14 @@ struct OpenBookExportSheet: View {
                     Text("Title")
                     TextField("", text: viewModel.titleBinding(forBookID: book.id))
                         .textFieldStyle(.roundedBorder)
+                        // 欄より長い値は端が切れて見えるので、指したときに全体を出す(2026-10-12)。
+                        .help(viewModel.titleBinding(forBookID: book.id).wrappedValue)
                 }
                 GridRow {
                     Text("Author")
                     TextField("", text: viewModel.authorBinding(forBookID: book.id))
                         .textFieldStyle(.roundedBorder)
+                        .help(viewModel.authorBinding(forBookID: book.id).wrappedValue)
                 }
 
                 // カバー画像。PDFはカバーという概念を持たないので出さない

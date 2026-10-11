@@ -167,6 +167,7 @@ struct SecretFolderSettingsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(path)
                 if found.saved > 0 || found.history > 0 {
                     Text(verbatim: "Saved data remains for %1$lld books, and the history has %2$lld books.".ui(found.saved, found.history))
                         .font(.subheadline)
