@@ -228,6 +228,8 @@ actor PageLoader {
     /// (読むだけでも、ヒットしたファイルの更新日時を触るため)。メモリ上のキャッシュは本を閉じれば
     /// 消えるので、そちらは通常どおり使う。
     private let usesThumbnailDiskCache: Bool
+    /// ディスクキャッシュの置き場所(BookDiskCaches。テストは一時フォルダのものを渡す)。`usesThumbnailDiskCache` が false なら触らない。
+    private let diskCaches: BookDiskCaches
     /// ネットワークボリューム上の本の残りを裏で取り寄せるか(init のコメント)。
     private let stagesWholeFile: Bool
     /// リソースモニタの「メモリ」の内訳への届け出(MemoryUsageRegistry)。読み込みを手放したら外す(`releaseAllResources`)。
@@ -248,6 +250,7 @@ actor PageLoader {
         book: MangaBook,
         contrastCorrectionEnabled: Bool = false,
         usesThumbnailDiskCache: Bool = true,
+        diskCaches: BookDiskCaches = .shared,
         imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         stagesWholeFile: Bool = false,
@@ -256,6 +259,7 @@ actor PageLoader {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
+        self.diskCaches = diskCaches
         self.stagesWholeFile = stagesWholeFile
         // ネットワークボリューム上の本を、開いたら残りを裏で手元へ取り寄せるか(読み進めるうちにいずれ全部要る。
         // NetworkVolumeReading / StagedFileSource 参照)。**本をめくる画面だけ**(ビューア・ブックマークとレイアウトの編集)。
@@ -447,14 +451,14 @@ actor PageLoader {
 
         // ディスクキャッシュが OFF(環境設定の既定)なら、読みにも書きにも行かない(2026-09-25 の監査。以前は OFF でも 1 枚ごとに
         // 読みの問い合わせと、書き込み用の Task・CGImage を作ってから向こうで捨てられていた)。
-        guard usesThumbnailDiskCache, await ThumbnailDiskCache.shared.isEnabled else {
+        guard usesThumbnailDiskCache, await diskCaches.thumbnails.isEnabled else {
             return await pixels(
                 at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
             )?.makeImage()
         }
 
         let diskKey = thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
-        if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
+        if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
            let buffer = await Self.renderBuffer(from: fromDisk) {
             thumbnailCache.store(buffer, forKey: key)
             return buffer.makeImage()
@@ -467,9 +471,10 @@ actor PageLoader {
         // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
         // 失敗しても次回またデコードするだけ)。
         let pageID = page.id
+        let thumbnailCache = diskCaches.thumbnails
         Task.detached(priority: .background) {
             guard let image = decoded.makeImage() else { return }
-            await ThumbnailDiskCache.shared.store(image, bookKey: diskKey, pageID: pageID)
+            await thumbnailCache.store(image, bookKey: diskKey, pageID: pageID)
         }
         return decoded.makeImage()
     }
@@ -506,12 +511,12 @@ actor PageLoader {
         }
         // ディスクキャッシュが OFF(環境設定の既定)なら読みにも書きにも行かない(thumbnail(at:)と同じ)。
         var usesDisk = usesThumbnailDiskCache && usesDiskCache
-        if usesDisk { usesDisk = await ThumbnailDiskCache.shared.isEnabled }
+        if usesDisk { usesDisk = await diskCaches.thumbnails.isEnabled }
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesDisk {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
-            if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
+            if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
                let buffer = await Self.renderBuffer(from: fromDisk) {
                 gridThumbnailCache.store(buffer, forKey: key)
                 return buffer.makeImage()
@@ -525,10 +530,11 @@ actor PageLoader {
         if usesDisk {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             let pageID = page.id
+            let thumbnailCache = diskCaches.thumbnails
             // 書き込みは待たない(thumbnail(at:)と同じ考え方)。
             Task.detached(priority: .background) {
                 guard let image = decoded.makeImage() else { return }
-                await ThumbnailDiskCache.shared.store(image, bookKey: diskKey, pageID: pageID)
+                await thumbnailCache.store(image, bookKey: diskKey, pageID: pageID)
             }
         }
         return decoded.makeImage()
@@ -991,7 +997,7 @@ actor PageLoader {
         // ディスクキャッシュが設定でOFFなら作っても捨てられるだけなので、デコードもしない。
         var makesThumbnail = usesThumbnailDiskCache && !contrastCorrectionEnabled && !hadPersistedPageSizes
         if makesThumbnail {
-            makesThumbnail = await ThumbnailDiskCache.shared.isEnabled
+            makesThumbnail = await diskCaches.thumbnails.isEnabled
         }
         if let cachedSize, !makesThumbnail { return cachedSize }
         guard case .archive(let locator, let entryPath) = page.source,
@@ -1030,15 +1036,16 @@ actor PageLoader {
         scanReaderDecoderBytes = scanReader != nil ? reader.residentDecompressionBufferBytes : 0
         guard !isReleased, let data = read else { return nil }
         let pageID = page.id
+        let thumbnailCache = diskCaches.thumbnails
         // 解析・デコードはactorの外で行う(pageSize(at:)と同じ理由)。
         let task = Task.detached(priority: .utility) { () -> ImageDecoder.HeaderInfo? in
             let header = ImageDecoder.headerInfo(of: data)
             if let diskKey,
-               await !ThumbnailDiskCache.shared.hasThumbnail(bookKey: diskKey, pageID: pageID),
+               await !thumbnailCache.hasThumbnail(bookKey: diskKey, pageID: pageID),
                let thumbnail = ImageDecoder.decodePixels(
                    data, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
                )?.makeImage() {
-                await ThumbnailDiskCache.shared.store(thumbnail, bookKey: diskKey, pageID: pageID)
+                await thumbnailCache.store(thumbnail, bookKey: diskKey, pageID: pageID)
             }
             return header
         }
@@ -1071,7 +1078,7 @@ actor PageLoader {
     /// 入っていたページはpageSize/scanPageが書庫に触らずに答えられる。
     func loadPersistedPageSizes() async {
         guard usesThumbnailDiskCache, let fingerprint = pageSizePersistenceFingerprint() else { return }
-        guard let sizes = await BookPageListCache.shared.pageSizes(forBookID: book.id, fingerprint: fingerprint),
+        guard let sizes = await diskCaches.pageLists.pageSizes(forBookID: book.id, fingerprint: fingerprint),
               !isReleased
         else { return }
         for page in book.pages {
@@ -1094,7 +1101,7 @@ actor PageLoader {
             guard case .archive = page.source, let size = pageSizeCache[page.id] else { continue }
             sizes[page.sortKey] = [size.width, size.height]
         }
-        await BookPageListCache.shared.storePageSizes(sizes, forBookID: book.id, fingerprint: fingerprint)
+        await diskCaches.pageLists.storePageSizes(sizes, forBookID: book.id, fingerprint: fingerprint)
     }
 
     /// 寸法を永続化してよい本(本体が書庫ファイル1つ。BookPageListCache.Entry.pageSizesの

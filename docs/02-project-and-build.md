@@ -274,6 +274,13 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 
 `ThumbnailDiskCache` / `BookPageListCache` は保存先を `init(directory:)` で作業フォルダへ
 向けられます(既定の `shared` は利用者のキャッシュそのものなので、テストから触りません)。
+**キャッシュを通る経路を確かめるテストは、組(`BookDiskCaches(directory:)`)を渡します**(2026-10-11)。
+`BookLoader.load(caches:)`・`PageLoader(diskCaches:)`・`ViewerViewModel(diskCaches:)`(`ViewerHarness.open(_:usesDiskCaches: true)`)・
+`BookLayoutEditorViewModel(diskCaches:)`・`CoverOverrideController.diskCaches`・`BookExportViewModel.diskCaches`・
+`BookSavedDataEraser(pageListCache:)` が受け取ります。`cachesPageList` / `usesThumbnailDiskCache` / `usesDiskCaches` の旗は
+「この本はキャッシュを読み書きしない」(シークレット)の約束のまま残っていて、旗が false なら何を渡しても触りません。
+裏で書き込むページ一覧は `BookLoader.load(onPageListStored:)` で書き終わりを待てます(`ViewerHarness.loadBookCachingPageList`)。
+例は `qooViewerTests/DiskCacheInjectionTests.swift`。
 `CollectionCoverStore` / `CollectionTileImageStore` も同じで、**テストは必ず一時フォルダを渡します**
 (既定は利用者のカバー画像と札のキャッシュそのもの)。`InMemoryLibrary` はその 2 つを自分で作り、
 `close()` で消します。
@@ -323,7 +330,7 @@ Release 版を起動しないでください(空の設定で動きます)。
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
 (`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
 `BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`FileBrowserThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
-書きもしません(並び順の設定は 2026-09-13 に撤去したので、`EffectivePageOrder` は環境設定を読みません)。
+書きもしません(キャッシュの経路は上の `BookDiskCaches(directory:)` で作業フォルダのものを通します)(並び順の設定は 2026-09-13 に撤去したので、`EffectivePageOrder` は環境設定を読みません)。
 保存データの取り込みも同じで、`LibraryImportExportService.apply` /
 `buildExportFile` の `cachesPageList:`(取り込みは本を読み直すため)を `false` にし、
 `MetadataRulesStore` にはこのテスト専用の置き場所(一時ファイル・`legacyDefaults: nil`)を渡します

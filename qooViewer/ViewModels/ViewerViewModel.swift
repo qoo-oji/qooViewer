@@ -413,6 +413,8 @@ final class ViewerViewModel: ObservableObject {
     private var pendingLayoutReloadFocusPageKey: String?
     /// 共有のディスクキャッシュを使うか(init の `usesDiskCaches`)。取り込むものが無かった記録(sourceProbe)もこれに従う。
     private let usesSharedDiskCaches: Bool
+    /// そのディスクキャッシュの置き場所(init の `diskCaches`)。
+    private let diskCaches: BookDiskCaches
     /// 保持冊数の上限による整理(LibraryDataPruner)を、まだ済ませていないか。
     ///
     /// 表示の切り替えの監査の 13(2026-09-27): 新しい本を開いたときの整理を init から最初の見開きの後へ移した(init のコメント)。
@@ -433,10 +435,12 @@ final class ViewerViewModel: ObservableObject {
     ///   **テストのための口**で、テストは「DB(メモリ内のコンテナ)へは書くが、実物のアプリと
     ///   共有するディスクキャッシュには触れない」という組み合わせを必要とする。この 2 つは
     ///   `skipsPersistence` 1 つに束ねられていて、それが表せなかった。
+    /// - Parameter diskCaches: そのディスクキャッシュの置き場所(BookDiskCaches)。テストは一時フォルダのものを渡し、
+    ///   `usesDiskCaches: true` と組にしてキャッシュの経路を通す。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
-        usesDiskCaches: Bool? = nil,
+        usesDiskCaches: Bool? = nil, diskCaches: BookDiskCaches = .shared,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
         self.modelContext = modelContext
@@ -563,9 +567,10 @@ final class ViewerViewModel: ObservableObject {
         let initialContrastCorrectionEnabled = prepared.settings?.contrastCorrectionEnabled ?? false
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
         self.usesSharedDiskCaches = usesDiskCaches ?? !skipsPersistence
+        self.diskCaches = diskCaches
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
-            usesThumbnailDiskCache: usesDiskCaches ?? !skipsPersistence,
+            usesThumbnailDiskCache: usesDiskCaches ?? !skipsPersistence, diskCaches: diskCaches,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
             nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes,
             // ネットワークボリューム上の本は、残りを裏で手元へ取り寄せる(本をめくる画面。PageLoader.init のコメント)。
@@ -2050,7 +2055,7 @@ final class ViewerViewModel: ObservableObject {
     /// AppState.isPrivateWindow のコメント)。
     private func sourceProbe() async -> BookPageListCache.Entry.SourceProbe? {
         guard !skipsPersistence, usesSharedDiskCaches else { return nil }
-        return await BookPageListCache.shared.sourceProbe(forBookID: book.id, sourceURL: book.sourceURL)
+        return await diskCaches.pageLists.sourceProbe(forBookID: book.id, sourceURL: book.sourceURL)
     }
 
     /// 取り込むものが無かったことを書き足す(sourceProbe)。待たない。
@@ -2058,8 +2063,9 @@ final class ViewerViewModel: ObservableObject {
         guard !skipsPersistence, usesSharedDiskCaches else { return }
         let bookID = book.id
         let sourceURL = book.sourceURL
+        let pageListCache = diskCaches.pageLists
         Task.detached(priority: .background) {
-            await BookPageListCache.shared.storeSourceProbe(probe, forBookID: bookID, sourceURL: sourceURL)
+            await pageListCache.storeSourceProbe(probe, forBookID: bookID, sourceURL: sourceURL)
         }
     }
 

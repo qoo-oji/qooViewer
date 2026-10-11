@@ -164,8 +164,15 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 気づいたら都度refreshEffectiveIndices()で読み直す。
     private var layoutDataChangeObserver: NSObjectProtocol?
 
-    init(bookID: String, layoutStore: LayoutStore, preferences: AppPreferences, bookmarkStore: BookmarkStore) {
+    /// ページ一覧・サムネイルのディスクキャッシュの置き場所(BookDiskCaches。テストは一時フォルダのものを渡す)。
+    private let diskCaches: BookDiskCaches
+
+    init(
+        bookID: String, layoutStore: LayoutStore, preferences: AppPreferences, bookmarkStore: BookmarkStore,
+        diskCaches: BookDiskCaches = .shared
+    ) {
         self.bookID = bookID
+        self.diskCaches = diskCaches
         self.layoutStore = layoutStore
         self.preferences = preferences
         self.bookmarkStore = bookmarkStore
@@ -247,7 +254,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         isBookReady = false
         reloadLastShownReadingDirection()
 
-        let cached = await BookPageListCache.shared.pageList(forBookID: bookID)
+        let cached = await diskCaches.pageLists.pageList(forBookID: bookID)
         let cachedDescriptors = cached?.pages.map {
             PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName, folderPath: $0.folderPath)
         }
@@ -277,7 +284,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // シークレットフォルダの本(既存の保存データを編集しに来た)は、ページ一覧とサムネイルのディスクキャッシュを書かない
         // (SecretFolderStore。保存データの編集は止めないが、新しい痕跡は残さない ―― シークレットウインドウと同じ)。
         let isSecret = SecretFolderStore.isSecretAppWide(url) || SecretFolderStore.isSecretAppWide(path: bookID)
-        guard let loaded = try? await BookLoader.load(from: url, cachesPageList: !isSecret) else {
+        guard let loaded = try? await BookLoader.load(from: url, cachesPageList: !isSecret, caches: diskCaches) else {
             loadState = .failed
             return
         }
@@ -287,7 +294,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         guard !hasReleasedResources else { return }
         book = loaded
         // 本をめくる画面なので、ネットワークボリューム上の本は残りを裏で取り寄せる(PageLoader.init のコメント)。
-        pageLoader = PageLoader(book: loaded, usesThumbnailDiskCache: !isSecret,
+        pageLoader = PageLoader(book: loaded, usesThumbnailDiskCache: !isSecret, diskCaches: diskCaches,
                                 imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
                                 memoryUsageRole: .bookmarkEditor(title: isSecret ? nil : loaded.title))
         pageLoaderGeneration &+= 1
@@ -314,9 +321,9 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
     /// 読み込み済みの本から行を組む。**テストのための口**で、通常の経路は上の`load()`。
     ///
-    /// `load()` は共有のディスクキャッシュ(`BookPageListCache.shared`)を読み、その先の
-    /// `BookLoader.load(from:)` は既定でそこへ書き戻すため、テストからは**実物のキャッシュに
-    /// 触れずに行を用意できない**。行の組み立てと `PageLoader` の用意は `load()` と同じ。
+    /// `load()` はディスクキャッシュを読み、その先の `BookLoader.load(from:)` はそこへ書き戻す。`load()` を通すテストは
+    /// init の `diskCaches` に一時フォルダのものを渡す(2026-10-11)。こちらは本を自分で用意したいテストのためのもので、
+    /// 行の組み立てと `PageLoader` の用意は `load()` と同じ。
     ///
     /// - Parameter usesDiskCaches: `PageLoader` が共有のディスクキャッシュ(サムネイル・
     ///   ページ寸法)を使うか。既定はこれまでどおり使う。
@@ -324,7 +331,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         reloadLastShownReadingDirection()
         book = loaded
         pageLoader = PageLoader(
-            book: loaded, usesThumbnailDiskCache: usesDiskCaches,
+            book: loaded, usesThumbnailDiskCache: usesDiskCaches, diskCaches: diskCaches,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
             memoryUsageRole: .bookmarkEditor(title: usesDiskCaches ? loaded.title : nil)
         )

@@ -18,11 +18,17 @@ nonisolated enum BookLoader {
     /// - Parameter onProgress: 読み込みの進み具合。**メインアクター外から呼ばれる**ため、
     ///   UIへ反映するなら呼び出し側でホップすること。読み込みは外付け/ネットワークボリューム上の
     ///   本では長く待つため、ここで自分を強参照で捕まえないよう注意する(AppState.open参照)。
+    /// - Parameter caches: ページ一覧のキャッシュの置き場所(BookDiskCaches 参照。テストは一時フォルダのものを渡す)。
+    ///   `cachesPageList` が false ならどれを渡しても触らない。
+    /// - Parameter onPageListStored: ページ一覧をキャッシュへ書き終えたとき(書かなかったときは呼ばない)。書き込みは
+    ///   待たずに裏で行うので、書けたことを確かめたいテストが使う。
     static func load(
         from url: URL,
         cachesPageList: Bool = true,
+        caches: BookDiskCaches = .shared,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
-        onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil
+        onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil,
+        onPageListStored: (@Sendable () -> Void)? = nil
     ) async throws -> MangaBook {
         // シークレットフォルダの本(SecretFolderStore)は、どの経路から読んでもページ一覧のキャッシュを読み書きしない
         // (本のパスとページ名が残る。保存データの書き出し・取り込み・表紙の抽出など、呼び出し元ごとに足すと漏れるのでここで)。
@@ -32,7 +38,7 @@ nonisolated enum BookLoader {
         // コメント参照)。シークレットウインドウでは書かないだけでなく**読みもしない** ――
         // 通常ウインドウで作られたキャッシュを読むと痕跡こそ残らないが、同じ本でも開き方に
         // よって挙動が変わることになるため、安全側に倒して常にフルの読み込みにする。
-        if cachesPageList, let restored = await restoredFromStructureCache(url: url) {
+        if cachesPageList, let restored = await restoredFromStructureCache(url: url, cache: caches.pageLists) {
             return restored
         }
 
@@ -69,10 +75,12 @@ nonisolated enum BookLoader {
         // 畳むのも裏で(全ページの文字列処理と、指紋のための stat。2026-10-05 の効率の監査 C4)。この関数は `nonisolated async` で
         // 呼び出し側のアクタ ―― 本を開く経路ではメイン ―― で走るので、以前はページ数ぶんの処理と stat がメインに乗っていた。
         let bookID = book.id
+        let pageListCache = caches.pageLists
         Task.detached(priority: .utility) {
             // 指紋の stat を含むので FileIO の上で(R7)。
             let entry = await FileIO.perform(qos: .utility) { structureCacheEntry(for: book) }
-            await BookPageListCache.shared.store(entry, forBookID: bookID)
+            await pageListCache.store(entry, forBookID: bookID)
+            onPageListStored?()
         }
         return book
     }
@@ -154,11 +162,11 @@ nonisolated enum BookLoader {
     ///
     /// `@concurrent`: 指紋の stat と全ページの組み立てをメインで行わない(呼び出し側の `load` は本を開く経路ではメインで走る。
     /// 2026-10-05 の効率の監査 C4)。
-    @concurrent private static func restoredFromStructureCache(url: URL) async -> MangaBook? {
+    @concurrent private static func restoredFromStructureCache(url: URL, cache: BookPageListCache) async -> MangaBook? {
         guard isArchiveFile(url.lastPathComponent),
               !isPDFFile(url.lastPathComponent), !isEpubFile(url.lastPathComponent)
         else { return nil }
-        guard let entry = await BookPageListCache.shared.pageList(forBookID: url.path),
+        guard let entry = await cache.pageList(forBookID: url.path),
               entry.schemaVersion == BookPageListCache.Entry.currentSchemaVersion,
               entry.hasNestedArchives == true,
               entry.rootPath == url.path,

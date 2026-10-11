@@ -271,6 +271,11 @@ class BookExportViewModel: ObservableObject {
     var usesPageListCache = true {
         didSet { coverController.usesPageListCache = usesPageListCache }
     }
+    /// そのキャッシュの置き場所(BookDiskCaches)。テストは一時フォルダのものを入れて、書き出し本体(`exportOne`)を
+    /// 実物のキャッシュに触れずに通す。
+    var diskCaches: BookDiskCaches = .shared {
+        didSet { coverController.diskCaches = diskCaches }
+    }
 
     /// これらの画面はWindow(id:)という単一インスタンスのシーンで開くため、一度表示された
     /// ViewModelはウインドウを閉じても(BookmarkListView.BookmarkEditorViewの
@@ -1003,7 +1008,8 @@ class BookExportViewModel: ObservableObject {
 
         // シークレットフォルダの本はページ一覧のキャッシュを読み書きしない(SecretFolderStore)。
         let book = try await BookLoader.load(
-            from: sourceURL, cachesPageList: usesPageListCache && !SecretFolderStore.isSecretAppWide(sourceURL))
+            from: sourceURL, cachesPageList: usesPageListCache && !SecretFolderStore.isSecretAppWide(sourceURL),
+            caches: diskCaches)
         // 読んでいる間に付け替えられたら、保存データ(レイアウト・ブックマーク・題の編集)は新しい bookID で引く(TW-5)。
         try await write(prepare(row: followingRelocations(row, since: noticesBeforeLoading), book: book, displayState: openBookDisplayState), to: destinationFolder)
     }
@@ -1012,8 +1018,7 @@ class BookExportViewModel: ObservableObject {
     ///
     /// 書き込みと分けてあるのは、**この集め方だけをテストから確かめられるようにする**ため
     /// (読み方向の優先順位、鍵を持たない古いブックマークの解決)。`exportOne` は本を
-    /// `BookLoader.load(from:)` で読むので、そこを通すとテストが共有のページ一覧キャッシュに
-    /// 触れてしまう。
+    /// `BookLoader.load(from:)` で読むので、そこまで通すテストは `diskCaches` に一時フォルダのものを入れる。
     ///
     /// - Parameter displayState: 「いま開いている本を書き出す」経路でだけ渡る画面の状態
     ///   (`OpenBookDisplayState`)。3つの書き出しウインドウからは nil。

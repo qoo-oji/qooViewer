@@ -47,6 +47,8 @@ final class CoverOverrideController: ObservableObject {
     /// 本を読むときにページ一覧のディスクキャッシュ(`BookPageListCache`)を読み書きするか。シークレットウインドウからの
     /// 1 冊書き出しでは false(`BookExportViewModel.usesPageListCache` が渡す)。false のときは既定のカバー名もキャッシュを見ずに読む。
     var usesPageListCache = true
+    /// そのキャッシュの置き場所(BookDiskCaches。テストは一時フォルダのものを入れる)。
+    var diskCaches: BookDiskCaches = .shared
 
     /// 「この本のカバーの見え方が変わった」ことだけを表す通し番号。**値そのものは誰も読まない。**
     ///
@@ -247,7 +249,7 @@ final class CoverOverrideController: ObservableObject {
         )
 
         if cachesPageList(forBookID: bookID),
-           let cached = await BookPageListCache.shared.pageList(forBookID: bookID), !cached.pages.isEmpty {
+           let cached = await diskCaches.pageLists.pageList(forBookID: bookID), !cached.pages.isEmpty {
             // キャッシュのEntryはpageOrderSourceを持たないため、本体を読まずに分かる情報
             // (bookID=パスの拡張子)から判定する。PDF/EPUBはファイル自身が持つページ順
             // (.document)なので名前順に並べ替えてはいけない(MangaBook.pageOrderSource参照。
@@ -335,7 +337,8 @@ final class CoverOverrideController: ObservableObject {
         guard !Task.isCancelled else { return nil }
         return await CoverImageResolver.coverImage(
             bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize,
-            cachesPageList: usesPageListCache && !(bookURL.map(SecretFolderStore.isSecretAppWide) ?? false)
+            cachesPageList: usesPageListCache && !(bookURL.map(SecretFolderStore.isSecretAppWide) ?? false),
+            caches: diskCaches
         )
     }
 
@@ -350,7 +353,9 @@ final class CoverOverrideController: ObservableObject {
         if pickerScopedURLByBookID[bookID] == nil, url.startAccessingSecurityScopedResource() {
             pickerScopedURLByBookID[bookID] = url
         }
-        let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList(forBookID: url.path))
+        let book = try? await BookLoader.load(
+            from: url, cachesPageList: cachesPageList(forBookID: url.path), caches: diskCaches
+        )
         // 読み込んでいる間にピッカーが閉じられていたら(.taskが取り消される)、endCoverPickerは
         // 既に通り過ぎている。ここで閉じないと終了まで残る。
         if Task.isCancelled {
@@ -375,7 +380,9 @@ final class CoverOverrideController: ObservableObject {
         guard !Task.isCancelled, let url = resolveURL(bookID) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        return try? await BookLoader.load(from: url, cachesPageList: cachesPageList(forBookID: url.path))
+        return try? await BookLoader.load(
+            from: url, cachesPageList: cachesPageList(forBookID: url.path), caches: diskCaches
+        )
     }
 
     /// その本でページ一覧のキャッシュを読み書きするか。シークレットフォルダの本は使わない(SecretFolderStore)。

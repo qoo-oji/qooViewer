@@ -214,7 +214,7 @@ nonisolated enum CoverImageResolver {
     ///   ダウンロードを起こした)。棚の表紙の抽出は既定の false(利用者がコレクションに入れた本)。
     @concurrent nonisolated static func coverImage(
         bookAt url: URL?, snapshot: OverrideSnapshot, maxPixelSize: CGFloat,
-        cachesPageList: Bool = true, skipsNotDownloadedPages: Bool = false
+        cachesPageList: Bool = true, caches: BookDiskCaches = .shared, skipsNotDownloadedPages: Bool = false
     ) async -> CGImage? {
         // 1. 利用者が用意した画像が指定されていれば、本体を開かずにそれを読む。
         //    保管庫はこのアプリ自身の領域なので、セキュリティスコープの開始は要らない。
@@ -232,7 +232,7 @@ nonisolated enum CoverImageResolver {
            DatalessFiles.treeContainsDataless(url) {
             return nil
         }
-        guard let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList),
+        guard let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList, caches: caches),
               !book.pages.isEmpty
         else { return nil }
         guard let target = targetPage(in: book, snapshot: snapshot),

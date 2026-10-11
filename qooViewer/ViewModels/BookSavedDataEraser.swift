@@ -217,8 +217,17 @@ struct BookSavedDataEraser {
     let layoutStore: LayoutStore
     let metadataStore: BookMetadataStore
     let modelContext: ModelContext
+    /// 消す本のページ一覧を一緒に消すキャッシュ。既定はアプリのもの、テストの中では nil(共有のキャッシュに触らない)。
+    /// 消えることを確かめるテストは一時フォルダのもの(BookDiskCaches(directory:))を渡す。
+    var pageListCache: BookPageListCache? = Self.defaultPageListCache
 
-    func deleteAllData(forBookIDs bookIDs: [String]) {
+    static var defaultPageListCache: BookPageListCache? {
+        RuntimeEnvironment.isRunningTests ? nil : .shared
+    }
+
+    /// - Returns: ページ一覧のキャッシュを消している裏の仕事(キャッシュを持たないときは nil)。呼び出し側は待たなくてよい。
+    @discardableResult
+    func deleteAllData(forBookIDs bookIDs: [String]) -> Task<Void, Never>? {
         for bookID in bookIDs {
             favoritesStore.removeFavorites(forBookID: bookID)
             collectionStore.removeItems(forBookID: bookID)
@@ -229,10 +238,10 @@ struct BookSavedDataEraser {
         }
         // 読書履歴だけは、本ごとではなく最後にまとめて消す(deleteReadingStates 参照)。
         deleteReadingStates(forBookIDs: Set(bookIDs))
-        // ページ一覧のキャッシュ(本のパスとページ名を持つ)も消す(2026-09-22 の監査)。テストの中では共有のキャッシュに触らない。
-        if !RuntimeEnvironment.isRunningTests {
-            Task { await BookPageListCache.shared.remove(forBookIDs: bookIDs) }
-        }
+        // ページ一覧のキャッシュ(本のパスとページ名を持つ)も消す(2026-09-22 の監査)。テストの中では共有のキャッシュに触らない
+        // (`pageListCache` の既定)。
+        guard let pageListCache else { return nil }
+        return Task { await pageListCache.remove(forBookIDs: bookIDs) }
     }
 
     /// 読書履歴の削除。BookReadingStateは専用のストアクラスを持たず(ViewerViewModelが直接

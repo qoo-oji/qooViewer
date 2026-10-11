@@ -7,7 +7,8 @@ import SwiftData
 ///
 /// `ViewerViewModel` は本を開く経路そのもので、**実物のアプリと共有するもの**へ手が届く:
 /// SwiftData の保存先(→ `InMemoryLibrary`)、`UserDefaults.standard`(→ `PreferencesSuite`)、
-/// サムネイルとページ寸法のディスクキャッシュ(→ `usesDiskCaches: false`)、そして
+/// サムネイルとページ寸法のディスクキャッシュ(→ 既定は `usesDiskCaches: false`。キャッシュの経路を通すテストは
+/// `open(_:usesDiskCaches: true)` で、作業フォルダの中の `diskCaches` を使う)、そして
 /// 「いま開いている本」の静的な登録簿(→ `close()` で必ず外す)。この 4 つを塞いだ入口。
 ///
 /// 起動時に投げられる Task は `ViewerViewModel.settle()` で待ち合わせる。**時間で待たないこと**
@@ -19,6 +20,8 @@ final class ViewerHarness {
     let preferencesSuite: PreferencesSuite
     let preferences: AppPreferences
     private var openViewers: [ViewerViewModel] = []
+    /// 作業フォルダの中のディスクキャッシュ(BookDiskCaches)。`open(_:usesDiskCaches: true)` と `loadBookCachingPageList` が使う。
+    private(set) lazy var diskCaches = BookDiskCaches(directory: temporary.file("caches"))
 
     init(label: String = "viewer") throws {
         temporary = try TemporaryDirectory(label)
@@ -46,6 +49,17 @@ final class ViewerHarness {
         )
     }
 
+    /// 本を、ページ一覧を `diskCaches` へ書き戻す読み込み(`cachesPageList: true`)で開き、書き終えるまで待つ。
+    /// ページ寸法・「取り込むものが無かった」記録は、この読み込みが作った行にだけ書き足される(BookPageListCache)。
+    func loadBookCachingPageList(_ url: URL) async throws -> MangaBook {
+        let stored = OneShotSignal()
+        let book = try await BookLoader.load(
+            from: url, cachesPageList: true, caches: diskCaches, onPageListStored: { stored.fire() }
+        )
+        _ = await stored.wait()
+        return book
+    }
+
     /// 同じフォルダを開き直す(差し替え検知のテストで、中身を変えてから読み直すために使う)。
     func reloadBook(named name: String = "book") async throws -> MangaBook {
         try await FixtureBook.load(temporary.file(name))
@@ -55,16 +69,16 @@ final class ViewerHarness {
 
     /// ビューアを開き、起動時の Task が落ち着くまで待つ。
     func open(
-        _ book: MangaBook, skipsPersistence: Bool = false, initialPageID: String? = nil,
-        initialEdge: InitialPageEdge? = nil
+        _ book: MangaBook, skipsPersistence: Bool = false, usesDiskCaches: Bool = false,
+        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) async -> ViewerViewModel {
         let viewer = ViewerViewModel(
             book: book, modelContext: library.context, preferences: preferences,
             layoutStore: library.layouts, metadataStore: library.metadata,
             skipsPersistence: skipsPersistence,
             // 実物のアプリと共有するディスクキャッシュ(サムネイル・ページ寸法)には触れない。
-            // DB(メモリ内のコンテナ)へは書く ―― この組み合わせを表すための引数。
-            usesDiskCaches: false,
+            // DB(メモリ内のコンテナ)へは書く ―― この組み合わせを表すための引数。キャッシュを使うときも作業フォルダのもの。
+            usesDiskCaches: usesDiskCaches, diskCaches: diskCaches,
             initialPageID: initialPageID, initialEdge: initialEdge
         )
         openViewers.append(viewer)
