@@ -128,6 +128,14 @@
   日本語ロケールと英語ロケールで逆になる)。アプリとしては Finder に合わせている以上これが正しく、
   テストの golden 側で「名前の頭を ASCII にして並びを決める」ことで避けている(2026-09-05、
   CI が英語ロケールで走って発覚)。
+- **本を閉じてホームへ戻ると、最後の本の `ViewerViewModel` と `PageLoader` が 1 つ残る**(2026-10-11、CI の制御口の確かめ
+  `scripts/ci/smoke-control-port.py` で発見。macOS 26 と 27 の両方)。`heap` / `leaks --traceTree` の持ち主は
+  `FocusBridge.keyViewProxyCache`(ウインドウのホスティングビュー)→ `FocusableViewResponder`(ViewerView の `.focusable()`)→
+  `ContextMenuResponder` → `ContentShapeResponder` → `SpatialTapGesture` の応答者 → `HoverResponder` → `ProgressBarView` の
+  タップの閉包(`viewModel` を捕まえる)。SwiftUI がフォーカスの代理を、取り除いたビューのぶんまで持ち続けている。本を替えると
+  入れ替わるので窓 1 枚に 1 つまでで、資源(ページのキャッシュ・書庫)は `releaseResources()` で先に手放している(`openBookIDs` は空)。
+  空のイベントを流しても描き直させても 20 秒は残った。公開の報告は見つからなかった。直し方(閉包が VM を捕まえない形にする・
+  消える前にフォーカスを外す)は実機での確かめと合わせて決める。それまで CI はこの確かめを警告にとどめ、持ち主を出し続ける。
 - **EPUB**: 固定レイアウトの画像 EPUB のみ。目次は nav.xhtml だけ(`toc.ncx` へのフォールバック
   未対応)。
 - **ファイルブラウザ**(2026-09-14 時点): アイコンは種類の汎用アイコン、パスバーはパスの綴りのまま、「種類」列は OS の言語、
