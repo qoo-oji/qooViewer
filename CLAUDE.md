@@ -170,7 +170,12 @@ the viewer's TOC/metadata/ComicInfo imports, collection existence checks, drop c
 creation on 2026-10-06 — inside FileIO `Task.isCancelled` is always false, so check `Cancellation.isRequestedInCurrentScope` /
 `BookLoader.checkLoadCancellation()`) — **and never runs synchronously on
 the main actor either** (decision 18 of the 2026-10-04 audit: e.g. `FolderAccessStore` matches grants by the path recorded in the
-bookmark data and resolves only the one just added, instead of resolving every grant on main).
+bookmark data and resolves only the one just added, instead of resolving every grant on main). **Saved-data rows get their
+identifier, fingerprint and bookmark from `MangaBook.sourceFacts`** (`BookSourceFacts`, gathered on `FileIO` when a book is opened or
+loaded for editing/import, 2026-10-11) — code that rebuilds a `MangaBook` must carry `sourceFacts` (the viewer's `prepareBook` once
+dropped it and every layout/bookmark write queried the file on main), and book-less writes (cover choices, metadata) take
+`BookRowAnchors` built on `FileIO` (`anchors:`), never a URL to stat on main; the Debug build logs a fault when a write falls back to
+querying the file (docs/06「行に添える手がかりはメインの外で」).
 
 **SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
 `CollectionStore` (ViewModels/) all share a
