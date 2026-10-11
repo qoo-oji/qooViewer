@@ -2050,7 +2050,8 @@ final class ViewerViewModel: ObservableObject {
             else { return nil }
             return EpubStructureResolver.resolveTableOfContentsIfReadable(reader: reader, structure: structure)
         }
-        guard let entries else { return }
+        // 後始末をしたビューアは書かない(importComicInfoIfNeeded の頭のコメント)。
+        guard let entries, !hasReleasedResources else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
     }
@@ -2101,7 +2102,8 @@ final class ViewerViewModel: ObservableObject {
             return PDFStructureResolver.resolveMetadataIfReadable(url: sourceURL)
         }
 
-        guard let metadata = metadataOrNil else { return }
+        // 後始末をしたビューアは書かない(importComicInfoIfNeeded の頭のコメント)。
+        guard let metadata = metadataOrNil, !hasReleasedResources else { return }
         guard !metadata.isEmpty else {
             noteSourceProbe(.init(sourceMetadataIsEmpty: true))
             return
@@ -2148,6 +2150,10 @@ final class ViewerViewModel: ObservableObject {
     /// 行わない — この判定が無いと、同じ本を開くたびに毎回ComicInfo.xmlを読み直すことになる
     /// (EPUBの目次取り込みがbookmarks.isEmptyで早期に抜けるのと同じ考え方)。
     private func importComicInfoIfNeeded() async {
+        // 後始末をしたビューアでは何もしない(取り消した Task でも本体は走る)。保存先が先に手放されていると、行に触れた途端に
+        // 「This model instance was destroyed by calling ModelContext.reset」で落ちる(2026-10-11、CI の Debug。差し替え検知の
+        // 「設定を破棄」が予約したこの取り込みが、テストの後始末の後に走った ―― クラッシュレポートで確かめた)。待った後も見る。
+        guard !hasReleasedResources, !Task.isCancelled else { return }
         let needsMetadata = needsSourceMetadataImport
         let needsBookmarks = !hasAnyBookmark
         // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
@@ -2159,7 +2165,9 @@ final class ViewerViewModel: ObservableObject {
         guard needsMetadata || needsBookmarks || needsReadingDirection else { return }
         // 前に開いたとき(同じ本体のまま)、要るものが ComicInfo.xml に無かったなら探し直さない(sourceProbe のコメント。
         // フォルダの本は中の一覧を取り直し、書庫の本は全エントリの名前を見て回るので、開くたびに払っていた)。
-        if let probe = await sourceProbe() {
+        let probe = await sourceProbe()
+        guard !hasReleasedResources, !Task.isCancelled else { return }
+        if let probe {
             let absent = probe.comicInfoIsAbsent == true
             let lacksAllNeeded = (!needsMetadata || absent || probe.comicInfoLacksMetadata == true)
                 && (!needsBookmarks || absent || probe.comicInfoLacksBookmarks == true)
@@ -2183,6 +2191,7 @@ final class ViewerViewModel: ObservableObject {
                 ComicInfoResolver.lookup(bookAt: sourceURL)
             }
         }
+        guard !hasReleasedResources, !Task.isCancelled else { return }
         // 「無い」と「読めなかった」を分ける(2026-09-26)。読めなかった(NAS の瞬断・本を開いてすぐ閉じて PageLoader が解放
         // された)ものまで「無い」と覚えると、ファイルが変わるまで ComicInfo.xml の取り込みが二度と試されなくなる。
         let comicInfo: ComicInfo
@@ -2278,7 +2287,8 @@ final class ViewerViewModel: ObservableObject {
         let entriesOrNil = await FileIO.perform(qos: .utility) { () -> [PDFOutlineEntry]? in
             PDFStructureResolver.resolveOutlineIfReadable(url: sourceURL)
         }
-        guard let entries = entriesOrNil else { return }
+        // 後始末をしたビューアは書かない(importComicInfoIfNeeded の頭のコメント)。
+        guard let entries = entriesOrNil, !hasReleasedResources else { return }
         if entries.isEmpty { noteSourceProbe(.init(tableOfContentsIsEmpty: true)) }
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
     }
@@ -3934,8 +3944,9 @@ final class ViewerViewModel: ObservableObject {
 
         let wideness = await wideImageAspectRatios(for: orderedKeys)
         // 待っているあいだに本を閉じた/レイアウトを手で編集した可能性があるので、
-        // 書き込む直前にもう一度、前提が崩れていないことを確かめる。
-        guard pageLayoutStates.isEmpty, pendingLayoutReplacementStatus == nil else { return }
+        // 書き込む直前にもう一度、前提が崩れていないことを確かめる(後始末をしたビューアは書かない ―― importComicInfoIfNeeded の
+        // 頭のコメント)。
+        guard !hasReleasedResources, pageLayoutStates.isEmpty, pendingLayoutReplacementStatus == nil else { return }
 
         let planned = LayoutAutoCalculator.recalculate(
             orderedPageKeys: orderedKeys, anchor: .init(pageKeys: anchorKeys), scope: .wholeBook,
