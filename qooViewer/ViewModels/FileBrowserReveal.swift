@@ -78,7 +78,7 @@ extension AppState {
             guard let self else { return }
             guard let resolved else {
                 // 本が移動・削除された(Finder で開くも同じ場面では何も起きない)。
-                NSSound.beep()
+                UserFeedback.beep()
                 return
             }
             self.showInFileBrowser(url, isDirectory: resolved, openWindow: openWindow)
@@ -130,7 +130,7 @@ extension FileBrowserReveal {
         guard preferences.fileBrowserFeatureEnabled else { return }
         Task { @MainActor [weak preferences] in
             guard let isDirectory = await isDirectory(at: url) else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return
             }
             guard let preferences, preferences.fileBrowserFeatureEnabled else { return }

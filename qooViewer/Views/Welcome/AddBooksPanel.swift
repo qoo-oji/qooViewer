@@ -196,9 +196,9 @@ struct AddBooksPanel: View {
             language: locale
         )
         // このウインドウのシート(2026-09-27。WindowSheet)。その間にライブラリ機能が切られていたら足さない。
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, preferences.libraryFeatureEnabled else { return }
-            add(panel.urls)
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let urls, preferences.libraryFeatureEnabled else { return }
+            add(urls)
         }
     }
 

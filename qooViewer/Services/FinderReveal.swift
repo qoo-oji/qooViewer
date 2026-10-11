@@ -47,7 +47,7 @@ nonisolated enum FinderReveal {
         var isDir: ObjCBool = false
         // 見つからなければ鳴らす(以前は黙って何もしなかった。2026-10-06 の応答性の点検 R3-4)。
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         performReveal(url, isDirectory: isDir.boolValue)
@@ -78,7 +78,7 @@ nonisolated enum FinderReveal {
         guard pasteboard.writeObjects(urls.map { $0 as NSURL }),
               NSPerformService("Finder/Show Info", pasteboard) else {
             // Finder が応じなかったとき(実測では起きていない)。黙っていると押しても何も起きないように見えるので鳴らす。
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
     }

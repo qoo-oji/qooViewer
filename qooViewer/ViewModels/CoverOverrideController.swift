@@ -481,9 +481,9 @@ final class CoverOverrideController: ObservableObject {
         return true
     }
 
-    /// 画像をカバーにできなかったことの知らせ(setCoverFile)。テストの中では出さない(アラートは誰も閉じない)。
+    /// 画像をカバーにできなかったことの知らせ(setCoverFile)。テストの中では、答える役(SheetScripting)が無ければ WindowSheet が
+    /// 出さずに終える(以前はここで `isRunningTests` を見て出さなかったので、知らせることをテストで確かめられなかった)。
     private func reportCoverFileFailure(_ fileURL: URL, error: Error) {
-        guard !RuntimeEnvironment.isRunningTests else { return }
         let locale = preferences.effectiveLocale
         let alert = NSAlert()
         alert.alertStyle = .warning

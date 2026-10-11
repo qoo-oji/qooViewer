@@ -141,7 +141,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
         // 取り込み・読み込みの最中は読み直さない(行と読み込んだ zip を差し替えると、取り込みが読み終えていない行の中身が別の zip から
         // 来る。「ファイルを選ぶ」はその間淡色だが、選ぶパネルが出ている間に始まった場合のために入口でも断る。2026-10-04 の
         // レビューの R8a-4)。
-        guard !isApplying, !isLoading else { return NSSound.beep() }
+        guard !isApplying, !isLoading else { return UserFeedback.beep() }
         isLoading = true
         resultMessage = nil
         loadedFileName = url.lastPathComponent

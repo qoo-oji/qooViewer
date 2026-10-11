@@ -119,8 +119,8 @@ final class OpenWithApplications {
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         panel.prompt = String(localized: "Open", language: locale)
         panel.message = String(localized: "Choose an application to open the selected items.", language: locale)
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             then(url)
         }
     }

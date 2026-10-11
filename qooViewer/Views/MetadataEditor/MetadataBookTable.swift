@@ -873,7 +873,7 @@ struct MetadataBookTable: NSViewRepresentable {
             guard let columnIndex = table.tableColumns.firstIndex(where: { $0.identifier == target.identifier }),
                   !table.tableColumns[columnIndex].isHidden else {
                 insertion = nil
-                return NSSound.beep()
+                return UserFeedback.beep()
             }
             reload(IndexSet(integer: row))
             DispatchQueue.main.async { [weak self] in

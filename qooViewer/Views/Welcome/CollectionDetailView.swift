@@ -454,7 +454,7 @@ struct CollectionDetailView: View {
         let shown = Set(items.map(\.id))
         let targets = ids.filter(shown.contains).compactMap { collectionStore.item(withID: $0) }
         // 1 冊も残らなければ鳴らす(押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
-        guard !targets.isEmpty else { return NSSound.beep() }
+        guard !targets.isEmpty else { return UserFeedback.beep() }
         DataUndoStack.removeItems(targets, in: collectionStore, recordingOn: dataUndo)
         state.clearSelection()
     }
@@ -804,7 +804,7 @@ struct CollectionDetailView: View {
     private func copySelectedItems() {
         let targets = items.filter { state.selectedItemIDs.contains($0.id) }
         guard !targets.isEmpty else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         copy(targets)
@@ -958,7 +958,7 @@ struct CollectionDetailView: View {
             guard let only = selected.first else { return .handled }
             // 複数を選んでいるときに 1 冊だけ開くと、どれが開いたのか読めない(スマートライブラリと同じ)。
             guard selected.count == 1 else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return .handled
             }
             open(only)

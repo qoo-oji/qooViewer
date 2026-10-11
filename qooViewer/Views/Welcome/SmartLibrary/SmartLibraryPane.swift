@@ -278,7 +278,7 @@ struct SmartLibrarySidebar: View {
             if await FileIO.perform({ FileManager.default.fileExists(atPath: path) }) {
                 FinderReveal.reveal(url)
             } else {
-                NSSound.beep()
+                UserFeedback.beep()
             }
         }
     }
@@ -302,7 +302,7 @@ struct SmartLibrarySidebar: View {
                     (appState?.preferences?.smartLibraryFeatureEnabled ?? false) && !(appState?.isPrivateWindow ?? true)
                 }
             )
-            if result?.added.isEmpty ?? true { NSSound.beep() }
+            if result?.added.isEmpty ?? true { UserFeedback.beep() }
             // シークレットフォルダは足さない。黙って捨てると「落としたのに並ばない」になるので知らせる(X-7)。
             if let refused = result?.refusedSecret, !refused.isEmpty, let appState {
                 appState.postViewerNotice(SmartLibraryTargetAdding.secretRefusedMessage(
@@ -322,11 +322,11 @@ struct SmartLibrarySidebar: View {
         panel.message = String(localized: "Choose folders whose books appear in the smart library.", language: locale)
         // このウインドウのシート(2026-09-27。WindowSheet)。その間にスマートライブラリ機能が切られていたら足さない(上のドロップと同じ)。
         let locale = locale
-        WindowSheet.begin(panel) { [weak appState] response in
-            guard response == .OK, appState?.preferences?.smartLibraryFeatureEnabled ?? false else { return }
+        WindowSheet.beginChoosing(panel) { [weak appState] urls in
+            guard let urls, appState?.preferences?.smartLibraryFeatureEnabled ?? false else { return }
             // シークレットフォルダそのもの・その中は足さずに知らせる(2026-10-04 の監査 X-7。以前は足して、一冊も並ばなかった)。
-            let refused = panel.urls.filter(SmartLibraryTargetAdding.isRefusedAsSecret)
-            for url in panel.urls where !SmartLibraryTargetAdding.isRefusedAsSecret(url) {
+            let refused = urls.filter(SmartLibraryTargetAdding.isRefusedAsSecret)
+            for url in urls where !SmartLibraryTargetAdding.isRefusedAsSecret(url) {
                 folderAccess.add(url: url)
                 store.addFolder(url)
             }
@@ -1405,7 +1405,7 @@ struct SmartLibraryContent: View {
         let items = state.selectedItems
         guard !items.isEmpty else { return }
         guard items.count == 1, let item = items.first else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         activate(item)
@@ -1742,7 +1742,7 @@ struct SmartLibraryContent: View {
     private func copy(_ items: [SmartGridItem]) {
         let books = Self.books(in: items)
         guard !books.isEmpty else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         copy(books)

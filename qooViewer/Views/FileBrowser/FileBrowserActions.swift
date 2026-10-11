@@ -57,7 +57,7 @@ final class FileBrowserActions {
         guard state != nil else { return nil }
         // 何も起きない組み合わせ(複数のフォルダ・リンクを含む)なら鳴らす。黙っていると押しても何も起きないように見える。
         guard canOpen(entries) else {
-            if !entries.isEmpty { NSSound.beep() }
+            if !entries.isEmpty { UserFeedback.beep() }
             return nil
         }
         if entries.count == 1, let entry = entries.first, entry.isNavigableFolder {
@@ -399,8 +399,8 @@ final class FileBrowserActions {
             language: locale
         )
         // 操作されたウインドウのシート(2026-09-27。WindowSheet)。
-        WindowSheet.begin(panel) { [self] response in
-            guard response == .OK, let granted = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { [self] urls in
+            guard let granted = urls?.first else { return }
             folderAccess?.add(url: granted)
             state.reload()
         }
@@ -422,8 +422,8 @@ final class FileBrowserActions {
             language: locale
         )
         // 操作されたウインドウのシート(2026-09-27。WindowSheet)。その間にファイルブラウザ機能が切られていたら足さない。
-        WindowSheet.begin(panel) { [self] response in
-            guard response == .OK, let granted = panel.url,
+        WindowSheet.beginChoosing(panel) { [self] urls in
+            guard let granted = urls?.first,
                   preferences?.fileBrowserFeatureEnabled ?? true else { return }
             folderAccess?.add(url: granted)
             favoriteLocations?.add(granted)
@@ -698,7 +698,7 @@ extension FileBrowserActions {
     func performOnTreeRowInList(_ command: FileBrowserMenuCommand, _ entry: FileBrowserEntry) -> Task<Void, Never>? {
         guard let state, let parent = FileBrowserState.parent(of: entry.url) else {
             // 淡色にしてあるので来ないはず(`canRevealTreeRowInList`)。来たら黙らずに鳴らす。
-            NSSound.beep()
+            UserFeedback.beep()
             return nil
         }
         let parentKey = FileBrowserState.location(of: parent).selectionKey
@@ -707,7 +707,7 @@ extension FileBrowserActions {
             await state?.settle()
             guard let self, let state, self.state === state else { return }
             guard state.location.selectionKey == parentKey, let listed = state.entry(withID: entry.id) else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return
             }
             switch command {

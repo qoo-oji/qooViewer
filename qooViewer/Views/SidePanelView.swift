@@ -1233,7 +1233,7 @@ private struct BookContentsSectionView: View {
         }
         .onChange(of: state.stepInFailure) { _, failure in
             guard let failure else { return }
-            NSSound.beep()
+            UserFeedback.beep()
             stepInFailureMessage = failure.message
             stepInFailureDismissTask?.cancel()
             stepInFailureDismissTask = Task { @MainActor in
@@ -1438,7 +1438,7 @@ private struct BookContentsSectionView: View {
             onOpen(url)
         case .excludedPage:
             // 除外したページには行き先が無い(どの階層でも同じ。BookContentsBrowserState.resolveImageClick のコメント)。
-            NSSound.beep()
+            UserFeedback.beep()
         case .unavailable:
             break
         }

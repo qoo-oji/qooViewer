@@ -122,8 +122,8 @@ struct CollectionCoverEditArea: View {
         panel.message = String(
             localized: "Choose an image file to use as the cover.", language: locale
         )
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
         }
     }
@@ -357,8 +357,8 @@ struct FileBrowserCoverArea: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: locale)
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
         }
     }

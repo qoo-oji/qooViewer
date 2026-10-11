@@ -123,7 +123,7 @@ final class CollectionItemOpenTracker {
             case .found(let url): body(url)
             case .notFound(let location): onNotFound(location)
             case .timedOut:
-                if let onTimedOut { onTimedOut() } else { NSSound.beep() }
+                if let onTimedOut { onTimedOut() } else { UserFeedback.beep() }
             }
         }
     }

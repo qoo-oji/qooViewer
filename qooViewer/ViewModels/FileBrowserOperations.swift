@@ -931,7 +931,7 @@ final class FileBrowserOperations: ObservableObject {
         // 黙らない(2026-10-06 の応答性の点検 R6-4)。
         if outcome == .nothingToDo {
             // テストの間は鳴らさない(CLAUDE.md「file-operation sounds are silent」)。
-            if !RuntimeEnvironment.isRunningTests { NSSound.beep() }
+            if !RuntimeEnvironment.isRunningTests { UserFeedback.beep() }
             return
         }
         guard outcome.needsAttention, let problem = FileBrowserProblem.undo(outcome, isRedo: isRedo) else { return }

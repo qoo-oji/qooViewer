@@ -517,7 +517,7 @@ final class FileBrowserTreeOutlineView: FileBrowserOutlineView, NSMenuItemValida
             if canPerformEdit?(command) == true {
                 onEdit?(command)
             } else {
-                NSSound.beep()
+                UserFeedback.beep()
             }
             return true
         }

@@ -269,9 +269,9 @@ struct SecretFolderSettingsView: View {
             localized: "Choose folders whose books should leave no history, saved data or metadata.", language: locale
         )
         // 読む権限は要らない(パスで比べるだけ)ので、FolderAccessStore には足さない。
-        WindowSheet.begin(panel) { response in
-            guard response == .OK else { return }
-            secretFolders.add(paths: panel.urls.map { $0.standardizedFileURL.path })
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let urls else { return }
+            secretFolders.add(paths: urls.map { $0.standardizedFileURL.path })
         }
     }
 }

@@ -1501,7 +1501,7 @@ struct QooViewerApp: App {
                     // 淡色の判定はペーストボードの写し(FileBrowserState.pasteboardHasFiles)なので古いことがある。押した時点で
                     // 確かめ、貼れなければ鳴らして写しを直す(黙っていると押しても何も起きないように見える)。
                     guard actions.canPerform(.moveItemHere) else {
-                        NSSound.beep()
+                        UserFeedback.beep()
                         actions.state?.refreshPasteboardState()
                         return
                     }
@@ -3556,7 +3556,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     func closeTab() {
         guard let window else { return }
         guard window.attachedSheet == nil else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         if windowShouldClose(window) {
@@ -3638,7 +3638,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         let tabCount = window.tabGroup?.windows.count ?? 1
         guard tabCount > 1 else { return close() }
         guard window.attachedSheet == nil else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
 

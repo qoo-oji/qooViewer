@@ -554,8 +554,8 @@ struct ExportWindowContent<Options: View>: View {
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = configuration.destinationPanelMessage(locale)
         panel.directoryURL = configuration.lastUsedFolder.folderPanelStartDirectory()
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let destination = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let destination = urls?.first else { return }
             configuration.lastUsedFolder.remember(destination, panelDirectory: panel.directoryURL)
             // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
             startExport(to: destination, isSecurityScoped: false, locale: locale)
@@ -970,8 +970,8 @@ struct ExportCoverPickerContent: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
             dismiss()
         }

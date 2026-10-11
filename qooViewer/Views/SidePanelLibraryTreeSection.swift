@@ -205,20 +205,20 @@ struct SidePanelLibraryTreeSection: View {
             BookOpenContextMenuItems(
                 onOpen: { open(itemID) },
                 onOpenIn: { destination in
-                    guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
+                    guard let item = collectionStore?.item(withID: itemID) else { return UserFeedback.beep() }
                     let makeRequest = requestMaker(opening: item)
                     withResolvedURL(item) { url in onOpenInNewWindow(makeRequest(url), destination) }
                 }
             )
             Divider()
             Button("Show in Finder") {
-                guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
+                guard let item = collectionStore?.item(withID: itemID) else { return UserFeedback.beep() }
                 withResolvedURL(item) { url in FinderReveal.reveal(url) }
             }
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
-                    guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
+                    guard let item = collectionStore?.item(withID: itemID) else { return UserFeedback.beep() }
                     withResolvedURL(item) { url in
                         // 確かめを待つ間に機能が OFF になっていたら何もしない(await の後は確かめ直す)。
                         guard revealInFileBrowser.isFeatureEnabled else { return }
@@ -231,7 +231,7 @@ struct SidePanelLibraryTreeSection: View {
 
     /// 行の本を開く。行は値の写しなので、押した時点の行(モデル)をストアから引き直す ―― 写しの後に外された本は鳴らすだけ。
     private func open(_ itemID: UUID) {
-        guard let item = collectionStore?.item(withID: itemID) else { return NSSound.beep() }
+        guard let item = collectionStore?.item(withID: itemID) else { return UserFeedback.beep() }
         let makeRequest = requestMaker(opening: item)
         // 確かめを待つ間(最長 45 秒)にこの窓で別の本を頼んでいたら、後から置き換えない(2026-10-04 の監査 SP-10。待ち始めるここで
         // 開く意図を進める ―― 後から頼んだ方が勝つ。AppState.OpenIntent、レビューの R6-1)。

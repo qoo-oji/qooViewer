@@ -294,7 +294,7 @@ enum ExportDestinationPanel {
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = String(localized: "Choose a destination folder for the exported book.", language: locale)
         panel.directoryURL = format.lastUsedFolder.folderPanelStartDirectory(current: startingAt)
-        guard await WindowSheet.run(panel, for: window) == .OK, let folder = panel.url else { return nil }
+        guard let folder = await WindowSheet.chooseURLs(panel, for: window)?.first else { return nil }
         format.lastUsedFolder.remember(folder, panelDirectory: panel.directoryURL)
         return folder
     }

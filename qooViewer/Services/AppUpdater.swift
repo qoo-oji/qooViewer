@@ -72,7 +72,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// メニューの「アップデートを確認…」。押せない状態(淡色のはず)で呼ばれたら鳴らす(CLAUDE.md「拒むときは知らせる」)。
     func checkForUpdates() {
         guard let controller, controller.updater.canCheckForUpdates else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         controller.checkForUpdates(nil)

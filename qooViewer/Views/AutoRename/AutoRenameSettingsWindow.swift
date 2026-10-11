@@ -490,8 +490,8 @@ private struct AutoRenameRuleEditor: View {
             localized: "Choose a folder in Favorite Locations, or a folder inside one, to rename items in automatically.",
             language: locale
         )
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             let panelDirectory = panel.directoryURL ?? url.deletingLastPathComponent()
             Task {
                 let result = await service.addTarget(folder: url, toRule: ruleID)
@@ -613,8 +613,8 @@ private struct AutoRenameTargetRow: View {
         panel.directoryURL = target.url
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(localized: "To rename items in this folder automatically, please select and grant access to it.", language: locale)
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             _ = folderAccess.add(url: url)
             service.refreshAvailability()
         }

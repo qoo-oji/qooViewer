@@ -489,8 +489,8 @@ final class SidePanelBrowserState: ObservableObject {
             language: locale
         )
         // 操作されたウインドウ(キー)のシート(2026-09-27。WindowSheet)。
-        WindowSheet.begin(panel) { [weak self] response in
-            guard response == .OK, let grantedURL = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { [weak self] urls in
+            guard let grantedURL = urls?.first else { return }
             // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
             // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
             // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。

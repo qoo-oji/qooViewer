@@ -342,7 +342,7 @@ struct LayoutStoreTests {
     }
 
     /// 2026-10-04 の監査 TW-14。以前は `try?` で捨て、画像として読めないファイルを選んでも何も起きず、何も知らせなかった。
-    /// 知らせ(アラート)はテストの中では出さないので、ここでは結果だけを見る。
+    /// 知らせのアラートは SheetAndFeedbackPortTests.coverFileFailureIsReportedWithAnAlert が確かめる(答える役の無いここでは出ない)。
     @Test("カバーを選ぶ画面の「ファイルを選ぶ…」: 画像として読めないファイルは失敗を返して何も書かない。読める画像は表紙になる")
     func choosingAFileThatIsNotAnImageReportsFailure() async throws {
         let library = try InMemoryLibrary(label: "layout-cover-file-failure")

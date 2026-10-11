@@ -938,7 +938,7 @@ class BookExportViewModel: ObservableObject {
     @discardableResult
     private func runExport(targets: [Row], destinationFolder: URL) async -> Bool {
         guard !isExporting else {
-            NSSound.beep()
+            UserFeedback.beep()
             return false
         }
         // ⌘Q の確認のために数える(RunningWorkRegistry)。

@@ -227,7 +227,7 @@ enum BookWindowOpener {
             guard let source, source.hostWindow != nil,
                   let pending = source.takeExpiredPassThroughPending() else { return }
             guard shouldOpenSecretBookPrivately(pending, opensPrivately: source.isPrivateWindow) else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return
             }
             openSecretBookPrivatelyQuietly(pending, source: source, launchCoordinator: launchCoordinator, openWindow: openWindow)

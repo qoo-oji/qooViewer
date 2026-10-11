@@ -35,6 +35,14 @@ enum WindowSheet {
     /// ここで出しているアラートのウインドウ。上に重ねない。
     private static var presentedAlertWindows: Set<ObjectIdentifier> = []
 
+    /// テストホストの中で、答える役(SheetScripting.responder)が無いのに出す先を省かれたら出さずにキャンセル扱いにする。
+    /// 省いたときの出す先はキーウインドウ ―― テストホストのアプリのウインドウで、そこへ付けたシートは誰も閉じない(以後のシートが
+    /// すべて「既に出ている」になる)。アプリモーダルは `runModal` がテストを止めたままにする。ウインドウを自分で渡すテスト
+    /// (WindowSheetTests)は、そのウインドウへ本当に出す。
+    private static func refusesInTestHost(_ window: NSWindow?) -> Bool {
+        window == nil && RuntimeEnvironment.isRunningTests
+    }
+
     /// どこへ出すか。
     static func placement(for window: NSWindow?) -> Placement {
         guard var host = window ?? NSApp.keyWindow else { return .appModal }
@@ -110,10 +118,18 @@ enum WindowSheet {
     // MARK: 保存パネル・開くパネル
 
     /// パネルを出し、閉じたら`completion`を呼ぶ。出す先は呼んだ時点で決める(同期の呼び出し元から使う)。
+    ///
+    /// **選ばれた場所を読むなら `beginChoosing` / `chooseURLs` を使う**(テストが答えを差し込めるのは、そちらの戻り値だけ ――
+    /// `panel.urls` は読み取り専用で、出さずに埋められない)。
     static func begin(
         _ panel: NSSavePanel, for window: NSWindow? = nil,
         completion: @escaping (NSApplication.ModalResponse) -> Void
     ) {
+        if let responder = SheetScripting.responder {
+            completion(responder.reply(to: .init(panel: panel)).modalResponse)
+            return
+        }
+        guard !refusesInTestHost(window) else { return completion(.cancel) }
         switch placement(for: window) {
         case .sheet(let host):
             let watch = CloseWatch(sheet: panel, windows: chain(from: window))
@@ -122,9 +138,11 @@ enum WindowSheet {
                 afterSheetIsGone { completion(response) }
             }
         case .appModal:
+            // テストホストの中で、答える役の無いアプリモーダルは出さない(runModal はテストを止めたままにする)。
+            guard !RuntimeEnvironment.isRunningTests else { return completion(.cancel) }
             completion(panel.runModal())
         case .busy:
-            NSSound.beep()
+            UserFeedback.beep()
             completion(.cancel)
         }
     }
@@ -136,13 +154,42 @@ enum WindowSheet {
         }
     }
 
+    /// パネルを出し、選ばれた場所(開くパネルなら選ばれたすべて、保存パネルなら保存先)を返す。キャンセルなら nil。
+    static func beginChoosing(
+        _ panel: NSSavePanel, for window: NSWindow? = nil, completion: @escaping ([URL]?) -> Void
+    ) {
+        if let responder = SheetScripting.responder {
+            completion(responder.reply(to: .init(panel: panel)).chosenURLs)
+            return
+        }
+        begin(panel, for: window) { response in
+            guard response == .OK else { return completion(nil) }
+            let urls = (panel as? NSOpenPanel)?.urls ?? panel.url.map { [$0] } ?? []
+            completion(urls.isEmpty ? nil : urls)
+        }
+    }
+
+    /// `beginChoosing(_:for:completion:)`の async 版。
+    static func chooseURLs(_ panel: NSSavePanel, for window: NSWindow? = nil) async -> [URL]? {
+        await withCheckedContinuation { continuation in
+            beginChoosing(panel, for: window) { continuation.resume(returning: $0) }
+        }
+    }
+
     // MARK: アラート
 
     static func begin(
         _ alert: NSAlert, for window: NSWindow? = nil,
         completion: @escaping (NSApplication.ModalResponse) -> Void
     ) {
+        if let responder = SheetScripting.responder {
+            completion(responder.reply(to: .init(alert: alert)).modalResponse)
+            return
+        }
+        guard !refusesInTestHost(window) else { return completion(.cancel) }
         guard case .sheet(let host) = placement(for: window) else {
+            // テストホストの中で、答える役の無いアプリモーダルは出さない(runModal はテストを止めたままにする)。
+            guard !RuntimeEnvironment.isRunningTests else { return completion(.cancel) }
             completion(alert.runModal())
             return
         }
@@ -178,6 +225,10 @@ enum WindowSheet {
     /// (アプリモーダルのとき)を呼ぶこと。同じウインドウでパネル・アラートが既に出ていれば、保存パネルと同じくビープして
     /// キャンセル扱い(上に重ねない)。出している間は「ここで出したもの」に数え、上にパネル・アラートを重ねさせない。
     static func run(sheetWindow sheet: NSWindow, for window: NSWindow? = nil) async -> NSApplication.ModalResponse {
+        if let responder = SheetScripting.responder {
+            return responder.reply(to: .init(sheetWindow: sheet)).modalResponse
+        }
+        guard !refusesInTestHost(window) else { return .cancel }
         switch placement(for: window) {
         case .sheet(let host):
             let sheetID = ObjectIdentifier(sheet)
@@ -194,13 +245,114 @@ enum WindowSheet {
             }
             return response
         case .appModal:
+            // テストホストの中で、答える役の無いアプリモーダルは出さない(runModal はテストを止めたままにする)。
+            guard !RuntimeEnvironment.isRunningTests else { return .cancel }
             sheet.center()
             let response = NSApp.runModal(for: sheet)
             sheet.orderOut(nil)
             return response
         case .busy:
-            NSSound.beep()
+            UserFeedback.beep()
             return .cancel
         }
+    }
+}
+
+// MARK: - テストのための口
+
+/// WindowSheet が出すものに、出す代わりに答える役の置き場所(2026-10-11、「GUI 無しで確かめる口」の点検)。
+///
+/// 以前は、確認のアラートや「開く…」のパネルの先にある処理(選んだ本を開く・フォルダの許可を足す・確認の答えで分かれる処理)を
+/// テストが通せなかった ―― 答えるには本物のシートを押すしかない。テストは `SheetScripting.$responder.withValue(responder) { … }` の
+/// 中で入口を叩き、`ScriptedSheetResponder` が順に答えを返す(出したもの ―― 文言・ボタン・パネルの設定 ―― は記録に残る)。
+/// TaskLocal にしてあるのは UserFeedback.recorder と同じ理由(並行して走るテストの間で混ざらない)。
+nonisolated enum SheetScripting {
+    @TaskLocal static var responder: ScriptedSheetResponder?
+}
+
+@MainActor
+final class ScriptedSheetResponder {
+    /// 出されたもの(記録)。
+    struct Presentation: Equatable {
+        enum Kind: Equatable { case alert, openPanel, savePanel, sheetWindow }
+        let kind: Kind
+        /// アラートの見出しと説明。パネルは `message`、自前のシートは題。
+        let messageText: String
+        let informativeText: String
+        /// アラートのボタンの題(並び順のまま。最初のものが既定のボタン)。
+        let buttonTitles: [String]
+        /// パネルの「開く」ボタンの題と、最初に出す場所。
+        let prompt: String?
+        let directoryURL: URL?
+
+        init(alert: NSAlert) {
+            kind = .alert
+            messageText = alert.messageText
+            informativeText = alert.informativeText
+            buttonTitles = alert.buttons.map(\.title)
+            prompt = nil
+            directoryURL = nil
+        }
+
+        init(panel: NSSavePanel) {
+            kind = panel is NSOpenPanel ? .openPanel : .savePanel
+            messageText = panel.message
+            informativeText = ""
+            buttonTitles = []
+            prompt = panel.prompt
+            directoryURL = panel.directoryURL
+        }
+
+        init(sheetWindow: NSWindow) {
+            kind = .sheetWindow
+            messageText = sheetWindow.title
+            informativeText = ""
+            buttonTitles = []
+            prompt = nil
+            directoryURL = nil
+        }
+    }
+
+    /// 返す答え。答えが尽きたら `.cancel`。
+    enum Reply: Equatable {
+        /// アラートの n 番目(0 始まり)のボタン。
+        case button(Int)
+        /// パネルで、これらを選んで「開く」/「保存」。
+        case choose([URL])
+        /// そのままの応答(自前のシートなど)。
+        case response(NSApplication.ModalResponse)
+        case cancel
+
+        var modalResponse: NSApplication.ModalResponse {
+            switch self {
+            case .button(let index):
+                NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + index)
+            case .choose: .OK
+            case .response(let response): response
+            case .cancel: .cancel
+            }
+        }
+
+        var chosenURLs: [URL]? {
+            if case .choose(let urls) = self, !urls.isEmpty { return urls }
+            return nil
+        }
+    }
+
+    private(set) var presentations: [Presentation] = []
+    private var replies: [Reply]
+
+    init(replies: [Reply] = []) {
+        self.replies = replies
+    }
+
+    /// 次の答えを積む。
+    func enqueue(_ reply: Reply) {
+        replies.append(reply)
+    }
+
+    func reply(to presentation: Presentation) -> Reply {
+        presentations.append(presentation)
+        return replies.isEmpty ? .cancel : replies.removeFirst()
     }
 }

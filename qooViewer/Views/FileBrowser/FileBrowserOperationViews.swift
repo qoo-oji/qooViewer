@@ -201,7 +201,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
                 ? String(localized: "Choose where to extract the archive.", language: locale)
                 : String(format: String(localized: "Choose where to extract the %lld archives.", language: locale), count)
         }
-        return await WindowSheet.run(panel, for: appState?.hostWindow) == .OK ? panel.url : nil
+        return await WindowSheet.chooseURLs(panel, for: appState?.hostWindow)?.first
     }
 
     func showProblem(_ problem: FileBrowserProblem) {

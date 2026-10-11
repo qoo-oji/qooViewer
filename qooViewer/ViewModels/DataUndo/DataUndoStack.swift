@@ -71,7 +71,7 @@ final class DataUndoStack {
             redoSteps.append(Entry(step: entry.step, isFromFileBrowserScreen: entry.isFromFileBrowserScreen, recency: UndoRecency.next()))
         } else {
             entry.step.discard()
-            NSSound.beep()
+            UserFeedback.beep()
         }
         publish()
     }
@@ -83,7 +83,7 @@ final class DataUndoStack {
             undoSteps.append(Entry(step: entry.step, isFromFileBrowserScreen: entry.isFromFileBrowserScreen, recency: UndoRecency.next()))
         } else {
             entry.step.discard()
-            NSSound.beep()
+            UserFeedback.beep()
         }
         publish()
     }

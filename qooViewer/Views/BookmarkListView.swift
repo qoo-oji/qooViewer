@@ -1014,7 +1014,7 @@ struct BookmarkEditorView: View {
     /// しない(鳴らす)。
     private func stillListed(_ bookID: String) -> Bool {
         guard mergedRows.contains(where: { $0.bookID == bookID }) else {
-            NSSound.beep()
+            UserFeedback.beep()
             return false
         }
         return true

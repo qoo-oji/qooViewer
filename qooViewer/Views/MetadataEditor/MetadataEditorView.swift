@@ -954,7 +954,7 @@ struct MetadataBookTableView: View {
         case .volumeSort:
             // 全角の数字・小数点でも入るように、揃えてから読む。数に読めなければ何もしない(元の値のまま)。
             let number = text.isEmpty ? nil : MetadataWorkspace.volumeSortNumber(text)
-            if !text.isEmpty, number == nil { return NSSound.beep() }
+            if !text.isEmpty, number == nil { return UserFeedback.beep() }
             workspace.setVolumeSort(number, for: [book.id])
         case .field(.series):
             guard !text.isEmpty else { return workspace.removeFromSeries([book.id]) }
@@ -963,7 +963,7 @@ struct MetadataBookTableView: View {
             if text.isEmpty { workspace.clearVolumes([book.id]) } else { workspace.setVolumes(text, for: [book.id]) }
         case .field(let field) where field.holdsSeveralInQooViewer:
             // 書き換えを始めた段が、確定の時点でもう無ければ(裏で並びが変わって消えた)何もしない(監査 MD-9)。
-            if !workspace.setLine(field, of: book.id, at: line, to: text, replacing: original) { NSSound.beep() }
+            if !workspace.setLine(field, of: book.id, at: line, to: text, replacing: original) { UserFeedback.beep() }
         case .field(let field):
             workspace.set(field, to: [text], for: [book.id])
         }
@@ -1174,7 +1174,7 @@ extension MetadataBookTableView {
             if folder.path != "/", !folders.contains(folder) { folders.append(folder) }
         }
         guard !folders.isEmpty else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         for folder in folders { NSWorkspace.shared.open(folder) }

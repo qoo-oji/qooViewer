@@ -292,6 +292,15 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 `isAppWide: false` なのでアプリで 1 つの写し(`MetadataGenerator.appWide` など)には触りません。知らせの後始末は
 `AppStores.lastFileSystemChangeHandling` を待ってから確かめます。終わりに `close()`(`AppStores.releaseResources()`)。
 
+**確認のアラート・パネルの先とビープ**もテストから通せます(2026-10-11)。`SheetScripting.$responder.withValue(ScriptedSheetResponder(replies: [...]))`
+の中で入口を叩くと、`WindowSheet` は出す代わりに順に答え(ボタンの番号・選んだ URL・キャンセル)を返し、出したもの(見出し・
+ボタン・パネルの `prompt` など)を記録します。選ばれた場所を読む側は `WindowSheet.beginChoosing` / `chooseURLs` の戻り値を使います
+(`panel.urls` は出さずに埋められないので、答えを差し込めません)。ビープはすべて `UserFeedback.beep()` を通り、
+`UserFeedback.$recorder.withValue(FeedbackRecorder())` の中では鳴らずに場所が記録されます。どちらも TaskLocal なので、並行する
+ほかのテストのものは混ざりません。答える役が無いテストホストでは、出す先を省いたシートとアプリモーダルは出さずにキャンセルで
+終わり(誰も閉じないシートや `runModal` でテストが止まらない)、記録先の無いビープは鳴りません。例は
+`qooViewerTests/SheetAndFeedbackPortTests.swift`。
+
 `AppPreferences` / `KeyBindingStore` / `RecentFilesStore` / `FolderAccessStore` / `LastUsedFolderMemory` は
 保存先を `init(defaults:)` で、`LastActiveBookStore` の 3 つの関数は引数の `defaults:` で
 差し替えられます(いずれも既定は `.standard`)。テストは

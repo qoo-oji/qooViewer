@@ -303,7 +303,7 @@ struct HomeMenuItems: View {
         let live = Set(welcome.openedCollectionID.map { [$0] } ?? welcome.targetCollectionIDs)
         let collections = home.collectionTargets.filter(live.contains).compactMap { collectionStore.collection(withID: $0) }
         // 1 つも残らない・名前が衝突して断られたら鳴らす(押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
-        guard !collections.isEmpty, collectionStore.move(collections, to: target) else { return NSSound.beep() }
+        guard !collections.isEmpty, collectionStore.move(collections, to: target) else { return UserFeedback.beep() }
         // 開いていたコレクションを移したら一覧へ戻り、移したものを選択から外す(右クリックと共通。WelcomeLibraryState.collectionsMovedAway)。
         welcome.collectionsMovedAway(Set(collections.map(\.id)))
     }
@@ -489,7 +489,7 @@ struct FileBrowserFileMenuItems: View {
               !entries.isEmpty
         else { return }
         if let allowed, !allowed(actions, entries) {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         body(actions, entries)

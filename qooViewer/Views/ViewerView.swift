@@ -412,7 +412,7 @@ struct ViewerView: View {
         // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
         appState.jumpToBookmark = { bookmark in
             // 別の本のブックマーク(メニューの一覧が古いまま残った)なら飛ばずに鳴らす(ViewerViewModel.jump(to:)。監査 M-1)。
-            if !viewModel.jump(to: bookmark) { NSSound.beep() }
+            if !viewModel.jump(to: bookmark) { UserFeedback.beep() }
         }
         // サイドパネルのリソースモニタへ、この本のキャッシュの状態を渡す橋渡し
         // (AppState.fetchResourceSnapshotのコメント参照)。onPageBoundaryRequestと同じ理由で
@@ -732,7 +732,7 @@ struct ViewerView: View {
                    event.charactersIgnoringModifiers == "=" {
                     // 上限では、淡色のメニュー項目のキーと同じく鳴らす(2026-10-04 の監査 V-19)。
                     if !viewModel.isLoupeActive, viewModel.pinchZoomFactor >= viewModel.maxPinchZoomFactor {
-                        NSSound.beep()
+                        UserFeedback.beep()
                     } else {
                         performZoomStep(.zoomIn)
                     }
@@ -1324,7 +1324,7 @@ struct ViewerView: View {
         panel.allowedContentTypes = [contentType]
         panel.nameFieldStringValue = defaultFileName
         panel.message = String(localized: "Choose where to save the exported image.", language: locale)
-        guard await WindowSheet.run(panel, for: hostWindow) == .OK, let url = panel.url else { return nil }
+        guard let url = await WindowSheet.chooseURLs(panel, for: hostWindow)?.first else { return nil }
         return url
     }
 
@@ -1906,7 +1906,7 @@ struct ViewerView: View {
                             view.pendingLayoutStateChange = nil
                             // 押した時点の並びで鍵から番号を引き直す(V-12)。並びから消えていれば書かずに鳴らす。
                             guard let index = view.viewModel.pageIndex(forPageKey: pending.pageKey) else {
-                                NSSound.beep()
+                                UserFeedback.beep()
                                 return
                             }
                             Task {
@@ -4608,7 +4608,7 @@ struct ViewerView: View {
     /// 見開きの左右を尋ねるダイアログで既にある側を選ぶと、足していないのに既存の行を見つけて「追加しました」と出した)。
     private func addBookmarkWithToast(atIndex index: Int) {
         guard viewModel.addBookmark(atIndex: index) else {
-            NSSound.beep()
+            UserFeedback.beep()
             return
         }
         // addBookmark(atIndex:)は同期的にmodelContext.save()・reloadBookmarks()まで行うため、

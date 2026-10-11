@@ -1187,9 +1187,9 @@ final class AppState: ObservableObject {
             locale: locale
         )
         // このウインドウのシート(2026-09-27。WindowSheet)。以前はアプリモーダルで、選ぶ間ほかのウインドウも止まっていた。
-        WindowSheet.begin(panel, for: hostWindow) { [weak self] response in
-            guard response == .OK else { return }
-            self?.open(urls: panel.urls)
+        WindowSheet.beginChoosing(panel, for: hostWindow) { [weak self] urls in
+            guard let urls else { return }
+            self?.open(urls: urls)
         }
     }
 
@@ -1530,7 +1530,7 @@ final class AppState: ObservableObject {
                                     next = foundURL
                                 case .timedOut:
                                     // 期限切れは先へ進まずに止める(openInSequence のコメント)。
-                                    NSSound.beep()
+                                    UserFeedback.beep()
                                     throw BookLoaderError.epubNotPictureBook
                                 case .end, .abandoned:
                                     throw BookLoaderError.epubNotPictureBook
@@ -1933,7 +1933,7 @@ final class AppState: ObservableObject {
             case .found(let url):
                 open(url, intent)
             case .atEnd:
-                if claims { NSSound.beep() }
+                if claims { UserFeedback.beep() }
             case .notListed:
                 // 開いた後に本が動いた・消えた(または、この並びに入らない形の本)。ビープだけでは理由が分からない(コードレビュー)。
                 guard claims else { return }
@@ -2048,7 +2048,7 @@ final class AppState: ObservableObject {
         let candidates = sequence.candidatePositions(forward: forward)
         guard !candidates.isEmpty else {
             // 並びの端(2026-10-06 の応答性の点検 R2-2。以前は黙って何もしなかった)。頼まれていない一歩(スライドショーの末尾)は黙る。
-            if claimsOpenIntent { NSSound.beep() }
+            if claimsOpenIntent { UserFeedback.beep() }
             return
         }
         sequenceTask?.cancel()
@@ -2086,7 +2086,7 @@ final class AppState: ObservableObject {
                 ))
             case .end:
                 // 残りに開ける本が無かった(見つからない本ばかり)。
-                if claimsOpenIntent { NSSound.beep() }
+                if claimsOpenIntent { UserFeedback.beep() }
             case .abandoned:
                 return
             }
@@ -2432,7 +2432,7 @@ final class AppState: ObservableObject {
         panel.directoryURL = folderURL
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = message
-        guard await WindowSheet.run(panel, for: hostWindow) == .OK, let grantedURL = panel.url else { return false }
+        guard let grantedURL = await WindowSheet.chooseURLs(panel, for: hostWindow)?.first else { return false }
         _ = folderAccess?.add(url: grantedURL)
         // ユーザーが親フォルダなど別の場所を選んだ場合でも、目的のフォルダが配下に入っていれば
         // 列挙できる。入っていなければこの後の読み込みが素直にエラーになる。

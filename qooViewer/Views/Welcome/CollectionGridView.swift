@@ -205,7 +205,7 @@ struct CollectionGridView: View {
                 let shown = Set(collections.map(\.id))
                 deletingCollectionIDs = ids.filter(shown.contains)
                 // 1 つも残らなければ鳴らす(メニューを押したのに黙って何もしない、にしない。2026-10-04 のレビューの R2-6)。
-                if deletingCollectionIDs.isEmpty { NSSound.beep() }
+                if deletingCollectionIDs.isEmpty { UserFeedback.beep() }
             case .focusSearch:
                 isSearchFocused = true
             default:
@@ -421,7 +421,7 @@ struct CollectionGridView: View {
             guard let only = selected.first else { return .handled }
             // 複数を選んでいるときに 1 つだけ開くと、どれが開いたのか読めない(スマートライブラリと同じ)。
             guard selected.count == 1 else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return .handled
             }
             open(only)

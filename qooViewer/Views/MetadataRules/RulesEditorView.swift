@@ -1424,8 +1424,8 @@ struct DiffPane: View {
     private func importFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             do {
                 text = String(decoding: try Data(contentsOf: url), as: UTF8.self)
                 message = "Loaded. Press “Apply” to put it to work".ui
@@ -1440,8 +1440,8 @@ struct DiffPane: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "qooMeta rule changes.json".ui
-        WindowSheet.begin(panel) { response in
-            guard response == .OK, let url = panel.url else { return }
+        WindowSheet.beginChoosing(panel) { urls in
+            guard let url = urls?.first else { return }
             do {
                 try editing.settings.changes.data(half).write(to: url, options: .atomic)
                 message = "Written".ui

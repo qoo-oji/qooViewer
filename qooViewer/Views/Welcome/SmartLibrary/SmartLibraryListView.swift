@@ -568,7 +568,7 @@ struct SmartLibraryListView: NSViewRepresentable {
             let nodes = outline.selectedRowIndexes.compactMap(node(atRow:))
             guard !nodes.isEmpty else { return }
             guard nodes.count == 1, let node = nodes.first else {
-                NSSound.beep()
+                UserFeedback.beep()
                 return
             }
             parent?.onActivate(node.item)
