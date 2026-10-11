@@ -136,50 +136,63 @@ final class AppStores: ObservableObject {
     private var metadataCorpusSubscriptions: Set<AnyCancellable> = []
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
+    /// 作ったときの選択(AppStores.Dependencies)。起動の後で切り替わる仕事(機能の ON/OFF)も、これに従う。
+    private let dependencies: Dependencies
+    /// 保存データ(SwiftData)。5 つのストアとスマートライブラリが共有する 1 つ。
+    let modelContext: ModelContext
 
-    init() {
+    /// アプリ本体の入口(`Dependencies.live()`)。
+    convenience init() {
+        self.init(dependencies: .live())
+    }
+
+    /// 置き場所と配線を選んで作る。テストは自分の ModelContext・suite・一時フォルダ・知らせの箱を渡す(Dependencies の型コメント)。
+    init(dependencies: Dependencies) {
+        self.dependencies = dependencies
+        let defaults = dependencies.defaults
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
         // 先に**片付ける(監査で指摘 2026-09-13)。以前はmodelContainerの初期化の中でだけ
         // 行っていたが、そこへ届くのは下の4つ(環境設定・キーの割り当て・履歴・フォルダの
         // アクセス権)がUserDefaultsを読み終えた後だった。消した直後にそれらのdidSetが古い値を
         // 書き戻すので、この経路の全削除では環境設定が生き残っていた。modelContainerの中の
         // 呼び出しはそのまま残す(予約はここで取り下げられているので、あちらは何もしない)。
-        QooViewerApp.performPendingStoreResetIfNeeded()
+        if dependencies.isAppWide { QooViewerApp.performPendingStoreResetIfNeeded() }
         // 生成の順序は、QooViewerAppが@StateObjectを個別に持っていた頃の
         // 「宣言時デフォルト値(宣言順)→ init()内のSwiftData系4つ」の順をそのまま保つ。
-        preferences = AppPreferences()
-        keyBindingStore = KeyBindingStore()
-        recentFiles = RecentFilesStore()
-        folderAccess = FolderAccessStore()
+        preferences = AppPreferences(defaults: defaults)
+        keyBindingStore = KeyBindingStore(defaults: defaults)
+        recentFiles = RecentFilesStore(defaults: defaults)
+        folderAccess = FolderAccessStore(defaults: defaults)
         resourceSampler = ProcessResourceSampler()
         // Debug・テストの中・約束を満たさない Info.plist では Sparkle を起動しない(AppUpdater / UpdaterConfiguration)。
         appUpdater = AppUpdater(preferences: preferences)
-        // テストの中で走る実物のアプリでは、利用者の規則のファイルを読み書きせず、以前の規則の引き継ぎもしない
-        // (共有の状態に触らない。CLAUDE.md)。テストは自分の MetadataRulesStore を使い捨ての場所に作る。
-        metadataRulesStore = RuntimeEnvironment.isRunningTests
-            ? MetadataRulesStore(url: FileManager.default.temporaryDirectory
-                .appendingPathComponent("qooViewerTestHost.rules.\(UUID().uuidString)/settings.json"),
-                legacyDefaults: nil, isAppWide: true)
-            : MetadataRulesStore(isAppWide: true)
-        // テストの中で走る実物のアプリでは保存せず、以前の一覧の引き継ぎもしない(共有の状態に触らない)。
-        secretFolderStore = SecretFolderStore(defaults: RuntimeEnvironment.isRunningTests ? nil : .standard, isAppWide: true)
-        if !RuntimeEnvironment.isRunningTests {
+        // 規則の置き場所(Dependencies.live() は、テストホストでは使い捨ての場所を渡す)。
+        metadataRulesStore = dependencies.metadataRulesURL.map {
+            MetadataRulesStore(url: $0, legacyDefaults: dependencies.metadataRulesLegacyDefaults, isAppWide: dependencies.isAppWide)
+        } ?? MetadataRulesStore(isAppWide: dependencies.isAppWide)
+        secretFolderStore = SecretFolderStore(defaults: dependencies.secretFolderDefaults, isAppWide: dependencies.isAppWide)
+        if dependencies.isAppWide, dependencies.secretFolderDefaults != nil {
             secretFolderStore.migrateLegacyExcludedFolders(from: metadataRulesStore)
         }
         // 英単語の辞書(約 24 万語)を画面の外で読んでおく(メタデータの編集ウインドウを初めて開いたときに待たない)。
         MetadataRulesStore.warmUp()
         launchCoordinator = LaunchCoordinator()
-        favoriteLocations = FavoriteLocationStore()
-        let context = QooViewerApp.modelContainer.mainContext
+        favoriteLocations = FavoriteLocationStore(defaults: defaults)
+        let context = dependencies.modelContext
+        modelContext = context
         favoritesStore = FavoritesStore(modelContext: context)
         bookmarkStore = BookmarkStore(modelContext: context)
-        layoutStore = LayoutStore(modelContext: context)
+        layoutStore = LayoutStore(
+            modelContext: context, coverSourceStore: CollectionCoverSourceStore(directory: dependencies.coverSourceDirectory)
+        )
         metadataStore = BookMetadataStore(modelContext: context)
         bookTitleResolver = BookTitleResolver(
             metadataStore: metadataStore, rulesStore: metadataRulesStore
         )
-        collectionCoverStore = CollectionCoverStore()
-        collectionTileImageStore = CollectionTileImageStore(coverStore: collectionCoverStore)
+        collectionCoverStore = CollectionCoverStore(directory: dependencies.collectionCoverDirectory)
+        collectionTileImageStore = CollectionTileImageStore(
+            coverStore: collectionCoverStore, directory: dependencies.collectionTileDirectory
+        )
         // ライブラリ機能がOFFなら、ライブラリのためだけの仕事を**起動の時点から**始めない(applyLibraryFeature のコメント)。
         let isLibraryEnabled = preferences.libraryFeatureEnabled
         collectionStore = CollectionStore(
@@ -188,11 +201,16 @@ final class AppStores: ObservableObject {
             isLibraryFeatureEnabled: isLibraryEnabled
         )
         homeMenuDirectory = HomeMenuDirectoryStore(collectionStore: collectionStore, isLibraryFeatureEnabled: isLibraryEnabled)
+        let bookDiskCaches = dependencies.bookDiskCaches
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
-            layoutStore: layoutStore, isLibraryFeatureEnabled: isLibraryEnabled
+            layoutStore: layoutStore, cachesPageList: bookDiskCaches != nil, diskCaches: bookDiskCaches ?? .shared,
+            defaults: defaults,
+            cachedPageList: { bookID in await bookDiskCaches?.pageLists.pageList(forBookID: bookID)?.pages },
+            isLibraryFeatureEnabled: isLibraryEnabled
         )
         fileBrowserThumbnails = FileBrowserThumbnailProvider(
+            diskCache: dependencies.fileBrowserThumbnailDiskCache,
             collectionStore: collectionStore, coverStore: collectionCoverStore, layoutStore: layoutStore
         )
         fileBrowserThumbnails.connect(preferences: preferences)
@@ -206,19 +224,21 @@ final class AppStores: ObservableObject {
             [thumbnailsForMonitor.memoryUsage(), coverMemoryCache.memoryUsage(.collectionCovers),
              tileMemoryCache.memoryUsage(.collectionTiles)]
         }
-        fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(dependencies: .live())
+        fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(
+            dependencies: .live(diskCache: dependencies.fileBrowserThumbnailDiskCache)
+        )
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、本物のキャッシュに書くため)。
-        if !RuntimeEnvironment.isRunningTests {
+        if dependencies.startsBackgroundServices {
             fileBrowserVideoThumbnailWarmer.connect(favorites: favoriteLocations, preferences: preferences)
         }
-        autoRenameStore = AutoRenameStore()
-        autoRenameLog = AutoRenameActivityLog()
+        autoRenameStore = AutoRenameStore(defaults: defaults)
+        autoRenameLog = AutoRenameActivityLog(defaults: defaults)
         let folderAccessForAutoRename = folderAccess
         let launchCoordinatorForAutoRename = launchCoordinator
         autoRenameService = AutoRenameService(
             store: autoRenameStore, log: autoRenameLog, favorites: favoriteLocations, preferences: preferences,
             // 名前を変えたことをアプリ全体へ知らせるインスタンス(FileSystemChange の型コメント)。
-            fileOps: .shared,
+            fileOps: dependencies.fileOperations,
             hasAccess: { [weak folderAccessForAutoRename] url in folderAccessForAutoRename?.isPathCovered(url) ?? false },
             inUsePaths: { [weak launchCoordinatorForAutoRename] in
                 launchCoordinatorForAutoRename?.allOpenAppStates.compactMap { $0.currentBook?.sourceURL.path } ?? []
@@ -228,12 +248,12 @@ final class AppStores: ObservableObject {
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目の中の名前を変えてしまう)。
         // ファイルブラウザ機能がOFFなら始めない(applyFileBrowserFeature のコメント)。
         // (init の途中なので `startAutoRename()` は呼べない ―― 同じ中身を直に書く。)
-        if !RuntimeEnvironment.isRunningTests, preferences.fileBrowserFeatureEnabled {
+        if dependencies.startsBackgroundServices, preferences.fileBrowserFeatureEnabled {
             autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
         }
-        smartLibraryStore = SmartLibraryStore()
-        // テストの中では記録を保存しない(共有の状態に触らない)。
-        metadataCorpusStore = MetadataCorpusStore(url: RuntimeEnvironment.isRunningTests ? nil : MetadataCorpusStore.defaultURL)
+        smartLibraryStore = SmartLibraryStore(defaults: defaults)
+        // テストの中では記録を保存しない(共有の状態に触らない。Dependencies.live())。
+        metadataCorpusStore = MetadataCorpusStore(url: dependencies.metadataCorpusURL)
         let probeStores = (metadataStore, layoutStore, bookmarkStore, favoritesStore, collectionStore, folderAccess, preferences)
         metadataGenerator = MetadataGenerator(
             metadataStore: metadataStore, rulesStore: metadataRulesStore, corpusStore: metadataCorpusStore,
@@ -257,11 +277,11 @@ final class AppStores: ObservableObject {
             })
         smartLibraryCatalog = SmartLibraryCatalog(
             metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context,
-            // 前回の一覧を保存して次の起動で先に出す。テストの中では保存しない(共有の状態に触らない)。
-            cacheURL: RuntimeEnvironment.isRunningTests ? nil : SmartLibraryCatalog.defaultCacheURL,
+            // 前回の一覧を保存して次の起動で先に出す。テストの中では保存しない(共有の状態に触らない。Dependencies.live())。
+            cacheURL: dependencies.smartLibraryCatalogURL,
             corpusStore: metadataCorpusStore, generator: metadataGenerator
         )
-        if !RuntimeEnvironment.isRunningTests { SmartLibraryCatalog.removeLegacyCache() }
+        if dependencies.isAppWide, dependencies.smartLibraryCatalogURL != nil { SmartLibraryCatalog.removeLegacyCache() }
         smartLibraryCatalog.setFeatureEnabled(preferences.smartLibraryFeatureEnabled)
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
@@ -284,21 +304,22 @@ final class AppStores: ObservableObject {
             metadataStore: metadataStore, collectionStore: collectionStore, modelContext: context,
             coverExtractor: collectionCoverExtractor
         )
-        // テストの中で走る実物のアプリでは繋がない(テストの操作で、開発機の本物の保存データとよく使う項目を書き換えない)。
-        if !RuntimeEnvironment.isRunningTests {
+        // テストの中で走る実物のアプリでは繋がない(テストの操作で、開発機の本物の保存データとよく使う項目を書き換えない。
+        // Dependencies.live() が箱を nil にする)。テストが組み立てるときは、そのテストの箱を渡して配線を確かめる。
+        if let changeCenter = dependencies.changeCenter {
             // コレクションの実在確認が、アプリの外で名前を変えた本を見つけたら付け替える(ExternalMoveSweeper の型コメント)。
             collectionStore.onBooksFoundAtNewPaths = { [weak self] relocations in
                 self?.relocateBooksMovedOutsideTheApp(relocations)
             }
-            fileSystemChangeSubscription = FileSystemChangeCenter.shared.changes.sink { [weak self] change in
+            fileSystemChangeSubscription = changeCenter.changes.sink { [weak self] change in
                 MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
             }
         }
         // 解析した本はすべて DB に登録する(利用者の指示 2026-09-22。BookMetadataRecord の型コメント)。以前の下書き
         // (drafts.json)を DB へ移し、規則が変わったらロックしていない行を読み直す。テストの中では動かさない(本物の
         // drafts.json を読んで消すため。テストは自分のストアで確かめる)。
-        if !RuntimeEnvironment.isRunningTests {
-            MetadataDraftStore().migrate(into: metadataStore, rules: metadataRulesStore.rules)
+        if dependencies.runsLaunchSweeps {
+            dependencies.metadataDraftStore?.migrate(into: metadataStore, rules: metadataRulesStore.rules)
             pruneParsedOnlyMetadata()
             // アプリの外で名前を変えた本の保存データを付け替え(ExternalMoveSweeper)、本ではないフォルダ(棚を 1 冊として
             // 開いていた頃の記録)の保存データを消す(NonBookFolderSweeper)。どちらも 2026-09-22、利用者の指示。
@@ -327,7 +348,7 @@ final class AppStores: ObservableObject {
             }
             // フォルダの設定をアプリの外での移動に付いていかせる(FolderSettingBookmarks の型コメント)。戻ったとき・ボリュームを
             // 付けたときに確かめ、離れるときに控えを作る(設定を足してから Finder で名前を変えるまでの間に)。
-            folderSettingBookmarks = FolderSettingBookmarks(defaults: .standard)
+            folderSettingBookmarks = FolderSettingBookmarks(defaults: defaults)
             let center = NotificationCenter.default
             folderSettingObservers.append(center.addObserver(
                 forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -344,10 +365,10 @@ final class AppStores: ObservableObject {
                     Task { await bookmarks.sync(paths: paths) }
                 }
             })
-            // メタデータ生成の母体の記録(コレクションの本・対象フォルダ)を保ち、メタデータ生成を動かす。規則の変更・付け替えた
-            // ロックしていない行の読み直しは、メタデータ生成が自分で受ける(以前はここで `reparseUnlockedRows` を呼んでいた)。
-            startMetadataGeneration()
         }
+        // メタデータ生成の母体の記録(コレクションの本・対象フォルダ)を保ち、メタデータ生成を動かす。規則の変更・付け替えた
+        // ロックしていない行の読み直しは、メタデータ生成が自分で受ける(以前はここで `reparseUnlockedRows` を呼んでいた)。
+        if dependencies.startsMetadataGeneration { startMetadataGeneration() }
         // 起動時の掃除(CollectionCoverExtractorのinitの移行の**後**であること。sweepLibraryOrphansIfNeeded のコメント)。
         if isLibraryEnabled { sweepLibraryOrphansIfNeeded() }
         // `@Published`の投影はwillSetで飛ぶので、届いた値のほうを使う。起動時の値は上で渡し済み。
@@ -446,7 +467,7 @@ final class AppStores: ObservableObject {
     /// - サムネイルのディスクキャッシュ・よく使う項目・規則などの保存したものは消さない
     private func applyFileBrowserFeature(_ isEnabled: Bool) {
         releaseThumbnailMemoryIfUnused(fileBrowserEnabled: isEnabled, smartLibraryEnabled: preferences.smartLibraryFeatureEnabled)
-        guard !RuntimeEnvironment.isRunningTests else { return }
+        guard dependencies.startsBackgroundServices else { return }
         if isEnabled { startAutoRename() } else { autoRenameService.stop() }
     }
 
@@ -562,7 +583,7 @@ final class AppStores: ObservableObject {
         var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             favoritesStore: favoritesStore, collectionStore: collectionStore,
-            modelContext: QooViewerApp.modelContainer.mainContext
+            modelContext: modelContext
         ), includingMetadata: false)
         known.formUnion(metadataCorpusStore.collectionBookIDs)
         known.formUnion(metadataCorpusStore.smartLibraryBookIDs)
@@ -579,7 +600,7 @@ final class AppStores: ObservableObject {
     /// - 対象フォルダ: 外した対象フォルダの本を記録から外す(機能の ON/OFF に関わらず。設定の変化なので)。
     ///   中の本はスマートライブラリが探したときに記録する(SmartLibraryCatalog.rebuild)。
     private func startMetadataGeneration() {
-        MetadataGenerator.appWide = metadataGenerator
+        if dependencies.isAppWide { MetadataGenerator.appWide = metadataGenerator }
         collectionStore.$revision
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self] _ in
@@ -648,7 +669,7 @@ final class AppStores: ObservableObject {
         if collectionStore.relocateAutoFolders(using: change) { collectionAutoFolderScanner.scheduleScan() }
         smartLibraryCatalog.handleFileSystemChange(change)
         let relocation = bookRecordRelocator.apply(change)
-        Task { @MainActor [weak self] in
+        lastFileSystemChangeHandling = Task { @MainActor [weak self] in
             await relocation.value
             guard let self else { return }
             // 確かめ直すのは、その一覧の本に関わる変更のときだけ(2026-09-25 の監査)。確かめ直しは全冊のブックマーク解決と stat
@@ -666,6 +687,37 @@ final class AppStores: ObservableObject {
             self.favoritesStore.scheduleExistenceRefresh()
         }
     }
+
+    /// 張った購読と裏の仕事をすべて畳む。**テストのための口**(アプリの AppStores は終了まで生きる)。InMemoryLibrary.close と
+    /// 同じ理由で、deinit に任せず、コンテナを手放す前に呼ぶ(捨てられかけたストアが他のテストの知らせで目を覚まさないように)。
+    func releaseResources() {
+        fileSystemChangeSubscription = nil
+        folderAccessGainedSubscription = nil
+        libraryFeatureSubscription = nil
+        fileBrowserFeatureSubscription = nil
+        smartLibraryFeatureSubscription = nil
+        metadataCorpusSubscriptions = []
+        folderSettingFollowTask?.cancel()
+        folderSettingFollowTask = nil
+        for observer in folderSettingObservers {
+            NotificationCenter.default.removeObserver(observer)
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        folderSettingObservers = []
+        collectionStore.onBooksFoundAtNewPaths = nil
+        metadataGenerator.stop()
+        autoRenameService.stop()
+        smartLibraryCatalog.setFeatureEnabled(false)
+        collectionAutoFolderScanner.releaseResources()
+        collectionCoverExtractor.releaseResources()
+        collectionStore.releaseResources()
+        favoritesStore.releaseResources()
+        bookmarkStore.releaseResources()
+    }
+
+    /// 最後に受けたファイルの変化の後始末(付け替えの完了 → 実体の確かめ直しの予約)。**テストのための口**で、テストは知らせを
+    /// 入れた後これを待ってから保存データを確かめる(アプリは誰も待たない)。
+    private(set) var lastFileSystemChangeHandling: Task<Void, Never>?
 
     /// MenuBarMenuRefresherが購読する、全ストアのobjectWillChange。
     /// ストアを増やしたら必ずここにも足すこと(型コメント参照)。

@@ -285,6 +285,13 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 (既定は利用者のカバー画像と札のキャッシュそのもの)。`InMemoryLibrary` はその 2 つを自分で作り、
 `close()` で消します。
 
+**アプリ全体の入れ物(`AppStores`)の配線**は `qooViewerTests/Support/AppStoresHarness.swift` で確かめます(2026-10-11)。
+`AppStores(dependencies:)` に、メモリ内のコンテナ・借りた suite・作業フォルダ・そのテストの `FileSystemChangeCenter` を渡して
+丸ごと組み立てます(`AppStores.Dependencies`。アプリは `Dependencies.live()` だけを使い、テストホストとして起動したときは
+以前と同じく共有の状態に触る配線を外します ―― `AppStoresWiringTests.liveDependenciesUnderTestsStayOffSharedState` が固定)。
+`isAppWide: false` なのでアプリで 1 つの写し(`MetadataGenerator.appWide` など)には触りません。知らせの後始末は
+`AppStores.lastFileSystemChangeHandling` を待ってから確かめます。終わりに `close()`(`AppStores.releaseResources()`)。
+
 `AppPreferences` / `KeyBindingStore` / `RecentFilesStore` / `FolderAccessStore` / `LastUsedFolderMemory` は
 保存先を `init(defaults:)` で、`LastActiveBookStore` の 3 つの関数は引数の `defaults:` で
 差し替えられます(いずれも既定は `.standard`)。テストは

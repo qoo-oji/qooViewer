@@ -61,6 +61,8 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 抽出のために読み込んだ本のページ一覧を、ディスクキャッシュへ書き戻すか
     /// (**テストのための口**。LibraryImportExportService.cachesPageListと同じ理由)。
     private let cachesPageList: Bool
+    /// その書き戻し先(BookDiskCaches)。
+    private let diskCaches: BookDiskCaches
     /// カバーの保存世代(migrateCoverStorageIfNeeded)の置き場所。通常はアプリの
     /// `UserDefaults.standard`で、テストだけが専用のsuiteを渡す(共有状態に触らないため。
     /// WelcomeLibraryState.defaultsと同じ理由)。
@@ -162,6 +164,7 @@ final class CollectionCoverExtractor: ObservableObject {
         coverStore: CollectionCoverStore,
         layoutStore: LayoutStore,
         cachesPageList: Bool = true,
+        diskCaches: BookDiskCaches = .shared,
         defaults: UserDefaults = .standard,
         cachedPageList: @escaping @Sendable (String) async -> [BookPageListCache.Entry.Page]? = {
             await BookPageListCache.shared.pageList(forBookID: $0)?.pages
@@ -173,6 +176,7 @@ final class CollectionCoverExtractor: ObservableObject {
         self.coverStore = coverStore
         self.layoutStore = layoutStore
         self.cachesPageList = cachesPageList
+        self.diskCaches = diskCaches
         self.defaults = defaults
         self.cachedPageList = cachedPageList
 
@@ -568,7 +572,7 @@ final class CollectionCoverExtractor: ObservableObject {
         let didAccess = url?.startAccessingSecurityScopedResource() ?? false
         let image = await CoverImageResolver.coverImage(
             bookAt: url, snapshot: snapshot,
-            maxPixelSize: CollectionCoverStore.maxPixelSize, cachesPageList: cachesPageList
+            maxPixelSize: CollectionCoverStore.maxPixelSize, cachesPageList: cachesPageList, caches: diskCaches
         )
         if didAccess { url?.stopAccessingSecurityScopedResource() }
 
