@@ -308,6 +308,10 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug b
 アップデートが届き、新しい版が出ると配布版に入れ替わります。望まない場合は、環境設定「一般」の
 「アップデートを自動的に確認」をオフにしてください。Debug ビルドはアップデートを確認しません。
 
+Debug ビルドには、開発のための**制御口**があります。起動中のアプリを画面を操作せずに動かし、窓・本・ページ・メニューの状態を
+読むためのもので、相手は `scripts/dev/qoo-debug-control.py` です(例: `scripts/dev/qoo-debug-control.py state`)。
+受け付けるのは Debug のアプリ自身の一時フォルダに置かれた頼みだけで、Release ビルドには含まれません。
+
 ### 署名について
 
 このリポジトリには Apple Developer の Team ID を **含めていません**。特定の開発者のアカウントに

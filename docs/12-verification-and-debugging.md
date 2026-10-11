@@ -63,7 +63,9 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   - `wait-ready` → `state`(窓ごとの題・frame・タブの組・シークレットか・ホームのモード・ファイルブラウザのフォルダ・出ている本の
     id/ページ数/いまのページ・見開き・読み方向・表示モード、機能の ON/OFF、`openBookIDs`、`RunningWorkRegistry`、生きている
     `AppState`/`ViewerViewModel`/`PageLoader` の数)、`menu`(`NSApp.mainMenu` を `update()` してから題・淡色・隠し・キー・入れ子)。
-  - 動かす頼み: `open PATH [--via finder]`(`--via finder` は Finder から渡したのと同じ `application(_:open:)`)、
+  - 動かす頼み: `open PATH [--via finder]`(`--via finder` は Finder から渡したのと同じ `application(_:open:)`。`send open` に
+    `{"via":"windowNumber","windowNumber":N}` を渡せば窓を名指しで)、`focusWindow '{"windowNumber":N}'`(前に出してキーに)、
+    `nudge`(空のイベントと描き直し。解放を数える前に)、`quit`、
     `send closeBook` / `perform '{"action":"moveNext"}'`(ViewerAction の rawValue)/ `jumpToPage '{"index":3}'` /
     `selectHomeMode '{"mode":"browser"}'` / `setPreference '{"key":"libraryFeatureEnabled","value":false}'`(機能の ON/OFF と
     読み取り専用だけ)/ `performMenuItem '{"path":["ファイル","…"]}'`(表示言語の題。淡色なら押さずに断る)/ `newWindow` /
@@ -75,6 +77,11 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   - **ウインドウを閉じた後のリーク**は `state` の `liveInstances` で数えられる(下の「閉じたウインドウが解放されるかの測り方」の
     `heap` の代わりの最初の当たり)。CI の起動の確かめも同じ口を使う(`scripts/ci/smoke-control-port.sh`)。
   - 見た目(色・縁取り・位置の 1 フレームの乱れ)と、ファイル選択パネル・ドラッグ・トラックパッドの実物は、この口では確かめられない。
+  - **入力を合成して送るとき**(2026-10-11 の実機検証): キーは `CGEvent.postToPid` でプロセスを名指しすれば、最前面のアプリへ漏れずに
+    ビューアのイベントモニタまで届いた(矢印・⌘=・Esc。窓を `focusWindow` で前に出してキーにしてから)。**スクロール(ホイールも
+    phase 付きのトラックパッドも)は `postToPid` では窓へ届かなかった**(ページが 1 つも動かない)。HID の段から流すにはポインタを
+    動かすことになり、この環境の自動実行では許可されなかったので、ホイール・トラックパッドの実物の確かめは人の手で行う。
+    結果は制御口の `state` で読む(画面は撮らない)。シークレットの窓で開けば履歴・読書位置は残らない(`open` の `via: "windowNumber"`)。
 - **Debug ビルドのコンテナは `com.qooProject.qooViewer.debug`**(普段使いのアプリとは保存データが別。
   → [02](02-project-and-build.md))。`defaults` のドメイン名もこちら。実データが要る確認は、
   普段使いのアプリで行うか、Debug 側に検証用のデータを作って行う。

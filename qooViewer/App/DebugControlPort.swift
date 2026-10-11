@@ -203,6 +203,14 @@ final class DebugControlPort {
             guard let opener = appDelegate?.openNewWindowFromDock else { throw Failure("the app delegate is not ready") }
             opener(arguments["private"] as? Bool ?? false)
             return [:] as [String: Any]
+        case "focusWindow":
+            // 窓を前に出してキーにする(実機の検証で、合成した入力をその窓へ届けるため)。
+            guard let number = arguments["windowNumber"] as? Int,
+                  let window = NSApp.windows.first(where: { $0.windowNumber == number })
+            else { throw Failure("no window \(arguments["windowNumber"] ?? "nil")") }
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            return ["isKey": window.isKeyWindow]
         case "closeWindow":
             guard let number = arguments["windowNumber"] as? Int,
                   let window = NSApp.windows.first(where: { $0.windowNumber == number })
@@ -245,7 +253,8 @@ final class DebugControlPort {
         return state
     }
 
-    /// 本を開く。`via: "finder"` は Finder から渡したのと同じ経路(環境設定の「Finder から」の開き方に従う)、既定はいちばん前の
+    /// 本を開く。`via: "finder"` は Finder から渡したのと同じ経路(環境設定の「Finder から」の開き方に従う)、
+    /// `via: "windowNumber"` は `windowNumber` の窓で開く。既定はいちばん前の
     /// 窓のうち、焦点の外から開くときの相手(`frontmostContentAppStateForUnfocusedOpen`)で開く。
     private func open(_ arguments: [String: Any]) throws -> Any {
         guard let path = arguments["path"] as? String else { throw Failure("missing path") }
@@ -254,6 +263,12 @@ final class DebugControlPort {
         case "finder":
             guard let delegate = appDelegate else { throw Failure("the app delegate is not ready") }
             delegate.application(NSApp, open: [url])
+        case "windowNumber":
+            // 窓を名指しで(実機の検証で、シークレットの窓にだけ本を開くため)。
+            guard let number = arguments["windowNumber"] as? Int,
+                  let state = stores.launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow?.windowNumber == number })
+            else { throw Failure("no content window \(arguments["windowNumber"] ?? "nil")") }
+            state.open(url: url)
         default:
             // 外からの頼みなので、メニューが焦点の外から開くときと同じ相手(シークレットかどうかを新しい窓と揃える。CLAUDE.md)。
             guard let state = stores.launchCoordinator.frontmostContentAppStateForUnfocusedOpen() else {
