@@ -72,6 +72,20 @@ final class ViewerHarness {
         _ book: MangaBook, skipsPersistence: Bool = false, usesDiskCaches: Bool = false,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) async -> ViewerViewModel {
+        let viewer = makeViewer(
+            book, skipsPersistence: skipsPersistence, usesDiskCaches: usesDiskCaches,
+            initialPageID: initialPageID, initialEdge: initialEdge
+        )
+        await viewer.settle()
+        return viewer
+    }
+
+    /// ビューアを作るだけで待たない(ContentView の ViewerHandoff の `makeModel` の役。待つのは呼び出し側)。
+    /// `close()` が手放すよう控えておく。
+    func makeViewer(
+        _ book: MangaBook, skipsPersistence: Bool = false, usesDiskCaches: Bool = false,
+        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
+    ) -> ViewerViewModel {
         let viewer = ViewerViewModel(
             book: book, modelContext: library.context, preferences: preferences,
             layoutStore: library.layouts, metadataStore: library.metadata,
@@ -82,7 +96,6 @@ final class ViewerHarness {
             initialPageID: initialPageID, initialEdge: initialEdge
         )
         openViewers.append(viewer)
-        await viewer.settle()
         return viewer
     }
 

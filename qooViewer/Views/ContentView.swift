@@ -1023,6 +1023,7 @@ struct ContentView: View {
         MenuCheckmarkState(
             // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
             hasBook: appState.menuShownBook.hasBook,
+            isCurrentBookStackNestReference: appState.menuShownBook.isStackNestReference,
             isPrivateWindow: appState.isPrivateWindow,
             isTransientBook: appState.menuShownBook.isTransient,
             currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
@@ -1431,6 +1432,7 @@ struct ContentView: View {
             if isShown { awaitsInitialBook = false }
         }
         // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
+        // StackNest から開き直した参照ファイルの本は、同じパスでも新しい鍵の本として受け渡し直す(MangaBook.viewerIdentity)。
         .onChange(of: appState.currentBook.map(ViewerHandoff.viewIdentity(of:)), initial: true) { _, _ in
             viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
         }

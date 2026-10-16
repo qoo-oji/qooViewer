@@ -1442,6 +1442,10 @@ struct ViewerView: View {
         .onChange(of: appState.viewerNotice) { _, notice in
             if let notice { showToast(notice.message) }
         }
+        // StackNest の参照ファイルの本で、書き戻しが失敗したときの知らせ(期限切れ・解錠が要る・StackNest に繋がらない)。
+        .onChange(of: viewModel.stackNestNotice) { _, notice in
+            if let notice { showToast(notice.message) }
+        }
         // 本を開く前に出した知らせ(複数を落として開いたときの「開かなかったもの」。AppState.open(urls:))を、開いてから出す。
         .onAppear {
             if let notice = appState.viewerNotice, notice.isFresh { showToast(notice.message) }
@@ -2166,6 +2170,11 @@ struct ViewerView: View {
                     )
                 }
                 .buttonStyle(.borderless)
+                // 参照ファイルの本は登録できないが、すでにある登録は削除できる(FavoritesStore.isReferenceBook)。
+                .disabled(
+                    !FavoritesStore.canToggleFavorite(
+                        isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited)
+                )
                 .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
             }
 
@@ -2311,7 +2320,11 @@ struct ViewerView: View {
                     view.perform(.toggleFavorite)
                 }
             }
-            .disabled(viewModel.skipsPersistence)
+            .disabled(
+                viewModel.skipsPersistence
+                    || !FavoritesStore.canToggleFavorite(
+                        isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited)
+            )
             Menu("Favorites List") {
                 FavoritesMenuContent(
                     favoritesStore: favoritesStore,
@@ -2465,7 +2478,8 @@ struct ViewerView: View {
         // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は保存データを書かないため(カバーの選択は淡色、
         // ページ一覧のディスクキャッシュも読み書きしない。BookExportViewModel.usesPageListCache)。
         // `.contextMenu` の中の `Menu` に `.disabled` は効かないので、押せない Button で描く(上の「レイアウト」と同じ)。
-        if openBookExport != nil || viewModel.book.isTransient {
+        // StackNest の参照ファイルの本も書き出さない(MangaBook.canBeExported)。
+        if openBookExport != nil || !viewModel.book.canBeExported {
             Button("Export Book") {}
                 .disabled(true)
         } else {
@@ -2521,8 +2535,9 @@ struct ViewerView: View {
         // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
         if preferences.libraryFeatureEnabled {
             // シークレットフォルダかどうかは淡色と同じく開いた時点の値で決める(skipsPersistence ⊇ isInSecretFolder。監査 X-8・決定 10)。
+            // StackNest の参照ファイルの本も淡色(AppState.canAddCurrentBookToCollection と同じ条件)。
             AddToCollectionMenu(
-                books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence,
+                books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence && !viewModel.book.isStackNestReference,
                 booksAreDecidedNotSecret: true,
                 report: { [weak appState] message in appState?.postViewerNotice(message) }
             )
@@ -4114,6 +4129,10 @@ struct ViewerView: View {
         case .toggleFavorite:
             guard FavoritesFeature.isEnabled else { return }
             guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
+            // 参照ファイルの本は登録しない。すでにある登録の削除だけは通す。
+            guard FavoritesStore.canToggleFavorite(
+                isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited
+            ) else { return UserFeedback.beep() }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
             guard FavoritesFeature.isEnabled else { return }

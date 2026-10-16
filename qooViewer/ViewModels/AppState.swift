@@ -1394,6 +1394,11 @@ final class AppState: ObservableObject {
            let existingAppState = launchCoordinator?.openAppState(forBookAt: url, isPrivate: isPrivateWindow),
            existingAppState !== self,
            let existingWindow = existingAppState.hostWindow {
+            // StackNest の参照ファイルを StackNest が書き直していたら(新しい鍵)、前へ出すだけでなく、そのウインドウで読み込み
+            // 直す。こちらで開くと同じ本が 2 つのウインドウで開くので、落として開かない(reloadIfStackNestReferenceChanged)。
+            existingAppState.reloadIfStackNestReferenceChanged(
+                request, initialEdge: initialEdge, startsSlideshow: startsSlideshow
+            )
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -2689,7 +2694,10 @@ final class AppState: ObservableObject {
     /// ウインドウで、その場限りの本(画像を直接開いた本)でないとき。
     var canAddCurrentBookToCollection: Bool {
         guard let book = currentBook else { return false }
+        // StackNest の参照ファイルの本も登録しない: 表紙を作る待ち行列が鍵の付いた要求を StackNest へ出し続け、
+        // コレクションの行が StackNest の Application Support の中のパスを指す。
         return (preferences?.libraryFeatureEnabled ?? false) && !isPrivateWindow && !book.leavesNoRecord
+            && !book.isStackNestReference
     }
 
     /// 開いている本をコレクションへ登録し、結果をビューアのトーストに出す(2026-09-23、利用者の指示)。
@@ -2755,6 +2763,8 @@ struct MenuCheckmarkState: Equatable {
     /// フォーカス中のウインドウのビューアに本が出ているか(`AppState.menuShownBook`。監査 M-6 ―― 以前メニューは `focusedAppState?.currentBook`
     /// を参照で読み、受け渡し中は新しい本、画面と操作の相手は前の本、とずれた)。メニューの「本を開いているか」はこれで見る。
     var hasBook = false
+    /// お気に入りの登録を断る本か。メニューの淡色は写しから読む＝監査 M-6
+    var isCurrentBookStackNestReference = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
     /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
     /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の
@@ -2841,6 +2851,8 @@ struct MenuShownBook: Equatable {
     /// 本の場所。メニューバーの「Finder で表示」「ファイルブラウザで表示」の相手(2026-10-04 のレビュー R5-3 ―― 淡色をこの写しで
     /// 決めるのに、押したときは `currentBook` を見ていたので、受け渡しの間は画面に出ていない新しい本を示した)。
     var sourceURL: URL?
+    /// StackNest の参照ファイルの本か(お気に入りの登録を断る。MenuCheckmarkState.isCurrentBookStackNestReference)。
+    var isStackNestReference = false
 
     init() {}
 
@@ -2850,6 +2862,7 @@ struct MenuShownBook: Equatable {
         leavesNoRecord = book?.leavesNoRecord == true
         bookID = book?.id
         sourceURL = book?.sourceURL
+        isStackNestReference = book?.isStackNestReference ?? false
     }
 }
 

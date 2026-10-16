@@ -3,6 +3,7 @@ import CoreGraphics
 import SwiftData
 import Combine
 import os
+import StackNestViewerKit
 
 /// 見開き表示の1コマ分の表示内容(実画像 or 空白)。ViewerView.pageAreaが、EPUB Reading
 /// Systems 3.3 6.1.4節の「page-spread-left/rightの指定は、相方が見つからない場合でも
@@ -161,6 +162,18 @@ final class ViewerViewModel: ObservableObject {
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
     @Published private(set) var needsResumeConfirmation: Bool
+    /// StackNest の参照ファイルの本で、StackNest とのやり取りが失敗したときの知らせ(位置の書き戻しの失敗と、ページが読めず、
+    /// この本に恒久的な失敗が記録されているとき。showStackNestFailure)。ViewerView がトーストに出す。
+    @Published private(set) var stackNestNotice: ViewerNotice?
+    /// StackNest の参照ファイルの本で、読み進めたページを書き戻す役(StackNestViewerKit)。参照ファイルの本でないとき・
+    /// シークレットウインドウでは nil。作ると部品の登録簿(StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる。
+    private(set) var stackNestProgress: StackNestProgressReporter?
+    /// 最後に知らせた StackNest の失敗の種類(同じ恒久的な失敗の知らせを、ページを送るたびに・書き戻しの道からもう一度、
+    /// 重ねないため。showStackNestFailure)。
+    private var lastStackNestNoticeKind: StackNestViewerError.NoticeKind?
+    /// StackNest の参照ファイルの本のセッション(StackNestSessions)。この本を開いている間は持っておく: PageLoader の reader と
+    /// 書き戻しの役が同じセッション(ページの短期キャッシュ)を使い回すため。参照ファイルの本でなければ nil。
+    private(set) var stackNestBook: StackNestSessions.Book?
 
     /// 最初/最後のページを超えてページ送りしようとしたときの処理のうち、このViewModelでは
     /// 行えないもの(隣の本を開く・本を閉じる・ウェルカム画面へ戻る)をViewerViewへ依頼する。
@@ -443,6 +456,10 @@ final class ViewerViewModel: ObservableObject {
         usesDiskCaches: Bool? = nil, diskCaches: BookDiskCaches = .shared,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
+        // StackNest の参照ファイルの本は、StackNest で読んでいたページ(参照ファイルの startPage)から開く。qooViewer の
+        // 記録より優先し(形式の文書「What we ask of viewers」)、initialPageID と同じく再開の確認は出さない。呼び出し側の指定
+        // (「同じフォルダの画像をすべて開く」)があればそちらが先(参照ファイルの本には来ない)。
+        let initialPageID = initialPageID ?? Self.stackNestStartPageID(for: incomingBook)
         self.modelContext = modelContext
         self.preferences = preferences
         self.layoutStore = layoutStore
@@ -855,6 +872,25 @@ final class ViewerViewModel: ObservableObject {
         // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
         currentIndex = normalizedAnchorIndex(initialIndex)
 
+        // StackNest の参照ファイルの本: この本のセッションを持ち、読み進めたページを StackNest へ書き戻す役を用意する。
+        // シークレットウインドウでは書き戻さない(何も記録しない窓。読んだ位置を StackNest へ書くのも記録に当たる)。開いたページ
+        // (startPage)は送らない(StackNest が知っている位置)。送信は部品の async の道で、スレッドを塞がない。
+        // セッションは BookLoader が宛先を確かめた参照から作るので、ここで失敗するのは宛先の制限に掛かったときだけ(その本は
+        // 開く時点で失敗している)。
+        if let reference = incomingBook.stackNestReference {
+            stackNestBook = try? StackNestSessions.shared.book(for: reference, at: incomingBook.sourceURL)
+            if let session = stackNestBook?.session, !skipsPersistence {
+                stackNestProgress = StackNestProgressReporter(session: session, startPage: reference.startPage) {
+                    [weak self] failure in
+                    // 書き戻しだけが見た恒久的な失敗(キャッシュにあるページを読んでいる間に施錠が変わった など)も本に記録する。
+                    // 記録しないと、ページの要求がもう 1 度失敗して記録するまで問い合わせが続く(Book.record は恒久的な失敗の
+                    // 最初の 1 つだけを覚える)。
+                    self?.stackNestBook?.record(failure)
+                    self?.showStackNestFailure(failure)
+                }
+            }
+        }
+
         // 最初の 1 枚のデコードを、ここで PageLoader へ先に頼んでおく(表示の切り替えの監査の 13、2026-09-27)。
         // 下の firstSpread はメインアクターの Task なので、動き出すのは init が返り、呼び出し側(ContentView は最初の見開きが
         // 揃うのを待ってから画面を差し替える)の残りの仕事が済んだ後になる。PageLoader は同じページの読み込みを 1 つにまとめる
@@ -914,7 +950,8 @@ final class ViewerViewModel: ObservableObject {
         // メタデータ生成だけ(MetadataGenerator)で、ここは「この本を開いた」を知らせるだけ(以前はここで 1 冊だけ読んで
         // 行を作っていた ―― ほかの本と見比べないので、メタデータ生成の読みと食い違った)。
         // シークレットウインドウの本は知らせない。除外フォルダの本はメタデータ生成が外す。
-        if !skipsPersistence {
+        // StackNest の参照ファイルの本も知らせない(registersMetadata のコメント)。
+        if Self.registersMetadata(for: book, skipsPersistence: skipsPersistence) {
             MetadataGenerator.appWide?.noteBookOpened(book.id, anchors: book.recordAnchors)
         }
         let sourceFileName = book.sourceURL.lastPathComponent
@@ -2755,6 +2792,13 @@ final class ViewerViewModel: ObservableObject {
     // MARK: - 内部処理
 
     private func persistState() {
+        // StackNest へ書き戻すページ。番号は今の並び(除外・並べ替えの後)の位置ではなく、ページの名前が持つ StackNest の
+        // ページ番号(StackNestPageNaming)。読書位置の行を消した後(readingStateDiscarded)でも StackNest の位置は進めてよいので、
+        // その判定より前に置く。
+        if let stackNestProgress, book.pages.indices.contains(currentIndex),
+           let page = StackNestPageNaming.pageIndex(fromEntryName: book.pages[currentIndex].sortKey) {
+            stackNestProgress.note(page: page)
+        }
         // 削除済みの行へは何も書かない(readingStateDiscardedのコメント参照)。
         guard !readingStateDiscarded else { return }
         // メモリ上のreadingStateは即座に更新する(他のコードから参照されても常に最新の状態になるように)。
@@ -2813,6 +2857,10 @@ final class ViewerViewModel: ObservableObject {
     /// 読書位置が失われないよう、保留中の保存があれば即座に確定させる。
     /// ViewerViewのonDisappearから呼ばれる。
     func flushPendingSave() {
+        // StackNest への書き戻しは、読書位置の保存が無くても送り切る(下の guard より前)。releaseResources もここを通る。
+        // ここへ来るのは本を閉じるとき(onDisappear・ホームへ戻る・releaseResources)だけなので、閉じる扱いで送る: 飛んでいた
+        // 送信が失敗したら止まっていた新しいページを 1 度だけ試し、以後のページの合図は受け付けない(部品の close())。
+        stackNestProgress?.close()
         guard !skipsPersistence, !readingStateDiscarded, saveDebounceTask != nil else { return }
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
@@ -2871,7 +2919,10 @@ final class ViewerViewModel: ObservableObject {
 
         // 読み込み中にさらに新しいページ送りが起きていたら、この結果は古いので捨てる
         guard generation == loadGeneration, !Task.isCancelled else { return }
+        // StackNest の参照ファイルの本で、表示するページが読めず、この本に恒久的な失敗(施錠が変わった・期限切れ など)が
+        // 記録されていたら、理由を知らせる(以前は真っ黒のまま案内が無かった)。同じ種類は 1 度だけ。
         showImages(images, forIndex: targetIndex)
+        if images.isEmpty { showStackNestPageFailureIfNeeded() }
         // 直前の表示範囲との比較で、ユーザーがどちらへ読み進めているかを決める(先読みの向き。
         // PageLoader.prefetchのdirection参照)。同じ位置の再表示や開いた直後は「不明」。
         let direction: PageLoader.PrefetchDirection
@@ -3012,6 +3063,49 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// StackNest の失敗を知らせる。読書は止めない。文言は部品の既定の文言を、表示言語とアプリの名前で(StackNestText)。
+    ///
+    /// 恒久的な失敗は、同じ種類なら 1 度だけ(ページが読めなかった道でも、位置の書き戻しの道でも。どちらが先に見ても、
+    /// 同じ理由を 3 秒後にもう一度出さない)。一時的な失敗は毎回出す。
+    private func showStackNestFailure(_ failure: StackNestViewerError) {
+        if failure.isPermanent, failure.noticeKind == lastStackNestNoticeKind { return }
+        lastStackNestNoticeKind = failure.noticeKind
+        stackNestNotice = ViewerNotice(message: StackNestText.message(for: failure, locale: preferences.effectiveLocale))
+    }
+
+    /// ページが読めなかったときに、この本の恒久的な失敗を知らせる(StackNestSessions.Book.permanentFailure)。ページを送るたびに
+    /// 呼ばれるが、直前に知らせたのと同じ種類なら showStackNestFailure が出さない。
+    private func showStackNestPageFailureIfNeeded() {
+        guard let failure = stackNestBook?.permanentFailure else { return }
+        showStackNestFailure(failure)
+    }
+
+    /// 参照ファイルの本で、開くページ(参照ファイルの startPage)の `PageRef.id`。番号は除外・並べ替えの前の本で数える
+    /// (startPage は StackNest のページ番号)。範囲外なら最後のページ。参照ファイルの本でなければ nil。
+    /// そのページを利用者が除外していると、並びを組み直した本に ID が無いので init は通常の判定へ落ちる(環境設定が「尋ねる」
+    /// なら再開の確認が出る。まれなので受け入れる)。
+    static func stackNestStartPageID(for book: MangaBook) -> String? {
+        guard let reference = book.stackNestReference, !book.pages.isEmpty else { return nil }
+        let name = StackNestPageNaming.entryName(
+            forPage: StackNestBookReference.clampedStartPage(reference.startPage, pageCount: book.pages.count)
+        )
+        return book.pages.first { $0.sortKey == name }?.id
+    }
+
+    /// 開いた本の全体を走査してよいか(下調べ・レイアウトの自動計算)。参照ファイルの本はしない: 1 ページごとに
+    /// StackNest への往復(ページ全体の取得)になり、開くたびにページ数ぶんの要求が走る。横長の判定は表示したページの近傍
+    /// (primeWideImageCache)だけで行う。利用者が自分で始める自動レイアウトは止めない。
+    static func scansWholeBook(_ book: MangaBook) -> Bool {
+        book.stackNestReference == nil
+    }
+
+    /// 開いた本をメタデータ(メタデータ生成の母体)に登録するか。シークレットウインドウの本は登録しない(従来どおり)。
+    /// StackNest の参照ファイルの本も登録しない: 行が StackNest の Application Support の中のパスを指し、
+    /// 参照ファイルが消えると「見つからない」本として残る。書誌は StackNest の側で持つ。
+    static func registersMetadata(for book: MangaBook, skipsPersistence: Bool) -> Bool {
+        !skipsPersistence && !book.isStackNestReference
+    }
+
     /// 本全体の下調べが、最初の先読みの終わりを待つ上限(秒)。
     private static let warmUpPrefetchWaitLimit: TimeInterval = 10
 
@@ -3052,6 +3146,7 @@ final class ViewerViewModel: ObservableObject {
     /// 高速スクロールの保険としての役目は変わらない。先読みはページを送るたびに始め直されるので、待つのは上限
     /// (`warmUpPrefetchWaitLimit`)まで。
     private func warmUpWideImageCacheForEntireBook(after firstSpread: Task<Void, Never>) {
+        guard Self.scansWholeBook(book) else { return }
         let total = book.pages.count
         guard total > 0 else { return }
         let start = min(max(currentIndex, 0), total - 1)
@@ -3348,6 +3443,9 @@ final class ViewerViewModel: ObservableObject {
             // ファイルが黙って出来上がる**(sourceURLが渡された画像の1枚目でしかないため。
             // ViewerViewの.disabled(...)のコメント参照)。
             origin: rawBook.origin,
+            // これも引き継ぎ必須。落とすと、ページは読めても書き戻し・サムネイルの鍵・下調べの省略が効かなくなる。
+            stackNestReference: rawBook.stackNestReference,
+            stackNestPageCount: rawBook.stackNestPageCount,
             // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
             isInSecretFolder: rawBook.isInSecretFolder,
             // これも引き継ぎ必須(落とすと、レイアウト・ブックマークの行を作るたびにメインで元ファイルへ問い合わせる ――
@@ -3926,8 +4024,9 @@ final class ViewerViewModel: ObservableObject {
     /// importSourceLayoutIfNeeded を見送っているのと同じ理由)。
     private func autoLayoutForBookWithoutLayoutData() async {
         let mode = preferences.missingLayoutAutoLayout
+        // 参照ファイルの本では、開いた時に本全体の寸法を問い合わせない(scansWholeBook のコメント)。
         guard mode != .none, !skipsPersistence, pendingLayoutReplacementStatus == nil,
-              pageLayoutStates.isEmpty, !book.pages.isEmpty
+              pageLayoutStates.isEmpty, !book.pages.isEmpty, Self.scansWholeBook(book)
         else { return }
 
         let orderedKeys = book.pages.map(\.sortKey)

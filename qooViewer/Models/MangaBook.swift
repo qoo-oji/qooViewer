@@ -198,11 +198,15 @@ struct MangaBook: Identifiable, Hashable {
     /// 施錠が変わった後に部品の案内どおり「StackNest から開き直し」ても、本を表示していたウインドウのビューアが古いセッション
     /// (恒久的な失敗の記録・止まった書き戻しの役・知らせを 1 度に絞る控え)のまま残り、ページは黒いまま案内も出なかった。
     /// ページの並べ替え・除外で中身だけ変わった本は参照を引き継ぐ(ViewerViewModel.prepareBook)ので、同じ本のまま。
-    var viewerIdentity: ViewerIdentity { ViewerIdentity(id: id, stackNestReference: stackNestReference) }
+    /// シークレットフォルダかが変わった開き直しも別の本(ビューモデルの `skipsPersistence` は作るときに決まる)。
+    var viewerIdentity: ViewerIdentity {
+        ViewerIdentity(id: id, isInSecretFolder: isInSecretFolder, stackNestReference: stackNestReference)
+    }
 
     /// `viewerIdentity` の値。参照(鍵を含む)はメモリの中で比べるだけで、どこにも書かない。
     nonisolated struct ViewerIdentity: Hashable, Sendable {
         let id: String
+        let isInSecretFolder: Bool
         let stackNestReference: StackNestBookReference?
     }
 }

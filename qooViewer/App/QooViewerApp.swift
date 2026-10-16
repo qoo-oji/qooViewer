@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 import Combine
+import StackNestViewerKit
 
 /// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
 /// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
@@ -1565,7 +1566,12 @@ struct QooViewerApp: App {
                     ) {
                         focusedAppState?.performViewerAction?(.toggleFavorite)
                     }
-                    .disabled(!hasBook || isPrivate)
+                    .disabled(
+                        !hasBook || isPrivate
+                            || !FavoritesStore.canToggleFavorite(
+                                isReferenceBook: menuCheckmarkState?.isCurrentBookStackNestReference == true,
+                                isFavorited: menuCheckmarkState?.isCurrentBookFavorited == true)
+                    )
 
                     Button("Edit Favorites…") {
                         openWindow(id: "favoritesOrganizer")
@@ -2486,6 +2492,9 @@ struct QooViewerApp: App {
         if !request.bundlesMultipleImages, let url = request.primaryURL,
            let existingAppState = launchCoordinator.openAppState(forBookAt: url, isPrivate: opensPrivately),
            let existingWindow = existingAppState.hostWindow {
+            // StackNest の参照ファイルを StackNest が書き直していたら(新しい鍵)、前へ出すだけでなく、そのウインドウで読み込み直す
+            // (AppState.reloadIfStackNestReferenceChanged)。
+            existingAppState.reloadIfStackNestReferenceChanged(request)
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -3351,13 +3360,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences?.quitWhenLastWindowClosed ?? false
     }
 
+    /// 終了の確認のアラートを出している間か。
+    private var isAskingToQuit = false
+
     /// 走っている作業(ファイルブラウザの操作・書き出し・保存データの読み込み。`RunningWorkRegistry`)があれば、終了する前に
     /// 尋ねる(2026-09-26。macOSの標準)。以前は⌘Qで確認なしに終わり、コピー・圧縮・書き出しが途中で切れた。
     ///
     /// 既定のボタン(Return)とEscは**終了しない**(取り返しのつかない側を既定にしない。起動時の保存データの警告と同じ)。
     /// ウインドウが1枚も無いこともある(最後のウインドウを閉じて終了する設定)ので、シートではなくアプリモーダルで出す。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard RunningWorkRegistry.shared.hasRunningWork else { return .terminateNow }
+        // StackNest への送り切りを待っている間の再入: 先の待ちが終了の応答を返すので、ここでは何も始めず・尋ねない
+        // (尋ねて取り消されても、先の待ちが終わって終了させてしまう)。確認のアラートが開いている間の再入も取り消す。
+        if StackNestProgressRegistry.shared.isFlushing { return .terminateLater }
+        if isAskingToQuit { return .terminateCancel }
+        guard RunningWorkRegistry.shared.hasRunningWork else { return terminateAfterFlushingStackNestProgress(sender) }
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -3369,7 +3385,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: String(localized: "Cancel", language: locale))
         let quitButton = alert.addButton(withTitle: String(localized: "Quit", language: locale))
         quitButton.hasDestructiveAction = true
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        isAskingToQuit = true
+        defer { isAskingToQuit = false }
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        return terminateAfterFlushingStackNestProgress(sender)
+    }
+
+    /// StackNest へ送っていない読書位置があれば、短く(最長 2 秒)待って送り切ってから終了する。無ければ待たずに終了する。
+    /// ⌘Q は SwiftUI の onDisappear を通らないので、ここで送る。StackNest が答えなくても 2 秒で終わる(部品の登録簿)。
+    private func terminateAfterFlushingStackNestProgress(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let registry = StackNestProgressRegistry.shared
+        guard registry.hasUnsentWork else { return .terminateNow }
+        registry.flushAll(timeout: .seconds(2)) { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     /// 正常終了時に、この起動が作った一時ファイル(入れ子の書庫の展開物)を消す。

@@ -65,6 +65,9 @@ enum BookWindowOpener {
         if !request.bundlesMultipleImages, let url = request.primaryURL,
            let existingAppState = launchCoordinator.openAppState(forBookAt: url, isPrivate: opensPrivately),
            let existingWindow = existingAppState.hostWindow {
+            // StackNest の参照ファイルを StackNest が書き直していたら(新しい鍵)、前へ出すだけでなく、そのウインドウで読み込み直す
+            // (AppState.reloadIfStackNestReferenceChanged。履歴から新しいタブ/ウインドウで開いたときなど)。
+            existingAppState.reloadIfStackNestReferenceChanged(request)
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             onOpened?()
