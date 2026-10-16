@@ -4,6 +4,54 @@
 <dict>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.books</string>
+	<!--
+	  StackNest の本の参照ファイル(.stacknestbook)に対応していることの宣言。StackNest は外部ビューアの
+	  Contents/Info.plist をファイルとして読み、ここに書いた版と自分が書ける版の共通の最大の版で参照ファイルを書く。
+	  StackNestViewerKit が読める版(StackNestFormat.supportedVersions)の中だけを宣言する(StackNestViewerDeclarationTests の
+	  自己点検 StackNestViewerSupport.verify が見る)。
+	-->
+	<key>StackNestViewerSupport</key>
+	<dict>
+		<key>referenceFormatVersions</key>
+		<array>
+			<integer>1</integer>
+		</array>
+	</dict>
+	<!--
+	  参照ファイルの型は StackNest が書き出し宣言する。こちらは取り込み宣言だけ(StackNest が入っていない Mac でも、
+	  Finder とファイルの関連付けがこの型を知るため)。
+	-->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>app.shelfsmith.stacknest.book-reference</string>
+			<key>UTTypeDescription</key>
+			<string>StackNest Book Reference</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>stacknestbook</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<!--
+	  qooViewer が StackNest の本を読むときの接続先は、参照ファイルに書かれた 127.0.0.1(この Mac の StackNest)だけ。
+	  リモートの本は StackNest が 127.0.0.1 で中継するので、Tailscale や公開の宛先へは直接繋がない。NSAllowsLocalNetworking は「ローカルへの平文の HTTP だけを許す」という意図を明示する鍵で、配備対象の macOS 15 の
+	  ためにも残す。実測では、この鍵が有っても無くても通る範囲は同じだった(通る範囲の決め手ではない。docs/10)。
+	  何でも許す NSAllowsArbitraryLoads は使わない。
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -85,6 +133,25 @@
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>None</string>
+		</dict>
+		<!--
+		  StackNest の本の参照ファイル。application(_:open:) に届く。
+		  - 既存の項目には混ぜない(同じ dict に LSItemContentTypes と CFBundleTypeExtensions を書くと UTI の側だけが効く。
+		    上の Image の注記)ので、UTI だけを持つ専用の項目にする。
+		  - LSHandlerRank Alternate: StackNest は `open -a` でアプリを名指しして渡すので、Finder のダブルクリックの既定を
+		    取りにいかない(QOO_DOCUMENT_HANDLER_RANK と違い、Release でも Alternate)。
+		-->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>StackNest Book Reference</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>app.shelfsmith.stacknest.book-reference</string>
+			</array>
 		</dict>
 	</array>
 	<!--

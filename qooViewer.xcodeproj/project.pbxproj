@@ -13,6 +13,8 @@
 		0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F102301500000C0C5261 /* ZIPFoundation */; };
 		0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F202301600000C0C5261 /* QooMetaKit */; };
 		0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F203301600000C0C5261 /* QooMetaRules */; };
+		0AD1F404301800000C0C5261 /* StackNestViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F402301800000C0C5261 /* StackNestViewerKit */; };
+		0AD1F405301800000C0C5261 /* StackNestViewerKitTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */; };
 		0AD1F303301700000C0C5261 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F302301700000C0C5261 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -72,6 +74,7 @@
 				0AD11FF03014A59700C0C526 /* ZIPFoundation in Frameworks */,
 				0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */,
 				0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */,
+				0AD1F404301800000C0C5261 /* StackNestViewerKit in Frameworks */,
 				0AD1F303301700000C0C5261 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -81,6 +84,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */,
+				0AD1F405301800000C0C5261 /* StackNestViewerKitTesting in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,6 +144,7 @@
 				0AD11FF53014A5E800C0C526 /* Unrar */,
 				0AD1F202301600000C0C5261 /* QooMetaKit */,
 				0AD1F203301600000C0C5261 /* QooMetaRules */,
+				0AD1F402301800000C0C5261 /* StackNestViewerKit */,
 				0AD1F302301700000C0C5261 /* Sparkle */,
 			);
 			productName = qooViewer;
@@ -165,6 +170,7 @@
 			name = qooViewerTests;
 			packageProductDependencies = (
 				0AD1F102301500000C0C5261 /* ZIPFoundation */,
+				0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */,
 			);
 			productName = qooViewerTests;
 			productReference = 0AD120613014AB0000C0C526 /* qooViewerTests.xctest */;
@@ -204,6 +210,7 @@
 				0AD11FF13014A5C900C0C526 /* XCRemoteSwiftPackageReference "SevenZip" */,
 				0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */,
 				0AD1F201301600000C0C5261 /* XCRemoteSwiftPackageReference "qooMeta" */,
+				0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */,
 				0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -601,6 +608,14 @@
 				version = 2.10.0;
 			};
 		};
+		0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/shelfsmith/StackNestViewerKit";
+			requirement = {
+				kind = revision;
+				revision = e394f585ec542b60a5021d05af204af84eeb2d80;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -638,6 +653,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		0AD1F402301800000C0C5261 /* StackNestViewerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			productName = StackNestViewerKit;
+		};
+		0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			productName = StackNestViewerKitTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

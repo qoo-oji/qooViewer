@@ -1,6 +1,6 @@
 # 11. 依存ライブラリとフォーク
 
-qooViewer は5つの Swift パッケージに依存します(下の表の 4 つと、[qooMeta](#qoometa2026-09-21))。うち2つは開発者自身のフォークで、
+qooViewer は6つの Swift パッケージに依存します(下の表の 5 つと、[qooMeta](#qoometa2026-09-21))。うち2つは開発者自身のフォークで、
 `Package.resolved` の revision で固定しています。
 
 | パッケージ | 参照先 | 固定方法 | 用途 |
@@ -9,6 +9,7 @@ qooViewer は5つの Swift パッケージに依存します(下の表の 4 つ�
 | SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
 | Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.0(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
+| StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | revision `e394f58` | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
 どちらも `origin` = qoo-oji、`upstream` = mtgto(本家)という remote 構成です。各フォークには
@@ -327,6 +328,24 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 → Release で組んで `scripts/release/check-release-app.sh` → 古い版からの更新を一度実際に通す(署名の確かめ方が変わっていないか。
 [12](12-verification-and-debugging.md#自動アップデートの実機の確かめ方))。
 
+## StackNestViewerKit
+
+StackNest の本の参照ファイル(`.stacknestbook`)を読む部品です(`https://github.com/shelfsmith/StackNestViewerKit`。MIT・依存ゼロ・
+Foundation だけ・macOS 14 以上)。StackNest の開発者が、外部ビューア向けに公開している Swift パッケージで、フォークではありません。
+0.1.0 のタグが出るまでは **revision で固定**し(`e394f58`。`Package.resolved` も同じ revision)、タグが出たら
+`upToNextMinorVersion` に替えます(0.x の間は minor で壊す変更がありうるので、qooMeta の `upToNextMajorVersion` とは違う指定にする)。
+
+使う製品は `StackNestViewerKit`(アプリ。参照ファイルの型・本のセッション・同期の読み出しの橋渡し・読書位置の書き戻し。
+`StackNestViewerKitCore` を再輸出する)と `StackNestViewerKitTesting`(試験だけ。`URLProtocol` の見立て)。
+
+- 参照ファイルの形式・API・状態コードの意味・鍵の扱いは部品が持ちます。qooViewer に残るのは、書類の受け付けと開く経路、
+  `ArchiveReading` に合わせる薄い reader(`StackNestReferenceReader`)、本ごとのセッションの表(`StackNestSessions`)、
+  PageLoader の待ち方です(→ [10](10-sandbox-and-security.md) の「StackNest の本と通信」)。
+- 試験のビルドでは、アプリと試験の両方が使う部品のターゲット(`StackNestViewerKit`・`StackNestViewerKitCore`)を、Xcode が
+  動的なフレームワークにしてアプリと試験で 1 つを共有します(試験の側に写しが 2 つできない)。そのとき
+  「'StackNestViewerKit' is missing a dependency on 'StackNestViewerKitCore'」の警告が 1 つ出ます(Xcode の側の知らせで、
+  ビルドと試験には響かない)。Release のアプリには静的に入ります(`Contents/Frameworks` に入るのは Sparkle.framework だけ)。
+
 ## ライセンス表記(Credits.rtf、2026-10-10)
 
 配る .app には依存ライブラリが入っている(Sparkle.framework はそのまま、ほかは静的にリンク)ので、各ライセンスが求める表記を
@@ -340,6 +359,7 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 | SevenZip.swift | `LICENSE.txt`(MIT)+ 7-Zip / LZMA SDK の C のコード(Igor Pavlov、パブリックドメイン)とフォークで足した部分(MIT)の一文 |
 | Unrar.swift | `LICENSE.txt`(MIT)+ `Sources/Cunrar/license.txt`(unRAR。改変した unrar を配るときは第 2 段落の全文を文書に載せる条件)+ `acknow.txt`(Intel の CRC32 は BSD)+「RAR 互換の圧縮ソフトの開発に使えない」の一文 + BLAKE2(パブリックドメイン) |
 | qooMeta | `LICENSE`(MIT) |
+| StackNestViewerKit | `LICENSE`(MIT。依存ゼロで、中に別の作者の部品は無い。タグが出るまでは版を `revision` と先頭 12 桁で書く) |
 
 - **作るのは `scripts/dev/build-credits.py`**(手元。Package.resolved の revision どおりの checkout を DerivedData から探して、ライセンスの
   ファイルを写す)。依存を足した・版を動かしたら作り直す。新しい依存はスクリプトの `PACKAGES` に足し、中に別の作者の部品が無いかを
