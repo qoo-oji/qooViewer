@@ -245,6 +245,9 @@ enum CollectionBookAdding {
         decidedNotSecret: Set<String> = [],
         isStillEnabled: @MainActor () -> Bool = { true }
     ) async -> Result? {
+        // StackNest の参照ファイルの本は、呼び出し側の分類によらず入れない(多重の守り)。
+        let books = books.filter { !isStackNestReferenceFile($0.lastPathComponent) }
+        guard !books.isEmpty else { return nil }
         // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
         let pending = await CollectionStore.makePendingItems(for: books, decidedNotSecret: decidedNotSecret)
         guard isStillEnabled() else { return nil }

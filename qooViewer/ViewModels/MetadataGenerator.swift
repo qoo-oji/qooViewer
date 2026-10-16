@@ -273,6 +273,10 @@ final class MetadataGenerator {
         corpus.formUnion(records.keys)
         corpus.formUnion(verified)
         if let secretFolders { corpus = corpus.filter { !secretFolders.contains(path: $0) } }
+        // StackNest の参照ファイルの本は母体に入れない: 行が StackNest の Application Support の中のパスを
+        // 指し、参照ファイルが消えると「見つからない」本として残る。読書位置・レイアウト(読み方向の取り込み)の行は残るので、
+        // どの経路(知っている本・開いた本・既存の行)から来ても、ここで落とす。
+        corpus = corpus.filter { !isStackNestReferenceFile($0) }
 
         // 行の無い本は、記録どおりの場所にあるかを確かめてから(1 冊につき起動中に 1 度)。
         let toProbe = corpus.filter {
