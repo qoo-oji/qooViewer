@@ -306,3 +306,59 @@ Sparkle の値の変化(KVO)は、届いたスレッドがメインならその�
 | 「インストールできます」でボタンを押さずに終了 | 終了時に 1.83 へ入れ替わり、起動し直さない |
 | 環境設定「アップデートを自動的にダウンロードしてインストール」ON(コンテナの defaults)で起動 | `AppUpdater` が Sparkle の `SUAutomaticallyUpdate` を 1 にし、起動直後に何も出さずに appcast と zip を取得、終了時に何も聞かずに 1.83 へ入れ替わった |
 
+## StackNest の本と通信
+
+アプリ本体が持つ通信の権限(外への接続 = `com.apple.security.network.client`。待ち受けの `network.server` は持たない)は、
+この機能のためだけにあります(Sparkle は本体の権限を使わない。→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
+アプリ本体が接続するのは、StackNest の参照ファイル(`.stacknestbook`)に書かれた本の API だけで(更新の確認と取得は Sparkle の
+XPC サービス)、しかも**この Mac の `127.0.0.1` と `::1` だけ**です。StackNest はリモートの本も中継するため、参照ファイルには
+`http://127.0.0.1:…`(この Mac の StackNest)を書きます。参照ファイルの読み取り・通信・書き戻しは、StackNest の開発者が外部ビューア向けに
+公開している Swift パッケージ StackNestViewerKit(→ [11](11-forked-dependencies.md))が行い、その既定の制限
+(`StackNestHostPolicy.loopbackOnly`。IP の字面だけで、`localhost` などの名前は通さない)が、ほかの宛先の参照ファイルを要求の前に
+断ります(開く時点で「この本の接続先がこの Mac ではない」を出す)。ただ、この Mac の中のポートとパスは参照ファイルに書かれたままに
+使うので、細工した参照ファイルを利用者が開くと、この Mac で動くほかのサービスへ決まった形の要求(manifest とページの GET と、
+読書位置の POST。付く鍵はそのファイル自身のものだけ)を出すことはありえます。パスが StackNest の形かを確かめるのは、後から足せる
+締め付けです。API は平文の HTTP なので、ATS は `NSAllowsLocalNetworking` だけを許します(何でも許す `NSAllowsArbitraryLoads` 系の鍵は
+使わない)。
+
+実測(2026-10-02・macOS 26.6.2・テストホスト。`StackNestATSTests` を `TEST_RUNNER_QOO_ATS_PROBE_URL` 付きで走らせる):
+
+- 通る: 127.0.0.0/8・10.0.0.0/8・172.16.0.0/12・192.168.0.0/16
+- ATS に止められる(-1022): 100.64.0.0/10(Tailscale)と公開の IP アドレス(文書用の 192.0.2.1 を含む)
+
+この結果は `NSAllowsLocalNetworking` の有無に関わらず同じだった。鍵は意図を明示するためと、配備対象の macOS 15 のために残す。
+
+中継は試用の方式です。もし StackNest が直接の接続(リモートの本の宛先をそのまま参照ファイルに書く形)に戻ると、その宛先は
+上の部品の制限で断られます(広げるには `StackNestBookSession.Configuration.allowedHosts` を明示して広げる。Tailscale
+(100.64.0.0/10)と公開の IP アドレスは、さらに上の実測のとおり ATS にも止められる)。
+
+- **対応の宣言**: `Info.plist` の `StackNestViewerSupport.referenceFormatVersions`(今は `[1]`)。StackNest はこの鍵を
+  ファイルとして読んで、渡してよいかと書く版を決める。部品が読める版(`StackNestFormat.supportedVersions`)の中だけを宣言する
+  (`StackNestViewerDeclarationTests` が部品の自己点検 `StackNestViewerSupport.verify` で確かめる)。
+- **鍵(token)**: 参照ファイルに平文で入っている、その本だけに使える鍵。メモリの中だけに置き、DB・UserDefaults・保存データの
+  書き出し・ページ一覧のキャッシュ・ログに残さない(部品の `StackNestBookReference` は `Codable` でなく、文字列にすると
+  `<redacted>`)。送るのは参照ファイルの `book` と同じ宛先だけで、リダイレクトには付いて行かない。セッションは ephemeral で、
+  キャッシュ・クッキー・資格情報の保管・プロキシを使わない(部品)。
+- **名乗り**: `X-StackNest-Viewer: <バンドル ID>/<版>; format=<参照ファイルの版>; kit=<部品の版>`。各部分は印字できる ASCII の
+  英数字と `._+-` だけにする(改行が入ってもヘッダを分割させない。部品の `StackNestViewerIdentification`)。
+- **セッションは本ごとに 1 つ**: 同じ参照ファイルから作る reader(ビューア・ブックマークとレイアウトの編集・本を開くとき)と
+  書き戻しの役は、`StackNestSessions` で 1 つのセッション(部品の、直近 8 ページ・64 MiB のメモリのキャッシュと、同じページの
+  二重取得の防止)を使い回す。StackNest が参照ファイルを書き直した(鍵が変わった)ときは新しいセッションにする。開いている本の
+  ビューアがセッションを持ち、最後の持ち主が手放すと畳まれる。
+- **待ち方**: `ArchiveReading` は同期の API なので、網越しの reader(`RemoteArchiveReading`)の読み出しはブロックする(部品の
+  `StackNestBlockingReader`。協調スレッドを使わずに待つ。メインスレッド・`Task` の中から呼ぶと Debug で止まる)。PageLoader は
+  この reader を `FileIO` で、デコードの枠を取る前に待ち、actor(協調スレッド)も枠も塞がない。フォルダの本は枠を取ってから
+  `FileIO` で読むが、網越しの reader は枠の前に取る(応答しない StackNest への先読みが、網の待ちの間に枠を握らないように)。
+- **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
+  その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
+  理由を 1 度だけ知らせる(これが無いと、施錠を変えた後に読めないページが真っ黒のまま案内が無く、ページを送るたびに
+  1 枚につき寸法・表示・先読み・サムネイルの要求が重なって出る)。書き戻しもその本については送らない(部品)。終了(⌘Q)の
+  ときは、送っていない位置を最長 2 秒だけ待って送る(部品の `StackNestProgressRegistry`)。
+- **文言**: 知らせの文言は部品の既定の英日の文言を、qooViewer の表示言語(`AppLanguage`)とアプリの名前で出す(`StackNestText`)。
+  qooViewer に固有の文言(「StackNest の本は書き出せません」)だけが `Localizable.xcstrings` にある。
+- **ライブラリ機能の外**: 参照ファイルの本は StackNest の Application Support の中の、開くたびに書き直され期限が切れると
+  消えるファイル。コレクションとお気に入りへの登録・本の書き出し・メタデータへの登録はしない(表紙の待ち行列が鍵の付いた要求を出し続け、
+  行が消えるパスを指すため)。読書位置・ブックマーク・履歴は残す。
+- **テスト**: 実物の StackNest は使わない。部品の見立て `StackNestStubServer`(`URLProtocol`。StackNestViewerKitTesting)を、
+  作業フォルダの下の参照ファイルにだけ `StackNestSessions.useConfigurationForTesting` で使わせる(`StackNestTestBook`)。
+  実際に接続する `StackNestATSTests` は `TEST_RUNNER_QOO_ATS_PROBE_URL` を付けたときだけ動く。
