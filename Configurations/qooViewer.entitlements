@@ -10,9 +10,11 @@
   - サンドボックスの中のアプリは Sparkle のインストーラを自分で起動できないので、Sparkle.framework の中の
     XPC サービス(Installer.xpc)に頼む。その XPC サービスと話すための mach の名前 2 つを、名前を
     限って開ける(Sparkle の公式の手順どおり。$(PRODUCT_BUNDLE_IDENTIFIER) は署名のときに展開される)。
-  - **com.apple.security.network.client は足さない。** アプリ本体は今まで通り通信しない。更新情報と
-    更新の書庫を取りに行くのは Sparkle の Downloader.xpc(Info.plist の SUEnableDownloaderService)で、
-    通信の権限はそちらだけが持つ。scripts/ci/check-release-app.sh がこの 2 点を確かめる。
+  - **com.apple.security.network.client はここに書かない。** 本体の client はビルド設定
+    ENABLE_OUTGOING_NETWORK_CONNECTIONS から生成され、StackNest の本の API(この Mac の 127.0.0.1／::1)のためだけ
+    (docs/10)。更新情報と更新の書庫を取りに行くのは今まで通り Sparkle の Downloader.xpc(Info.plist の
+    SUEnableDownloaderService)で、Sparkle は本体の権限を使わない。scripts/release/check-release-app.sh が、
+    mach の名前と、本体の client が StackNest の宣言のあるときだけで待ち受け(server)が無いことを確かめる。
   - Debug 構成には付けない(Debug ではアップデーターを起動しない。QOO_UPDATER_ENABLED)。
 -->
 <dict>

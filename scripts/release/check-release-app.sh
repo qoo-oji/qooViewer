@@ -85,9 +85,20 @@ v = plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2])
 print("" if v is None else json.dumps(v, separators=(",", ":")) if isinstance(v, list) else str(v).lower())' "$entitlements" "$1"
     }
     if [ "$(ent com.apple.security.app-sandbox)" = "true" ]; then ok "App Sandbox が有効"; else fail "App Sandbox が無効"; fi
-    # アプリ本体は通信しない。更新の取得は Sparkle の Downloader.xpc の仕事(Info.plist のコメント)。
-    if [ "$(ent com.apple.security.network.client)" = "true" ]; then
+    # 更新の取得はアプリ本体ではしない。Sparkle の Downloader.xpc の仕事(Info.plist のコメント)。
+    # 本体の client は StackNest の本の API(この Mac の 127.0.0.1／::1)のためだけ。Sparkle は本体の権限を使わない。
+    # そのため client は Info.plist に StackNestViewerSupport の宣言(版が 1 つ以上。Info.plist のコメント)があるときだけ許し、
+    # 宣言があるのに client が無ければ本が読めないので落とす。待ち受け(server)はどちらでも許さない。
+    client=$(ent com.apple.security.network.client)
+    declared=$(value StackNestViewerSupport.referenceFormatVersions.0)
+    if [ "$(ent com.apple.security.network.server)" = "true" ]; then
+        fail "アプリ本体に com.apple.security.network.server が付いている(待ち受けはしない)"
+    elif [ "$client" = "true" ] && [ -n "$declared" ]; then
+        ok "アプリ本体の通信の entitlement は外への接続だけ(StackNest の本。docs/10)"
+    elif [ "$client" = "true" ]; then
         fail "アプリ本体に com.apple.security.network.client が付いている"
+    elif [ -n "$declared" ]; then
+        fail "StackNestViewerSupport を宣言しているのに com.apple.security.network.client が無い(StackNest の本を読めない)"
     else
         ok "アプリ本体に通信の entitlement は無い"
     fi

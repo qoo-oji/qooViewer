@@ -106,7 +106,9 @@ Security rests on one Ed25519 key (the app is not Developer ID signed, so there 
 requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS
 `SUFeedURL` (pinned by the delegate; defaults' `SUFeedURL` is cleared) and a 32-byte `SUPublicEDKey`, and `UpdaterConfiguration`
 refuses to start Sparkle if any of that is loosened — keep the plist, `UpdaterConfigurationTests` and
-`scripts/release/check-release-app.sh` in step. The app itself still has **no network entitlement**: Sparkle's Downloader.xpc
+`scripts/release/check-release-app.sh` in step. The app's only network entitlement is the **outgoing client** (build setting
+`ENABLE_OUTGOING_NETWORK_CONNECTIONS`), and only for StackNest's book API on this Mac (127.0.0.1/::1) — `check-release-app.sh`
+allows it only while Info.plist declares `StackNestViewerSupport`, never `network.server`. Sparkle never uses it: Downloader.xpc
 fetches, Installer.xpc installs (Release-only `Configurations/qooViewer.entitlements` holds just the two mach-lookup names). Debug
 never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` because Sparkle compares
 `CFBundleVersion`. The private key never enters the repo (login keychain, account `qooProject`); the trust model and the 2026-10-10 on-device

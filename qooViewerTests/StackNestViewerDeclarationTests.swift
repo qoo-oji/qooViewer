@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import StackNestViewerKit
 import Testing
 
@@ -71,5 +72,17 @@ struct StackNestViewerDeclarationTests {
         #expect(ats["NSAllowsArbitraryLoads"] == nil)
         #expect(ats["NSAllowsArbitraryLoadsInWebContent"] == nil)
         #expect(ats["NSAllowsArbitraryLoadsForMedia"] == nil)
+    }
+
+    @Test("サンドボックスのまま、外への接続(network.client)だけを持つ")
+    func hasTheNetworkClientEntitlement() throws {
+        let task = try #require(SecTaskCreateFromSelf(nil))
+        func value(_ key: String) -> Bool? {
+            SecTaskCopyValueForEntitlement(task, key as CFString, nil) as? Bool
+        }
+        #expect(value("com.apple.security.app-sandbox") == true)
+        #expect(value("com.apple.security.network.client") == true)
+        // 待ち受け(server)は要らない。
+        #expect(value("com.apple.security.network.server") != true)
     }
 }

@@ -2,8 +2,10 @@
 
 ## 前提
 
-App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`。アプリ本体にネットワークの
-entitlement は無く、本体は通信しません。通信するのは自動アップデート(Sparkle)の Downloader.xpc だけで、
+App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`、
+`ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES`(外への接続 = `com.apple.security.network.client`)。アプリ本体が接続するのは
+StackNest の本の API(この Mac の 127.0.0.1／::1)だけで、待ち受けはしません(下の「StackNest の本と通信」)。
+自動アップデート(Sparkle)の通信は本体の権限を使わず Downloader.xpc がして、
 取りに行くのは GitHub の appcast と更新の書庫だけです(→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
 entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
 サービスと話す mach の名前 2 つ)が加わります(→ [02](02-project-and-build.md))。
@@ -235,12 +237,14 @@ Ed25519 の秘密鍵で署名されているかだけで決まります。**
 新しい鍵を入れた版を手で配り直すしかありません(今の利用者のアプリは古い鍵の署名しか受け付けない)。リポジトリには入れない
 (`.gitignore` と `make-appcast.sh` がリポジトリの中の鍵ファイルを拒む)。
 
-### アプリ本体は通信しない
+### 更新の取得はアプリ本体ではしない
 
 - サンドボックスの中のアプリはインストーラを自分で起動できないので、Sparkle.framework の中の `Installer.xpc` に頼みます
   (`SUEnableInstallerLauncherService` と、Release の entitlements の mach-lookup の例外 `<バンドルID>-spks` / `-spki`)。
-- 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。そのため本体に `com.apple.security.network.client` を足していません
-  (`check-release-app.sh` が「無いこと」を確かめる)。代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
+- 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。本体の `com.apple.security.network.client` は StackNest の本の
+  API(この Mac の 127.0.0.1／::1)のためだけで、Sparkle はそれを使いません(`check-release-app.sh` は、Info.plist に
+  `StackNestViewerSupport` の宣言があるときだけ本体の client を許し、待ち受けの `network.server` は許さない)。
+  代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
   版ごとに出し分けられないこと。リリースノートは appcast に埋め込み(`--embed-release-notes`、markdown)、JavaScript は切ってあります。
 - 送るものは Sparkle の既定の要求だけ(アプリ名と版・Sparkle の版)。`SUEnableSystemProfiling = NO` で Mac の情報は送りません。
   本や保存データに関わるものは何も送りません。

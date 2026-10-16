@@ -173,7 +173,8 @@
 	  - SURequireSignedFeed / SUSignedFeedFailureExpirationInterval = 0: appcast(版・リリースノート)にも署名を求め、
 	    署名が合わない状態が続いても期限切れで受け入れる逃げ道を作らない(上と同じく鍵の差し替えはしない前提)。
 	  - SUEnableInstallerLauncherService / SUEnableDownloaderService: サンドボックスのアプリのための XPC サービス。
-	    Downloader を使うことで、アプリ本体に通信の entitlement を足さずに済む(Configurations/qooViewer.entitlements)。
+	    更新の取得は Downloader がするので、Sparkle はアプリ本体の通信の entitlement を使わない(本体の client は
+	    StackNest の本の API のためだけ。Configurations/qooViewer.entitlements)。
 	  - SUEnableSystemProfiling = NO / SUEnableJavaScript = NO: 既定と同じだが明示する。更新の確認で Mac の情報を
 	    送らない・リリースノートでスクリプトを動かさない。
 	  - SUEnableAutomaticChecks = YES: 既定で自動確認する(利用者の判断 2026-10-10)。実際の ON/OFF は環境設定

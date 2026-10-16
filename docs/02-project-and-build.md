@@ -505,18 +505,20 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | `SWIFT_APPROACHABLE_CONCURRENCY` | YES | Xcode 26 の「Approachable Concurrency」一式 |
 | `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY` | YES | 暗黙のモジュール再エクスポートに頼らない |
 | `ENABLE_APP_SANDBOX` | YES | App Sandbox。entitlement はビルド設定から生成される(Release だけ下の `CODE_SIGN_ENTITLEMENTS` の中身が合わさる) |
-| `CODE_SIGN_ENTITLEMENTS` | Release だけ `Configurations/qooViewer.entitlements` | Sparkle の Installer.xpc と話す mach-lookup の例外 2 つ(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。通信の entitlement は足さない |
+| `CODE_SIGN_ENTITLEMENTS` | Release だけ `Configurations/qooViewer.entitlements` | Sparkle の Installer.xpc と話す mach-lookup の例外 2 つ(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。通信の entitlement はここに書かない(外への接続は下の `ENABLE_OUTGOING_NETWORK_CONNECTIONS` から) |
 | `QOO_UPDATER_ENABLED` | Release: YES / Debug: NO | Info.plist の `QOOUpdaterEnabled`。NO ならアップデーターを起動しない(Debug は別のアプリなので配布版に置き換わってはいけない) |
 | `ENABLE_HARDENED_RUNTIME` | YES | 公証の前提 |
 | `ENABLE_USER_SELECTED_FILES` | readwrite | ユーザーが選んだファイル/フォルダの読み書き |
+| `ENABLE_OUTGOING_NETWORK_CONNECTIONS` | YES | 外への接続(`com.apple.security.network.client`。StackNest の本の API だけ)。待ち受け(`ENABLE_INCOMING_NETWORK_CONNECTIONS`)は NO のまま。Sparkle の更新の取得はこれを使わない |
 | `PRODUCT_BUNDLE_IDENTIFIER` | Release: com.qooProject.qooViewer / **Debug: com.qooProject.qooViewer.debug** | 変えると SwiftData のストア・UserDefaults・キャッシュの場所が変わる。Debug を分けた理由は下 |
 | `INFOPLIST_KEY_CFBundleDisplayName` | Debug だけ「qooViewer Debug」 | Dock・Finder で普段使いのアプリと見分ける |
 | `QOO_DOCUMENT_HANDLER_RANK` | Release: Default / Debug: Alternate | `Info.plist` の本の書類型の `LSHandlerRank`。Debug ビルドが Finder のダブルクリックの既定候補を奪わない |
 | `MARKETING_VERSION` | 1.41(2026-09-05 時点) | アプリのバージョン。Debug/Release 両方にある |
 | `CURRENT_PROJECT_VERSION` | `$(MARKETING_VERSION)`(2026-10-10 から。以前は 1 固定) | `CFBundleVersion`。Sparkle はこれで新旧を比べるので、版と同じにした。版は小数点以下 2 桁で書き続ける(`1.9` と `1.10` は 1.9 < 1.10 と読まれる) |
 
-アプリ本体にネットワークの entitlement はありません。通信するのは自動アップデートの Sparkle の Downloader.xpc だけで、
-GitHub の appcast と更新の書庫しか取りに行きません(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。
+アプリ本体のネットワークの entitlement は外への接続(client)だけで、つなぐのは StackNest の本の API(この Mac の
+127.0.0.1／::1)だけです(→ [10](10-sandbox-and-security.md#前提))。自動アップデートの通信は今まで通り Sparkle の Downloader.xpc がして
+(本体の権限は使わない)、GitHub の appcast と更新の書庫しか取りに行きません(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。
 
 **Debug ビルドは保存データが別**(2026-09-13 から)。バンドルIDが違うので、サンドボックスのコンテナ
 (`~/Library/Containers/com.qooProject.qooViewer.debug/`)ごと別になり、SwiftData のストア・
@@ -612,7 +614,7 @@ Info.plist の中のコメントに書いてある要点:
    署名は自動署名(`Configurations/Local.xcconfig` の Team の Apple Development)。Archive は `get-task-allow` を付けない(Build で作った .app には付く
    ので、Build の .app は配らない)。zip の名前は `qooViewer.zip`(appcast のダウンロード先がこの名前になる。今までの添付ファイルと同じ)。
 3. **appcast**: `scripts/release/make-appcast.sh <作業場所>/qooViewer.zip`。次をすべて確かめてから、zip の隣に `appcast.xml` を作る:
-   - `check-release-app.sh`: 署名の確かめを緩めていない・本体に通信の entitlement が無い・公開鍵が入っている・universal・
+   - `check-release-app.sh`: 署名の確かめを緩めていない・本体の通信の entitlement は StackNest の宣言があるときの外への接続だけ・公開鍵が入っている・universal・
      `CFBundleVersion` = 版、など
    - アプリの公開鍵とキーチェーンの鍵(アカウント `qooProject`)が一致する(違う鍵で署名した更新は、利用者のアプリが受け付けない)
    - CHANGELOG の `## [X.YY]` をリリースノートとして埋め込み、`generate_appcast` が書庫と appcast の両方に署名する
