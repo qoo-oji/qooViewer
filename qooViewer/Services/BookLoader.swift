@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import StackNestViewerKit
 
 /// 指定された1つのフォルダ、またはアーカイブファイルから、1冊の本(MangaBook)を読み込む。
 ///
@@ -33,6 +34,16 @@ nonisolated enum BookLoader {
         // シークレットフォルダの本(SecretFolderStore)は、どの経路から読んでもページ一覧のキャッシュを読み書きしない
         // (本のパスとページ名が残る。保存データの書き出し・取り込み・表紙の抽出など、呼び出し元ごとに足すと漏れるのでここで)。
         let cachesPageList = cachesPageList && !SecretFolderStore.isSecretAppWide(url)
+        // StackNest の本の参照ファイル。構造キャッシュの復元と書き戻しより前に分ける: ページ一覧の正は StackNest の
+        // manifest で、参照ファイルは開くたびに書き直される(鍵・期限)ので、ページ一覧のキャッシュは読みも書きもしない。
+        // 実ファイルだけ(同じ名前のフォルダは、従来どおりフォルダの本)。無いパスは参照ファイルとして進み、読み込みが notFound を返す。
+        // 実ファイルかどうかの確かめ(stat)は FileIO の上で行う: この関数は呼び出し側の actor(MainActor のことがある)で走るので、
+        // 応答しないボリュームの上の参照ファイルで stat が長く待つと、メインが塞がる。
+        if isStackNestReferenceFile(url.lastPathComponent), !url.hasDirectoryPath,
+           await FileIO.perform({ isNotExistingDirectory(url) })
+        {
+            return try await loadStackNestReference(at: url)
+        }
         // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
         // ある。2回目以降はその走査ごと飛ばす(BookPageListCache.Entryの構造キャッシュの
         // コメント参照)。シークレットウインドウでは書かないだけでなく**読みもしない** ――
@@ -90,6 +101,94 @@ nonisolated enum BookLoader {
     /// 常に通ってしまう ―― 2026-10-06 の応答性の点検 R7 で走査を FileIO へ移したため)。
     static func checkLoadCancellation() throws {
         if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
+    }
+
+    // 参照ファイルの経路へ振り分ける確かめが走ったことを、テストが見るための覗き窓(どのスレッドで走ったかを見る)。
+    // 自分の作業フォルダの下の参照ファイルにだけ効く登録で、鍵で守る(StackNestSessions.useConfigurationForTesting と同じ形)。
+    // 並行して走るほかのテストにも、データ競合にも影響しない。
+    private static let routingProbeLock = NSLock()
+    nonisolated(unsafe) private static var routingProbes: [String: @Sendable (URL) -> Void] = [:]
+
+    static func observeReferenceRoutingForTesting(under folder: URL, _ probe: @escaping @Sendable (URL) -> Void) {
+        routingProbeLock.withLock { routingProbes[MountTable.normalized(folder.path)] = probe }
+    }
+
+    static func endObservingReferenceRoutingForTesting(under folder: URL) {
+        routingProbeLock.withLock { routingProbes[MountTable.normalized(folder.path)] = nil }
+    }
+
+    private static func notifyReferenceRoutingProbe(for url: URL) {
+        let probe: (@Sendable (URL) -> Void)? = routingProbeLock.withLock {
+            guard !routingProbes.isEmpty else { return nil }
+            let path = MountTable.normalized(url.path)
+            return routingProbes.first { MountTable.path(path, isAtOrUnder: $0.key) }?.value
+        }
+        probe?(url)
+    }
+
+    /// ブロックしうる(stat)ので `FileIO` の上で呼ぶこと。
+    private static func isNotExistingDirectory(_ url: URL) -> Bool {
+        notifyReferenceRoutingProbe(for: url)
+        return !isExistingDirectory(url)
+    }
+
+    private static func isExistingDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// StackNest の参照ファイルの本を開く。manifest を問い合わせ、そのページ数ぶんの仮の名前でページを作る(ページはまだ取らない)。
+    /// 通信は `FileIO` で待つ ―― `Task.detached` は協調スレッドで、応答しない StackNest がスレッドを塞ぐ(FileIO の型コメント)。
+    /// 期限切れ・つないでよい宛先でないときは、通信せずに投げる(StackNestViewerKit)。
+    static func loadStackNestReference(at url: URL) async throws -> MangaBook {
+        let book = try await FileIO.perform { try stackNestReferenceBook(at: url) }
+        // 中止が間に合わなかった場合も本を返さない(load(from:) と同じ)。
+        try Task.checkCancellation()
+        return book
+    }
+
+    private static func stackNestReferenceBook(at url: URL) throws -> MangaBook {
+        guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
+        do {
+            let reader = try StackNestReferenceReader(referenceFileURL: url)
+            // manifest がページ数と読み方向の正(参照ファイルの値は開いた時点のもの)。開くたびに問い合わせる: 覚えた manifest を
+            // 使うと要求が出ず、StackNest が「読み込まれた」と知る合図にならない。
+            let manifest = try reader.manifest(refresh: true)
+            let names = StackNestPageNaming.entryNames(pageCount: manifest.pageCount)
+            guard !names.isEmpty else { throw BookLoaderError.noPages }
+            let locator = ArchiveLocator(rootURL: url)
+            // id・sortKey の組み立ては書庫の本(collectPages の最上位)と同じ式。sortKey はブックマーク・レイアウト・読書位置の鍵。
+            // 名前は StackNest の番号順に並んで生まれるので並べ替えない。
+            let pages = names.map { name in
+                PageRef(id: "\(url.path)#\(name)", sortKey: name, source: .archive(locator: locator, entryPath: name))
+            }
+            let reference = reader.reference
+            let title = reference.title
+            return MangaBook(
+                id: url.path,
+                title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
+                sourceURL: url,
+                pages: pages,
+                // StackNest の読み方向。EPUB・PDF のヒントと同じく、初めて開いたときに 1 度だけ DB へ取り込まれ
+                // (LayoutStore.importSourceLayoutIfNeeded)、以後は利用者の選択(DB)が勝つ。
+                sourceLayoutHint: layoutHint(forStackNestDirection: manifest.direction ?? reference.direction),
+                stackNestReference: reference,
+                // ページ数の正は manifest(参照ファイルの値は開いた時点のもの)。サムネイルの鍵(PageLoader.thumbnailDiskKey)が使う。
+                stackNestPageCount: names.count
+            )
+        } catch let error as StackNestViewerError {
+            // アラートは errorDescription を出す。部品のエラーのままだと qooViewer の表示言語にならない(StackNestOpenError)。
+            throw StackNestOpenError(error: error)
+        }
+    }
+
+    /// StackNest の読み方向を、本のソースのヒントにする。知らない値は使わない(既定の向きのまま)。
+    static func layoutHint(forStackNestDirection direction: StackNestReadingDirection?) -> SourceLayoutHint? {
+        switch direction {
+        case .rightToLeft?: return SourceLayoutHint(pageProgressionDirection: .rightToLeft, forcedDisplayMode: nil)
+        case .leftToRight?: return SourceLayoutHint(pageProgressionDirection: .leftToRight, forcedDisplayMode: nil)
+        default: return nil
+        }
     }
 
     /// 1回の読み込みのあいだだけ共有する道具一式。

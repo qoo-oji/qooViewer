@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import StackNestViewerKit
 
 /// 1ページ分の画像ファイル情報(コンテキストメニュー「情報を見る」、ユーザー要望)。
 /// PageLoader.pageImageInfo(at:)が、ピクセルデコードを伴わないヘッダー読み取りだけで
@@ -317,21 +318,48 @@ actor PageLoader {
 
     private func thumbnailDiskKey(maxPixelSize: CGFloat) async -> ThumbnailDiskCache.BookKey {
         if let cached = cachedThumbnailDiskKeys[maxPixelSize] { return cached }
-        // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
-        // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。問い合わせは本ごとに 1 回、`FileIO` の上で
-        // (`sourceFileAttributes`。2026-10-11 の規約監査 ―― 以前は actor の上、つまり協調スレッドプールで stat していた)。
         let contrast = contrastCorrectionEnabled
-        let attributes = await sourceFileAttributes()
-        let key = ThumbnailDiskCache.BookKey(
-            bookID: book.id,
-            modificationDate: attributes.modificationDate,
-            fileSize: attributes.fileSize,
-            contrastCorrectionEnabled: contrast,
-            maxPixelSize: maxPixelSize
-        )
+        let key: ThumbnailDiskCache.BookKey
+        if let stackNestKey = Self.stackNestThumbnailDiskKey(
+            for: book, contrastCorrectionEnabled: contrast, maxPixelSize: maxPixelSize
+        ) {
+            // 参照ファイルの本は、参照ファイルの属性を問い合わせない(開くたびに書き直されるので鍵にならない)。
+            key = stackNestKey
+        } else {
+            // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
+            // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。問い合わせは本ごとに 1 回、`FileIO` の上で
+            // (`sourceFileAttributes`。2026-10-11 の規約監査 ―― 以前は actor の上、つまり協調スレッドプールで stat していた)。
+            let attributes = await sourceFileAttributes()
+            key = ThumbnailDiskCache.BookKey(
+                bookID: book.id,
+                modificationDate: attributes.modificationDate,
+                fileSize: attributes.fileSize,
+                contrastCorrectionEnabled: contrast,
+                maxPixelSize: maxPixelSize
+            )
+        }
         // 待っている間にコントラスト補正を切り替えられたら(`setContrastCorrectionEnabled` が控えを捨てる)、古い設定の鍵は控えない。
         if contrast == contrastCorrectionEnabled { cachedThumbnailDiskKeys[maxPixelSize] = key }
         return key
+    }
+
+    /// 参照ファイルの本のサムネイルのディスクキャッシュの鍵(参照ファイルの本でなければ nil)。参照ファイルの更新日時・大きさ・
+    /// 本の URL(中継の ID)は開くたびに変わるので、参照ファイルのパスと manifest のページ数で決める。stat もしない。
+    /// **本の URL を鍵に入れないこと**(thumbnailKeyIgnoresBookURL が押さえる)。
+    /// StackNest はリモートの本を 127.0.0.1 の中継(`…/relay/<毎回変わる ID>`)で渡すので、URL を入れると開くたびに別の鍵になり、
+    /// 全ページのサムネイルを作り直してディスクに溜めていく。鍵(token)も含めない。更新日時は無し、大きさの欄にページ数を入れる。
+    nonisolated static func stackNestThumbnailDiskKey(
+        for book: MangaBook, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat
+    ) -> ThumbnailDiskCache.BookKey? {
+        guard book.stackNestReference != nil else { return nil }
+        // 参照ファイルの本なら manifest のページ数は必ずある(BookLoader が入れ、prepareBook が引き継ぐ)。無ければ引き継ぎの
+        // 漏れなので Debug では止める。Release では今の並びのページ数で代える(除外すると鍵が変わり、キャッシュが
+        // 当たらなくなる)。
+        assert(book.stackNestPageCount != nil, "参照ファイルの本に manifest のページ数が無い(BookLoader か prepareBook の引き継ぎ漏れ)")
+        return ThumbnailDiskCache.BookKey(
+            bookID: book.id, modificationDate: nil, fileSize: Int64(book.stackNestPageCount ?? book.pages.count),
+            contrastCorrectionEnabled: contrastCorrectionEnabled, maxPixelSize: maxPixelSize
+        )
     }
 
     /// 本体の更新日時・大きさ(サムネイルのディスクキャッシュの鍵)。本ごとに 1 回だけ `FileIO` の上で問い合わせて控える。
@@ -759,13 +787,26 @@ actor PageLoader {
                 await FileIO.perform(qos: .utility) { ImageDecoder.pixelSize(ofFileAt: url) }
             }
         case .archive(let locator, let entryPath):
-            // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
-            // エントリ全体ではなく先頭だけを伸長する(ArchiveReading.dataPrefix参照)。
-            guard let prefix = try? reader(for: locator)?.dataPrefix(
-                at: entryPath, maxByteCount: Self.headerProbeByteCount
-            ) else { return nil }
-            task = Task.detached(priority: .utility) {
-                ImageDecoder.pixelSize(of: prefix)
+            guard let reader = reader(for: locator) else { return nil }
+            if let remote = reader as? any RemoteArchiveReading {
+                // 網越しの reader は先頭だけを読めない(1 ページが 1 往復)。全体を FileIO で取り、寸法もその場(FileIO の上)で読む。
+                // 取ったバイト列は本のセッション(StackNestViewerKit の StackNestBookSession)が直近の数ページぶん持っていて、
+                // 同じ本の reader はそのセッションを共有するので、続く表示の読み出しでは往復しない(StackNestSessions の型コメント)。
+                // actor の上では待たない(remoteBytes のコメント)。形はフォルダの本(上の `.file`)と同じ。
+                task = Task(priority: .utility) {
+                    await FileIO.perform(qos: .utility) {
+                        (try? remote.data(at: entryPath)).flatMap(ImageDecoder.pixelSize(of:))
+                    }
+                }
+            } else {
+                // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
+                // エントリ全体ではなく先頭だけを伸長する(ArchiveReading.dataPrefix参照)。
+                guard let prefix = try? reader.dataPrefix(at: entryPath, maxByteCount: Self.headerProbeByteCount) else {
+                    return nil
+                }
+                task = Task.detached(priority: .utility) {
+                    ImageDecoder.pixelSize(of: prefix)
+                }
             }
         case .pdf:
             return nil // 上で早期リターン済み(switchを網羅させるためのプレースホルダー)。
@@ -788,7 +829,8 @@ actor PageLoader {
         // ページを待ち合わせていた別の呼び出しにはnilが返る。その呼び出し元(横長判定の
         // 先読み)は「まだ判定できていないページ」として扱い、後で改めて問い合わせるだけなので
         // 実害は無い(キャッシュにも入っていないため、次回は正しく読み直される)。
-        if size == nil, !page.source.isFile, let fullData = await rawData(for: page.source) {
+        // 網越しの reader は最初から全体を取っている(取れなかったか寸法が読めない)ので、取り直さない。
+        if size == nil, !page.source.isFile, !isRemoteSource(page.source), let fullData = await rawData(for: page.source) {
             size = await Task.detached(priority: .utility) {
                 ImageDecoder.pixelSize(of: fullData)
             }.value
@@ -1550,6 +1592,18 @@ actor PageLoader {
     private func decodedPixels(
         for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil
     ) async -> PagePixelBuffer? {
+        // 網越しのページ(StackNest の参照ファイルの本)は、デコードの枠を取る**前に**取り寄せる。枠は CPU とメモリの
+        // ための絞り(最大 2)で、網の待ちに使うと、応答しない StackNest への先読み 1〜2 件が最長 25 秒枠を握り、表示要求が
+        // 待ち行列の先頭に出ても枠が空かない。同時に飛ぶ要求の数は URLSession のホストごとの接続数で抑えられる。
+        let prefetched: Data?
+        switch await remoteBytes(for: source) {
+        case .notRemote:
+            prefetched = nil
+        case .remote(let data):
+            guard let data else { return nil }
+            prefetched = data
+        }
+        guard !Task.isCancelled else { return nil }
         // フルサイズのデコードは同時実行数を絞る(decodeSlotsのコメント参照)。サムネイルは
         // 別の、より緩い枠で絞る(maxConcurrentThumbnailDecodesのコメント参照)。
         let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
@@ -1576,7 +1630,9 @@ actor PageLoader {
             case .pdf(let container, let pageIndex):
                 return renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
             case .file, .archive:
-                guard let data = await rawData(for: source) else { return nil }
+                let fetched: Data?
+                if let prefetched { fetched = prefetched } else { fetched = await rawData(for: source) }
+                guard let data = fetched else { return nil }
                 guard !Task.isCancelled else { return nil }
                 // decodedImage(for:maxPixelSize:)と同じく、デコードはactorの外で行う。
                 // 書庫内エントリはヘッダー情報も同じバイト列から取っておく(headerInfoCache参照)。
@@ -1590,7 +1646,9 @@ actor PageLoader {
                 return pixels
             }
         }
-        guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize) else { return nil }
+        guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize, prefetched: prefetched) else {
+            return nil
+        }
         guard !Task.isCancelled else { return nil }
         return await Self.renderBuffer(from: decoded)
     }
@@ -1636,7 +1694,11 @@ actor PageLoader {
         // releaseDecodeSlotへ進むので、スロットが漏れることはない。
         await withCheckedContinuation { continuation in
             let waiter = DecodeWaiter(key: waiterKey, continuation: continuation)
-            if isPrefetch {
+            // 先読みとして始まった読み込みでも、網越しのページを取り寄せている間(decodedPixels が枠の前に取る)に表示要求が
+            // 合流していれば、先読みの列には並ばない: その合流の時点では列にまだいない(promoteDecodeWaiter は何もできない)ので、
+            // ここで見る。合流した表示要求は pixels(at:) が cancellableInFlightKeys から外している。
+            let queuesAsPrefetch = isPrefetch && (waiterKey.map { cancellableInFlightKeys.contains($0) } ?? true)
+            if queuesAsPrefetch {
                 prefetchDecodeWaiters.append(waiter)
             } else {
                 urgentDecodeWaiters.append(waiter)
@@ -1649,11 +1711,35 @@ actor PageLoader {
     ///
     /// これが無いと、速いページ送りの直後に表示したいページが、先に並んでいた他の先読み
     /// (最大で先読み数ぶん)の後ろで待たされる。合流の時点ではまだデコードが始まっていない
-    /// (=まだ列にいる)ことも多く、その場合だけ効く。既に走っていれば何もしない。
+    /// (=まだ列にいる)ことも多く、その場合に効く。既に走っていれば何もしない。
+    ///
+    /// 網越しのページの先読みは、枠を取る前にバイト列を取り寄せている最中で、列にも走ってもいない。
+    /// この関数は何もできないので、その読み込みが後で枠を待つとき、acquireDecodeSlot が合流済みかを見て表示要求の列へ並べる。
     private func promoteDecodeWaiter(forKey key: String) {
         guard let index = prefetchDecodeWaiters.firstIndex(where: { $0.key == key }) else { return }
         urgentDecodeWaiters.append(prefetchDecodeWaiters.remove(at: index))
     }
+
+    /// テスト用: デコードの枠を、空いているぶんすべて塞ぐ(塞いだ数を返す)。待ち行列の順序を、デコードの速さに頼らずに見るため。
+    func occupyDecodeSlotsForTesting() -> Int {
+        let free = max(Self.maxConcurrentDecodes - activeDecodes, 0)
+        activeDecodes += free
+        return free
+    }
+
+    /// テスト用: `occupyDecodeSlotsForTesting` で塞いだ枠を返す。
+    func releaseOccupiedDecodeSlotsForTesting(_ count: Int) {
+        for _ in 0..<count { releaseDecodeSlot() }
+    }
+
+    /// テスト用: デコードの空き待ちの数(表示要求の列・先読みの列)。
+    var decodeWaiterCountsForTesting: (urgent: Int, prefetch: Int) {
+        (urgentDecodeWaiters.count, prefetchDecodeWaiters.count)
+    }
+
+    /// テスト用: まだ表示要求が合流していない読み込み(先読みだけが握っているもの)の数。表示要求が先読みの読み込みへ
+    /// 合流すると、その鍵が外れて数が減る(合流した瞬間をテストが見るため)。
+    var cancellableInFlightCountForTesting: Int { cancellableInFlightKeys.count }
 
     private func releaseDecodeSlot() {
         if !urgentDecodeWaiters.isEmpty {
@@ -1727,14 +1813,18 @@ actor PageLoader {
     /// CGPDFDocument/CGPDFPageというCore Graphicsの参照型をactorの外(Task.detached、
     /// @Sendableクロージャ)へ持ち出さずに使うため、actor内で直接CGImageまで作る
     /// (1ページ分の描画は画像デコードほど重くなく、actorを長時間ブロックする心配は小さい)。
-    private func decodedImage(for source: PageSource, maxPixelSize: CGFloat) async -> CGImage? {
+    /// - Parameter prefetched: 呼び出し側が先に取り寄せたバイト列(網越しのページ。decodedPixels がデコードの枠を取る前に取る)。
+    ///   nil ならここで読む。
+    private func decodedImage(for source: PageSource, maxPixelSize: CGFloat, prefetched: Data? = nil) async -> CGImage? {
         let decoded: CGImage?
         switch source {
         case .pdf(let container, let pageIndex):
             guard !Task.isCancelled else { return nil }
             decoded = renderPDFPage(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
         case .file, .archive:
-            guard let data = await rawData(for: source) else { return nil }
+            let fetched: Data?
+            if let prefetched { fetched = prefetched } else { fetched = await rawData(for: source) }
+            guard let data = fetched else { return nil }
             guard !Task.isCancelled else { return nil }
             // デコードはactorの外(バックグラウンドタスク)で行い、
             // 他のページのリクエストをここで足止めしないようにする。
@@ -1783,6 +1873,9 @@ actor PageLoader {
         switch book.pages.first?.source {
         case .archive(let locator, _):
             guard let reader = reader(for: locator) else { return nil }
+            // 網越しの reader はページしか返さない(ComicInfo.xml は無い)。探すと一覧(manifest)の往復をこの actor の上で
+            // 待つことになるので、探さない。
+            guard !(reader is any RemoteArchiveReading) else { return nil }
             return ComicInfoResolver.resolve(reader: reader)
         case .file:
             // 画像フォルダ。
@@ -1828,6 +1921,31 @@ actor PageLoader {
         return try? Data(contentsOf: url)
     }
 
+    /// 網越しの reader(StackNest の参照ファイルの本)のページかどうかと、そのバイト列。
+    private enum RemoteBytes {
+        /// 網越しの reader のページではない(今までどおり actor の上で読む)。
+        case notRemote
+        /// 網越しの reader のページ。取れなければ nil。
+        case remote(Data?)
+    }
+
+    /// 網越しの reader のページなら、バイト列を `FileIO` で取り寄せる。この actor の上では待たない: `data(at:)` は応答が返るまで
+    /// ブロックするので、ここで呼ぶと応答しない StackNest が最長 25 秒この actor(= 協調スレッド)を塞ぎ、この本のほかの読み出しも
+    /// キャッシュの操作も止まる。Sendable な reader なので actor の外(FileIO の借りたスレッド)へ渡してよい
+    /// (RemoteArchiveReading のコメント)。ほかの reader には触れずに `.notRemote` を返す。
+    private func remoteBytes(for source: PageSource) async -> RemoteBytes {
+        guard case .archive(let locator, let entryPath) = source,
+              let remote = reader(for: locator) as? any RemoteArchiveReading
+        else { return .notRemote }
+        return .remote(try? await FileIO.perform { try remote.data(at: entryPath) })
+    }
+
+    /// 網越しの reader のページか(読み出しはしない)。
+    private func isRemoteSource(_ source: PageSource) -> Bool {
+        guard case .archive(let locator, _) = source else { return false }
+        return reader(for: locator) is any RemoteArchiveReading
+    }
+
     /// 1 ページぶんの元のバイト列。
     ///
     /// フォルダの本(`.file`)は **`FileIO` の上で読む**(2026-10-11 の規約監査)。以前は actor の上、つまり協調スレッドプールで
@@ -1839,6 +1957,9 @@ actor PageLoader {
         case .file(let url):
             return await FileIO.perform(qos: .userInitiated) { Self.readPageFile(at: url) }
         case .archive(let locator, let entryPath):
+            // 網越しの reader は actor の外で待つ(remoteBytes のコメント)。ほかの reader は今までどおり actor の中で、
+            // 待ちを挟まずに読む(この case の残り)。
+            if case .remote(let data) = await remoteBytes(for: source) { return data }
             guard let reader = reader(for: locator) else { return nil }
             // 解凍爆弾よけ: 展開後サイズが上限を超えるエントリは読み込まない
             // (maxDecodableEntryBytesのコメント参照)。申告サイズを取れない形式でも、

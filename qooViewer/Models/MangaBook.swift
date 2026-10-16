@@ -1,4 +1,5 @@
 import Foundation
+import StackNestViewerKit
 
 /// 本のソースファイル自身が持つ、本全体に関わる表示上のヒント。
 /// EPUB(package documentのspine)、およびPDF(Document Catalogの`/ViewerPreferences/Direction`・
@@ -123,6 +124,25 @@ struct MangaBook: Identifiable, Hashable {
     /// この本がどこから来たか。既定値付きなので、従来のBookLoaderの生成箇所は変更不要。
     /// 詳細はBookOrigin参照。
     var origin: BookOrigin = .fileSystem
+
+    /// StackNest の本の参照ファイル(`.stacknestbook`)から開いた本なら、その中身(StackNestViewerKit の型。`pageCount` は
+    /// 参照ファイルに書かれた値で、正は下の `stackNestPageCount`)。ページは StackNest の API から読み
+    /// (StackNestReferenceReader)、読み進めたページを書き戻す(部品の StackNestProgressReporter)。
+    /// **鍵を含むのでメモリの中だけに置く** ―― MangaBook は保存されない(DB・ページ一覧のキャッシュ・保存データの書き出しは
+    /// この値を読まない)。並びを組み直す所(ViewerViewModel.prepareBook)は必ず引き継ぐこと。
+    var stackNestReference: StackNestBookReference? = nil
+    /// 参照ファイルの本のページ数(開いたときの manifest の値。除外・並べ替えの前)。サムネイルのディスクキャッシュの鍵が使う
+    /// (PageLoader.thumbnailDiskKey)。部品の参照の型は値を変えられないので、manifest の値はここに持つ。参照ファイルの本で
+    /// なければ nil。prepareBook は必ず引き継ぐこと。
+    var stackNestPageCount: Int? = nil
+
+    /// StackNest の参照ファイルの本か。
+    var isStackNestReference: Bool { stackNestReference != nil }
+
+    /// 「本の書き出し」ができる本か(ビューアの右クリック)。画像を直接開いたその場限りの本は、sourceURL が 1 枚目の画像でしか
+    /// ないので書き出せない(ViewerView の注記)。StackNest の参照ファイルの本は、書き出しが全ページを
+    /// StackNest から取り直し、鍵の付いた要求を書き出しの待ち行列から出すことになるので書き出さない。
+    var canBeExported: Bool { !isTransient && !isStackNestReference }
     /// この本を閉じた後にアプリ側の記録が一切残ってはいけないかどうか。
     /// シークレットウインドウ(AppState.isPrivateWindow)と並ぶ、もう一方の「書かない」条件。
     /// 実際のガードは、この値とisPrivateWindowをORした
@@ -169,6 +189,22 @@ struct MangaBook: Identifiable, Hashable {
 
     static func == (lhs: MangaBook, rhs: MangaBook) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// ウインドウのビューア(ViewerViewModel)を作り直す単位としての本の同一性。ContentView がビューアの受け渡しを
+    /// やり直すきっかけ(onChange の鍵)・ViewerView の `.id`・ViewerHandoff の「同じ本」の判定がこれを使う。
+    ///
+    /// ふつうはパス(`id`)だけで決まる(`==` と同じ)。StackNest の参照ファイルの本は、同じパスでも参照(鍵)が替わったら
+    /// 別の本として扱う: StackNest は開き直すたびに同じパスへ新しい鍵で参照ファイルを書き直す。パスだけで比べていたときは、
+    /// 施錠が変わった後に部品の案内どおり「StackNest から開き直し」ても、本を表示していたウインドウのビューアが古いセッション
+    /// (恒久的な失敗の記録・止まった書き戻しの役・知らせを 1 度に絞る控え)のまま残り、ページは黒いまま案内も出なかった。
+    /// ページの並べ替え・除外で中身だけ変わった本は参照を引き継ぐ(ViewerViewModel.prepareBook)ので、同じ本のまま。
+    var viewerIdentity: ViewerIdentity { ViewerIdentity(id: id, stackNestReference: stackNestReference) }
+
+    /// `viewerIdentity` の値。参照(鍵を含む)はメモリの中で比べるだけで、どこにも書かない。
+    nonisolated struct ViewerIdentity: Hashable, Sendable {
+        let id: String
+        let stackNestReference: StackNestBookReference?
+    }
 }
 
 extension MangaBook {
