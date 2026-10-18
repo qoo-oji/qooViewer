@@ -241,7 +241,7 @@ struct WelcomeView: View {
         noticeDismissTask?.cancel()
         noticeMessage = message
         noticeDismissTask = Task { @MainActor in
-            try? await Task.sleep(for: FileBrowserState.toastDuration)
+            try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             noticeMessage = nil
         }

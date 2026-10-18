@@ -7435,6 +7435,22 @@
         }
       }
     },
+    "Books from StackNest leave no history or saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books from StackNest leave no history or saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本は、履歴と保存データを残しません。"
+          }
+        }
+      }
+    },
     "Books in a secret folder and its subfolders leave no history, saved data or metadata, wherever they are opened from. While such a book is shown, its window looks like a private window." : {
       "localizations" : {
         "en" : {
@@ -7447,6 +7463,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シークレットフォルダとそのサブフォルダの本は、どこから開いても履歴・保存データ・メタデータを残しません。その本を表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
+          }
+        }
+      }
+    },
+    "Books in secret folders leave no history or saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in secret folders leave no history or saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットフォルダの本は、履歴と保存データを残しません。"
           }
         }
       }
@@ -32635,22 +32667,6 @@
         }
       }
     },
-    "This book comes from StackNest, so qooViewer keeps no history or saved data for it. The window looks like a private window while it is shown." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book comes from StackNest, so qooViewer keeps no history or saved data for it. The window looks like a private window while it is shown."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "StackNest から受け取った本のため、qooViewer には履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
-          }
-        }
-      }
-    },
     "This book has no pages to export (all pages may be excluded)." : {
       "localizations" : {
         "en" : {
@@ -32679,22 +32695,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本はすでに「"
-          }
-        }
-      }
-    },
-    "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットフォルダの本のため、履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
           }
         }
       }

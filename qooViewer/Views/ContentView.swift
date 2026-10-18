@@ -1472,11 +1472,11 @@ struct ContentView: View {
                 switch reason {
                 case .secretFolder:
                     appState.postViewerNotice(String(
-                        localized: "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown.",
+                        localized: "Books in secret folders leave no history or saved data.",
                         language: preferences.effectiveLocale))
                 case .stackNest:
                     appState.postViewerNotice(String(
-                        localized: "This book comes from StackNest, so qooViewer keeps no history or saved data for it. The window looks like a private window while it is shown.",
+                        localized: "Books from StackNest leave no history or saved data.",
                         language: preferences.effectiveLocale))
                 }
             }))

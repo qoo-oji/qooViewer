@@ -4477,8 +4477,9 @@ struct ViewerView: View {
     private func showToast(_ message: String) {
         toastDismissTask?.cancel()
         toastMessage = message
+        // 文の長さに応じた時間だけ出す(ToastDuration。以前は一律 2 秒)。
         toastDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             toastMessage = nil
         }
