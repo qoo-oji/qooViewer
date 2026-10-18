@@ -1644,8 +1644,17 @@ final class ViewerViewModel: ObservableObject {
                     // おくことでその待ち時間が表示中の時間と重なり、回し始めと回し終わりで
                     // 更新間隔がばらつくのを防ぐ。
                     let lookaheadIndex = currentIndex + direction
-                    if book.pages.indices.contains(lookaheadIndex) {
-                        let loader = pageLoader
+                    let loader = pageLoader
+                    if book.isStackNestReference {
+                        // StackNest の本の通過コマは手元に届いている絵だけを出す(loadTransitFrame)ので、次のコマではなく
+                        // **着地する先**を先に取り寄せておく(2026-10-19 の実測、1 ページの往復 300 ms: 次のコマを頼んでいたころは、
+                        // 着地のページを頼むのが通過の終わり近くになり、最後のキーから着地まで 560 ms。着地する先を頼むと 480 ms)。
+                        let destination = pageFlipQueue.last ?? target
+                        let shownPageCount = displayMode == .spread ? 2 : 1
+                        Task {
+                            await loader.prefetch(around: destination, radius: 1, displayedPageCount: shownPageCount)
+                        }
+                    } else if book.pages.indices.contains(lookaheadIndex) {
                         Task {
                             await loader.prefetch(around: lookaheadIndex, radius: 1)
                         }
@@ -1671,14 +1680,26 @@ final class ViewerViewModel: ObservableObject {
             !Task.isCancelled && flipGeneration == pageFlipGeneration
                 && spreadGeneration == loadGeneration && currentIndex == index
         }
-        guard let firstImage = await pageLoader.pageImage(at: index), isStillCurrent() else { return }
+        // StackNest の本では、通過コマのページを取り寄せて待たない: 手元に届いている絵だけを出し、無ければこのコマは何も出さずに
+        // 次へ進む(着地のページだけを loadCurrentSpread が取り寄せる。drainPageFlipQueue はその先を先に頼んでおく)。2026-10-19 の
+        // 実測: 1 ページの往復に 300 ms かかる StackNest でキーを 30 回続けて押すと、通過する 60 ページを 1 枚ずつ待ったので、着地まで
+        // 最後のキーから 12.6 秒(60 回で 33 秒)かかった。相方が届いていないコマも出さない ―― 1 枚だけの見開きがちらつくうえ、出ている
+        // 枚数は次の歩幅の手がかりにもなる(SpreadPairing.forwardStepSize の fallback)。
+        let remote = book.isStackNestReference
+        let loadedFirst = remote ? await pageLoader.cachedPageImage(at: index) : await pageLoader.pageImage(at: index)
+        guard let firstImage = loadedFirst, isStillCurrent() else { return }
         var images = [firstImage]
-        if shouldPairWithNextPage(at: index, firstImage: firstImage),
-           let secondImage = await pageLoader.pageImage(at: index + 1) {
-            guard isStillCurrent() else { return }
-            images.append(secondImage)
-            // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
-            _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
+        if shouldPairWithNextPage(at: index, firstImage: firstImage) {
+            if let secondImage = remote
+                ? await pageLoader.cachedPageImage(at: index + 1) : await pageLoader.pageImage(at: index + 1) {
+                guard isStillCurrent() else { return }
+                images.append(secondImage)
+                // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
+                _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
+            } else if remote {
+                // 相方がまだ届いていない。1 枚だけの見開きは出さない(上のコメント)。
+                return
+            }
         }
         showImages(images, forIndex: index)
     }
@@ -2929,13 +2950,33 @@ final class ViewerViewModel: ObservableObject {
         // すぐに「前のページへ戻る」を行うケースに備える。
         primeWideImageCache(around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 2))
 
+        // StackNest の本は、表示するページを頼む**前に**先読みを始める(2026-10-19 の実測: 1 ページの往復に 300 ms かかる StackNest で、
+        // 先読みの外へ飛ぶと 660 ms かかった ―― 見開きの 2 枚目を 1 枚目が届いてから頼むので、往復 2 回ぶん待っていた)。先読みは
+        // 表示中のページの直後から並べるので、相方のページも 1 枚目と並行して取り寄せ始め、下の 2 枚目の表示要求はそこへ合流する
+        // (PageLoader.pixels の合流と、門の表示の列への格上げ)。手元の本では取り出しが速いので、これまでどおり表示の後に始める。
+        if book.isStackNestReference, prefetch {
+            await pageLoader.prefetch(
+                around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 0),
+                displayedPageCount: displayMode == .spread ? 2 : 1
+            )
+        }
+
+        // StackNest の本の見開きでは、相方のページも 1 枚目と同時に**表示として**頼む(2026-10-19 の実測: 先読みに任せると、相方は
+        // 背景の列で前の位置の先読みの後ろに並び、1 枚目が届いて表示の要求が合流するまで動かなかった ―― 往復 2 回ぶん、670 ms)。
+        // 組まないと分かったら(1 枚目が横長など)取り消す。先読みの範囲に入っていれば、取り寄せは先読みとして続く。
+        let partnerIndex = targetIndex + 1
+        let partnerTask: Task<CGImage?, Never>? =
+            book.isStackNestReference && displayMode == .spread && book.pages.indices.contains(partnerIndex)
+            ? Task { [pageLoader] in await pageLoader.pageImage(at: partnerIndex) } : nil
+        defer { partnerTask?.cancel() }
+
         var images: [CGImage] = []
         if let firstImage = await pageLoader.pageImage(at: targetIndex) {
             guard !Task.isCancelled else { return }
             images.append(firstImage)
 
             if shouldPairWithNextPage(at: targetIndex, firstImage: firstImage, previousDisplayedRange: previousRange),
-               let secondImage = await pageLoader.pageImage(at: targetIndex + 1) {
+               let secondImage = await partnerImage(partnerTask, at: partnerIndex) {
                 images.append(secondImage)
                 // ペアの相方(targetIndex + 1)自身の横長判定はこの組み合わせの成立可否には
                 // 使っていない(shouldPairWithNextPageはfirstImage側だけを見る)が、実際に
@@ -2990,6 +3031,17 @@ final class ViewerViewModel: ObservableObject {
         await pageLoader.prefetch(
             around: targetIndex, radius: radius, displayedPageCount: images.count, direction: direction
         )
+    }
+
+    /// 見開きの相方の絵。先に頼んでおいた分(`partnerTask`。StackNest の本)があればそれを待ち、待つ側が取り消されたら頼んだ分も
+    /// 取り消す(切り離した Task には呼び出し側の取り消しが届かない)。無ければ、ここで頼む。
+    private func partnerImage(_ partnerTask: Task<CGImage?, Never>?, at index: Int) async -> CGImage? {
+        guard let partnerTask else { return await pageLoader.pageImage(at: index) }
+        return await withTaskCancellationHandler {
+            await partnerTask.value
+        } onCancel: {
+            partnerTask.cancel()
+        }
     }
 
     /// 見開き表示中でも単ページとして扱うべき横長画像かどうかを判定する。

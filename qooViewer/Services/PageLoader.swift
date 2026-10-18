@@ -475,6 +475,13 @@ actor PageLoader {
         return await pixels(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)?.makeImage()
     }
 
+    /// 指定ページのフルサイズ画像が、もう手元(キャッシュ)にあれば返す。読み込みは始めない(ページめくりの通過コマで、
+    /// 網越しの本のページを待たないため ―― ViewerViewModel.loadTransitFrame)。
+    func cachedPageImage(at index: Int) -> CGImage? {
+        guard !isReleased, book.pages.indices.contains(index) else { return nil }
+        return imageCache.object(forKey: book.pages[index].id as NSString)?.makeImage()
+    }
+
     /// プログレスバー用の小さいサムネイルを取得する
     /// サムネイルは、メモリ上のthumbnailCacheに無ければ、まずローカルの永続
     /// キャッシュ(ThumbnailDiskCache)を見てから実デコードへ進む。
@@ -756,6 +763,18 @@ actor PageLoader {
         // 待っていた人が全員抜けて取り消された読み込みには合流しない(nil が返る。読み直す)。
         if let existing = inFlightPageSizeTasks[page.id], !existing.isCancelled {
             return waitsRemotely ? await awaitRemote(existing, key: sizeWaitKey) : await existing.value
+        }
+        // 網越しの本で、同じページの絵をもう取り寄せている(先読み・表示)なら、それを待って、届いた中身から控えたヘッダーで答える
+        // (2026-10-19 の実測: 横長の判定の下調べが先読みと同じページを別々に取りに行き、背景の枠を取り合っていた)。
+        // 絵の取り寄せは先読み・表示の持ち物なので、ここで待つのをやめても取り消さない(awaitRemote にしない)。
+        if waitsRemotely, !Task.isCancelled,
+           let imageTask = inFlightTasks["\(ObjectIdentifier(imageCache))#\(page.id)"], !imageTask.isCancelled {
+            _ = await imageTask.value
+            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+                let size = (width: cached.header.pixelWidth, height: cached.header.pixelHeight)
+                notePageSize(size, for: page)
+                return size
+            }
         }
 
         // PDFはページ寸法がCGPDFPageから直接取れる(ファイルの読み込み・解析を伴わない)ため、
@@ -1557,11 +1576,12 @@ actor PageLoader {
 
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
         let inFlightKey = "\(ObjectIdentifier(cache))#\(page.id)"
-        // 網越しの本(StackNest)のサムネイルは、待っている人(ページ一覧のセル・進捗バー)が全員取り消したら取り寄せも取り消す
-        // (awaitRemote。2026-10-19 のレビュー: 以前は切り離した Task が最後まで走り、ページ一覧を流し読みしただけで全ページを
-        // 取り寄せ、先読みがその後ろで何分も待った)。表示のページ(imageCache)は先読みの打ち切りの仕組み(cancellableInFlightKeys)の
-        // ままにする。
-        let waitsRemotely = cache !== imageCache && isRemoteSource(page.source)
+        // 網越しの本(StackNest)のページは、待っている人(ページ一覧のセル・進捗バー・表示・先読み)が全員取り消したら取り寄せも
+        // 取り消す(awaitRemote。2026-10-19 のレビュー: 以前は切り離した Task が最後まで走り、ページ一覧を流し読みしただけで全ページを
+        // 取り寄せ、先読みがその後ろで何分も待った)。表示のページも同じ(2026-10-19 の実測: 表示の要求は合流した時点で打ち切れなく
+        // なるので、つまみを動かすように続けて飛ぶと、通り過ぎたページの取り寄せが門の枠を握ったまま最後まで走った)。表示の要求は
+        // ページを替えるたびに取り消される(reloadAsync)が、新しい先読みの範囲に入っていれば先読みが待ち続けるので、取り寄せは続く。
+        let waitsRemotely = isRemoteSource(page.source)
         // **打ち切った先読みには、表示の要求は合流しない**(2026-10-06 のコードレビュー)。打ち切られた読み込みも終わるまで
         // `inFlightTasks` に残るので、そこへ合流すると nil を受け取り、ビューアが「このページを表示できません」と出した。読み直す。
         if let existingTask = inFlightTasks[inFlightKey], isPrefetch || !existingTask.isCancelled {
@@ -1624,7 +1644,13 @@ actor PageLoader {
         defer { remotePermit?.release() }
         let prefetched: Data?
         if let remote = remoteReader(for: source), case .archive(_, let entryPath) = source {
-            let priority: RemotePageReadPriority = isPrefetch ? .prefetch : (isFullSize ? .display : .thumbnail)
+            // 先読みとして始めた読み込みでも、門に並ぶ前に表示の要求が合流していれば(pixels(at:) が cancellableInFlightKeys から
+            // 外している)、表示の列に並ぶ。合流の時点ではまだ門に並んでいないので、promote(key:) は何もできない ―― acquireDecodeSlot と
+            // 同じ見方(2026-10-19 の実測: StackNest の本は表示の前に先読みを始めるので、表示するページは必ず先読みの読み込みへ合流し、
+            // 背景の列のまま先読みの後ろに並んでいた。100 ms おきに 11 回飛んだ後、最後のページが出るまで 1.3 秒)。
+            let joinedByDisplay = isPrefetch && waiterKey.map { !cancellableInFlightKeys.contains($0) } ?? false
+            let priority: RemotePageReadPriority =
+                isPrefetch && !joinedByDisplay ? .prefetch : (isFullSize ? .display : .thumbnail)
             guard let permit = try? await remote.requestGate.acquire(priority.lane, key: waiterKey) else { return nil }
             remotePermit = permit
             guard let data = try? await remote.pageDataHoldingPermit(

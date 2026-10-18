@@ -294,6 +294,64 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
+    @Test("先読みに合流した表示要求は、背景の列が埋まっていても表示の列で取り寄せる(先読みが門に並ぶ前の合流でも、並んだ後でも)")
+    func displayJoiningBeforeTheGateUsesTheDisplayLane() async throws {
+        let fixture = try StackNestTestBook(pageCount: 16)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<16).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        // 背景の列を埋める(止めたサムネイル 4 件が門を通り、2 件が門で待つ)。
+        let thumbnails = (0..<6).map { index in Task { await loader.thumbnail(at: index) } }
+        #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 2 })
+        // ビューアと同じ順(StackNest の本は表示の前に先読みを始める ―― ViewerViewModel.loadCurrentSpread)。表示要求は 8 番の
+        // 先読みの読み込みへ合流する。その読み込みが門に並ぶ前に合流したか(acquire の時に表示の列を選ぶ)、並んだ後か(promote)は
+        // actor の順番しだいで、ここでは選べない(2026-10-19 の実機の計測では前者で、表示するページが背景の列で 0.9 秒待っていた)。
+        // どちらでも表示の列で通ることを押さえる。
+        let display = Task {
+            await loader.prefetch(around: 8, radius: 6)
+            return await loader.pageImage(at: 8).flatMap { PageColorReader.number(in: $0) }
+        }
+        // 背景の列のまま並んだら、止めたサムネイルが終わるまで 8 番は届かない。
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(8) }, "表示するページが、先読みとして背景の列で待った")
+        gates.forEach { $0.open() }
+        for task in thumbnails { _ = await task.value }
+        #expect(await display.value == 9)
+        #expect(await Self.waitUntil { await !loader.isPrefetching })
+        await loader.releaseAllResources()
+    }
+
+    @Test("表示のページも、待つ人が全員取り消したら取り寄せを取り消す(続けて飛んでも、通り過ぎたページが門の枠を握らない)")
+    func cancelledDisplayLeavesTheGate() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<6).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        let displays = (0..<3).map { index in Task { await loader.pageImage(at: index) } }
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.count == 3 })
+        #expect(shared.gate.inUseCount(.display) == 3)
+        // 別のページへ飛んだ(ビューアは前の表示の要求を取り消す)。応答は止めたまま。
+        displays.forEach { $0.cancel() }
+        #expect(await Self.waitUntil { shared.gate.inUseCount(.display) == 0 }, "取り消した表示の要求が門の枠を握ったまま")
+        for task in displays { #expect(await task.value == nil) }
+        // 対照: 先読みも同じページを待っていれば、表示の要求を取り消しても取り寄せは続く。
+        await loader.prefetch(around: 4, radius: 0)
+        let kept = Task { await loader.pageImage(at: 4) }
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(4) })
+        kept.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+        gates[4].open()
+        #expect(await Self.waitUntil { await loader.cachedPageImage(at: 4) != nil })
+        await loader.releaseAllResources()
+    }
+
     @Test("リソースモニタ: 部品が持つ直近のページを、同じセッションを使う PageLoader のうち 1 つだけが届ける")
     func memoryItemsAreReportedOnce() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)
