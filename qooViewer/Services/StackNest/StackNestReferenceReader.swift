@@ -20,8 +20,8 @@ nonisolated func isStackNestReferenceFile(_ path: String) -> Bool {
 ///
 /// ■ 一覧と名前
 /// `listFilePaths()` は manifest のページ数から仮の名前(`000041.jpg`。`StackNestPageNaming`)を作る。書庫のエントリのパスの役を
-/// そのまま担わせるので、PageLoader・書き出しの判定は書庫の本と同じ道を通る。作るのは `makeArchiveReader(for:)` の先頭だけ
-/// (書庫の分類には入れない)。
+/// そのまま担わせるので、PageLoader・書き出しの判定は書庫の本と同じ道を通る。作るのは `makeArchiveReader(for:)` の先頭
+/// (書庫の分類には入れない)と、開いた本が持つ参照から作る `PageLoader.stackNestReader(for:at:)` の 2 か所。
 ///
 /// ■ ブロックする
 /// どの読み出しも応答が返るまで待つ(部品の `StackNestBlockingReader`。`Task` を作らず協調スレッドを使わないで待つ)。必ず

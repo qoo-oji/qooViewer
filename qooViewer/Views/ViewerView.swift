@@ -933,7 +933,10 @@ struct ViewerView: View {
             // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
             // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
             // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
-            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。
+            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。ただし StackNest の参照ファイルの本の
+            // ページは名前が仮のもので、形式を中身から決めるため、パネルの前にページを取り寄せる(PageLoader.
+            // exportableImageFileExtension(at:))。表示中のページはふつう部品のセッションのキャッシュから返るが、無ければ
+            // 部品は要求を最大 3 件出し、要求ごとに waitLimit(25 秒)まで待つ。
             Task {
                 defer { isExportingImage = false }
                 do {
