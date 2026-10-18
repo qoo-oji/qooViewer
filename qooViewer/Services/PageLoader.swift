@@ -128,6 +128,8 @@ actor PageLoader {
     /// SevenZipArchiveReaderの型コメント参照)。ヘッダーの解析は一瞬なので、バイト列が手元に
     /// あるうちに取っておく。
     private var headerInfoCache: [String: (header: ImageDecoder.HeaderInfo, byteCount: Int)] = [:]
+    /// StackNest の参照ファイルの本の reader(`stackNestReader(for:at:)`)。
+    private var cachedStackNestReader: StackNestReferenceReader?
 
     /// 本全体の下調べ(scanPage)が進行中か。beginWholeBookScan/endWholeBookScanで切り替える。
     private var isWholeBookScanActive = false
@@ -438,6 +440,7 @@ actor PageLoader {
         // SwiftUIが旧世代を抱えているあいだ残り続けてしまうため ―― この型コメントに
         // 書いてある「書庫リーダーもここで閉じる」のと同じ理由。
         resolver.purgeAll()
+        cachedStackNestReader = nil
         pdfDocuments.removeAll()
         inMemoryPDFKeys.removeAll()
         scanReader = nil
@@ -2107,7 +2110,21 @@ actor PageLoader {
     /// 失敗(壊れた書庫、上限超え、親からの取り出し失敗)はnilを返す。呼び出し側は
     /// 従来どおり「そのページは読めなかった」として扱えばよい。
     private func reader(for locator: ArchiveLocator) -> ArchiveReading? {
-        try? resolver.reader(for: locator)
+        if let reference = book.stackNestReference, locator.nestedPath.isEmpty {
+            return stackNestReader(for: reference, at: locator.rootURL)
+        }
+        return try? resolver.reader(for: locator)
+    }
+
+    /// StackNest の参照ファイルの本の reader(作ったら控える)。`book` が持つ、開いたときに読んだ参照から作る ―― resolver を
+    /// 通すと `makeArchiveReader(for:)` が参照ファイルをこの actor の上で読み直す(応答しないボリュームの上では協調スレッドを
+    /// 塞ぐ。FileIO の型コメント)。開いた後で StackNest が書き直したファイルを読むと、ビューア(ViewerViewModel.stackNestBook)と
+    /// 別のセッションになり、ページの読み出しで記録した恒久的な失敗がビューアに見えなかった。
+    private func stackNestReader(for reference: StackNestBookReference, at url: URL) -> StackNestReferenceReader? {
+        if let cachedStackNestReader { return cachedStackNestReader }
+        let reader = try? StackNestReferenceReader(reference: reference, at: url)
+        cachedStackNestReader = reader
+        return reader
     }
 
     /// 入れ子の書庫のためにいま使っている資源(リソースモニタ用)。

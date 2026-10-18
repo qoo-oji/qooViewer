@@ -151,6 +151,19 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
+    @Test("PageLoader は参照ファイルを読み直さない: 開いた本が持つ参照から reader を作る(actor の上でファイルを読まない)")
+    func readerIsBuiltFromTheLoadedReference() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        // 開いた後で参照ファイルが無くなっても(読めば失敗する)、ページは開いた時点の参照で読める。
+        try FileManager.default.removeItem(at: fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let image = await loader.pageImage(at: 0)
+        #expect(image.flatMap { PageColorReader.number(in: $0) } == 1)
+        await loader.releaseAllResources()
+    }
+
     @Test("網越しの本では ComicInfo.xml を探さない(一覧を問い合わせない)")
     func noComicInfoLookup() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)

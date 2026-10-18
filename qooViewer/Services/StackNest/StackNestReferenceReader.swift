@@ -26,8 +26,9 @@ nonisolated func isStackNestReferenceFile(_ path: String) -> Bool {
 /// ■ ブロックする
 /// どの読み出しも応答が返るまで待つ(部品の `StackNestBlockingReader`。`Task` を作らず協調スレッドを使わないで待つ)。必ず
 /// `FileIO.perform` の中から呼ぶ ―― メインスレッド・`Task` の中から呼ぶと、Debug では部品が誤りとして止める。
-/// `RemoteArchiveReading` の印を持つので、PageLoader はこの reader だけを `FileIO.perform` で待つ。作るとき(init)は参照ファイルを
-/// 読むだけで通信しない。
+/// `RemoteArchiveReading` の印を持つので、PageLoader はこの reader だけを `FileIO.perform` で待つ。作るとき(init)は通信しない。
+/// `init(referenceFileURL:)` は参照ファイルを読み(ブロックしうるので FileIO などの上で)、`init(reference:at:)` はもう読んだ参照から
+/// 作る(ファイルにも触れない。PageLoader は actor の上で reader を作るのでこちら)。
 ///
 /// ■ セッションは本ごとに 1 つ
 /// 同じ参照ファイルから作る reader は、`StackNestSessions` で 1 つのセッション(ページのキャッシュ)を使い回す。
@@ -37,6 +38,11 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
     /// 参照ファイルを読む(呼んだスレッドで同期に。数百バイト)。読めない・つないでよい宛先でないときは部品のエラーを投げる。
     init(referenceFileURL: URL) throws {
         book = try StackNestSessions.shared.book(forReferenceAt: referenceFileURL)
+    }
+
+    /// 読んだ参照ファイルの中身から(ファイルは読まない)。つないでよい宛先でないときは部品のエラーを投げる。
+    init(reference: StackNestBookReference, at referenceFileURL: URL) throws {
+        book = try StackNestSessions.shared.book(for: reference, at: referenceFileURL)
     }
 
     /// 開いている参照ファイルの中身。
