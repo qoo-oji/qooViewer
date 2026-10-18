@@ -261,7 +261,7 @@ macOS 15 (Sequoia) 以降
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
 - [Sparkle](https://github.com/sparkle-project/Sparkle)(MIT License)―― アップデートの機能
 - [qooMeta](https://github.com/qoo-oji/qooMeta)(MIT License)―― ファイル名からメタデータを読み取るライブラリ(作者自身のもの)。規則の本体と同梱のプリセットを、そのまま取り込んで使っています
-- [StackNestViewerKit](https://github.com/shelfsmith/StackNestViewerKit)(MIT License)―― StackNest から渡された本の参照ファイルの読み取り、ページの取り寄せ、読書位置の書き戻し。版は 0.1.0 に固定しています
+- [StackNestViewerKit](https://github.com/shelfsmith/StackNestViewerKit)(MIT License)―― StackNest から渡された本の参照ファイルの読み取り、ページの取り寄せ、読書位置の書き戻し。版は 0.2.0 に固定しています
 - [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出し(辞書の範囲での戻り読み、ファイル単位の CRC 検証を含む)と、メモリ上の書庫を開く機能を追加してあります
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)―― [qoo-oji/Unrar.swift](https://github.com/qoo-oji/Unrar.swift) の `memory-archive` ブランチ(フォーク)を使用。メモリ上の書庫を開く機能を追加してあります
 

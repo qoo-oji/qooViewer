@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/shelfsmith/StackNestViewerKit",
       "state" : {
-        "revision" : "66a31bf183567ea3b2b430435a0171db96aa8e6f",
-        "version" : "0.1.0"
+        "revision" : "95eacd949870af67959671fec0e18adfa6873578",
+        "version" : "0.2.0"
       }
     },
     {

@@ -394,8 +394,12 @@ struct StackNestPageLoaderTests {
         let secondItems = await second.memoryUsageItems().filter { $0.kind == .stackNestPages }
         #expect(firstItems.count + secondItems.count == 1)
         let item = try #require((firstItems + secondItems).first)
-        #expect(item.count == 2)
+        // 量は部品が数えたもの(部品 0.2.0 の cachedPageBytes。受け取りの途中の本文は、もう無い)。枚数は部品が出さない。
+        let reference = try #require(book.stackNestReference)
+        let session = try StackNestSessions.shared.book(for: reference, at: book.sourceURL).session
         #expect(item.usedBytes > 0)
+        #expect(item.usedBytes == session.cachedPageBytes)
+        #expect(item.count == nil)
         // 届けていた側が手放したら、もう一方が届ける。
         let reporter = firstItems.isEmpty ? second : first
         let other = firstItems.isEmpty ? first : second

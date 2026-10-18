@@ -14,7 +14,11 @@ import StackNestViewerKitTesting
 ///
 /// 見立ての型は `StackNestViewerKitTesting.` を付けて書く(以前の試験の道具に同じ名前の型があり、それが残っている間は
 /// 付けないとそちらを指す。付けたままでも害はない)。
-nonisolated final class StackNestTestBook {
+///
+/// `@unchecked Sendable` の根拠: 持つものは変わらない値(`let`)と、`lock` の中でだけ読み書きする `servedPageCount` だけ。
+/// 試験は `fixture.pageRequestIndices` などを待ち合わせの `@Sendable` な閉包の中で読む(2026-10-19: Xcode 26.6 では
+/// `#expect` の中でも送信可能でない値の捕捉が警告になり、警告をエラー扱いにした CI のテストのビルドが止まった)。
+nonisolated final class StackNestTestBook: @unchecked Sendable {
     static let token = "test-token-0123456789abcdef"
 
     let temporary: TemporaryDirectory

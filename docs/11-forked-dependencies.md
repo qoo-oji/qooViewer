@@ -9,7 +9,7 @@ qooViewer は6つの Swift パッケージに依存します(下の表の 5 つ�
 | SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
 | Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.0(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
-| StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | **正確な版** 0.1.0(`exactVersion`) | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
+| StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | **正確な版** 0.2.0(`exactVersion`) | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
 どちらも `origin` = qoo-oji、`upstream` = mtgto(本家)という remote 構成です。各フォークには
@@ -332,12 +332,19 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 
 StackNest の本の参照ファイル(`.stacknestbook`)を読む部品です(`https://github.com/shelfsmith/StackNestViewerKit`。MIT・依存ゼロ・
 Foundation だけ・macOS 14 以上)。StackNest の開発者が、外部ビューア向けに公開している Swift パッケージで、フォークではありません。
-**正確な版**(`exactVersion` 0.1.0)で使います(2026-10-18 のレビューで `upToNextMinorVersion` から変えた。`Package.resolved` が
+**正確な版**(`exactVersion` 0.2.0。2026-10-19 に 0.1.0 から上げた)で使います(2026-10-18 のレビューで `upToNextMinorVersion` から変えた。`Package.resolved` が
 revision を固定し、`scripts/ci/check-package-pins.sh` が exactVersion と版の一致を確かめる)。作者 1 人の新しいパッケージで、コードは
 ファイルの権限を持つアプリ本体の中で動くので、Sparkle と同じく、版を上げるのは新しい版の中身を読んでから手で行います
 (手順は Sparkle と同じ: project.pbxproj の版を書き換え → `xcodebuild -resolvePackageDependencies` → revision がそのタグの commit か
-確かめる → `build-credits.py` → テスト)。部品の不具合と改善の案は、作者へ PR で送っています(2026-10-18。待ちの数の絞り・恒久的な失敗の後の
-要求・エラー応答の振り分け・キャッシュの量の公開など)。
+確かめる → `build-credits.py` → テスト)。部品の不具合と改善の案は、作者へ PR で送りました(2026-10-18。shelfsmith/StackNestViewerKit
+#1〜#10。すべて 0.2.0 に入った)。0.2.0 で qooViewer の側が変えたこと:
+- 終了のときの送り切りを、部品の `StackNestProgressRegistry.flushAllBlocking` に替えた(アプリ側の `StackNestQuitFlush` を消した。→ [10](10-sandbox-and-security.md))。
+- 書き戻しの役を作るときに登録簿を渡す(試験の役をプロセスで 1 つの `shared` に載せない)。
+- リソースモニタの量を、部品の `cachedPageBytes` と `bufferedResponseBytes` にした(受け取ったページからの見積もりを消した。枚数は出さない)。
+- そのまま残したもの: 要求の門(`StackNestRequestGate`。部品も 0.2.0 から同時の要求を 6 本に絞り、表示を先読みより先に出すが、門は
+  取り寄せたバイト列がデコードを待つ数も絞り、先読みに合流した表示を前へ出す ―― 部品の列の前で決める)と、本ごとの恒久的な失敗の記録
+  (`StackNestSessions.Book.permanentFailure`。部品も 0.2.0 から恒久的な失敗の後は要求を出さないが、同じ本を読む reader が要求を組む前に
+  止められる)。参照ファイルの `book` のパスの形の検査(0.2.0 で部品に入った)は、XPC サービスの `StackNestConnectorPolicy` も別に持つ。
 
 使う製品は `StackNestViewerKit`(アプリ。参照ファイルの型・本のセッション・同期の読み出しの橋渡し・読書位置の書き戻し。
 `StackNestViewerKitCore` を再輸出する)と `StackNestViewerKitTesting`(試験だけ。`URLProtocol` の見立て)。

@@ -3436,9 +3436,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 既定のボタン(Return)とEscは**終了しない**(取り返しのつかない側を既定にしない。起動時の保存データの警告と同じ)。
     /// ウインドウが1枚も無いこともある(最後のウインドウを閉じて終了する設定)ので、シートではなくアプリモーダルで出す。
     ///
-    /// 終える前に、StackNest へ送っていない読書位置を最長 2 秒だけ待って送る(`StackNestQuitFlush`。⌘Q は SwiftUI の onDisappear を
-    /// 通らないので、ここで送る)。`.terminateLater` は使わない: 終了がメインキューの仕事の中から頼まれると、返事を待つ間に
-    /// メインキューが回らず、アプリが止まったまま終わらなかった(StackNestQuitFlush のコメント。2026-10-18 の実測)。
+    /// 終える前に、StackNest へ送っていない読書位置を最長 2 秒だけ待って送る(部品の `flushAllBlocking`。⌘Q は SwiftUI の
+    /// onDisappear を通らないので、ここで送る)。`.terminateLater` は使わない: 終了がメインキューの仕事の中から頼まれると、返事を
+    /// 待つ間にメインキューが回らず、アプリが止まったまま終わらなかった(terminateAfterFlushingStackNestProgress のコメント)。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // 確認のアラートが開いている間の再入は取り消す(先のアラートの答えで決まる)。
         if isAskingToQuit { return .terminateCancel }
@@ -3461,8 +3461,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// StackNest へ送っていない読書位置を送り(最長 2 秒。無ければ待たない)、終了する。
+    ///
+    /// 部品の `StackNestProgressRegistry.flushAllBlocking` を使う(部品 0.2.0。送信はメインスレッドの外で走り、ここはメインで待つ)。
+    /// 2026-10-18 の最初の案は部品 0.1.0 の `flushAll` と `.terminateLater` で、`flushAll` は書き戻しの役(MainActor)とメインキューの
+    /// 時計で進むので、終了がメインキューの仕事の中から頼まれる(`Task { @MainActor }`・`DispatchQueue.main.async` の中の
+    /// `NSApp.terminate`。スライドショーの末尾・マウスの割り当ての「終了」・保存データの削除の後の終了・Debug の制御口の quit)と、
+    /// AppKit の終了待ちの入れ子のループの間はメインキューが回らず、返事が来ないまま**アプリが永久に止まった**(実測)。その後は
+    /// アプリ側の送り切り(StackNestQuitFlush)で避け、部品へ PR を出して 0.2.0 に入った。部品の形は、飛んでいる送信を送り直さずに
+    /// 終わりを待ってから止まっているページを送る(古い位置が新しい位置の後に届かない)、閉じた直後の本の送信も役が生きている間は待つ。
     private func terminateAfterFlushingStackNestProgress() -> NSApplication.TerminateReply {
-        StackNestQuitFlush.shared.flushBlocking(timeout: 2)
+        StackNestProgressRegistry.shared.flushAllBlocking(timeout: .seconds(2))
         return .terminateNow
     }
 

@@ -93,7 +93,7 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
         if let failure = book.permanentFailure { throw failure }
         do {
             let page = try await book.session.page(index, priority: priority.kitPriority)
-            book.noteReceivedPage(index, byteCount: page.data.count)
+            book.noteReceivedPage(index)
             return page.data
         } catch let error as StackNestViewerError {
             if error.code == .pageOutOfRange { throw ArchiveReaderError.entryNotFound }
@@ -113,7 +113,7 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
         guard let index = StackNestPageNaming.pageIndex(fromEntryName: path) else { throw ArchiveReaderError.entryNotFound }
         do {
             let data = try recordingFailure(page: index) { try blocking.page(index).data }
-            book.noteReceivedPage(index, byteCount: data.count)
+            book.noteReceivedPage(index)
             return data
         } catch let error as StackNestViewerError where error.code == .pageOutOfRange {
             // 範囲外(部品は manifest を 1 度だけ読み直して確かめ、要求を出さずに返す)は、書庫の「エントリが無い」と同じ扱い。

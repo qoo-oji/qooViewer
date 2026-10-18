@@ -166,7 +166,8 @@ final class ViewerViewModel: ObservableObject {
     /// この本に恒久的な失敗が記録されているとき。showStackNestFailure)。ViewerView がトーストに出す。
     @Published private(set) var stackNestNotice: ViewerNotice?
     /// StackNest の参照ファイルの本で、読み進めたページを書き戻す役(StackNestViewerKit)。参照ファイルの本でないとき・
-    /// 書き戻さないとき(init の `writesBackToStackNest`。シークレットウインドウ)では nil。作ると部品の登録簿(StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる。
+    /// 書き戻さないとき(init の `writesBackToStackNest`。シークレットウインドウ)では nil。作ると部品の登録簿(init の
+    /// `stackNestProgressRegistry`。アプリでは StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる(AppDelegate)。
     private(set) var stackNestProgress: StackNestProgressReporter?
     /// 最後に知らせた StackNest の失敗の種類(同じ恒久的な失敗の知らせを、ページを送るたびに・書き戻しの道からもう一度、
     /// 重ねないため。showStackNestFailure)。
@@ -174,8 +175,6 @@ final class ViewerViewModel: ObservableObject {
     /// StackNest の参照ファイルの本のセッション(StackNestSessions)。この本を開いている間は持っておく: PageLoader の reader と
     /// 書き戻しの役が同じセッション(ページの短期キャッシュ)を使い回すため。参照ファイルの本でなければ nil。
     private(set) var stackNestBook: StackNestSessions.Book?
-    /// 最後に書き戻しの役へ渡したページ(StackNest のページ番号)。終了のときの送り切り(StackNestQuitFlush)が使う。
-    private var lastNotedStackNestPage: Int?
 
     /// 最初/最後のページを超えてページ送りしようとしたときの処理のうち、このViewModelでは
     /// 行えないもの(隣の本を開く・本を閉じる・ウェルカム画面へ戻る)をViewerViewへ依頼する。
@@ -458,10 +457,13 @@ final class ViewerViewModel: ObservableObject {
     ///   どの窓でも qooViewer に記録を残さない(`skipsPersistence` が真になる。MangaBook.leavesNoRecord)が、StackNest へ
     ///   位置を返すのは普通の窓では続けるため(2026-10-18、利用者の決定)。既定は書き戻さない(試験・ほかの呼び出し側が
     ///   黙って StackNest へ書かないように)。
+    /// - Parameter stackNestProgressRegistry: 書き戻しの役を載せる部品の登録簿。終了のときに送り切るのは
+    ///   `StackNestProgressRegistry.shared`(AppDelegate)なので、アプリは既定(nil = `shared`)のまま。試験は自分の登録簿を渡す(ViewerHarness。
+    ///   プロセスで 1 つの登録簿に試験の役を残さない ―― 部品 0.2.0 で渡せるようになった)。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
-        writesBackToStackNest: Bool = false,
+        writesBackToStackNest: Bool = false, stackNestProgressRegistry: StackNestProgressRegistry? = nil,
         usesDiskCaches: Bool? = nil, diskCaches: BookDiskCaches = .shared,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
@@ -893,19 +895,14 @@ final class ViewerViewModel: ObservableObject {
         if let reference = incomingBook.stackNestReference {
             stackNestBook = try? StackNestSessions.shared.book(for: reference, at: incomingBook.sourceURL)
             if let session = stackNestBook?.session, writesBackToStackNest {
-                stackNestProgress = StackNestProgressReporter(session: session, startPage: reference.startPage) {
-                    [weak self] failure in
+                stackNestProgress = StackNestProgressReporter(
+                    session: session, startPage: reference.startPage, registry: stackNestProgressRegistry ?? .shared
+                ) { [weak self] failure in
                     // 書き戻しだけが見た恒久的な失敗(キャッシュにあるページを読んでいる間に施錠が変わった など)も本に記録する。
                     // 記録しないと、ページの要求がもう 1 度失敗して記録するまで問い合わせが続く(Book.record は恒久的な失敗の
                     // 最初の 1 つだけを覚える)。
                     self?.stackNestBook?.record(failure)
                     self?.showStackNestFailure(failure)
-                }
-                // 終了のときに送っていない位置を送り切る(StackNestQuitFlush のコメント)。閉じたとき(releaseResources)に外す。
-                if let stackNestProgress {
-                    StackNestQuitFlush.forCurrentProcess?.register(owner: self, reporter: stackNestProgress, session: session) { [weak self] in
-                        self?.lastNotedStackNestPage
-                    }
                 }
             }
         }
@@ -1278,7 +1275,6 @@ final class ViewerViewModel: ObservableObject {
         // 同じ参照の本を別のウインドウが同じセッションで読んでいることがある(StackNestSessions)。
         stackNestProgress = nil
         stackNestBook = nil
-        StackNestQuitFlush.forCurrentProcess?.unregister(owner: self)
         stackNestPrimeTask?.cancel()
         stackNestPrimeTask = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
@@ -2850,7 +2846,6 @@ final class ViewerViewModel: ObservableObject {
         if let stackNestProgress, book.pages.indices.contains(currentIndex),
            let page = StackNestPageNaming.pageIndex(fromEntryName: book.pages[currentIndex].sortKey) {
             stackNestProgress.note(page: page)
-            lastNotedStackNestPage = page
         }
         // 削除済みの行へは何も書かない(readingStateDiscardedのコメント参照)。
         guard !readingStateDiscarded else { return }

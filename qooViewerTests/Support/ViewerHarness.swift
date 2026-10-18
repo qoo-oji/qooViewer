@@ -1,4 +1,5 @@
 import Foundation
+import StackNestViewerKit
 import SwiftData
 
 @testable import qooViewer
@@ -20,6 +21,9 @@ final class ViewerHarness {
     let preferencesSuite: PreferencesSuite
     let preferences: AppPreferences
     private var openViewers: [ViewerViewModel] = []
+    /// StackNest の本の書き戻しの役を載せる登録簿(プロセスで 1 つの `StackNestProgressRegistry.shared` に試験の役を残さない)。
+    /// 終了のときの送り切りの試験は、これの `flushAllBlocking` を呼ぶ。
+    let stackNestProgressRegistry = StackNestProgressRegistry()
     /// 作業フォルダの中のディスクキャッシュ(BookDiskCaches)。`open(_:usesDiskCaches: true)` と `loadBookCachingPageList` が使う。
     private(set) lazy var diskCaches = BookDiskCaches(directory: temporary.file("caches"))
 
@@ -103,6 +107,7 @@ final class ViewerHarness {
             book: book, modelContext: library.context, preferences: preferences,
             layoutStore: library.layouts, metadataStore: library.metadata,
             skipsPersistence: skipsPersistence, writesBackToStackNest: writesBackToStackNest,
+            stackNestProgressRegistry: stackNestProgressRegistry,
             // 実物のアプリと共有するディスクキャッシュ(サムネイル・ページ寸法)には触れない。
             // DB(メモリ内のコンテナ)へは書く ―― この組み合わせを表すための引数。キャッシュを使うときも作業フォルダのもの。
             usesDiskCaches: usesDiskCaches, diskCaches: diskCaches,

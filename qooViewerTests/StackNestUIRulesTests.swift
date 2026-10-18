@@ -1,5 +1,6 @@
 import Foundation
 import StackNestViewerKit
+import StackNestViewerKitTesting
 import Testing
 
 @testable import qooViewer
@@ -83,27 +84,28 @@ struct StackNestUIRulesTests {
         #expect(!LastPageBehavior.returnToWelcome.opensAdjacentBook)
     }
 
-    @Test("終了時の送り切り: 本を閉じた直後で、閉じたときの送信がまだ済んでいなければ、終了でも送り切る")
+    @Test("終了時の送り切り: 本を閉じた直後で、閉じたときの送信がまだ届いていなければ、終了でもその送信を待つ")
     func quitFlushCoversJustClosedBooks() async throws {
         let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
         let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
-        let progress = try #require(viewer.stackNestProgress)
-        let session = try #require(viewer.stackNestBook?.session)
-        let flush = StackNestQuitFlush()
-        flush.register(owner: viewer, reporter: progress, session: session) { 4 }
         viewer.jump(toPageIndex: 4)
         await viewer.settle()
-        #expect(progress.hasUnsentWork)
-        // 閉じた(控えから外す)が、まだ送っていない。
-        flush.unregister(owner: viewer)
-        #expect(flush.flushBlocking(timeout: 2) == 1)
-        #expect(fixture.progressPages.contains(4))
-        progress.close()
-        await progress.waitUntilIdle()
-        // 送り終えたら控えに残らない。
-        #expect(flush.flushBlocking(timeout: 2) == 0)
+        // 役は試験の側で持たない(閉じた後に役を生かしているのが役自身であることも見るため)。
+        #expect(viewer.stackNestProgress?.hasUnsentWork == true)
+        // 書き戻しの応答を止めたまま本を閉じる(閉じたときの送信が飛んだまま。役は送り終えるまで自分を保ち、登録簿に残る)。
+        let held = fixture.server.gate(.progress)
+        viewer.releaseResources()
+        #expect(await FileIO.perform { held.waitForArrival() })
+        // 応答は少し後に流す(送り切りはメインで待つので、流すのはメインの外から)。
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { held.open() }
+        let started = ContinuousClock.now
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(3)) == 1)
+        let waited = ContinuousClock.now - started
+        // 飛んでいた送信の終わり(応答を流した 0.3 秒後)まで待った。
+        #expect(waited >= .milliseconds(250) && waited < .seconds(3))
+        #expect(fixture.progressPages == [4])
     }
 }

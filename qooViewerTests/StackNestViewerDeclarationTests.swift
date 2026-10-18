@@ -25,9 +25,9 @@ struct StackNestViewerDeclarationTests {
         #expect(StackNestViewerSupport.verify(infoDictionary: try Self.builtInfoPlist()).isEmpty)
     }
 
-    @Test("StackNestViewerKit は 0.1 系をつないでいる(版の定数がアプリから見える)")
+    @Test("StackNestViewerKit は 0.2 系をつないでいる(版の定数がアプリから見える)")
     func linksTheKit() {
-        #expect(StackNestViewerKitInfo.version.hasPrefix("0.1."))
+        #expect(StackNestViewerKitInfo.version.hasPrefix("0.2."))
     }
 
     @Test("StackNestViewerSupport が、読める版として 1 を宣言している")

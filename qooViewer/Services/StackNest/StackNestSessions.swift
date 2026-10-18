@@ -42,7 +42,8 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         private var failure: StackNestViewerError?
         /// ページごとの一時的な失敗(そのページを次に受け取るまで)。
         private var transientFailures: [Int: StackNestViewerError] = [:]
-        private var cacheEstimate: PageCacheEstimate
+        /// 部品のページのキャッシュの上限(リソースモニタの「上限」)。
+        private let pageCacheBytes: Int
         /// 部品のページのキャッシュの大きさを届け出ている持ち主(PageLoader の `memoryOwnerID`)。2 つの PageLoader が同じ
         /// セッションを使っても、届けるのは最初の 1 つだけ(二重に数えない)。
         private var memoryReporter: UUID?
@@ -50,8 +51,7 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         init(session: StackNestBookSession, configuration: StackNestBookSession.Configuration, gate: StackNestRequestGate) {
             self.session = session
             self.gate = gate
-            cacheEstimate = PageCacheEstimate(
-                capacity: configuration.pageCacheCount, byteBudget: configuration.pageCacheBytes)
+            pageCacheBytes = configuration.pageCacheBytes
         }
 
         /// 開いている参照ファイルの中身。
@@ -86,58 +86,28 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
             lock.withLock { failure ?? page.flatMap { transientFailures[$0] } }
         }
 
-        /// 部品のセッションから受け取ったページ(部品のキャッシュに入ったかを、同じ決まりで見積もる)。届いたので、そのページの
-        /// 一時的な失敗は忘れる。
-        func noteReceivedPage(_ index: Int, byteCount: Int) {
-            lock.withLock {
-                cacheEstimate.note(index, byteCount: byteCount)
-                transientFailures[index] = nil
-            }
+        /// 部品のセッションから受け取ったページ。届いたので、そのページの一時的な失敗は忘れる。
+        func noteReceivedPage(_ index: Int) {
+            lock.withLock { transientFailures[index] = nil }
         }
 
-        /// リソースモニタへ届ける項目。届けるのは最初に名乗った持ち主だけ(ほかの持ち主には空)。
+        /// リソースモニタへ届ける項目。届けるのは最初に名乗った持ち主だけ(ほかの持ち主には空)。量は部品が数えたもの
+        /// (部品 0.2.0 の `cachedPageBytes`。受け取りの途中の本文 `bufferedResponseBytes` も足す)。0.1.0 は量を外へ出さなかったので、
+        /// 受け取ったページから部品のキャッシュの決まりをなぞって見積もっていた(枚数も出していたが、部品は枚数を出さない)。
         func memoryUsageItems(for ownerID: UUID) -> [MemoryUsageItem] {
-            lock.withLock {
+            let reports = lock.withLock { () -> Bool in
                 if memoryReporter == nil { memoryReporter = ownerID }
-                guard memoryReporter == ownerID else { return [] }
-                return [MemoryUsageItem(
-                    kind: .stackNestPages, usedBytes: cacheEstimate.totalBytes, limitBytes: cacheEstimate.byteBudget,
-                    count: cacheEstimate.count)]
+                return memoryReporter == ownerID
             }
+            guard reports else { return [] }
+            return [MemoryUsageItem(
+                kind: .stackNestPages, usedBytes: session.cachedPageBytes + session.bufferedResponseBytes,
+                limitBytes: pageCacheBytes)]
         }
 
         /// 持ち主が読み込みを手放した(次の持ち主が名乗れるように)。
         func endMemoryReport(for ownerID: UUID) {
             lock.withLock { if memoryReporter == ownerID { memoryReporter = nil } }
-        }
-    }
-
-    /// 部品のページのキャッシュ(StackNestViewerKit の `PageCache`: 枚数と合計の大きさで絞り、予算の半分を超えるページは
-    /// 持たない)を、同じ決まりでなぞった見積もり。部品は持っている量を外へ出さないので(0.1.0)、受け取ったページから数える。
-    /// 部品の側で古いものから捨てる順も同じ(使ったものを新しい側へ回す)。
-    struct PageCacheEstimate {
-        let capacity: Int
-        let byteBudget: Int
-        private var entries: [(index: Int, bytes: Int)] = []
-        private(set) var totalBytes = 0
-
-        init(capacity: Int, byteBudget: Int) {
-            self.capacity = max(capacity, 0)
-            self.byteBudget = max(byteBudget, 0)
-        }
-
-        var count: Int { entries.count }
-
-        mutating func note(_ index: Int, byteCount: Int) {
-            if let position = entries.firstIndex(where: { $0.index == index }) {
-                totalBytes -= entries.remove(at: position).bytes
-            }
-            guard byteCount <= byteBudget / 2 else { return }
-            entries.append((index, byteCount))
-            totalBytes += byteCount
-            while entries.count > capacity || totalBytes > byteBudget {
-                totalBytes -= entries.removeFirst().bytes
-            }
         }
     }
 

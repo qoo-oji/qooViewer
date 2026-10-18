@@ -38,7 +38,7 @@ tests) — new wiring goes through `Dependencies`, not `isRunningTests`. Two acc
 must be one per process because windows share it (`StackNestSessions`, `NetworkVolumeReading`) may stay static if tests isolate themselves by
 registering only their own temporary folder (`useConfigurationForTesting(under:)`, `treatAsRemoteForTesting`) — never by swapping the whole
 object; and a process-wide registry that tests must not join may expose `forCurrentProcess` (nil under tests: `MemoryUsageRegistry`,
-`StackNestQuitFlush`). Anything else new still goes through `Dependencies` or an injected parameter; **beep only through `UserFeedback.beep()`** (tests count it with
+the kit's `StackNestProgressRegistry` is passed instead — `ViewerViewModel(stackNestProgressRegistry:)`, `ViewerHarness` gives its own). Anything else new still goes through `Dependencies` or an injected parameter; **beep only through `UserFeedback.beep()`** (tests count it with
 `UserFeedback.$recorder`); sheets/panels go through `WindowSheet` and **chosen URLs are read from `beginChoosing`/`chooseURLs`**, never
 `panel.url(s)` (tests answer with `SheetScripting.$responder`); viewer input decisions live in `ViewerInputRouter`/`ViewerWheelInput`/
 `ViewerScrollPlanner` (the view only executes). Debug builds carry `DebugControlPort` (`scripts/dev/qoo-debug-control.py`: state, menu tree,
@@ -116,7 +116,7 @@ never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VER
 `CFBundleVersion`. The private key never enters the repo (login keychain, account `qooProject`); the trust model and the 2026-10-10 on-device
 results are in docs/10「自動アップデート」, the on-device test procedure in docs/12.
 **StackNest books** (`.stacknestbook` reference files, PR #1 + the 2026-10-18 review; docs/10「StackNest の本と通信」): pages come from
-StackNest's book API on 127.0.0.1 through **StackNestViewerKit** (`exactVersion` 0.1.0 — a one-author package running inside the app;
+StackNest's book API on 127.0.0.1 through **StackNestViewerKit** (`exactVersion` 0.2.0 — a one-author package running inside the app;
 move it only after reading the new version). **The app process never opens a socket**: the kit's sessions get `StackNestConnectorURLProtocol`
 (`StackNestSessions.productionConfiguration`), which hands each request to the embedded XPC service `StackNestConnector.xpc` — the only
 part with `network.client` (sandbox + client only, ATS `NSAllowsLocalNetworking` only) — and both sides accept only the fixed request

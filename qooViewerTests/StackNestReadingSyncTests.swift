@@ -124,7 +124,8 @@ struct StackNestReadingSyncTests {
     }
 }
 
-/// 終了のときの送り切り(StackNestQuitFlush)。
+/// 終了のときの送り切り(部品 0.2.0 の `StackNestProgressRegistry.flushAllBlocking`。AppDelegate が `shared` に対して呼ぶ)。
+/// 部品の役そのものの振る舞いは部品の試験が押さえる。ここは、ビューアの役がその登録簿に載り、メインで待っても送り切れることを見る。
 @MainActor
 struct StackNestQuitFlushTests {
     @Test("終了のときは、送っていない位置をメインキューを使わずに送り切る(メインの仕事の中から呼んでも止まらない)")
@@ -135,24 +136,19 @@ struct StackNestQuitFlushTests {
         defer { harness.close() }
         let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let progress = try #require(viewer.stackNestProgress)
-        let session = try #require(viewer.stackNestBook?.session)
-        let flush = StackNestQuitFlush()
-        flush.register(owner: viewer, reporter: progress, session: session) { 3 }
         viewer.jump(toPageIndex: 3)
         await viewer.settle()
         #expect(progress.hasUnsentWork)
         #expect(fixture.progressPages.isEmpty)
         // このテストはメインアクター(= メインキューの仕事)の上: ここで待つ作りなら、送りがメインを要るときに止まる。
         let started = ContinuousClock.now
-        #expect(flush.flushBlocking(timeout: 2) == 1)
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(2)) == 1)
         #expect(ContinuousClock.now - started < .seconds(2))
         #expect(fixture.progressPages == [3])
-        // 本を閉じて役が送り終えたら、送るものが無いので待たない(送り終える前に閉じた本は、控えに残る ―― StackNestUIRulesTests)。
-        progress.close()
-        await progress.waitUntilIdle()
-        flush.unregister(owner: viewer)
+        // 送り切りへ渡した役は、以後は送らない(送るものが無いので待たない)。
+        #expect(!progress.hasUnsentWork)
         let idleStarted = ContinuousClock.now
-        #expect(flush.flushBlocking(timeout: 2) == 0)
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(2)) == 0)
         #expect(ContinuousClock.now - idleStarted < .seconds(1))
     }
 }
