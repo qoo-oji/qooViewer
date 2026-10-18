@@ -294,6 +294,14 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 `isAppWide: false` なのでアプリで 1 つの写し(`MetadataGenerator.appWide` など)には触りません。知らせの後始末は
 `AppStores.lastFileSystemChangeHandling` を待ってから確かめます。終わりに `close()`(`AppStores.releaseResources()`)。
 
+**新しい配線は `Dependencies` か引数で渡す**のが原則で、認めている例外は 2 つだけです(2026-10-18、PR #1 のレビューで決めた):
+- **ウインドウをまたいで 1 つでなければならない表**(`StackNestSessions` ―― ビューアとブックマーク・レイアウトの編集が同じ本のページの
+  キャッシュと失敗の記録を共有する ―― と `NetworkVolumeReading`)は static のままでよい。テストは**自分の作業フォルダだけを登録して**分ける
+  (`StackNestSessions.useConfigurationForTesting(_:under:)`・`NetworkVolumeReading.treatAsRemoteForTesting`)。表そのものを差し替える口は
+  作らない(並行して走るテストが混ざる)。
+- **テストが加わってはいけないアプリで 1 つの帳簿**は `forCurrentProcess`(テストでは nil)で載せる(`MemoryUsageRegistry`・
+  `StackNestQuitFlush`)。帳簿そのもののテストは自分のインスタンスを作る。
+
 **確認のアラート・パネルの先とビープ**もテストから通せます(2026-10-11)。`SheetScripting.$responder.withValue(ScriptedSheetResponder(replies: [...]))`
 の中で入口を叩くと、`WindowSheet` は出す代わりに順に答え(ボタンの番号・選んだ URL・キャンセル)を返し、出したもの(見出し・
 ボタン・パネルの `prompt` など)を記録します。選ばれた場所を読む側は `WindowSheet.beginChoosing` / `chooseURLs` の戻り値を使います

@@ -34,7 +34,11 @@ host triggers a macOS removable-volume permission dialog on every launch). Fixtu
 disk caches are injected as `BookDiskCaches` (`BookLoader.load(caches:)`, `PageLoader(diskCaches:)`, `ViewerViewModel(diskCaches:)` …; the
 `cachesPageList`/`usesThumbnailDiskCache` flags keep their privacy meaning), never read `BookPageListCache.shared`/`ThumbnailDiskCache.shared`
 directly in new loading code; `AppStores(dependencies:)` builds the composition root (`Dependencies.live()` in the app, `AppStoresHarness` in
-tests) — new wiring goes through `Dependencies`, not `isRunningTests`; **beep only through `UserFeedback.beep()`** (tests count it with
+tests) — new wiring goes through `Dependencies`, not `isRunningTests`. Two accepted exceptions (2026-10-18, PR #1 review): a table that
+must be one per process because windows share it (`StackNestSessions`, `NetworkVolumeReading`) may stay static if tests isolate themselves by
+registering only their own temporary folder (`useConfigurationForTesting(under:)`, `treatAsRemoteForTesting`) — never by swapping the whole
+object; and a process-wide registry that tests must not join may expose `forCurrentProcess` (nil under tests: `MemoryUsageRegistry`,
+`StackNestQuitFlush`). Anything else new still goes through `Dependencies` or an injected parameter; **beep only through `UserFeedback.beep()`** (tests count it with
 `UserFeedback.$recorder`); sheets/panels go through `WindowSheet` and **chosen URLs are read from `beginChoosing`/`chooseURLs`**, never
 `panel.url(s)` (tests answer with `SheetScripting.$responder`); viewer input decisions live in `ViewerInputRouter`/`ViewerWheelInput`/
 `ViewerScrollPlanner` (the view only executes). Debug builds carry `DebugControlPort` (`scripts/dev/qoo-debug-control.py`: state, menu tree,
