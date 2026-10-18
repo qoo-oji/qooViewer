@@ -26,10 +26,13 @@ nonisolated enum BookLoader {
     /// - Parameter connectsToStackNest: StackNest の参照ファイルの本で、manifest を StackNest に問い合わせるか。false なら
     ///   参照ファイルに書かれたページ数でページを組み、通信しない(`loadStackNestReferenceWithoutConnecting`)。保存データの
     ///   書き出し・取り込みのように、ページの鍵と名前しか要らない読み込みが渡す。
+    /// - Parameter coveringStackNestPageKeys: 通信しないで組むときに、少なくともこれらのページの鍵を持たせる(保存データの取り込み。
+    ///   参照ファイルのページ数は渡された時点のもので、後から増えたページのブックマーク・レイアウトを落とさないため)。
     static func load(
         from url: URL,
         cachesPageList: Bool = true,
         connectsToStackNest: Bool = true,
+        coveringStackNestPageKeys: [String] = [],
         caches: BookDiskCaches = .shared,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil,
@@ -48,7 +51,7 @@ nonisolated enum BookLoader {
         {
             return connectsToStackNest
                 ? try await loadStackNestReference(at: url)
-                : try await loadStackNestReferenceWithoutConnecting(at: url)
+                : try await loadStackNestReferenceWithoutConnecting(at: url, covering: coveringStackNestPageKeys)
         }
         // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
         // ある。2回目以降はその走査ごと飛ばす(BookPageListCache.Entryの構造キャッシュの
@@ -157,7 +160,7 @@ nonisolated enum BookLoader {
     /// 番号から決まるので、保存データの書き出し・取り込み(ブックマーク・レイアウトの鍵を引く)にはこれで足りる。
     /// 2026-10-18 のレビュー: 以前は保存データの書き出しが本ごとに manifest を問い合わせ、StackNest が起動していない・参照の期限が
     /// 切れた本のブックマークをバックアップから黙って落とし、応答しない StackNest では 1 冊ごとに最長 25〜75 秒止まった。
-    static func loadStackNestReferenceWithoutConnecting(at url: URL) async throws -> MangaBook {
+    static func loadStackNestReferenceWithoutConnecting(at url: URL, covering pageKeys: [String] = []) async throws -> MangaBook {
         try await FileIO.perform {
             guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
             let reference: StackNestBookReference
@@ -166,7 +169,10 @@ nonisolated enum BookLoader {
             } catch let error as StackNestViewerError {
                 throw StackNestOpenError(error: error)
             }
-            return try stackNestReferenceBook(reference: reference, pageCount: reference.pageCount, direction: reference.direction, at: url)
+            // 渡された鍵のうちいちばん後ろのページまでは組む(StackNest の番号の名前だけ。上限は形式の上限)。
+            let coveredCount = pageKeys.compactMap(StackNestPageNaming.pageIndex(fromEntryName:)).max().map { $0 + 1 } ?? 0
+            let pageCount = min(max(reference.pageCount, coveredCount), StackNestFormat.maxPageCount)
+            return try stackNestReferenceBook(reference: reference, pageCount: pageCount, direction: reference.direction, at: url)
         }
     }
 

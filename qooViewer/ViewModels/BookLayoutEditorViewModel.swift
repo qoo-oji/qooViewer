@@ -86,6 +86,9 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 警告バナーの文言。nilなら非表示。表示中に他の操作をしても自動では消えない
     /// (呼び出し側が明示的にdismissWarning()を呼ぶまで残す。誤って見落とさないため)。
     @Published private(set) var reorderWarningMessage: String?
+    /// StackNest の本で、レイアウトの計算のためにページの寸法を StackNest から取り寄せている間(ペインの上に待ちの表示を出す。
+    /// CLAUDE.md「A wait the user can feel shows something」)。
+    @Published private(set) var isFetchingStackNestPageSizes = false
     /// PageLoaderが用意できた回数。右ペインの各行は、この値をサムネイル取得タスクの識別子に
     /// 含めている(BookmarkListView.PageRowViewの.task(id:)参照)。
     ///
@@ -760,6 +763,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         }
         var sizes: [Int: (width: Int, height: Int)] = [:]
         var failed = false
+        isFetchingStackNestPageSizes = true
+        defer { isFetchingStackNestPageSizes = false }
         await withTaskGroup(of: (Int, (width: Int, height: Int)?).self) { group in
             var next = 0
             func launch() {

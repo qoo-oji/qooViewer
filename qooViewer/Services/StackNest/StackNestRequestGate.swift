@@ -1,6 +1,7 @@
 import Foundation
 
-/// StackNest の 1 冊ぶんの要求の同時数を絞る門(スレッドを塞がずに待つ)。
+/// StackNest の要求の同時数を絞る門(スレッドを塞がずに待つ)。接続先(StackNest の 127.0.0.1 のポート)ごとに 1 つで、同じ StackNest の
+/// 本どうしは共有する(StackNestSessions.Book.gate)。
 ///
 /// ■ なぜ要るか(2026-10-18 のレビュー)
 /// 以前はページの取り寄せのたびに `FileIO` のスレッドを 1 本借り、部品の同期の口(`StackNestBlockingReader`)で応答を待っていた。
@@ -29,7 +30,8 @@ nonisolated final class StackNestRequestGate: @unchecked Sendable {
         case background
     }
 
-    /// 合わせた同時数。接続先 1 つの同時の接続数(URLSession の既定・StackNestConnector の `httpMaximumConnectionsPerHost`)と同じ。
+    /// 合わせた同時数。接続先 1 つの同時の接続数(URLSession の既定の 6。StackNestConnector はこれに manifest と書き戻しの分の
+    /// 余りを足した `StackNestConnectorPolicy.maxConnectionsPerHost`)。
     static let totalLimit = 6
     /// そのうち、先読み・サムネイル・寸法が使える数。残りは表示のために空けておく。
     static let backgroundLimit = 4

@@ -19,7 +19,8 @@ extension AppState {
     /// 同じ鍵で読み込み直しても新しいことは無い。その本に恒久的な失敗が記録されていれば、開くのに失敗して本が閉じてしまう。
     ///
     /// 参照ファイルは FileIO で読む(数百バイトだが、応答しないボリュームの上でもメインを止めない)ので、読み込み直すのは
-    /// 前へ出した後になる。読めないファイルは今までどおり前へ出すだけ。
+    /// 前へ出した後になる。読む間は待ちの札(`waitingToOpen`)を出す。読めないファイルは今までどおり前へ出すだけ。
+    /// 意図を取るのが読んだ後なのは、CLAUDE.md の「待ち始めるときに取る」の意図的な例外(下の「先に頼まれていた本を捨てない」)。
     ///
     /// ■ 読んでいる間に頼まれた本が勝つ・先に頼まれていた本を捨てない(2026-10-18 のレビュー)
     /// 読む前は今の意図を控えるだけにする(`openIntentWithoutClaiming()`)。以前は読む前に意図を取っていた(`beginOpenIntent()`)
@@ -45,10 +46,15 @@ extension AppState {
         // 外れる)読み込まない。ウインドウの無い AppState(試験)はこの確かめを飛ばす。
         let hadWindow = hostWindow != nil
         return Task { [weak self] in
-            let reference = await FileIO.perform { try? StackNestBookReference.load(contentsOf: url) }
+            // 待つ間は窓の待ちの札を出す(数百バイトなのでふつうは札の出る前に終わる。応答しないボリュームの上でも何か出す ――
+            // CLAUDE.md「A wait the user can feel shows something」)。
+            guard let self else { return }
+            let reference = await self.waitingToOpen {
+                await FileIO.perform { try? StackNestBookReference.load(contentsOf: url) }
+            }
             // 読んでいる間に、このウインドウで別の本が頼まれた・開いた・別の本へ替わった・閉じられたら何もしない(同じ本かは
             // openAppState(forBookAt:) と同じくパスで)。
-            guard let self, self.isStillWanted(noted), !hadWindow || self.hostWindow != nil, let reference,
+            guard self.isStillWanted(noted), !hadWindow || self.hostWindow != nil, let reference,
                   let shown = self.currentBook,
                   shown.sourceURL.path == url.path,
                   Self.reloadsForStackNestReference(showing: shown, read: reference)

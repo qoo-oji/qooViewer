@@ -648,6 +648,19 @@ struct StackNestOpeningTests {
         #expect(fixture.requests.isEmpty)
     }
 
+    @Test("保存データの取り込みの読み込みは、取り込むページの鍵まで組む(参照ファイルより後に増えたページを落とさない)")
+    func offlineLoadCoversImportedKeys() async throws {
+        let fixture = try StackNestTestBook(pageCount: 5)
+        defer { fixture.close() }
+        let book = try await BookLoader.load(
+            from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false,
+            coveringStackNestPageKeys: ["000008.jpg", "cover.png"]
+        )
+        #expect(book.pages.count == 9)
+        #expect(book.pages.last?.sortKey == "000008.jpg")
+        #expect(fixture.requests.isEmpty)
+    }
+
     @Test("コレクションの登録の要(makePendingItem)は、実ファイルの参照ファイルを断る(同じ名前のフォルダは本として通す)")
     func pendingItemRefusesReferenceFiles() throws {
         let fixture = try StackNestTestBook()

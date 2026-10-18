@@ -33,8 +33,10 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
     /// `@unchecked Sendable` の根拠: 変わる状態は `lock` の中でだけ読み書きする。
     final class Book: @unchecked Sendable {
         let session: StackNestBookSession
-        /// 要求の同時数の門(表示の列と背景の列。StackNestRequestGate)。
-        let gate = StackNestRequestGate()
+        /// 要求の同時数の門(表示の列と背景の列。StackNestRequestGate)。**接続先(StackNest の 127.0.0.1 のポート)ごとに 1 つ**で、
+        /// 同じ StackNest の本どうしは共有する(2026-10-18 のレビュー: 本ごとに持つと、2 冊を開いたときに接続数(6)を超えて XPC
+        /// サービスの URLSession の中で待ち、表示のページがよその本の先読みの後ろで時間切れになりえた)。
+        let gate: StackNestRequestGate
         private let lock = NSLock()
         private var failure: StackNestViewerError?
         private var cacheEstimate: PageCacheEstimate
@@ -42,8 +44,9 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         /// セッションを使っても、届けるのは最初の 1 つだけ(二重に数えない)。
         private var memoryReporter: UUID?
 
-        init(session: StackNestBookSession, configuration: StackNestBookSession.Configuration) {
+        init(session: StackNestBookSession, configuration: StackNestBookSession.Configuration, gate: StackNestRequestGate) {
             self.session = session
+            self.gate = gate
             cacheEstimate = PageCacheEstimate(
                 capacity: configuration.pageCacheCount, byteBudget: configuration.pageCacheBytes)
         }
@@ -125,6 +128,8 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
     private let lock = NSLock()
     /// 参照ファイルのパス(`MountTable.normalized`)→ 本。`lock` の中でだけ読み書きする。
     private var books: [String: WeakBook] = [:]
+    /// 接続先(`scheme://host:port`)→ 要求の門。`lock` の中でだけ読み書きする(接続先の数は StackNest の起動の回数ほどで、小さい)。
+    private var gates: [String: StackNestRequestGate] = [:]
     /// 試験の差し込み: フォルダ(`MountTable.normalized`)→ そのフォルダの下の参照ファイルから作るセッションの設定。
     private var testConfigurations: [String: StackNestBookSession.Configuration] = [:]
 
@@ -141,7 +146,7 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
     func book(for reference: StackNestBookReference, at url: URL) throws -> Book {
         let key = MountTable.normalized(url.path)
         return try lock.withLock {
-            let configuration = configurationLocked(forPath: key)
+            let (configuration, testFolder) = configurationLocked(forPath: key)
             guard configuration.allowedHosts.allows(reference.bookURL) else {
                 throw StackNestViewerError(.hostNotAllowed)
             }
@@ -150,13 +155,22 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
             {
                 return existing
             }
+            // 試験はフォルダごとに別の門(見立ての宛先はどの試験も同じなので、共有すると並行して走る試験が混ざる)。
+            let origin = (testFolder.map { "test:\($0)|" } ?? "") + Self.origin(of: reference.bookURL)
+            let gate = gates[origin] ?? StackNestRequestGate()
+            gates[origin] = gate
             let book = Book(
                 session: StackNestBookSession(reference: reference, configuration: configuration),
-                configuration: configuration)
+                configuration: configuration, gate: gate)
             books = books.filter { $0.value.book != nil }
             books[key] = WeakBook(book: book)
             return book
         }
+    }
+
+    /// 門を分ける単位(接続先)。
+    static func origin(of url: URL) -> String {
+        "\(url.scheme?.lowercased() ?? "")://\(url.host(percentEncoded: false)?.lowercased() ?? ""):\(url.port ?? -1)"
     }
 
     // MARK: - 試験の差し込み
@@ -171,13 +185,14 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         lock.withLock { testConfigurations[MountTable.normalized(folder.path)] = nil }
     }
 
-    private func configurationLocked(forPath path: String) -> StackNestBookSession.Configuration {
+    /// その参照ファイルのセッションの設定と、試験の差し込みに当たったならそのフォルダ。
+    private func configurationLocked(forPath path: String) -> (StackNestBookSession.Configuration, String?) {
         if !testConfigurations.isEmpty,
            let match = testConfigurations.first(where: { MountTable.path(path, isAtOrUnder: $0.key) })
         {
-            return match.value
+            return (match.value, match.key)
         }
-        return Self.productionConfiguration
+        return (Self.productionConfiguration, nil)
     }
 
     /// 本番の設定: 要求は XPC サービスへ回す(StackNestConnectorURLProtocol)。

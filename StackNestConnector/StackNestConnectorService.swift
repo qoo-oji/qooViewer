@@ -70,7 +70,9 @@ nonisolated final class StackNestConnectorService: NSObject, StackNestConnecting
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = Self.requestTimeout
         configuration.timeoutIntervalForResource = Self.resourceTimeout
-        configuration.httpMaximumConnectionsPerHost = 6
+        // アプリの門(StackNestRequestGate)は接続先ごとに合わせて 6 件までページを頼む。manifest と読書位置の POST は門を通らない
+        // ので、その分の余りを持たせる(ページの要求がこの中で待たされない)。
+        configuration.httpMaximumConnectionsPerHost = StackNestConnectorPolicy.maxConnectionsPerHost
         // delegate は強く持たれる(URLSession を無効にするまで)。サービスの物は接続と同じだけ生き、cancelAll で無効にする。
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }

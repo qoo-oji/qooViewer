@@ -136,8 +136,23 @@ nonisolated class StackNestConnectorURLProtocol: URLProtocol, @unchecked Sendabl
     /// `stateLock` の中でだけ読み書きする。
     private var sentID: String?
     private var isStopped = false
+    /// `startLoading` を呼んだスレッドの run loop とその時のモード。`client` へはここからだけ知らせる(URLProtocol の約束:
+    /// client はこの読み込みを始めたスレッドから呼ぶ。2026-10-18 のレビュー ―― 以前は XPC の返事のキューから直に呼んでいて、
+    /// 取り消し(stopLoading)と食い違う・完了が落ちるおそれがあった)。`startLoading` の中で書き、以後は読むだけ。
+    private var clientRunLoop: CFRunLoop?
+    private var clientModes: [CFString] = []
+
+    /// `body` を、この読み込みを始めたスレッドの run loop で走らせる。
+    private func performOnClientThread(_ body: @escaping () -> Void) {
+        guard let runLoop = clientRunLoop else { return body() }
+        CFRunLoopPerformBlock(runLoop, clientModes as CFArray, body)
+        CFRunLoopWakeUp(runLoop)
+    }
 
     override func startLoading() {
+        clientRunLoop = CFRunLoopGetCurrent()
+        let mode = RunLoop.current.currentMode ?? .default
+        clientModes = mode == .default ? [CFRunLoopMode.defaultMode.rawValue] : [mode.rawValue as CFString, CFRunLoopMode.defaultMode.rawValue]
         let request = self.request
         guard let url = request.url else { return fail(.refused) }
         var headers: [String: String] = [:]
@@ -159,18 +174,20 @@ nonisolated class StackNestConnectorURLProtocol: URLProtocol, @unchecked Sendabl
         }
         guard proceeds else { return }
         type(of: self).transport.send(outgoing) { [self] result in
-            // 止めた後は client に触れない。
-            let delivers = stateLock.withLock { () -> Bool in
-                guard !isStopped else { return false }
-                sentID = nil
-                return true
-            }
-            guard delivers else { return }
-            switch result {
-            case .success(let (meta, body)):
-                deliver(meta, body: body, for: url)
-            case .failure(let failure):
-                fail(failure)
+            performOnClientThread { [self] in
+                // 止めた後は client に触れない(stopLoading も同じスレッドで呼ばれるので、ここで見れば食い違わない)。
+                let delivers = stateLock.withLock { () -> Bool in
+                    guard !isStopped else { return false }
+                    sentID = nil
+                    return true
+                }
+                guard delivers else { return }
+                switch result {
+                case .success(let (meta, body)):
+                    deliver(meta, body: body, for: url)
+                case .failure(let failure):
+                    fail(failure)
+                }
             }
         }
     }

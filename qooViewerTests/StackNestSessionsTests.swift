@@ -1,5 +1,6 @@
 import Foundation
 import StackNestViewerKit
+import StackNestViewerKitTesting
 import Testing
 
 @testable import qooViewer
@@ -22,6 +23,26 @@ struct StackNestSessionsTests {
         #expect(first.reference.token == StackNestTestBook.token)
         // 新しいセッションは表に残る。
         #expect(try StackNestSessions.shared.book(forReferenceAt: fixture.referenceURL) === renewed)
+    }
+
+    @Test("要求の門は接続先ごとに 1 つ: 同じ StackNest の 2 冊は門を共有し、試験は作業フォルダごとに別の門")
+    func gateIsSharedPerOrigin() throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        let other = fixture.temporary.file("Other Book.stacknestbook")
+        try StackNestTestBook.referenceJSON(
+            bookURL: fixture.server.bookURL, token: StackNestTestBook.token, pageCount: 3, startPage: 0,
+            expiresAt: Date().addingTimeInterval(86_400)
+        ).write(to: other)
+        let first = try StackNestSessions.shared.book(forReferenceAt: fixture.referenceURL)
+        let second = try StackNestSessions.shared.book(forReferenceAt: other)
+        #expect(first !== second)
+        #expect(first.gate === second.gate)
+        // 別の試験(別の作業フォルダ)は、宛先が同じでも門を分ける(並行して走る試験が混ざらない)。
+        let elsewhere = try StackNestTestBook(pageCount: 3, label: "stacknest-elsewhere")
+        defer { elsewhere.close() }
+        let third = try StackNestSessions.shared.book(forReferenceAt: elsewhere.referenceURL)
+        #expect(third.gate !== first.gate)
     }
 
     @Test("表は弱い参照だけを持つ: 持ち主が手放したセッションは残らない")

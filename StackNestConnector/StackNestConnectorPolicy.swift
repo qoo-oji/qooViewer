@@ -18,6 +18,9 @@ import Foundation
 nonisolated enum StackNestConnectorPolicy {
     /// 送ってよい要求の本文の上限(読書位置の POST。StackNest は 64 KiB を超える本文を 413 で断る)。
     static let maxRequestBodyBytes = 64 << 10
+    /// サービスの URLSession の接続先ごとの同時の接続数。アプリの門(ページの要求は接続先ごとに合わせて 6)に、門を通らない
+    /// manifest と読書位置の POST の分を足したもの。
+    static let maxConnectionsPerHost = 8
     /// 受け取る応答の本文の上限。StackNestViewerKit の既定(`maxResponseBytes`)と同じ。
     static let maxResponseBytes = 64 << 20
     /// サービスへ渡すヘッダ(小文字)。鍵(`Authorization`)・名乗り・POST の本文の型だけ。

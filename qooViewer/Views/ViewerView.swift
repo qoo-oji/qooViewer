@@ -1007,15 +1007,31 @@ struct ViewerView: View {
             let trailingIndex = max(leftIndex, rightIndex)
             let leadingPage = viewModel.book.pages[leadingIndex]
             let trailingPage = viewModel.book.pages[trailingIndex]
-            let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
             let leftKey = viewModel.book.pages[leftIndex].sortKey
             let rightKey = viewModel.book.pages[rightIndex].sortKey
             guard !isExportingImage else { return UserFeedback.beep() }
             isExportingImage = true
+            let isStackNestBook = viewModel.book.isStackNestReference
             Task {
                 defer { isExportingImage = false }
+                // StackNest の本のページの名前は仮のもの(`000041.jpg`)なので、前の画像の形式は中身から決める(パネルの前に 1 枚
+                // 取り寄せる。待つ間は回転表示。2026-10-18 のレビュー: 以前は名前の jpg のまま、PNG のページも JPEG で書き出していた)。
+                let ext: String
+                if isStackNestBook {
+                    isPreparingImageExport = true
+                    let source = try? await viewModel.exportableImageFileExtension(at: leadingIndex)
+                    isPreparingImageExport = false
+                    guard let source else {
+                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
+                        return
+                    }
+                    ext = ImageExporter.mergedFileExtension(leadingSourceExtension: source)
+                } else {
+                    ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
+                }
                 guard let url = await presentImageExportSavePanel(
-                    defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
+                    defaultFileName: ImageExporter.defaultMergedFileName(
+                        leadingPage: leadingPage, trailingPage: trailingPage, fileExtension: ext),
                     contentType: ImageExporter.contentType(forExtension: ext)
                 ) else { return }
                 // パネルの後で鍵から番号を引き直す(1 ページの書き出しと同じ。監査 V-12)。

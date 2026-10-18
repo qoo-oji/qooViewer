@@ -2495,7 +2495,7 @@ final class AppState: ObservableObject {
         // StackNest の参照ファイルの本の親フォルダは StackNest の Application Support の中(本の部屋)。許可を求めない
         // (2026-10-18 のレビュー: 許可すると、その中の参照ファイルをファイルブラウザから改名・ゴミ箱へ移せるようになった)。
         // メニューは同じ条件で淡色(MenuCheckmarkState.isCurrentBookStackNestReference)。
-        guard currentBook?.isStackNestReference != true else { return UserFeedback.beep() }
+        guard !menuShownBook.isStackNestReference else { return UserFeedback.beep() }
         let parent = currentURL.deletingLastPathComponent()
 
         // 既に許可済みならensureAccessがパネルを出さずにtrueを返す。通常その状態なら

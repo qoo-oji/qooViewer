@@ -3974,7 +3974,8 @@ final class ViewerViewModel: ObservableObject {
 
     /// StackNest の本で寸法を取れなかった・取り消したので、レイアウトを変えなかったことを知らせる。
     private func noteRemotePageSizesUnavailable() {
-        guard !remotePageSizeScanCancelledByUser, !hasReleasedResources else { return }
+        // 利用者が取り消した・本を閉じた・後から始めた計算に置き換えられた(その取り寄せがまだ走っている)ときは知らせない。
+        guard !remotePageSizeScanCancelledByUser, !hasReleasedResources, remotePageSizeScanWaiter == nil else { return }
         stackNestNotice = ViewerNotice(message: String(
             localized: "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest.",
             language: preferences.effectiveLocale))

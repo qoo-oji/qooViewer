@@ -67,8 +67,17 @@ nonisolated enum ImageExporter {
     /// 実際のエンコードの3つが同じ値から決まっていないと、中身がPNGなのに名前が`.webp`という
     /// ファイルができる(ViewerView.exportImage(_:)の.mergedSpread参照)。
     static func mergedFileExtension(leadingPage: PageRef, trailingPage: PageRef) -> String {
-        let source = fileExtension(for: leadingPage)
-        return canWrite(fileExtension: source) ? source : "png"
+        mergedFileExtension(leadingSourceExtension: fileExtension(for: leadingPage))
+    }
+
+    /// 前の画像の形式(拡張子)が名前からは分からないとき(StackNest の本の仮の名前。中身から決めた拡張子を渡す)の版。
+    static func mergedFileExtension(leadingSourceExtension source: String) -> String {
+        canWrite(fileExtension: source) ? source : "png"
+    }
+
+    /// `defaultMergedFileName(leadingPage:trailingPage:)` の、拡張子を呼び出し側が決めた版。
+    static func defaultMergedFileName(leadingPage: PageRef, trailingPage: PageRef, fileExtension ext: String) -> String {
+        "\(baseName(for: leadingPage))-\(baseName(for: trailingPage)).\(ext)"
     }
 
     /// ImageIOがこの拡張子の形式を**書き出せる**か。

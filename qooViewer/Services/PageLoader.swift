@@ -1935,11 +1935,13 @@ actor PageLoader {
         return try? Data(contentsOf: url)
     }
 
-    /// 網越しの reader(StackNest の参照ファイルの本)のページなら、その reader。ほかの reader には触れない
-    /// (作りもしない ―― 書庫の reader は `reader(for:)` が控えから返すだけなので、ここで呼んでも開き直さない)。
+    /// 網越しの reader(StackNest の参照ファイルの本)のページなら、その reader。ほかの本では書庫の reader に触れずに nil
+    /// (2026-10-18 のレビュー: 以前は `reader(for:)` を通していて、ふつうの書庫の本でも、デコードの枠を取る前に毎回 reader を
+    /// 引き、LRU から追い出された入れ子の書庫をここで展開し直しえた)。
     private func remoteReader(for source: PageSource) -> (any RemoteArchiveReading)? {
-        guard case .archive(let locator, _) = source else { return nil }
-        return reader(for: locator) as? any RemoteArchiveReading
+        guard let reference = book.stackNestReference, case .archive(let locator, _) = source, locator.nestedPath.isEmpty
+        else { return nil }
+        return stackNestReader(for: reference, at: locator.rootURL)
     }
 
     /// 1 ページぶんの元のバイト列。
