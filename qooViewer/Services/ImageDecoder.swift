@@ -203,6 +203,16 @@ nonisolated enum ImageDecoder {
         return headerInfo(from: source)
     }
 
+    /// バイト列の中身から見た画像の形式の拡張子(小文字。JPEGはほかの書き出しと同じく"jpg")。形式が分からなければnil。
+    /// 名前が中身の形式を表さないページ(StackNestの本の仮の名前`000001.jpg`。PageLoader.exportableImage参照)に使う。
+    static func fileExtension(sniffing data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
+              let typeID = CGImageSourceGetType(source) as String?, let type = UTType(typeID)
+        else { return nil }
+        if type.conforms(to: .jpeg) { return "jpg" }
+        return type.preferredFilenameExtension
+    }
+
     /// headerInfo(of:)のファイルURL版。
     ///
     /// フォルダの本(PageSource.file)のように、画像が独立したファイルとして存在する場合に使う。

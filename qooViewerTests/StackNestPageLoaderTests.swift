@@ -151,6 +151,23 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
+    @Test("1 ページの書き出しは、仮の名前(000001.jpg)ではなく届いた画像の形式の拡張子になる(PNG は png、JPEG は jpg)")
+    func exportedPageKeepsItsRealFormat() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        // 0 番は PNG のまま(フィクスチャの既定)、1 番だけ JPEG で応える。
+        fixture.server.respond(
+            .page(1), with: .status(200, headers: ["Content-Type": "image/jpeg"], body: PageImageFactory.jpeg(number: 2))
+        )
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        #expect(try await loader.exportableImageFileExtension(at: 0) == "png")
+        #expect(try await loader.exportableImage(at: 0)?.fileExtension == "png")
+        #expect(try await loader.exportableImageFileExtension(at: 1) == "jpg")
+        #expect(try await loader.exportableImage(at: 1)?.fileExtension == "jpg")
+        await loader.releaseAllResources()
+    }
+
     @Test("PageLoader は参照ファイルを読み直さない: 開いた本が持つ参照から reader を作る(actor の上でファイルを読まない)")
     func readerIsBuiltFromTheLoadedReference() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)

@@ -679,7 +679,9 @@ actor PageLoader {
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
             guard let data = await rawData(for: page.source) else { return nil }
-            return (data, Self.fileExtension(forEntryPathOf: page))
+            // 網越しのページの名前は仮のもの(exportableImageFileExtension(at:)のコメント)なので、拡張子は中身から。
+            let sniffed = isRemoteSource(page.source) ? ImageDecoder.fileExtension(sniffing: data) : nil
+            return (data, sniffed ?? Self.fileExtension(forEntryPathOf: page))
         }
         guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
@@ -698,12 +700,22 @@ actor PageLoader {
     /// 投げる。そのまま進むと、拡張子だけは決まったのに後段のexportableImage(at:)がnilを返し、
     /// manifestに載っているのに実体の無いページが生まれる(EpubExportError.
     /// pageImageUnavailableのコメント参照)。書き出し先を作る前のこの段階で止めるほうがよい。
+    ///
+    /// 網越しの本(StackNestの参照ファイルの本)のページだけは画像を取り寄せて中身から決める。エントリの名前は
+    /// ページ数から作った仮のもの(`000001.jpg`。StackNestReferenceReader)で、届く画像はPNG・WebPのこともある。
+    /// この本は本の書き出し(EPUB/CBZ)の対象外(MangaBook.canBeExported)なので、ここへ来るのは1ページの書き出しだけで、
+    /// 表示中のページは部品のセッションの短期キャッシュにあるため往復しないことが多い。取れなければ仮の名前の拡張子のまま
+    /// 進め、後のexportableImage(at:)がnilを返して「読み込めませんでした」になる。
     func exportableImageFileExtension(at index: Int) async throws -> String {
         guard book.pages.indices.contains(index) else {
             throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: index + 1)
         }
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
+            if case .remote(let data) = await remoteBytes(for: page.source),
+               let sniffed = data.flatMap(ImageDecoder.fileExtension(sniffing:)) {
+                return sniffed
+            }
             return Self.fileExtension(forEntryPathOf: page)
         }
         guard let document = pdfDocument(for: container),
