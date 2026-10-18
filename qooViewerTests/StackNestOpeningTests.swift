@@ -608,6 +608,26 @@ struct StackNestOpeningTests {
         #expect(fixture.requests.isEmpty)
     }
 
+    @Test("サイドパネルの本の中身ブラウザは、StackNest の本のページを平坦な 1 階層で並べ、押すとそのページへ(StackNest へは問い合わせない)")
+    func bookContentsListsThePages() async throws {
+        let fixture = try StackNestTestBook(pageCount: 4, startPage: 0)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let requestsAfterLoad = fixture.requests.count
+        let state = try #require(await BookContentsBrowserState.make(book: book))
+        defer { state.releaseResources() }
+        await state.waitUntilListed()
+        #expect(state.entries.map(\.matchKey) == book.pages.map(\.sortKey))
+        #expect(state.entries.allSatisfy { $0.isImage && $0.navigateTarget == nil })
+        #expect(state.currentLocationName == nil)
+        if case .jumpToPage(let index) = state.resolveImageClick(on: state.entries[2], bookPages: book.pages) {
+            #expect(index == 2)
+        } else {
+            Issue.record("ページへ移らなかった")
+        }
+        #expect(fixture.requests.count == requestsAfterLoad)
+    }
+
     @Test("コレクションの登録の要(makePendingItem)は、実ファイルの参照ファイルを断る(同じ名前のフォルダは本として通す)")
     func pendingItemRefusesReferenceFiles() throws {
         let fixture = try StackNestTestBook()

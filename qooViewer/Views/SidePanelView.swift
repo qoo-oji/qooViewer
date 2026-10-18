@@ -575,28 +575,22 @@ struct SidePanelView: View {
 
     // MARK: - 上段(フォルダブラウザ)
 
-    /// 上段。置き場所の無い本(StackNest の本)を開いている間は、一覧・移動のボタン・フォルダ名の代わりに理由だけを出す
-    /// (`bookLacksBrowsableLocation`。「開いている本が置かれているフォルダを表示する」という前提が崩れるので、前の本の
-    /// フォルダを残さない)。フォルダブラウザの読み込みも止まっている(ContentView.isSidePanelFolderBrowserOnScreen)。
-    @ViewBuilder
+    /// 上段。置き場所の無い本(StackNest の本)を開いている間は、見た目はいつもどおりのまま、一覧の場所に理由を出し、
+    /// 移動・並べ替え・Finder で表示・絞り込みを淡色にする(`bookLacksBrowsableLocation`。「開いている本が置かれているフォルダを
+    /// 表示する」という前提が崩れるので、前の本のフォルダを残さない ―― 2026-10-18、利用者の指示「デザインは通常どおりで、フォルダの
+    /// 中身を出す場所に文言を出して非表示の状態に」)。フォルダ名の欄は「StackNest」(「情報を見る」の場所と同じ)。フォルダブラウザの
+    /// 読み込みも止まっている(ContentView.isSidePanelFolderBrowserOnScreen)。
     private var folderSection: some View {
-        if bookLacksBrowsableLocation {
-            SidePanelEmptyMessage(textKey: "A book from StackNest has no folder that qooViewer can open.")
-        } else {
-            folderBrowserSection
-        }
-    }
-
-    private var folderBrowserSection: some View {
-        VStack(spacing: 0) {
+        let hidesFolder = bookLacksBrowsableLocation
+        return VStack(spacing: 0) {
             HStack(spacing: 6) {
-                SidePanelNavButton(systemName: "chevron.left", isDisabled: !folderState.canGoBack, help: "Back") {
+                SidePanelNavButton(systemName: "chevron.left", isDisabled: hidesFolder || !folderState.canGoBack, help: "Back") {
                     moveAndShowImages { folderState.goBack() }
                 }
-                SidePanelNavButton(systemName: "chevron.right", isDisabled: !folderState.canGoForward, help: "Forward") {
+                SidePanelNavButton(systemName: "chevron.right", isDisabled: hidesFolder || !folderState.canGoForward, help: "Forward") {
                     moveAndShowImages { folderState.goForward() }
                 }
-                SidePanelNavButton(systemName: "arrow.up", isDisabled: !folderState.canGoUp, help: "Enclosing Folder") {
+                SidePanelNavButton(systemName: "arrow.up", isDisabled: hidesFolder || !folderState.canGoUp, help: "Enclosing Folder") {
                     moveAndShowImages { folderState.goUp() }
                 }
                 Spacer(minLength: 0)
@@ -610,9 +604,10 @@ struct SidePanelView: View {
                     key: $preferences.folderBrowserSortKey,
                     direction: $preferences.folderBrowserSortDirection
                 )
+                .disabled(hidesFolder)
                 SidePanelNavButton(
                     systemName: "arrow.up.forward.square",
-                    isDisabled: folderState.currentDirectory == nil,
+                    isDisabled: hidesFolder || folderState.currentDirectory == nil,
                     help: "Show in Finder"
                 ) {
                     folderState.openInFinder()
@@ -620,7 +615,9 @@ struct SidePanelView: View {
             }
             .padding(10)
 
-            Text(folderState.currentDirectoryName ?? String(localized: "Computer", language: preferences.effectiveLocale))
+            Text(hidesFolder
+                ? "StackNest"
+                : folderState.currentDirectoryName ?? String(localized: "Computer", language: preferences.effectiveLocale))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
@@ -628,10 +625,11 @@ struct SidePanelView: View {
                 .truncationMode(.middle)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
-                .help(folderState.currentDirectory?.path ?? "")
+                .help(hidesFolder ? "" : folderState.currentDirectory?.path ?? "")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             SidePanelSearchField(text: $folderFilterText)
+                .disabled(hidesFolder)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
                 // フォルダを移動したら絞り込みは解除する(移動先でも前のフォルダ向けの
@@ -640,7 +638,9 @@ struct SidePanelView: View {
 
             Divider()
 
-            if folderState.needsFolderAccessGrant {
+            if hidesFolder {
+                SidePanelEmptyMessage(textKey: "A book from StackNest has no folder that qooViewer can open.")
+            } else if folderState.needsFolderAccessGrant {
                 VStack(spacing: 8) {
                     Text("This folder isn't accessible yet.")
                         .foregroundStyle(.secondary)

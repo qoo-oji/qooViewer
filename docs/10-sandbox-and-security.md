@@ -380,7 +380,9 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
   ではありません(並ぶのはほかの本の参照ファイル)。前の本・次の本、「同じフォルダのファイルを開く」、Finder・ファイルブラウザで
   表示(ページの右クリックも)、「このフォルダへのアクセスを許可」、ホームの「直前の本へ戻る」(開き直すのは StackNest から)は淡色で、
   キーや境界の動作で届いたら理由を知らせます(`AppState.noteNoBrowsableLocation`。スライドショーの末尾は黙る)。サイドパネルの
-  フォルダブラウザは前の本のフォルダを残さず、一覧の代わりに理由を出して読み込みも止めます(`SidePanelView.folderSection`)。
+  フォルダブラウザは見た目はいつもどおりで、前の本のフォルダを残さず、一覧の場所に理由を出し、移動・並べ替え・絞り込みを淡色にし、
+  読み込みも止めます(`SidePanelView.folderSection`。フォルダ名の欄は「StackNest」)。下段の本の中身ブラウザは、本のページを平坦な
+  1 階層で並べます(書庫として開かない。`BookContentsBrowserState` の `.pages`)。
   「情報を見る」の場所は「StackNest」です。
 - **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
   その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
