@@ -1370,22 +1370,6 @@
         }
       }
     },
-    "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "StackNest から一部のページの寸法を取り寄せられなかったため、レイアウトは変更しませんでした。"
-          }
-        }
-      }
-    },
     "The location of the next book didn’t respond. Try again later." : {
       "localizations" : {
         "en" : {
@@ -1821,6 +1805,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」+ 名前"
+          }
+        }
+      }
+    },
+    "“%@” came from StackNest. Open it again from StackNest." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” came from StackNest. Open it again from StackNest."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は StackNest から受け取った本です。StackNest から開き直してください。"
           }
         }
       }
@@ -3589,22 +3589,6 @@
         }
       }
     },
-    "%lld of %lld pages" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld of %lld pages"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld / %2$lld ページ"
-          }
-        }
-      }
-    },
     "%lld selected" : {
       "localizations" : {
         "en" : {
@@ -3881,6 +3865,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "□(全角の空白)"
+          }
+        }
+      }
+    },
+    "(StackNest) %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(StackNest) %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(StackNest) %@"
           }
         }
       }
@@ -4179,6 +4179,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "② 必須の語句のどれでも始まらない"
+          }
+        }
+      }
+    },
+    "A book from StackNest has no folder that qooViewer can open." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A book from StackNest has no folder that qooViewer can open."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本には、qooViewer で開けるフォルダがありません。"
           }
         }
       }
@@ -15909,22 +15925,6 @@
         }
       }
     },
-    "Getting page sizes from StackNest…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Getting page sizes from StackNest…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "StackNest からページの寸法を取り寄せています…"
-          }
-        }
-      }
-    },
     "Give the book a series name first" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22012,6 +22012,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "まだ何もありません"
+          }
+        }
+      }
+    },
+    "Nothing is saved for books from StackNest." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing is saved for books from StackNest."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本については何も保存しません。"
           }
         }
       }
@@ -32615,6 +32631,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本"
+          }
+        }
+      }
+    },
+    "This book comes from StackNest, so qooViewer keeps no history or saved data for it. The window looks like a private window while it is shown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book comes from StackNest, so qooViewer keeps no history or saved data for it. The window looks like a private window while it is shown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest から受け取った本のため、qooViewer には履歴と保存データを残しません。表示している間、ウインドウはシークレットウインドウと同じ見た目になります。"
           }
         }
       }

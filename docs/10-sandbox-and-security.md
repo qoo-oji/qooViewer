@@ -355,39 +355,45 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
 - 部品のページのキャッシュ(直近 8 ページ・64 MiB)は、受け取ったページから同じ決まりで見積もってリソースモニタに出します
   (`StackNestSessions.Book.memoryUsageItems`。部品 0.1.0 は量を外へ出さない)。ビューアの後始末(`releaseResources`)はセッションと書き戻しの役を
   手放し(最初の案は手放さず、旧世代のビューモデルが 64 MiB と URLSession を抱えた)、PageLoader は手放した後に reader を作り直しません。
-- 本全体に及ぶレイアウトの計算(「現在の表示を基準に自動でレイアウト」・伝播範囲が本全体のページ操作)は、寸法のためにページを
-  数枚ずつ同時に取り寄せ、進み具合と取り消しのボタンを出します。取れないページが 1 枚でもあった・取り消したら**書きません**
-  (最初の案は寸法を取れなかったページを「横長でない」として計算し、誤った見開きを DB に残した)。開いたときの本全体の下調べと
-  自動レイアウトはしません。
+- 開いたときの本全体の下調べはしません(横長の判定は表示したページの近傍だけ)。レイアウトの計算は、記録を残さない本なので
+  そもそも走りません(下の「記録を残さない」)。
 
 ### 鍵・記録・ほかの機能との関係
 
 - **鍵(token)**: メモリの中だけに置き、DB・UserDefaults・保存データの書き出し・ページ一覧のキャッシュ・ログに残しません(部品の
   `StackNestBookReference` は `Codable` でなく、文字列にすると `<redacted>`。アプリ側の `StackNestReferenceIdentity` も同じ)。
-- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(ビューア・ブックマークとレイアウトの編集)と
+- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(ビューア・サイドパネルの本の中身ブラウザ)と
   書き戻しの役は 1 つのセッション(ページのキャッシュと門)を使い回します。使い回すのは接続先と鍵と形式の版が同じとき
   (`StackNestReferenceIdentity`)。開く位置(`startPage`)・題名だけが違う書き直しでは使い回し、ビューアも作り直しません
   (`MangaBook.viewerIdentity`)。
-- **開く位置**: StackNest が渡したばかりの参照ファイル(更新日時がこの本の読書位置の記録より新しい)なら `startPage` から、
-  それ以外(qooViewer の履歴・「直前の本へ戻る」・起動時の再オープン)なら qooViewer の読書位置から開きます
-  (`ViewerViewModel.stackNestStartPageIsFresh`)。参照ファイルは StackNest が渡すときにしか書き直されないので、最初の案は
-  履歴から開き直すと古い `startPage` で開き、1 枚送ると巻き戻した位置を qooViewer と StackNest の両方に書いていました。
+- **記録を残さない**(2026-10-18、利用者の決定「シークレットフォルダの本と同じ扱い」。`MangaBook.leavesNoRecord`): 参照ファイルは
+  開くたびに同じパスへ新しい鍵で書き直され、中身が前回と同じ本かを qooViewer から確かめる手段がありません(本の置き場所も中身の
+  指紋も届かない)。そのまま読書位置・ブックマーク・レイアウトを残すと、別の本や増減したページに古い記録が当たりえます。そのため
+  どの窓でも、履歴・読書位置・ブックマーク・レイアウト・メタデータ・「前回の本」のどれも書きません(`ViewerViewModel.skipsPersistence`)。
+  保存データの取り込みも参照ファイルの本の行を作りません(StackNest へも問い合わせない)。表示している間は外観をシークレットの
+  揃いにし、タイトルを「(StackNest) 題名」(シークレットウインドウでは「(シークレット) (StackNest) 題名」)にし、出たときに一度だけ
+  知らせます(`ContentView.showsAsPrivate`・`NoRecordNotice`)。ブックマークとレイアウトの扱いは改めて決めます(今は淡色)。
+- **開く位置**: いつも参照ファイルの `startPage` から開き、再開の確認は出しません(`ViewerViewModel.stackNestStartPageID`)。
+  読み方向は manifest の向きで、切り替えはその場だけです。最初の案は qooViewer の読書位置を残し、履歴から開き直すと古い
+  `startPage` で開いて巻き戻していました(その後の修正で更新日時を比べたが、記録を残さないことにしたので要らなくなった)。
+- **本の置き場所が無い**(`MangaBook.hasBrowsableLocation`): 参照ファイルのフォルダは StackNest の受け渡し用の場所で、本の置き場所
+  ではありません(並ぶのはほかの本の参照ファイル)。前の本・次の本、「同じフォルダのファイルを開く」、Finder・ファイルブラウザで
+  表示(ページの右クリックも)、「このフォルダへのアクセスを許可」、ホームの「直前の本へ戻る」(開き直すのは StackNest から)は淡色で、
+  キーや境界の動作で届いたら理由を知らせます(`AppState.noteNoBrowsableLocation`。スライドショーの末尾は黙る)。サイドパネルの
+  フォルダブラウザは前の本のフォルダを残さず、一覧の代わりに理由を出して読み込みも止めます(`SidePanelView.folderSection`)。
+  「情報を見る」の場所は「StackNest」です。
 - **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
   その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
   理由を 1 度だけ知らせます。書き戻しもその本については送りません(部品)。終了(⌘Q)のときは、送っていない位置を最長 2 秒だけ待って
   送ります(`StackNestQuitFlush`。送りはメインキューを使わず、メインはセマフォで待つ)。最初の案は部品の `flushAll` と
   `.terminateLater` を使っていて、終了がメインキューの仕事の中から頼まれる(スライドショーの末尾の「終了」・保存データの削除の後の
   終了・Debug の制御口の quit)と、メインキューが回らずに返事が来ないまま、アプリが終わらなくなりました(実測。部品へも PR で報告)。
-- **書き戻し**: シークレットウインドウでは送りません。
+- **書き戻し**: StackNest の本はどの窓でも記録を残しませんが、StackNest へ位置を返すのは保存データではないので続けます。シークレット
+  ウインドウでは送りません(`ViewerViewModel.recordingRule` → `writesBackToStackNest`)。
 - **ほかの機能の外**: コレクション(`CollectionStore.makePendingItem` が実ファイルの参照ファイルを断る)・お気に入り・本の書き出し・
   メタデータ(`MetadataGenerator` の母体)・サムネイルのディスクキャッシュ(鍵を掛けられるライブラリの絵を、施錠や期限と関係なく
-  残さない)には入れません。読書位置・ブックマーク・レイアウト(読み方向の取り込み)・履歴は残します。起動時の掃除
-  (`ExternalMoveSweeper`・`NonBookFolderSweeper`)は参照ファイルの本を見ません。「このフォルダへのアクセスを許可」は淡色です
-  (親フォルダは StackNest の `Application Support` の中)。
-- **保存データの書き出し・取り込み**は、参照ファイルの本を通信せずに組みます(`BookLoader.loadStackNestReferenceWithoutConnecting`。
-  ページの鍵は番号で決まる)。最初の案は本ごとに manifest を問い合わせ、StackNest が起動していない・期限切れの本のブックマークを
-  バックアップから黙って落としていました。
-- **シークレットフォルダ**: 参照ファイルの場所からは StackNest の本の実際の置き場が分からないので、効きません。
+  残さない)には入れません。起動時の掃除(`ExternalMoveSweeper`・`NonBookFolderSweeper`)は参照ファイルの本を見ません。
+- **シークレットフォルダ**: 参照ファイルの場所からは StackNest の本の実際の置き場が分からないので、効きません(StackNest の本はもともと記録を残さない)。
 - **名乗り**: `X-StackNest-Viewer: <バンドル ID>/<版>; format=<参照ファイルの版>; kit=<部品の版>`(部品の `StackNestViewerIdentification`)。
 - **対応の宣言**: `Info.plist` の `StackNestViewerSupport.referenceFormatVersions`(今は `[1]`)。StackNest はこの鍵をファイルとして読みます。
   部品が読める版の中だけを宣言します(`StackNestViewerDeclarationTests`)。

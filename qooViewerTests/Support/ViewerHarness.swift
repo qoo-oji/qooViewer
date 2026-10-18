@@ -69,27 +69,40 @@ final class ViewerHarness {
 
     /// ビューアを開き、起動時の Task が落ち着くまで待つ。
     func open(
-        _ book: MangaBook, skipsPersistence: Bool = false, usesDiskCaches: Bool = false,
-        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
+        _ book: MangaBook, skipsPersistence: Bool = false, writesBackToStackNest: Bool = false,
+        usesDiskCaches: Bool = false, initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) async -> ViewerViewModel {
         let viewer = makeViewer(
-            book, skipsPersistence: skipsPersistence, usesDiskCaches: usesDiskCaches,
-            initialPageID: initialPageID, initialEdge: initialEdge
+            book, skipsPersistence: skipsPersistence, writesBackToStackNest: writesBackToStackNest,
+            usesDiskCaches: usesDiskCaches, initialPageID: initialPageID, initialEdge: initialEdge
         )
         await viewer.settle()
         return viewer
     }
 
+    /// ウインドウで開くのと同じ記録の決まり(ContentView.makeViewerModel が使う `ViewerViewModel.recordingRule`)でビューアを
+    /// 開き、落ち着くまで待つ。記録を残さない本(シークレットフォルダ・StackNest など)の試験はこちらを使う。
+    func openInWindow(_ book: MangaBook, isPrivateWindow: Bool = false) async -> ViewerViewModel {
+        let rule = ViewerViewModel.recordingRule(bookLeavesNoRecord: book.leavesNoRecord, isPrivateWindow: isPrivateWindow)
+        return await open(book, skipsPersistence: rule.skipsPersistence, writesBackToStackNest: rule.writesBackToStackNest)
+    }
+
+    /// `openInWindow` と同じ決まりで、作るだけで待たない。
+    func makeViewerInWindow(_ book: MangaBook, isPrivateWindow: Bool = false) -> ViewerViewModel {
+        let rule = ViewerViewModel.recordingRule(bookLeavesNoRecord: book.leavesNoRecord, isPrivateWindow: isPrivateWindow)
+        return makeViewer(book, skipsPersistence: rule.skipsPersistence, writesBackToStackNest: rule.writesBackToStackNest)
+    }
+
     /// ビューアを作るだけで待たない(ContentView の ViewerHandoff の `makeModel` の役。待つのは呼び出し側)。
     /// `close()` が手放すよう控えておく。
     func makeViewer(
-        _ book: MangaBook, skipsPersistence: Bool = false, usesDiskCaches: Bool = false,
-        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
+        _ book: MangaBook, skipsPersistence: Bool = false, writesBackToStackNest: Bool = false,
+        usesDiskCaches: Bool = false, initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) -> ViewerViewModel {
         let viewer = ViewerViewModel(
             book: book, modelContext: library.context, preferences: preferences,
             layoutStore: library.layouts, metadataStore: library.metadata,
-            skipsPersistence: skipsPersistence,
+            skipsPersistence: skipsPersistence, writesBackToStackNest: writesBackToStackNest,
             // 実物のアプリと共有するディスクキャッシュ(サムネイル・ページ寸法)には触れない。
             // DB(メモリ内のコンテナ)へは書く ―― この組み合わせを表すための引数。キャッシュを使うときも作業フォルダのもの。
             usesDiskCaches: usesDiskCaches, diskCaches: diskCaches,

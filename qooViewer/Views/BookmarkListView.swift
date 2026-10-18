@@ -1922,17 +1922,6 @@ private struct BookmarkDetailPane: View {
         }
         // 並べ替えの警告だけはペイン内に残す(一過性のメッセージで、閉じるボタンを持つため)。
         .safeAreaInset(edge: .top) {
-            if viewModel.isFetchingStackNestPageSizes {
-                HStack(spacing: 6) {
-                    DelayedProgressIndicator(controlSize: .small)
-                    Text("Getting page sizes from StackNest…")
-                        .font(.caption)
-                    Spacer()
-                }
-                .padding(6)
-                .padding(.horizontal, 12)
-                .background(.bar)
-            }
             if let warning = viewModel.reorderWarningMessage {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")

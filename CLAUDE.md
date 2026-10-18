@@ -120,8 +120,13 @@ StackNest's book API on 127.0.0.1 through **StackNestViewerKit** (`exactVersion`
 move it only after reading the new version). **The app process never opens a socket**: the kit's sessions get `StackNestConnectorURLProtocol`
 (`StackNestSessions.productionConfiguration`), which hands each request to the embedded XPC service `StackNestConnector.xpc` — the only
 part with `network.client` (sandbox + client only, ATS `NSAllowsLocalNetworking` only) — and both sides accept only the fixed request
-shapes in `StackNestConnectorPolicy`. Pages are awaited on the kit's async API behind the per-book `StackNestRequestGate`, never by
-blocking `FileIO` threads; `check-release-app.sh` checks the service's entitlements and ATS.
+shapes in `StackNestConnectorPolicy`. Pages are awaited on the kit's async API behind the per-origin `StackNestRequestGate`, never by
+blocking `FileIO` threads; `check-release-app.sh` checks the service's entitlements and ATS. **A StackNest book records nothing**
+(`MangaBook.leavesNoRecord`, same treatment as secret-folder books — the reference is rewritten on every open and qooViewer cannot tell
+it is the same book): it always opens at the reference's `startPage`, looks like a private window, is titled "(StackNest) …", and still
+writes the position back to StackNest except in private windows (`ViewerViewModel.recordingRule` → `writesBackToStackNest`). It has no
+folder (`MangaBook.hasBrowsableLocation` = false): previous/next book, same-folder files, Show in Finder/File Browser, folder access and
+"Return to Last Book" are dimmed, and the side panel's folder browser shows the reason instead of a list — new folder-based UI must check it.
 **Releases may be delegated to Claude Code** ("vX.YY をリリースして"): follow docs/02「リリース」steps 1–6 exactly — `xcodebuild archive`
 (= the author's Xcode Archive + Finder compress), `scripts/release/make-appcast.sh`, then **stop and show the author the version, notes,
 zip SHA-256 and check results, and publish only after their go-ahead** (an update reaches users automatically), `gh release create … --latest`

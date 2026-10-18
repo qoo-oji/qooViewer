@@ -114,69 +114,63 @@ struct StackNestOpeningTests {
         #expect(ViewerViewModel.stackNestStartPageID(for: plain) == nil)
     }
 
-    /// アプリと同じく、開いたときの事実(sourceFacts。参照ファイルの更新日時)を持たせて読む。URL は作り直す(使い回した URL は
-    /// 前に読んだ更新日時を覚えている)。
-    private static func loadWithFacts(_ url: URL) async throws -> MangaBook {
-        let fresh = URL(fileURLWithPath: url.path)
-        var book = try await FixtureBook.load(fresh)
-        book.sourceFacts = await BookSourceFacts.gather(fresh, makesBookmark: false)
-        return book
-    }
-
-    @Test("StackNest が渡したばかりの参照ファイルなら、StackNest で読んでいたページ(startPage)から開き、qooViewer の記録より優先し、再開の確認は出さない")
+    @Test("StackNest の本は、いつも StackNest が渡したページ(startPage)から開き、再開の確認は出さない(qooViewer に読書位置を残さない)")
     func opensAtStartPage() async throws {
         let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
         defer { fixture.close() }
-        // 書き直す前の参照ファイルの更新日時を過去にずらす(書き直しが qooViewer の記録より後になるよう、時間で待たずに)。
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: fixture.referenceURL.path
-        )
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.reopenBehavior = .ask
-        // qooViewer 側の記録(2 ページ目)を先に作る。
-        let first = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
-        first.jump(toPageIndex: 1)
+        let first = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
+        #expect(first.book.pages[first.currentIndex].sortKey == "000000.jpg")
+        first.jump(toPageIndex: 3)
         await first.settle()
+        first.flushPendingSave()
         harness.close()
-        // StackNest が、ほかで読み進めた位置(4)で参照ファイルを書き直した(更新日時は今 = 記録より後)。
+        // 参照ファイルが書き直されていなければ、qooViewer で読んだ位置(3)ではなく StackNest が渡した位置(0)から。
+        let again = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
+        #expect(again.book.pages[again.currentIndex].sortKey == "000000.jpg")
+        #expect(!again.needsResumeConfirmation)
+        harness.close()
+        // StackNest がほかで読み進めた位置(4)で参照ファイルを書き直した。
         try fixture.writeReference(pageCount: 6, startPage: 4)
-        let reopened = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
+        let reopened = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         #expect(reopened.book.pages[reopened.currentIndex].sortKey == "000004.jpg")
         #expect(!reopened.needsResumeConfirmation)
     }
 
-    @Test("qooViewer の履歴などから開き直したとき(参照ファイルが記録より古い)は、古い startPage ではなく qooViewer の読書位置から開く")
-    func reopeningFromHistoryKeepsTheQooViewerPosition() async throws {
+    @Test("StackNest の本はどの窓でも記録を残さない(読書位置・ブックマーク・レイアウト・メタデータ)が、普通の窓では StackNest へ位置を返す")
+    func leavesNoRecordButWritesBack() async throws {
         let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
         defer { fixture.close() }
-        // StackNest が渡したのは 1 時間前(この後の qooViewer の記録より古い)。
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: fixture.referenceURL.path
-        )
         let harness = try ViewerHarness()
         defer { harness.close() }
-        harness.preferences.reopenBehavior = .resume
-        let first = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
-        #expect(first.book.pages[first.currentIndex].sortKey == "000000.jpg")
-        first.jump(toPageIndex: 3)
-        await first.settle()
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        #expect(book.leavesNoRecord)
+        #expect(!book.hasBrowsableLocation)
+        let rule = ViewerViewModel.recordingRule(bookLeavesNoRecord: book.leavesNoRecord, isPrivateWindow: false)
+        #expect(rule.skipsPersistence)
+        #expect(rule.writesBackToStackNest)
+        let viewer = await harness.openInWindow(book)
+        #expect(viewer.skipsPersistence)
+        viewer.jump(toPageIndex: 2)
+        await viewer.settle()
+        viewer.addBookmark()
+        viewer.toggleReadingDirection()
+        await viewer.autoLayoutFromCurrentView()
+        await viewer.settle()
+        viewer.flushPendingSave()
+        await viewer.stackNestProgress?.waitUntilIdle()
+        // StackNest へは返す。
+        #expect(fixture.progressPages == [2])
         harness.close()
-        // 参照ファイルは書き直されていない(startPage は 0 のまま)。
-        let reopened = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
-        #expect(reopened.book.pages[reopened.currentIndex].sortKey == "000003.jpg")
-    }
-
-    @Test("startPage を使うかの判定: 記録が無ければ使う。記録があれば、参照ファイルが記録より新しいときだけ使う")
-    func startPageFreshness() {
-        let now = Date()
-        #expect(ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: nil, readingStateUpdatedAt: nil))
-        #expect(ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: now, readingStateUpdatedAt: nil))
-        #expect(ViewerViewModel.stackNestStartPageIsFresh(
-            referenceModifiedAt: now, readingStateUpdatedAt: now.addingTimeInterval(-1)))
-        #expect(!ViewerViewModel.stackNestStartPageIsFresh(
-            referenceModifiedAt: now.addingTimeInterval(-1), readingStateUpdatedAt: now))
-        #expect(!ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: nil, readingStateUpdatedAt: now))
+        let context = harness.library.context
+        let path = fixture.referenceURL.path
+        #expect(((try? context.fetch(FetchDescriptor<BookReadingState>())) ?? []).filter { $0.bookID == path }.isEmpty)
+        #expect(((try? context.fetch(FetchDescriptor<Bookmark>())) ?? []).filter { $0.bookID == path }.isEmpty)
+        #expect(((try? context.fetch(FetchDescriptor<BookLayoutSettings>())) ?? []).filter { $0.bookID == path }.isEmpty)
+        #expect(((try? context.fetch(FetchDescriptor<PageLayoutOverride>())) ?? []).filter { $0.bookID == path }.isEmpty)
+        #expect(((try? context.fetch(FetchDescriptor<BookMetadata>())) ?? []).filter { $0.bookID == path }.isEmpty)
     }
 
     @Test("ページを除外した本(並びを組み直した本)でも、参照ファイルの中身を落とさない")
@@ -193,10 +187,10 @@ struct StackNestOpeningTests {
     }
 
     @Test(
-        "manifest の読み方向を、初めて開いたときだけ本の読み方向にする(以後は利用者の選択が勝つ)",
+        "manifest の読み方向で開く。利用者が切り替えた向きはその場だけで、開き直すと manifest の向き(記録を残さない)",
         arguments: ["ltr", "rtl"]
     )
-    func importsDirectionOnce(direction: String) async throws {
+    func directionComesFromTheManifest(direction: String) async throws {
         let fixture = try StackNestTestBook(pageCount: 4, direction: direction)
         defer { fixture.close() }
         let expected: ReadingDirection = direction == "ltr" ? .leftToRight : .rightToLeft
@@ -204,17 +198,14 @@ struct StackNestOpeningTests {
         defer { harness.close() }
         let book = try await FixtureBook.load(fixture.referenceURL)
         #expect(book.sourceLayoutHint?.pageProgressionDirection == expected)
-        let first = await harness.open(book)
+        let first = await harness.openInWindow(book)
         #expect(first.readingDirection == expected)
         first.toggleReadingDirection()
         await first.settle()
-        let toggled = first.readingDirection
-        #expect(toggled != expected)
+        #expect(first.readingDirection != expected)
         harness.close()
-        // StackNest が参照ファイルを書き直しても(manifest の向きは同じ)、利用者が変えた向きのまま(取り込みは 1 度だけ)。
-        try fixture.writeReference(pageCount: 4, startPage: 0)
-        let reopened = await harness.open(try await FixtureBook.load(fixture.referenceURL))
-        #expect(reopened.readingDirection == toggled)
+        let reopened = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
+        #expect(reopened.readingDirection == expected)
     }
 
     @Test("読み方向の写し: rtl・ltr だけを読み、ほかは使わない")
@@ -254,54 +245,6 @@ struct StackNestOpeningTests {
         }
     }
 
-    @Test("参照ファイルの本の指紋はページ数だけ(更新日時・大きさは比べない)")
-    func fingerprintComparesPageCountOnly() {
-        let current = ContentFingerprint.Snapshot(
-            pageCount: 6, modificationDate: nil, fileSize: nil, comparesPageCountOnly: true
-        )
-        let sameCount = ContentFingerprint.Recorded(
-            pageCount: 6, modificationDate: Date(timeIntervalSince1970: 1), fileSize: 99
-        )
-        #expect(!ContentFingerprint.looksReplaced(recorded: sameCount, current: current))
-        let otherCount = ContentFingerprint.Recorded(pageCount: 7, modificationDate: nil, fileSize: nil)
-        #expect(ContentFingerprint.looksReplaced(recorded: otherCount, current: current))
-    }
-
-    @Test("StackNest が参照ファイルを書き直しても(鍵・期限・大きさ・更新日時が変わっても)、本が差し替わったとはみなさない")
-    func rewrittenReferenceIsTheSameBook() async throws {
-        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
-        defer { fixture.close() }
-        // 書き直す前の参照ファイルの更新日時を過去にずらしておく(時間で待たずに、書き直しで更新日時が変わる状態を作る)。
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: fixture.referenceURL.path
-        )
-        let harness = try ViewerHarness()
-        defer { harness.close() }
-        let book = try await FixtureBook.load(fixture.referenceURL)
-        // レイアウトの行を作っておく(差し替えの疑いがあると、開いたときにレイアウトの確認を求める状態になる)。
-        harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[5].sortKey, state: .single)
-        let first = await harness.open(book)
-        first.jump(toPageIndex: 2)
-        first.addBookmark()
-        await first.settle()
-        harness.close()
-        // 別の鍵・期限で書き直す(更新日時は今になり、長さの違う鍵で大きさも変わる)。
-        try fixture.writeReference(
-            token: "another-token-with-a-different-length", pageCount: 6, startPage: 2,
-            expiresAt: Date().addingTimeInterval(172_800)
-        )
-        var reloaded = try await FixtureBook.load(fixture.referenceURL)
-        // アプリと同じく開いたときの事実(sourceFacts)を持たせても、参照ファイルの本の指紋はページ数だけ。URL は作り直す
-        // (使い回した URL は書き直す前の更新日時・大きさを覚えている)。
-        reloaded.sourceFacts = await BookSourceFacts.gather(
-            URL(fileURLWithPath: fixture.referenceURL.path), makesBookmark: false
-        )
-        #expect(ContentFingerprint.current(for: reloaded).comparesPageCountOnly)
-        let reopened = await harness.open(reloaded)
-        #expect(reopened.pendingLayoutReplacementStatus == nil)
-        #expect(reopened.bookmarks.count == 1)
-    }
-
     @Test("開いたときに本全体を走査しない(下調べ・レイアウトの自動計算のどちらでも、ページ数ぶんの往復をしない)")
     func noWholeBookScan() async throws {
         let fixture = try StackNestTestBook(pageCount: 40, startPage: 0)
@@ -312,7 +255,7 @@ struct StackNestOpeningTests {
         harness.preferences.missingLayoutAutoLayout = .firstPageSingle
         let book = try await FixtureBook.load(fixture.referenceURL)
         #expect(!ViewerViewModel.scansWholeBook(book))
-        _ = await harness.open(book)
+        _ = await harness.openInWindow(book)
         let requested = Set(fixture.pageRequestIndices)
         #expect(!requested.isEmpty)
         // 表示したページの近傍(先読み 2 枚・横長の判定の半径 2)だけ。
@@ -501,6 +444,16 @@ struct StackNestOpeningTests {
         await state.openTask?.value
         let opened = try #require(state.currentBook)
         #expect(opened.stackNestReference?.token == StackNestTestBook.token)
+        // 「直前の本へ戻る」は淡色(開き直すのは StackNest から)。置き場所の無い本なので、前後の本へは進まず理由を知らせ、
+        // 同じフォルダの本も探さない。
+        #expect(state.lastOpenedBook?.comesFromStackNest == true)
+        #expect(!state.canReopenLastBook)
+        #expect(state.takeLastBookForHomeSelection() == nil)
+        state.openSibling(after: fixture.referenceURL)
+        state.openSibling(before: fixture.referenceURL)
+        #expect(state.viewerNotice?.message == AppState.noBrowsableLocationNotice(locale: preferences.effectiveLocale))
+        #expect(state.siblingBooks.isEmpty)
+        #expect(state.currentBook?.viewerIdentity == opened.viewerIdentity)
 
         // 中身が同じ(同じ鍵): 今までどおり前へ出すだけ。開き直すと manifest を問い合わせるので、その数で見る。
         let manifestsBefore = fixture.manifestRequestCount
@@ -526,6 +479,11 @@ struct StackNestOpeningTests {
         await state.openTask?.value
         #expect(state.currentBook?.sourceURL.path == folder.path)
         #expect(state.reloadIfStackNestReferenceChanged(plainRequest) == nil)
+        // 履歴に残るのはフォルダの本だけ(StackNest の本は記録を残さない ―― MangaBook.leavesNoRecord)。
+        await recentFiles.waitForPendingRecords()
+        #expect(recentFiles.entries.map(\.path) == [folder.path])
+        // 「直前の本へ戻る」: StackNest の本の後は淡色、フォルダの本の後は押せる。
+        #expect(state.canReopenLastBook)
         withExtendedLifetime((preferences, recentFiles)) {}
     }
 
@@ -632,32 +590,21 @@ struct StackNestOpeningTests {
         withExtendedLifetime((preferences, recentFiles)) {}
     }
 
-    @Test("保存データの書き出し・取り込みの読み込みは、参照ファイルの本でも StackNest に問い合わせない(ページは参照ファイルのページ数で組む)")
-    func offlineLoadDoesNotConnect() async throws {
+    @Test("保存データの取り込みは、参照ファイルの本の行を作らず、StackNest にも問い合わせない(記録を残さない本)")
+    func importSkipsReferenceBooks() async throws {
         let fixture = try StackNestTestBook(pageCount: 5)
         defer { fixture.close() }
-        fixture.setPageCount(9)
-        let book = try await BookLoader.load(from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false)
-        #expect(fixture.requests.isEmpty)
-        #expect(book.pages.map(\.sortKey) == (0..<5).map(StackNestPageNaming.entryName(forPage:)))
-        #expect(book.id == fixture.referenceURL.path)
-        // 期限が切れた参照ファイルでも、ページの鍵は組める(通信しないので期限は見ない)。
-        try fixture.writeReference(pageCount: 5, startPage: 0, expiresAt: Date().addingTimeInterval(-60))
-        let expired = try await BookLoader.load(from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false)
-        #expect(expired.pages.count == 5)
-        #expect(fixture.requests.isEmpty)
-    }
-
-    @Test("保存データの取り込みの読み込みは、取り込むページの鍵まで組む(参照ファイルより後に増えたページを落とさない)")
-    func offlineLoadCoversImportedKeys() async throws {
-        let fixture = try StackNestTestBook(pageCount: 5)
-        defer { fixture.close() }
-        let book = try await BookLoader.load(
-            from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false,
-            coveringStackNestPageKeys: ["000008.jpg", "cover.png"]
+        let library = try InMemoryLibrary(label: "stacknest-import")
+        defer { library.close() }
+        let path = fixture.referenceURL.path
+        let summary = await library.apply(
+            QooLibraryExportFile(
+                bookmarks: [ExportedBookmarkEntry(bookID: path, bookmarks: [ExportedBookmark(page: "000001.jpg", name: "x")])]
+            ),
+            policies: .all(.merge)
         )
-        #expect(book.pages.count == 9)
-        #expect(book.pages.last?.sortKey == "000008.jpg")
+        #expect(summary.bookmarksSkippedBookIDs == [path])
+        #expect(library.bookmarkRows(forBookID: path).isEmpty)
         #expect(fixture.requests.isEmpty)
     }
 

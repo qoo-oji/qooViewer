@@ -1284,13 +1284,17 @@ actor PageLoader {
             // 続けたものを「場所」とする。
             let internalFolder = (entryPath as NSString).deletingLastPathComponent
             let archivePath = locator.displayPath
-            let location = internalFolder.isEmpty ? archivePath : "\(archivePath)/\(internalFolder)"
+            var location = internalFolder.isEmpty ? archivePath : "\(archivePath)/\(internalFolder)"
             // 網越しのページ(StackNest の本)の名前は仮のもの(`000041.jpg`)なので、拡張子と形式は中身から(2026-10-18 のレビュー:
             // PNG のページも「JPEG」と出ていた)。
             var fileName = page.displayName
-            if remoteReader(for: page.source) != nil, let sniffed = header.sniffedFileExtension {
+            let isRemote = remoteReader(for: page.source) != nil
+            if isRemote, let sniffed = header.sniffedFileExtension {
                 fileName = ((fileName as NSString).deletingPathExtension as NSString).appendingPathExtension(sniffed) ?? fileName
             }
+            // 場所は「StackNest」(2026-10-18、利用者の決定)。参照ファイルのパスは StackNest の受け渡し用のファイルで、本の置き場所では
+            // ない(MangaBook.hasBrowsableLocation)。製品名なので訳さない。
+            if isRemote { location = "StackNest" }
             return PageImageInfo(
                 fileName: fileName,
                 formatDescription: Self.imageFormatDescription(forFileName: fileName),

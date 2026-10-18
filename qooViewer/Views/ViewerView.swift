@@ -1312,7 +1312,6 @@ struct ViewerView: View {
                     // ページの絵を待っている間・読めなかったとき(2026-10-06 の応答性の点検 R1-1・R1-14)。クリックは下へ通す
                     // (ページ送りのクリックゾーンを塞がない)。
                     .overlay { pageImageStatusOverlay }
-                    .overlay { remotePageSizeScanOverlay }
                     .contextMenu {
                         contextMenuContent
                     }
@@ -2109,6 +2108,8 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Previous Book")
+                // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
+                .disabled(!viewModel.book.hasBrowsableLocation)
 
                 Button {
                     relay.send { view in
@@ -2120,6 +2121,7 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Next Book")
+                .disabled(!viewModel.book.hasBrowsableLocation)
             }
 
             Spacer()
@@ -2320,11 +2322,15 @@ struct ViewerView: View {
                     view.perform(.previousBook)
                 }
             }
+            // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。項目を淡色にする
+            // (`.contextMenu` の中の `Menu` には `.disabled` が効かないので、サブメニューの中の項目で)。
+            .disabled(!viewModel.book.hasBrowsableLocation)
             Button("Go to Next Book") {
                 relay.send { view in
                     view.perform(.nextBook)
                 }
             }
+            .disabled(!viewModel.book.hasBrowsableLocation)
         }
 
         Divider()
@@ -2576,6 +2582,8 @@ struct ViewerView: View {
                 view.appState.revealCurrentBookInFinder()
             }
         }
+        // 置き場所の無い本(StackNest の本)は示さない(MangaBook.hasBrowsableLocation)。
+        .disabled(!viewModel.book.hasBrowsableLocation)
         // 「ファイルブラウザで開く」(改善要望7 段階 8)。行き先は環境設定「ファイルブラウザ」(FileBrowserReveal)。
         // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない。
         if preferences.fileBrowserFeatureEnabled {
@@ -2584,6 +2592,7 @@ struct ViewerView: View {
                     view.appState.revealCurrentBookInFileBrowser(openWindow: view.openWindow)
                 }
             }
+            .disabled(!viewModel.book.hasBrowsableLocation)
         }
         // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本をそのままコレクションへ。ライブラリ機能が OFF なら出さない。
         // シークレットウインドウ・その場限りの本(画像を直接開いた本・一時的な写し)は淡色(保存データへの書き込み。項目ごと消すのは
@@ -2591,9 +2600,9 @@ struct ViewerView: View {
         // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
         if preferences.libraryFeatureEnabled {
             // シークレットフォルダかどうかは淡色と同じく開いた時点の値で決める(skipsPersistence ⊇ isInSecretFolder。監査 X-8・決定 10)。
-            // StackNest の参照ファイルの本も淡色(AppState.canAddCurrentBookToCollection と同じ条件)。
+            // StackNest の参照ファイルの本も記録を残さない本なので淡色(skipsPersistence。AppState.canAddCurrentBookToCollection と同じ条件)。
             AddToCollectionMenu(
-                books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence && !viewModel.book.isStackNestReference,
+                books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence,
                 booksAreDecidedNotSecret: true,
                 report: { [weak appState] message in appState?.postViewerNotice(message) }
             )
@@ -2828,31 +2837,6 @@ struct ViewerView: View {
         }
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage || isPreparingImageExport)
-    }
-
-    /// StackNest の本で、本全体に及ぶレイアウトの計算のためにページの寸法を取り寄せている間の進み具合と取り消し
-    /// (`ViewerViewModel.remotePageSizeScan`。2026-10-18 のレビュー: 以前は何も出さずに全ページを直列に取り寄せ、取り消せなかった)。
-    /// ページ領域の上に浮かべるだけで、パネルの面(PanelSurface)ではない(背景は不透明な素材)。ボタンは ViewerActionRelay を通す。
-    @ViewBuilder
-    private var remotePageSizeScanOverlay: some View {
-        if let scan = viewModel.remotePageSizeScan {
-            VStack(spacing: 10) {
-                Text("Getting page sizes from StackNest…")
-                    .font(.callout)
-                ProgressView(value: Double(scan.done), total: Double(max(scan.total, 1)))
-                    .frame(width: 220)
-                Text("\(scan.done) of \(scan.total) pages")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                Button("Cancel") { [relay = actionRelay] in
-                    relay.send { $0.viewModel.cancelRemotePageSizeScan() }
-                }
-            }
-            .padding(18)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .transition(.opacity)
-        }
     }
 
     private var pageArea: some View {
@@ -4482,6 +4466,10 @@ struct ViewerView: View {
         }
         if book.isInSecretFolder {
             return String(localized: "Nothing is saved for books in secret folders.", language: locale)
+        }
+        // StackNest の本(MangaBook.leavesNoRecord。2026-10-18、利用者の決定)。
+        if book.isStackNestReference {
+            return String(localized: "Nothing is saved for books from StackNest.", language: locale)
         }
         return String(localized: "Nothing is saved for this book.", language: locale)
     }

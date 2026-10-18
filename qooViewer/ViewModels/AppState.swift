@@ -63,6 +63,15 @@ final class AppState: ObservableObject {
     /// 見た目だけ ―― ビューアに出ている間、外観一式とタイトルの「(シークレット)」がシークレットウインドウと同じになる
     /// (ContentView.showsAsPrivate)。
     ///
+    /// ■ StackNest の本も同じ扱いになる(2026-10-18、利用者の決定「シークレットフォルダの本と同じ扱い」)
+    /// StackNest の参照ファイルの本(MangaBook.isStackNestReference)も`leavesNoRecord`に入る。参照ファイルは開くたびに同じパスへ
+    /// 書き直され、前回と同じ本かを qooViewer から確かめられないので、上のどれも残さない。シークレットフォルダの本と違うのは:
+    /// - タイトルは「(StackNest) 題名」(シークレットウインドウでは「(シークレット) (StackNest) 題名」)。外観はシークレットの揃い
+    /// - 読書位置を StackNest へ返すのは続ける(保存データではない。シークレットウインドウでは返さない ――
+    ///   ViewerViewModel.init(writesBackToStackNest:))
+    /// - 本の置き場所が無い(MangaBook.hasBrowsableLocation): 前後の本・同じフォルダのファイル・Finder / ファイルブラウザで表示・
+    ///   フォルダへのアクセスの許可・「直前の本へ戻る」は淡色、サイドパネルのフォルダブラウザは理由だけを出す
+    ///
     /// 一方、次の2つは**シークレットウインドウ固有**で、その場限りの本・シークレットフォルダの本には適用しない
     /// (混同すると、通常ウインドウでその場限りの本を開いた瞬間に履歴が消える。タイトルの表記だけはシークレットフォルダの
     /// 本にも付ける ―― 上の段落):
@@ -150,6 +159,10 @@ final class AppState: ObservableObject {
         let sourceURL: URL
         /// 表示していた題名(ボタンのツールチップ用)。
         let title: String
+        /// StackNest から受け取った本か(2026-10-18、利用者の決定「案 2」: 「直前の本へ戻る」は淡色)。参照ファイルは StackNest が
+        /// 渡すときにしか書き直されず、qooViewer から開き直すと古い開始ページ・期限切れの鍵で開くことになる。開き直すのは
+        /// StackNest から。ファイルブラウザに選ばせもしない(参照ファイルは本の置き場所ではない。MangaBook.hasBrowsableLocation)。
+        var comesFromStackNest = false
     }
 
     /// 直前の本(`lastOpenedBook`)へ**いま戻れるか**(2026-09-29、利用者の指摘「戻る先の本が移動したり削除されたりして
@@ -174,7 +187,11 @@ final class AppState: ObservableObject {
 
     /// 「直前の本へ戻る」を押せるか。ボタンの淡色と `reopenLastBook` が同じものを見る(押せる見た目なのに何も起きない、
     /// を作らない)。
-    var canReopenLastBook: Bool { lastOpenedBook != nil && lastBookAvailability == .available }
+    /// StackNest から受け取った本へは戻らない(`LastOpenedBook.comesFromStackNest`)。
+    var canReopenLastBook: Bool {
+        guard let lastOpenedBook, !lastOpenedBook.comesFromStackNest else { return false }
+        return lastBookAvailability == .available
+    }
 
     /// 直前に開いていた本を、このウインドウで開き直す(ホームのボタン)。無い・戻れないなら何もしない。
     func reopenLastBook() {
@@ -202,7 +219,8 @@ final class AppState: ObservableObject {
     /// 確かめは `FileIO` の上で、期限つき(応答しないボリュームでメインもプールも止めない)。確かめるのは**ボタンが開く
     /// もの**(`request.urls`。棚ならフォルダ、画像をまとめた 1 冊ならその画像)で、実際に開いた本(`sourceURL`)ではない。
     func refreshLastBookAvailability() {
-        guard let last = lastOpenedBook else { return }
+        // StackNest から受け取った本は、在っても戻らないので確かめない(`LastOpenedBook.comesFromStackNest`)。
+        guard let last = lastOpenedBook, !last.comesFromStackNest else { return }
         guard lastBookProbeTask == nil else {
             lastBookProbeIsStale = true
             return
@@ -244,7 +262,8 @@ final class AppState: ObservableObject {
     func takeLastBookForHomeSelection() -> LastOpenedBook? {
         guard lastBookAwaitsHomeSelection else { return nil }
         lastBookAwaitsHomeSelection = false
-        return lastOpenedBook
+        // StackNest から受け取った本は選ばせない(参照ファイルは本の置き場所ではない。`LastOpenedBook.comesFromStackNest`)。
+        return lastOpenedBook?.comesFromStackNest == true ? nil : lastOpenedBook
     }
 
     /// 本を開いた直後に表示したいページ。「同じフォルダの画像をすべて開く」
@@ -1761,7 +1780,9 @@ final class AppState: ObservableObject {
                         self.releaseScopes(of: request.urls)
                     }
                     // ホームへ戻ったあとに戻れるよう、開けた本を控える(lastOpenedBook のコメント。シークレットウインドウでも)。
-                    self.lastOpenedBook = LastOpenedBook(request: shownRequest, sourceURL: book.sourceURL, title: book.title)
+                    self.lastOpenedBook = LastOpenedBook(
+                        request: shownRequest, sourceURL: book.sourceURL, title: book.title,
+                        comesFromStackNest: book.isStackNestReference)
                     self.lastBookAvailability = .available
                     // 読み込みが済んだ。前の本が一時コピーだったなら、表示中でも直前の本でもなくなったので消える。
                     self.openingTemporaryCopies = []
@@ -1886,9 +1907,15 @@ final class AppState: ObservableObject {
     func openSibling(
         after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false, claimsOpenIntent: Bool = true
     ) {
+        let claims = claimsOpenIntent && !startsSlideshow
+        // 置き場所の無い本(StackNest の本)には「次の本」が無い(MangaBook.hasBrowsableLocation)。利用者が頼んだ一歩なら理由を
+        // 知らせ、スライドショーの末尾・書き出しの後の動作なら黙る(兄弟が見つからなかったときと同じ使い分け ―― stepToSibling)。
+        if lacksBrowsableLocation(currentURL) {
+            if claims { noteNoBrowsableLocation() }
+            return
+        }
         // シークレットウインドウへ回した本を越えたことにする(passedOverBook のコメント。同じ向きのときだけ)。
         let passed = passedOverBook?.forward == true ? passedOverBook : nil
-        let claims = claimsOpenIntent && !startsSlideshow
         if let bookSequence {
             openInSequence(
                 passed?.sequence ?? bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil,
@@ -1912,6 +1939,8 @@ final class AppState: ObservableObject {
     /// - Parameter landsOnLastPage: 環境設定「最初のページで」が「前の本の最後のページへ」の
     ///   場合にtrue(openSibling(after:landsOnFirstPage:)の逆向き)。
     func openSibling(before currentURL: URL, landsOnLastPage: Bool = false) {
+        // 「次の本へ」と同じ(置き場所の無い本には前の本も無い)。前へは利用者が頼んだときしか進まないので、いつも知らせる。
+        if lacksBrowsableLocation(currentURL) { return noteNoBrowsableLocation() }
         let passed = passedOverBook?.forward == false ? passedOverBook : nil
         if let bookSequence {
             openInSequence(passed?.sequence ?? bookSequence, forward: false, initialEdge: landsOnLastPage ? .last : nil,
@@ -2373,7 +2402,9 @@ final class AppState: ObservableObject {
     /// 現在の本と同じフォルダにある他の本のURL一覧を取得し直す(「同じフォルダのファイルを開く」用)。
     func reloadSiblingBooks() {
         siblingRefreshTask?.cancel()
-        guard let currentURL = currentBook?.sourceURL else {
+        // 置き場所の無い本(StackNest の本)では探さない(親フォルダは StackNest の Application Support の中で、並ぶのはほかの本の
+        // 参照ファイル。MangaBook.hasBrowsableLocation)。メニューの「同じフォルダのファイルを開く」はこの本では淡色。
+        guard let currentURL = currentBook?.sourceURL, currentBook?.hasBrowsableLocation != false else {
             siblingRefreshTask = nil
             setSiblingBooks([])
             return
@@ -2494,8 +2525,8 @@ final class AppState: ObservableObject {
         guard let currentURL = currentBook?.sourceURL else { return }
         // StackNest の参照ファイルの本の親フォルダは StackNest の Application Support の中(本の部屋)。許可を求めない
         // (2026-10-18 のレビュー: 許可すると、その中の参照ファイルをファイルブラウザから改名・ゴミ箱へ移せるようになった)。
-        // メニューは同じ条件で淡色(MenuCheckmarkState.isCurrentBookStackNestReference)。
-        guard !menuShownBook.isStackNestReference else { return UserFeedback.beep() }
+        // メニューは同じ条件で淡色(MenuCheckmarkState.isCurrentBookStackNestReference。MangaBook.hasBrowsableLocation)。
+        guard !lacksBrowsableLocation() else { return noteNoBrowsableLocation() }
         let parent = currentURL.deletingLastPathComponent()
 
         // 既に許可済みならensureAccessがパネルを出さずにtrueを返す。通常その状態なら
@@ -2528,6 +2559,24 @@ final class AppState: ObservableObject {
 
     func postViewerNotice(_ message: String) {
         viewerNotice = ViewerNotice(message: message)
+    }
+
+    /// `url` の本(nil なら画面に出ている本)に、qooViewer から辿れる置き場所が無いか(MangaBook.hasBrowsableLocation ―― StackNest
+    /// の本)。読み込みの受け渡しの間は `currentBook` と画面の本(`menuShownBook`)が違うことがあるので、`url` がどちらかの本ならその本で
+    /// 決める。
+    func lacksBrowsableLocation(_ url: URL? = nil) -> Bool {
+        if let book = currentBook, url == nil || book.sourceURL == url, !book.hasBrowsableLocation { return true }
+        return menuShownBook.isStackNestReference && (url == nil || menuShownBook.sourceURL == url)
+    }
+
+    /// 置き場所の無い本なので断ったことを知らせる(キー・境界の動作・開いたままの古いメニューのように、淡色を通らずに届いた入口)。
+    func noteNoBrowsableLocation() {
+        postViewerNotice(Self.noBrowsableLocationNotice(locale: preferences?.effectiveLocale ?? AppLanguage.currentLocale))
+    }
+
+    /// その文。サイドパネルのフォルダブラウザが一覧の代わりに出す文と同じ(SidePanelView.folderSection)。
+    nonisolated static func noBrowsableLocationNotice(locale: Locale) -> String {
+        String(localized: "A book from StackNest has no folder that qooViewer can open.", language: locale)
     }
 
     /// シークレットフォルダの本をシークレットウインドウで開いてほしい、という頼み(2026-10-03。`open(request:)` が出し、ContentView が
@@ -2696,10 +2745,8 @@ final class AppState: ObservableObject {
     /// ウインドウで、その場限りの本(画像を直接開いた本)でないとき。
     var canAddCurrentBookToCollection: Bool {
         guard let book = currentBook else { return false }
-        // StackNest の参照ファイルの本も登録しない: 表紙を作る待ち行列が鍵の付いた要求を StackNest へ出し続け、
-        // コレクションの行が StackNest の Application Support の中のパスを指す。
+        // StackNest の参照ファイルの本も記録を残さない本なので登録しない(leavesNoRecord)。
         return (preferences?.libraryFeatureEnabled ?? false) && !isPrivateWindow && !book.leavesNoRecord
-            && !book.isStackNestReference
     }
 
     /// 開いている本をコレクションへ登録し、結果をビューアのトーストに出す(2026-09-23、利用者の指示)。
@@ -2718,6 +2765,8 @@ final class AppState: ObservableObject {
     ///   nil なら `currentBook`。
     func revealCurrentBookInFinder(_ shownURL: URL? = nil) {
         guard let url = shownURL ?? currentBook?.sourceURL else { return }
+        // 置き場所の無い本(StackNest の本)は示さない(MangaBook.hasBrowsableLocation。項目は淡色)。
+        guard !lacksBrowsableLocation(url) else { return noteNoBrowsableLocation() }
         // 開いている本の種別は、開いたときにメインの外で求めてある(`MangaBook.sourceFacts`)。それ以外は FinderReveal が FileIO の上で
         // 確かめる(2026-10-11 の規約監査 ―― 以前はここでメインで stat していた)。
         let knownIsDirectory = currentBook.flatMap { $0.sourceURL == url ? $0.sourceFacts?.isDirectory : nil }
@@ -2765,7 +2814,9 @@ struct MenuCheckmarkState: Equatable {
     /// フォーカス中のウインドウのビューアに本が出ているか(`AppState.menuShownBook`。監査 M-6 ―― 以前メニューは `focusedAppState?.currentBook`
     /// を参照で読み、受け渡し中は新しい本、画面と操作の相手は前の本、とずれた)。メニューの「本を開いているか」はこれで見る。
     var hasBook = false
-    /// お気に入りの登録を断る本か。メニューの淡色は写しから読む＝監査 M-6
+    /// 画面に出ている本が StackNest の本か(`menuShownBook`。監査 M-6 ―― メニューの淡色は写しから読む)。お気に入りの登録を断り、
+    /// 置き場所の無い本として前の本・次の本・同じフォルダのファイルを開く・Finder / ファイルブラウザで表示・フォルダへのアクセスの
+    /// 許可を淡色にする(MangaBook.hasBrowsableLocation)。
     var isCurrentBookStackNestReference = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
     /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
@@ -2853,7 +2904,7 @@ struct MenuShownBook: Equatable {
     /// 本の場所。メニューバーの「Finder で表示」「ファイルブラウザで表示」の相手(2026-10-04 のレビュー R5-3 ―― 淡色をこの写しで
     /// 決めるのに、押したときは `currentBook` を見ていたので、受け渡しの間は画面に出ていない新しい本を示した)。
     var sourceURL: URL?
-    /// StackNest の参照ファイルの本か(お気に入りの登録を断る。MenuCheckmarkState.isCurrentBookStackNestReference)。
+    /// StackNest の参照ファイルの本か(MenuCheckmarkState.isCurrentBookStackNestReference)。
     var isStackNestReference = false
 
     init() {}

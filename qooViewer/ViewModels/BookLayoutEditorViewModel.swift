@@ -86,9 +86,6 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 警告バナーの文言。nilなら非表示。表示中に他の操作をしても自動では消えない
     /// (呼び出し側が明示的にdismissWarning()を呼ぶまで残す。誤って見落とさないため)。
     @Published private(set) var reorderWarningMessage: String?
-    /// StackNest の本で、レイアウトの計算のためにページの寸法を StackNest から取り寄せている間(ペインの上に待ちの表示を出す。
-    /// CLAUDE.md「A wait the user can feel shows something」)。
-    @Published private(set) var isFetchingStackNestPageSizes = false
     /// PageLoaderが用意できた回数。右ペインの各行は、この値をサムネイル取得タスクの識別子に
     /// 含めている(BookmarkListView.PageRowViewの.task(id:)参照)。
     ///
@@ -745,48 +742,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// (ViewerViewModel.wideImageAspectRatios)は既に、ピクセルデコードを伴わない
     /// PageLoader.pageSize(at:)(フォーマットのヘッダーだけを読む)へ置き換え済みで、
     /// この編集ウインドウ側だけが古いままだった。同じ方式に揃える。
-    ///
-    /// StackNest の本では、寸法を取れないページが 1 枚でもあれば nil を返す(呼び出し側は書かない)。寸法はページを 1 枚ずつ
-    /// 取り寄せないと分からず、通信が一瞬切れただけのページを「横長でない」として計算すると、誤った見開きが DB に残る
-    /// (2026-10-18 のレビュー。ビューアの ViewerViewModel.remoteWideImageAspectRatios と同じ扱い)。取り寄せは数枚ずつ同時に
-    /// (本ごとの門が数を絞る)。
-    private func wideImageAspectRatios(for pageKeys: [String]) async -> [String: Bool]? {
+    private func wideImageAspectRatios(for pageKeys: [String]) async -> [String: Bool] {
         let keySet = Set(pageKeys)
         var result: [String: Bool] = [:]
-        let targets = rows.filter { keySet.contains($0.pageKey) }
-        guard book?.isStackNestReference == true, let pageLoader else {
-            for row in targets {
-                guard let size = await pageLoader?.pageSize(at: row.rawIndex) else { continue }
-                result[row.pageKey] = isWideImage(width: size.width, height: size.height)
-            }
-            return result
-        }
-        var sizes: [Int: (width: Int, height: Int)] = [:]
-        var failed = false
-        isFetchingStackNestPageSizes = true
-        defer { isFetchingStackNestPageSizes = false }
-        await withTaskGroup(of: (Int, (width: Int, height: Int)?).self) { group in
-            var next = 0
-            func launch() {
-                guard next < targets.count else { return }
-                let rawIndex = targets[next].rawIndex
-                next += 1
-                group.addTask { (rawIndex, await pageLoader.pageSize(at: rawIndex)) }
-            }
-            for _ in 0..<min(StackNestRequestGate.backgroundLimit, targets.count) { launch() }
-            for await (rawIndex, size) in group {
-                guard let size, !Task.isCancelled else {
-                    failed = true
-                    group.cancelAll()
-                    break
-                }
-                sizes[rawIndex] = size
-                launch()
-            }
-        }
-        guard !failed else { return nil }
-        for row in targets {
-            guard let size = sizes[row.rawIndex] else { return nil }
+        for row in rows where keySet.contains(row.pageKey) {
+            guard let size = await pageLoader?.pageSize(at: row.rawIndex) else { continue }
             result[row.pageKey] = isWideImage(width: size.width, height: size.height)
         }
         return result
@@ -833,12 +793,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
         let readable = readableKeys(currentPageKey: pageKey, newState: state, overridesByKey: overridesByKey)
         let pageAnchor = anchor(forPageKey: pageKey, explicitState: state, in: readable)
-        guard let wideness = await wideImageAspectRatios(for: readable) else {
-            reorderWarningMessage = String(
-                localized: "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest.",
-                language: preferences.effectiveLocale)
-            return
-        }
+        let wideness = await wideImageAspectRatios(for: readable)
         let planned = LayoutAutoCalculator.recalculate(
             orderedPageKeys: readable, anchor: pageAnchor, scope: scope,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: effectiveReadingDirection == .rightToLeft

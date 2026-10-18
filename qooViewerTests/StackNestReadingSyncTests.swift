@@ -19,7 +19,7 @@ struct StackNestReadingSyncTests {
         let book = try await FixtureBook.load(fixture.referenceURL)
         // StackNest の 0 番を除外する。今の並びの 0 番目は StackNest の 1 番になる。
         harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .excluded)
-        let viewer = await harness.open(book)
+        let viewer = await harness.openInWindow(book)
         #expect(viewer.book.pages[viewer.currentIndex].sortKey == "000003.jpg")
         viewer.jump(toPageIndex: 0)
         await viewer.settle()
@@ -38,7 +38,7 @@ struct StackNestReadingSyncTests {
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         // まとめ待ち(3 秒)はページが動いた時に始まる。動かす前から測る: 閉じる前の待ち(settle)が長くても、閉じたことが
         // 送らせていなければ、ここから送り終わるまでに必ず 3 秒かかる。
         let movedAt = ContinuousClock.now
@@ -62,7 +62,7 @@ struct StackNestReadingSyncTests {
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL), skipsPersistence: true)
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL), isPrivateWindow: true)
         #expect(viewer.stackNestProgress == nil)
         #expect(viewer.stackNestBook != nil)
         viewer.jump(toPageIndex: 2)
@@ -78,7 +78,7 @@ struct StackNestReadingSyncTests {
         fixture.server.respond(.progress, with: .status(401))
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         viewer.jump(toPageIndex: 1)
         await viewer.settle()
         viewer.flushPendingSave()
@@ -96,10 +96,10 @@ struct StackNestReadingSyncTests {
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let first = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let first = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let firstBook = try #require(first.stackNestBook)
         try fixture.writeReference(token: "renewed-token-0123456789", pageCount: 6, startPage: 2)
-        let second = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let second = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let secondBook = try #require(second.stackNestBook)
         #expect(secondBook !== firstBook)
         #expect(secondBook.reference.token == "renewed-token-0123456789")
@@ -117,7 +117,7 @@ struct StackNestReadingSyncTests {
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let held = try #require(viewer.stackNestBook)
         let reader = try StackNestReferenceReader(referenceFileURL: fixture.referenceURL)
         #expect(reader.book === held)
@@ -133,7 +133,7 @@ struct StackNestQuitFlushTests {
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let progress = try #require(viewer.stackNestProgress)
         let session = try #require(viewer.stackNestBook?.session)
         let flush = StackNestQuitFlush()

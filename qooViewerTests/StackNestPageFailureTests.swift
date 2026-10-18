@@ -70,7 +70,7 @@ struct StackNestPageFailureTests {
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.prefetchPageCount = 0
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         fixture.server.respond(.page(6), with: .status(500))
         viewer.jump(toPageIndex: 6)
         await viewer.settle()
@@ -92,7 +92,7 @@ struct StackNestPageFailureTests {
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.prefetchPageCount = 2
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         #expect(viewer.stackNestNotice == nil)
         // StackNest でライブラリの施錠が変わった: 以後、どのページも 403 + X-Library-Locked。
         for index in 0..<8 { fixture.server.respond(.page(index), with: Self.locked) }
@@ -123,7 +123,7 @@ struct StackNestPageFailureTests {
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.prefetchPageCount = 0
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         let notice = try #require(viewer.stackNestNotice)
         #expect(notice.isFresh)
         #expect(notice.message == StackNestText.message(
@@ -140,7 +140,7 @@ struct StackNestPageFailureTests {
             let harness = try ViewerHarness()
             defer { harness.close() }
             harness.preferences.prefetchPageCount = 0
-            let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+            let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
             fixture.server.respond(.progress, with: Self.locked)
 
             func lockPages() {
@@ -187,7 +187,7 @@ struct StackNestPageFailureTests {
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.prefetchPageCount = 0
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         // 読んだページがキャッシュから出ている間に StackNest で施錠が変わった: 位置の書き戻しが先に 403 を受ける。
         fixture.server.respond(.progress, with: Self.locked)
         viewer.jump(toPageIndex: 1)
@@ -240,7 +240,7 @@ struct StackNestPageFailureTests {
         func show(_ book: MangaBook) async throws -> ViewerViewModel {
             var made: ViewerViewModel?
             handoff.update(to: book) { book in
-                let viewer = harness.makeViewer(book)
+                let viewer = harness.makeViewerInWindow(book)
                 made = viewer
                 return viewer
             }
@@ -332,63 +332,16 @@ struct StackNestPageFailureTests {
     }
 }
 
-/// 2026-10-18 のレビューで直したビューアの振る舞い(本全体のレイアウトの寸法の取り寄せ・後始末)。
+/// 2026-10-18 のレビューで直したビューアの振る舞い(後始末)。
 @MainActor
 struct StackNestViewerReviewFixTests {
-    @Test("本全体の自動レイアウト: 寸法を取れないページが 1 枚でもあれば書かず、理由を知らせる(縦長として計算しない)")
-    func autoLayoutDoesNotWriteWithMissingSizes() async throws {
-        let fixture = try StackNestTestBook(pageCount: 8, startPage: 0)
-        defer { fixture.close() }
-        let harness = try ViewerHarness()
-        defer { harness.close() }
-        harness.preferences.prefetchPageCount = 0
-        // 表示の近くでない 6 番だけ、一時的な失敗で返す。
-        fixture.server.respond(.page(6), with: .status(500))
-        let book = try await FixtureBook.load(fixture.referenceURL)
-        let viewer = await harness.open(book)
-        await viewer.autoLayoutFromCurrentView()
-        #expect(harness.library.layouts.pageOverrides(forBookID: book.id).isEmpty)
-        #expect(viewer.stackNestNotice != nil)
-        #expect(viewer.remotePageSizeScan == nil)
-        // 対照: 取れるようになれば書く。
-        fixture.server.respond(
-            .page(6), with: .status(200, headers: ["Content-Type": "image/png"], body: PageImageFactory.png(number: 7))
-        )
-        await viewer.autoLayoutFromCurrentView()
-        #expect(!harness.library.layouts.pageOverrides(forBookID: book.id).isEmpty)
-    }
-
-    @Test("本全体の自動レイアウトの寸法の取り寄せは、取り消すとすぐ終わり、書かず、知らせも出さない")
-    func cancellingTheScanWritesNothing() async throws {
-        let fixture = try StackNestTestBook(pageCount: 8, startPage: 0)
-        defer { fixture.close() }
-        let harness = try ViewerHarness()
-        defer { harness.close() }
-        harness.preferences.prefetchPageCount = 0
-        let book = try await FixtureBook.load(fixture.referenceURL)
-        let viewer = await harness.open(book)
-        let gate = fixture.holdPage(7)
-        defer { gate.open() }
-        let notices = viewer.stackNestNotice
-        let layout = Task { await viewer.autoLayoutFromCurrentView() }
-        let limit = Date().addingTimeInterval(5)
-        while viewer.remotePageSizeScan == nil, Date() < limit { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(viewer.remotePageSizeScan != nil)
-        viewer.cancelRemotePageSizeScan()
-        _ = try await FileIO.withDeadline(.seconds(2)) { await layout.value }
-        #expect(viewer.remotePageSizeScan == nil)
-        #expect(harness.library.layouts.pageOverrides(forBookID: book.id).isEmpty)
-        #expect(viewer.stackNestNotice == notices)
-        gate.open()
-    }
-
     @Test("後始末(releaseResources)は StackNest のセッションと書き戻しの役を手放す")
     func releaseDropsTheSession() async throws {
         let fixture = try StackNestTestBook(pageCount: 4, startPage: 0)
         defer { fixture.close() }
         let harness = try ViewerHarness()
         defer { harness.close() }
-        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         #expect(viewer.stackNestBook != nil)
         #expect(viewer.stackNestProgress != nil)
         viewer.releaseResources()

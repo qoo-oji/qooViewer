@@ -29,6 +29,10 @@ struct PageContextMenuItems: View {
     /// (AppState.isPrivateWindowのコメント参照)。
     var allowsBookmarking = true
 
+    /// falseなら「Finder で表示」「ファイルブラウザで表示」を出したまま無効にする(置き場所の無い本 ―― StackNest の本。
+    /// MangaBook.hasBrowsableLocation。示す相手が StackNest の受け渡し用の参照ファイルになるため)。
+    var allowsRevealing = true
+
     /// ブックマークの追加/削除。nilなら項目自体を出さない(橋渡しがまだ張られていない場合。
     /// onExportと同じ扱い)。実装はViewerView.toggleBookmark(atIndex:)で、常にこの1ページ
     /// だけを対象にする(見開きの相方ページには触れない)。
@@ -50,11 +54,13 @@ struct PageContextMenuItems: View {
         Button("Show in Finder") {
             FinderReveal.reveal(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
         }
+        .disabled(!allowsRevealing)
         // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
         if revealInFileBrowser.isFeatureEnabled {
             Button("Show in File Browser") {
                 revealInFileBrowser(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
             }
+            .disabled(!allowsRevealing)
         }
         // 書庫やPDFの中の画像は、Finderで示せるのが入れ物のファイルだけなので、
         // 代わりに1枚を取り出す導線を置く(逆に、フォルダの本の画像はFinderで実物を

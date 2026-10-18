@@ -214,7 +214,9 @@ final class SidePanelBrowserState: ObservableObject {
         // 入れ子の書庫を書き出した一時コピーの本(本の中身ブラウザの「新しい本として開く」)では、今いる場所を保つ(2026-10-04 の監査 SP-4)。
         // 親はアプリの一時フォルダで、そこへ移ると利用者の知らないフォルダ(空、または UUID 名の書庫)が並んだ。
         // 一時フォルダの中なので、どの行も今の本として強調しない。
-        if currentBook.isTemporaryCopy {
+        // StackNest の本も同じ(MangaBook.hasBrowsableLocation): 親は StackNest の Application Support の中で、本の置き場所ではない。
+        // 表示している間、パネルは一覧の代わりに理由を出す(SidePanelView.folderSection)。
+        if currentBook.isTemporaryCopy || !currentBook.hasBrowsableLocation {
             currentBookRowURL = nil
             skipsNextAnchorFor = nil
             return

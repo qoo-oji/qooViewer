@@ -90,6 +90,8 @@ extension AppState {
     ///   nil なら `currentBook`。
     func revealCurrentBookInFileBrowser(openWindow: OpenWindowAction, shownURL: URL? = nil) {
         guard let url = shownURL ?? currentBook?.sourceURL else { return }
+        // 置き場所の無い本(StackNest の本)は示さない(MangaBook.hasBrowsableLocation。項目は淡色)。
+        guard !lacksBrowsableLocation(url) else { return noteNoBrowsableLocation() }
         revealInFileBrowser(url, openWindow: openWindow)
     }
 

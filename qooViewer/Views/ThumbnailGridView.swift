@@ -283,6 +283,8 @@ struct ThumbnailGridView: View {
                                         isBookmarked: bookmarkedPageIndices.contains(index),
                                         // シークレットウインドウ・その場限りの本ではグレーアウト。
                                         allowsBookmarking: !viewModel.skipsPersistence,
+                                        // 置き場所の無い本(StackNest の本)では Finder などで示さない。
+                                        allowsRevealing: viewModel.book.hasBrowsableLocation,
                                         onToggleBookmark: onToggleBookmark.map { toggle in { toggle(index) } }
                                     )
                                 }

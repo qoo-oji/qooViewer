@@ -162,6 +162,10 @@ struct SidePanelView: View {
     /// (どちらもDBへ書けないため。ViewerViewModel.skipsPersistenceと同じ条件)。
     /// 一覧からのジャンプ・お気に入りを開く操作は読み取りなので、falseでも通常どおり使える。
     var allowsLibraryEditing: Bool = true
+    /// 開いている本に、qooViewer から辿れる置き場所が無いか(StackNest の本。MangaBook.hasBrowsableLocation)。真の間、
+    /// フォルダブラウザは一覧の代わりに理由を出し(前の本のフォルダを残さない ―― 2026-10-18、利用者の決定)、ページの右クリックの
+    /// 「Finder で表示」「ファイルブラウザで表示」は淡色にする。
+    var bookLacksBrowsableLocation: Bool = false
     /// ページモードのサムネイルをホバーしたときの拡大プレビュー用のフル解像度画像取得
     /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
     var loadPageImage: ((Int) async -> CGImage?)?
@@ -336,6 +340,7 @@ struct SidePanelView: View {
                     partnerPageIndex: partnerPageIndex,
                     bookmarkedPageIndices: bookmarkedPageIndices,
                     allowsBookmarking: allowsLibraryEditing,
+                    allowsRevealing: !bookLacksBrowsableLocation,
                     thumbnailGeneration: pageThumbnailGeneration,
                     loadThumbnail: loadPageThumbnail,
                     loadPageImage: loadPageImage,
@@ -367,6 +372,7 @@ struct SidePanelView: View {
                         bookSourceURL: bookSourceURL,
                         bookmarkedPageIndices: bookmarkedPageIndices,
                         allowsBookmarking: allowsLibraryEditing,
+                        allowsRevealing: !bookLacksBrowsableLocation,
                         openIntentOwner: openIntentOwner,
                         onOpen: onOpen,
                         onJumpToPage: onJumpToPage,
@@ -569,7 +575,19 @@ struct SidePanelView: View {
 
     // MARK: - 上段(フォルダブラウザ)
 
+    /// 上段。置き場所の無い本(StackNest の本)を開いている間は、一覧・移動のボタン・フォルダ名の代わりに理由だけを出す
+    /// (`bookLacksBrowsableLocation`。「開いている本が置かれているフォルダを表示する」という前提が崩れるので、前の本の
+    /// フォルダを残さない)。フォルダブラウザの読み込みも止まっている(ContentView.isSidePanelFolderBrowserOnScreen)。
+    @ViewBuilder
     private var folderSection: some View {
+        if bookLacksBrowsableLocation {
+            SidePanelEmptyMessage(textKey: "A book from StackNest has no folder that qooViewer can open.")
+        } else {
+            folderBrowserSection
+        }
+    }
+
+    private var folderBrowserSection: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 SidePanelNavButton(systemName: "chevron.left", isDisabled: !folderState.canGoBack, help: "Back") {
@@ -1101,6 +1119,8 @@ private struct BookContentsSectionView: View {
     var bookmarkedPageIndices: Set<Int>
     /// falseならブックマークの項目をグレーアウトする(SidePanelView.allowsLibraryEditing参照)。
     var allowsBookmarking: Bool
+    /// falseなら「Finder で表示」「ファイルブラウザで表示」をグレーアウトする(SidePanelView.bookLacksBrowsableLocation参照)。
+    var allowsRevealing: Bool
     /// 入れ子の書庫を書き出してから開くときの、開く意図の相手(SidePanelView.openIntentOwner と同じ。観察しない)。
     weak var openIntentOwner: AppState?
     var onOpen: (URL) -> Void
@@ -1337,18 +1357,21 @@ private struct BookContentsSectionView: View {
                 onExport: onExportPage.map { export in { export(index) } },
                 isBookmarked: bookmarkedPageIndices.contains(index),
                 allowsBookmarking: allowsBookmarking,
+                allowsRevealing: allowsRevealing,
                 onToggleBookmark: { onToggleBookmark(index) }
             )
         } else if hasRevealTarget(entry) {
             Button("Show in Finder") {
                 withRevealTarget(for: entry) { FinderReveal.reveal($0) }
             }
+            .disabled(!allowsRevealing)
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
             if revealInFileBrowser.isFeatureEnabled {
                 Button("Show in File Browser") {
                     let reveal = revealInFileBrowser
                     withRevealTarget(for: entry) { reveal($0) }
                 }
+                .disabled(!allowsRevealing)
             }
         }
     }
@@ -2183,6 +2206,8 @@ private struct SidePanelPagesSectionView: View {
     var bookmarkedPageIndices: Set<Int>
     /// falseならブックマークの項目をグレーアウトする(SidePanelView.allowsLibraryEditing参照)。
     var allowsBookmarking: Bool
+    /// falseなら「Finder で表示」「ファイルブラウザで表示」をグレーアウトする(SidePanelView.bookLacksBrowsableLocation参照)。
+    var allowsRevealing: Bool
     var thumbnailGeneration: Int
     var loadThumbnail: ((Int) async -> CGImage?)?
     /// ホバー時の拡大プレビュー用(フル解像度)。
@@ -2279,6 +2304,7 @@ private struct SidePanelPagesSectionView: View {
                                     onExport: onExportPage.map { export in { export(index) } },
                                     isBookmarked: bookmarkedPageIndices.contains(index),
                                     allowsBookmarking: allowsBookmarking,
+                                    allowsRevealing: allowsRevealing,
                                     onToggleBookmark: { onToggleBookmark(index) }
                                 )
                             }

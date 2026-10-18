@@ -22,10 +22,6 @@ enum ContentFingerprint {
         /// 読み方向・ブックマークが消えていた(1.71 の「読み方向が記憶されない」の報告。2026-09-25 に再現)。
         /// フォルダの本はページ数だけで判定する(同じ枚数の別の本へ丸ごと入れ替えた場合は検知できない)。
         var isDirectory: Bool = false
-        /// ページ数だけで比べるか(StackNest の参照ファイルの本)。参照ファイルは StackNest が開くたびに書き直す(鍵・
-        /// 期限が変わる)ので、その更新日時・大きさは中身の目印にならない。本は参照ファイルのパス(書庫と本の ID を含む)で
-        /// 決まり、保存される指紋に本の URL を入れる列は無い(足すと @Model の変更になる)。
-        var comparesPageCountOnly: Bool = false
     }
 
     /// 記録済みの指紋(SwiftDataモデルに保存されている3属性)。3つとも揃っていない
@@ -42,11 +38,6 @@ enum ContentFingerprint {
     /// 以前は本を開くたびにここでメインで stat し、ネットワークボリュームでは最初の見開きを読む前に往復を待った)。
     /// 事実を持たない本(テストが直接組んだ本)だけ、その場で問い合わせる。
     static func current(for book: MangaBook) -> Snapshot {
-        // 参照ファイルの本は stat もしない・開いたときの事実(sourceFacts)も使わない: 参照ファイルは開くたびに書き直される
-        // (Snapshot.comparesPageCountOnly のコメント)。
-        if book.stackNestReference != nil {
-            return Snapshot(pageCount: book.pages.count, modificationDate: nil, fileSize: nil, comparesPageCountOnly: true)
-        }
         if let facts = book.sourceFacts {
             return Snapshot(
                 pageCount: book.pages.count,
@@ -76,7 +67,7 @@ enum ContentFingerprint {
         guard let recorded, let recordedPageCount = recorded.pageCount else { return false }
         if recordedPageCount != current.pageCount { return true }
         // フォルダの本は更新日時(とサイズ。フォルダでは取れない)を比べない(Snapshot.isDirectory のコメント)。
-        if current.isDirectory || current.comparesPageCountOnly { return false }
+        if current.isDirectory { return false }
         return recorded.modificationDate != current.modificationDate
             || recorded.fileSize != current.fileSize
     }

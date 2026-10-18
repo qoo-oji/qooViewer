@@ -165,23 +165,8 @@ final class ViewerViewModel: ObservableObject {
     /// StackNest の参照ファイルの本で、StackNest とのやり取りが失敗したときの知らせ(位置の書き戻しの失敗と、ページが読めず、
     /// この本に恒久的な失敗が記録されているとき。showStackNestFailure)。ViewerView がトーストに出す。
     @Published private(set) var stackNestNotice: ViewerNotice?
-    /// StackNest の本で、本全体に及ぶレイアウトの計算のためにページの寸法を StackNest から取り寄せている間の進み具合
-    /// (ViewerView が取り消しのボタン付きで出す)。取り寄せていないときは nil。
-    @Published private(set) var remotePageSizeScan: RemotePageSizeScan?
-    /// `remotePageSizeScan` の値。
-    struct RemotePageSizeScan: Equatable {
-        var done: Int
-        var total: Int
-    }
-    /// 取り寄せている Task と、その結果を待っている呼び出し(`cancelRemotePageSizeScan` が待ちをすぐ終わらせる)。
-    private var remotePageSizeScanTask: Task<Void, Never>?
-    private var remotePageSizeScanWaiter: CheckedContinuation<[Int: (width: Int, height: Int)]?, Never>?
-    /// 取り寄せの世代。取り消した取り寄せの Task が後から終わっても、次の取り寄せの待ちを終わらせない。
-    private var remotePageSizeScanGeneration = 0
-    /// 最後の取り寄せを利用者が取り消したか(取り消したときは「取り寄せられなかった」と知らせない)。
-    private var remotePageSizeScanCancelledByUser = false
     /// StackNest の参照ファイルの本で、読み進めたページを書き戻す役(StackNestViewerKit)。参照ファイルの本でないとき・
-    /// シークレットウインドウでは nil。作ると部品の登録簿(StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる。
+    /// 書き戻さないとき(init の `writesBackToStackNest`。シークレットウインドウ)では nil。作ると部品の登録簿(StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる。
     private(set) var stackNestProgress: StackNestProgressReporter?
     /// 最後に知らせた StackNest の失敗の種類(同じ恒久的な失敗の知らせを、ページを送るたびに・書き戻しの道からもう一度、
     /// 重ねないため。showStackNestFailure)。
@@ -247,10 +232,11 @@ final class ViewerViewModel: ObservableObject {
     /// trueのとき、このクラスの永続化経路(読書状態・ブックマーク追加・レイアウト書き込み・
     /// EPUB/PDF/ComicInfoからの自動取り込み・ディスクサムネイルキャッシュ)はすべて何もしない。
     ///
-    /// 成立する条件は2つあり、ViewerView.initが両者をORして渡す:
+    /// 成立する条件は2つあり、ContentView.makeViewerModelが両者をORして渡す(recordingRule):
     /// - シークレットウインドウ(AppState.isPrivateWindow)で開いた本
-    /// - その場限りの本(MangaBook.isTransient。ユーザーが直接渡した画像ファイルから作った本。
-    ///   1枚でも複数枚でも記録を残さない。理由はBookOriginのコメント参照)
+    /// - 記録を残さない本(MangaBook.leavesNoRecord): その場限りの本(MangaBook.isTransient。ユーザーが直接渡した画像
+    ///   ファイルから作った本。1枚でも複数枚でも記録を残さない。理由はBookOriginのコメント参照)・一時フォルダの写し・
+    ///   シークレットフォルダの本・StackNest の本
     ///
     /// 何を書かないかの全体像はAppState.isPrivateWindowのコメントが正典。
     /// なお、このクラスにある`ephemeralBookmarks`/`ephemeralMetadata`は名前が似ているが**別概念**で、
@@ -467,9 +453,15 @@ final class ViewerViewModel: ObservableObject {
     ///   `skipsPersistence` 1 つに束ねられていて、それが表せなかった。
     /// - Parameter diskCaches: そのディスクキャッシュの置き場所(BookDiskCaches)。テストは一時フォルダのものを渡し、
     ///   `usesDiskCaches: true` と組にしてキャッシュの経路を通す。
+    /// - Parameter writesBackToStackNest: StackNest の参照ファイルの本で、読み進めたページを StackNest へ書き戻すか。
+    ///   呼び出し側(ContentView)が `!isPrivateWindow` を渡す。`skipsPersistence` とは別の引数なのは、StackNest の本は
+    ///   どの窓でも qooViewer に記録を残さない(`skipsPersistence` が真になる。MangaBook.leavesNoRecord)が、StackNest へ
+    ///   位置を返すのは普通の窓では続けるため(2026-10-18、利用者の決定)。既定は書き戻さない(試験・ほかの呼び出し側が
+    ///   黙って StackNest へ書かないように)。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
+        writesBackToStackNest: Bool = false,
         usesDiskCaches: Bool? = nil, diskCaches: BookDiskCaches = .shared,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
@@ -674,17 +666,13 @@ final class ViewerViewModel: ObservableObject {
         // ブックマークを削除し、初めて開く本として扱う(以下のisReturningToKnownBook参照)。
         let existingState: BookReadingState? = (fetchedState != nil && !contentLooksReplaced) ? fetchedState : nil
         let isReturningToKnownBook = existingState != nil
-        // StackNest の参照ファイルの本は、StackNest が渡したばかりの参照ファイルなら、StackNest で読んでいたページ(参照ファイルの
-        // startPage)から開く(形式の文書「What we ask of viewers」)。initialPageID と同じく再開の確認は出さない。呼び出し側の指定
-        // (「同じフォルダの画像をすべて開く」)・隣の本の端(initialEdge)があればそちらが先。
-        // 「渡したばかり」は、参照ファイルの更新日時がこの本の読書位置の記録より新しいこと(stackNestStartPageIsFresh)。
-        // 参照ファイルは StackNest が渡すときにしか書き直されないので、qooViewer の履歴・「直前の本へ戻る」・起動時の再オープンから
-        // 開き直したときは、古い startPage で開いて読書位置を巻き戻していた(2026-10-18 のレビュー。1 枚送ると巻き戻した位置が
-        // qooViewer と StackNest の両方に書かれた)。
-        let initialPageID = initialPageID ?? ((initialEdge == nil && Self.stackNestStartPageIsFresh(
-            referenceModifiedAt: incomingBook.sourceFacts?.modificationDate,
-            readingStateUpdatedAt: existingState?.updatedAt
-        )) ? Self.stackNestStartPageID(for: incomingBook) : nil)
+        // StackNest の参照ファイルの本は、StackNest で読んでいたページ(参照ファイルの startPage)から開く(形式の文書「What we ask
+        // of viewers」)。initialPageID と同じく再開の確認は出さない。呼び出し側の指定(「同じフォルダの画像をすべて開く」)・隣の本の
+        // 端(initialEdge)があればそちらが先。
+        // この本は qooViewer に読書位置を残さない(MangaBook.leavesNoRecord)ので、開く位置は常に StackNest が渡した位置になる
+        // (2026-10-18、利用者の決定。以前は qooViewer の読書位置の記録と参照ファイルの更新日時を比べて、新しい方から開いていた)。
+        let initialPageID = initialPageID
+            ?? (initialEdge == nil ? Self.stackNestStartPageID(for: incomingBook) : nil)
 
         let state: BookReadingState
         /// 読書状態を新しく作った(件数が増えた)ので、保持冊数の上限による整理が要るか(下の else のコメント)。
@@ -897,13 +885,14 @@ final class ViewerViewModel: ObservableObject {
         currentIndex = normalizedAnchorIndex(initialIndex)
 
         // StackNest の参照ファイルの本: この本のセッションを持ち、読み進めたページを StackNest へ書き戻す役を用意する。
-        // シークレットウインドウでは書き戻さない(何も記録しない窓。読んだ位置を StackNest へ書くのも記録に当たる)。開いたページ
+        // シークレットウインドウでは書き戻さない(writesBackToStackNest が偽。何も記録しない窓で、読んだ位置を StackNest へ書くのも
+        // 記録に当たる)。StackNest の本はどの窓でも skipsPersistence なので、そちらでは決めない。開いたページ
         // (startPage)は送らない(StackNest が知っている位置)。送信は部品の async の道で、スレッドを塞がない。
         // セッションは BookLoader が宛先を確かめた参照から作るので、ここで失敗するのは宛先の制限に掛かったときだけ(その本は
         // 開く時点で失敗している)。
         if let reference = incomingBook.stackNestReference {
             stackNestBook = try? StackNestSessions.shared.book(for: reference, at: incomingBook.sourceURL)
-            if let session = stackNestBook?.session, !skipsPersistence {
+            if let session = stackNestBook?.session, writesBackToStackNest {
                 stackNestProgress = StackNestProgressReporter(session: session, startPage: reference.startPage) {
                     [weak self] failure in
                     // 書き戻しだけが見た恒久的な失敗(キャッシュにあるページを読んでいる間に施錠が変わった など)も本に記録する。
@@ -1286,11 +1275,10 @@ final class ViewerViewModel: ObservableObject {
         // StackNest の本のセッションと書き戻しの役も手放す(2026-10-18 のレビュー: 手放していなかったので、SwiftUI が旧世代の
         // ビューモデルを抱えている間、部品のページのキャッシュ(最大 64 MiB)と URLSession が残った)。書き戻しの役は上の
         // flushPendingSave で閉じてあり、飛んでいる送信は役自身が送り切るまで自分を保つ(部品)。セッションは close() しない ――
-        // 同じ参照の本を別のウインドウ・ブックマークの編集が同じセッションで読んでいることがある(StackNestSessions)。
+        // 同じ参照の本を別のウインドウが同じセッションで読んでいることがある(StackNestSessions)。
         stackNestProgress = nil
         stackNestBook = nil
         StackNestQuitFlush.forCurrentProcess?.unregister(owner: self)
-        endRemotePageSizeScan()
         stackNestPrimeTask?.cancel()
         stackNestPrimeTask = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
@@ -3137,12 +3125,13 @@ final class ViewerViewModel: ObservableObject {
         showStackNestFailure(failure)
     }
 
-    /// 参照ファイルの startPage で開くか(参照ファイルが、この本の読書位置の記録より後に StackNest から渡されたか)。
-    /// 記録が無い(初めて開く・中身が差し替わった)なら開く。記録があって参照ファイルの更新日時が分からないなら、記録を使う。
-    nonisolated static func stackNestStartPageIsFresh(referenceModifiedAt: Date?, readingStateUpdatedAt: Date?) -> Bool {
-        guard let readingStateUpdatedAt else { return true }
-        guard let referenceModifiedAt else { return false }
-        return referenceModifiedAt > readingStateUpdatedAt
+    /// ウインドウで本を開くときの、記録の決まり(ContentView.makeViewerModel と試験の ViewerHarness が同じ式を使う)。
+    /// シークレットウインドウか、記録を残さない本(MangaBook.leavesNoRecord)なら DB へは書かない。StackNest の本の位置を
+    /// StackNest へ返すのは、シークレットウインドウでないときだけ(init の writesBackToStackNest)。
+    nonisolated static func recordingRule(
+        bookLeavesNoRecord: Bool, isPrivateWindow: Bool
+    ) -> (skipsPersistence: Bool, writesBackToStackNest: Bool) {
+        (isPrivateWindow || bookLeavesNoRecord, !isPrivateWindow)
     }
 
     /// 参照ファイルの本で、開くページ(参照ファイルの startPage)の `PageRef.id`。番号は除外・並べ替えの前の本で数える
@@ -3157,9 +3146,9 @@ final class ViewerViewModel: ObservableObject {
         return book.pages.first { $0.sortKey == name }?.id
     }
 
-    /// 開いた本の全体を走査してよいか(下調べ・レイアウトの自動計算)。参照ファイルの本はしない: 1 ページごとに
+    /// 開いた本の全体を走査してよいか(横長の判定の下調べ)。参照ファイルの本はしない: 1 ページごとに
     /// StackNest への往復(ページ全体の取得)になり、開くたびにページ数ぶんの要求が走る。横長の判定は表示したページの近傍
-    /// (primeWideImageCache)だけで行う。利用者が自分で始める自動レイアウトは止めない。
+    /// (primeWideImageCache)だけで行う(レイアウトの自動計算は、記録を残さない本なのでそもそも走らない ―― skipsPersistence)。
     static func scansWholeBook(_ book: MangaBook) -> Bool {
         book.stackNestReference == nil
     }
@@ -3850,10 +3839,7 @@ final class ViewerViewModel: ObservableObject {
     /// 数百ページ規模の本でもかなり短時間で終わる(実装検討ドキュメント9章のリスク参照。
     /// なお万一のフォーマット非対応等でヘッダーが読めなかった場合に備え、プログレス表示・
     /// キャンセルは今後の改善課題として残している)。
-    /// StackNest の本では nil を返すことがある: 寸法を取れないページが 1 枚でもあった・利用者が取り消した。呼び出し側は
-    /// そのときレイアウトを書かない(`remotePageSizesUnavailable`)。
-    private func wideImageAspectRatios(for orderedPageKeys: [String]) async -> [String: Bool]? {
-        if book.isStackNestReference { return await remoteWideImageAspectRatios(for: orderedPageKeys) }
+    private func wideImageAspectRatios(for orderedPageKeys: [String]) async -> [String: Bool] {
         let keySet = Set(orderedPageKeys)
         var result: [String: Bool] = [:]
         for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
@@ -3880,105 +3866,6 @@ final class ViewerViewModel: ObservableObject {
             result[page.sortKey] = isWideImage(width: size.width, height: size.height, pageIndex: index)
         }
         return result
-    }
-
-    /// StackNest の本の `wideImageAspectRatios`(2026-10-18 のレビュー)。
-    ///
-    /// 寸法を知るにはページを 1 枚ずつ StackNest から取り寄せるほかない(先頭だけは読めない)。以前は書庫の本と同じく直列に
-    /// 取り寄せ、待つ間に何も出さず、取り消しもできず、通信が一瞬切れて寸法を取れなかったページを「横長でない」として計算し、
-    /// その結果を DB に書いていた(誤った見開きが残る)。今は:
-    /// - 同時に数枚ずつ取り寄せる(本ごとの門の背景の列が数を絞る。StackNestRequestGate)
-    /// - 進み具合を `remotePageSizeScan` に出し、ビューアが取り消しのボタン付きで見せる
-    /// - 取れないページが 1 枚でもあった・取り消されたら nil(呼び出し側は書かない)
-    private func remoteWideImageAspectRatios(for orderedPageKeys: [String]) async -> [String: Bool]? {
-        let keySet = Set(orderedPageKeys)
-        var result: [String: Bool] = [:]
-        var pending: [(index: Int, key: String)] = []
-        for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
-            if let cached = wideImageCache[page.sortKey] {
-                result[page.sortKey] = cached
-            } else {
-                pending.append((index, page.sortKey))
-            }
-        }
-        guard !pending.isEmpty else { return result }
-        // 前の取り寄せが残っていれば終わらせる(同じビューアで重ねない)。
-        endRemotePageSizeScan()
-        remotePageSizeScanCancelledByUser = false
-        remotePageSizeScan = RemotePageSizeScan(done: 0, total: pending.count)
-        let loader = pageLoader
-        // 同時に投げる数。門の背景の列(StackNestRequestGate.backgroundLimit)と同じだけにして、取り消したときに飛んでいる
-        // 取り寄せを少なく保つ(飛んでいるものは部品の時間切れまでに終わる)。
-        let width = StackNestRequestGate.backgroundLimit
-        remotePageSizeScanGeneration += 1
-        let generation = remotePageSizeScanGeneration
-        let sizes: [Int: (width: Int, height: Int)]? = await withCheckedContinuation { continuation in
-            remotePageSizeScanWaiter = continuation
-            remotePageSizeScanTask = Task { [weak self] in
-                var sizes: [Int: (width: Int, height: Int)] = [:]
-                var failed = false
-                await withTaskGroup(of: (Int, (width: Int, height: Int)?).self) { group in
-                    var next = 0
-                    func launch() {
-                        guard next < pending.count else { return }
-                        let index = pending[next].index
-                        next += 1
-                        group.addTask { (index, await loader.pageSize(at: index)) }
-                    }
-                    for _ in 0..<min(width, pending.count) { launch() }
-                    for await (index, size) in group {
-                        guard let size, !Task.isCancelled else {
-                            failed = true
-                            group.cancelAll()
-                            break
-                        }
-                        sizes[index] = size
-                        if self?.remotePageSizeScanGeneration == generation { self?.remotePageSizeScan?.done = sizes.count }
-                        launch()
-                    }
-                }
-                guard let self, self.remotePageSizeScanGeneration == generation else { return }
-                self.finishRemotePageSizeScan(failed ? nil : sizes)
-            }
-        }
-        guard let sizes, sizes.count == pending.count, !hasReleasedResources else { return nil }
-        for (index, key) in pending {
-            guard let size = sizes[index] else { return nil }
-            result[key] = isWideImage(width: size.width, height: size.height, pageIndex: index)
-        }
-        return result
-    }
-
-    /// 取り寄せの待ちを、結果(取り消し・失敗なら nil)で 1 度だけ終わらせる。
-    private func finishRemotePageSizeScan(_ sizes: [Int: (width: Int, height: Int)]?) {
-        remotePageSizeScanTask = nil
-        remotePageSizeScan = nil
-        let waiter = remotePageSizeScanWaiter
-        remotePageSizeScanWaiter = nil
-        waiter?.resume(returning: sizes)
-    }
-
-    /// 本全体に及ぶレイアウトの計算のための寸法の取り寄せを取り消す(ビューアの取り消しのボタン)。
-    func cancelRemotePageSizeScan() {
-        guard remotePageSizeScanWaiter != nil else { return }
-        remotePageSizeScanCancelledByUser = true
-        endRemotePageSizeScan()
-    }
-
-    /// 取り寄せを止め、待ちをすぐ終わらせる(飛んでいる取り寄せは、取り消しが届かなくても部品の時間切れまでに終わる)。
-    private func endRemotePageSizeScan() {
-        remotePageSizeScanTask?.cancel()
-        remotePageSizeScanGeneration += 1
-        finishRemotePageSizeScan(nil)
-    }
-
-    /// StackNest の本で寸法を取れなかった・取り消したので、レイアウトを変えなかったことを知らせる。
-    private func noteRemotePageSizesUnavailable() {
-        // 利用者が取り消した・本を閉じた・後から始めた計算に置き換えられた(その取り寄せがまだ走っている)ときは知らせない。
-        guard !remotePageSizeScanCancelledByUser, !hasReleasedResources, remotePageSizeScanWaiter == nil else { return }
-        stackNestNotice = ViewerNotice(message: String(
-            localized: "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest.",
-            language: preferences.effectiveLocale))
     }
 
     /// 3.2節の操作で選んだstateから、LayoutAutoCalculatorへ渡すべきAnchor(伝播計算の起点)を
@@ -4089,9 +3976,7 @@ final class ViewerViewModel: ObservableObject {
             orderedKeys.removeAll { $0 == book.pages[index].sortKey }
         }
 
-        guard let wideness = await wideImageAspectRatios(for: orderedKeys) else { return noteRemotePageSizesUnavailable() }
-        // 取り寄せている間に本を閉じたら書かない(後始末をしたビューアは書かない)。
-        guard !hasReleasedResources else { return }
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
         let planned = LayoutAutoCalculator.recalculate(
             orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: scope,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
@@ -4162,8 +4047,7 @@ final class ViewerViewModel: ObservableObject {
         guard !anchorKeys.isEmpty else { return }
         let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)
         let orderedKeys = book.pages.map(\.sortKey)
-        guard let wideness = await wideImageAspectRatios(for: orderedKeys) else { return noteRemotePageSizesUnavailable() }
-        guard !hasReleasedResources else { return }
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
         let planned = LayoutAutoCalculator.recalculate(
             orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: .wholeBook,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
@@ -4193,9 +4077,8 @@ final class ViewerViewModel: ObservableObject {
     /// importSourceLayoutIfNeeded を見送っているのと同じ理由)。
     private func autoLayoutForBookWithoutLayoutData() async {
         let mode = preferences.missingLayoutAutoLayout
-        // 参照ファイルの本では、開いた時に本全体の寸法を問い合わせない(scansWholeBook のコメント)。
         guard mode != .none, !skipsPersistence, pendingLayoutReplacementStatus == nil,
-              pageLayoutStates.isEmpty, !book.pages.isEmpty, Self.scansWholeBook(book)
+              pageLayoutStates.isEmpty, !book.pages.isEmpty
         else { return }
 
         let orderedKeys = book.pages.map(\.sortKey)
@@ -4210,8 +4093,7 @@ final class ViewerViewModel: ObservableObject {
             anchorKeys = orderedKeys.count >= 2 ? Array(orderedKeys.prefix(2)) : [orderedKeys[0]]
         }
 
-        // 参照ファイルの本はここへ来ない(上の scansWholeBook)ので、nil(寸法の取り寄せの失敗)は起きない。
-        guard let wideness = await wideImageAspectRatios(for: orderedKeys) else { return }
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
         // 待っているあいだに本を閉じた/レイアウトを手で編集した可能性があるので、
         // 書き込む直前にもう一度、前提が崩れていないことを確かめる(後始末をしたビューアは書かない ―― importComicInfoIfNeeded の
         // 頭のコメント)。

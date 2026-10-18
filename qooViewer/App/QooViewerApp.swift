@@ -308,19 +308,22 @@ struct QooViewerApp: App {
 
         Divider()
 
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
+        let hasAdjacentBooks = hasBook && menuCheckmarkState?.isCurrentBookStackNestReference != true
+
         Button("Go to Previous Book") {
             if let url = focusedAppState?.currentBook?.sourceURL {
                 focusedAppState?.openSibling(before: url)
             }
         }
-        .disabled(!hasBook)
+        .disabled(!hasAdjacentBooks)
 
         Button("Go to Next Book") {
             if let url = focusedAppState?.currentBook?.sourceURL {
                 focusedAppState?.openSibling(after: url)
             }
         }
-        .disabled(!hasBook)
+        .disabled(!hasAdjacentBooks)
     }
 
     /// ファイルメニューの「EPUB/PDF/CBZとして書き出す…」。ファイルブラウザで本を1冊選んでいればその本を書き出し
@@ -926,7 +929,12 @@ struct QooViewerApp: App {
                 // 中身はフォーカス中の AppState から読むので、変わった印(siblingBooksRevision)を `.id` に渡して組み直させる
                 // (2026-10-04 の監査 M-1。参照の値の変化ではメニューは作り直されず、サブメニューの中身は入力が変わらなければ使い回される ――
                 // docs/09「メニューバーのホーム画面の項目」の件数の実測)。
-                Menu("Open File in Same Folder") {
+                // 本を開いていないとき・置き場所の無い本(StackNest の本。MangaBook.hasBrowsableLocation)では、サブメニューごと淡色
+                // (MenuBarSubmenu ―― `Menu` に `.disabled` は効かない。以前は本が無くても開けて、淡色の 1 項目だけが出た)。
+                MenuBarSubmenu(
+                    "Open File in Same Folder",
+                    isEnabled: menuCheckmarkState?.hasBook == true && menuCheckmarkState?.isCurrentBookStackNestReference != true
+                ) {
                     Group {
                         if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
                             ForEach(focusedAppState.siblingBooks, id: \.self) { url in
@@ -946,10 +954,7 @@ struct QooViewerApp: App {
                             Button("Grant Access to This Folder…") {
                                 focusedAppState?.grantAccessToCurrentFolder()
                             }
-                            // StackNest の参照ファイルの本の「フォルダ」は StackNest の Application Support の中(AppState.
-                            // grantAccessToCurrentFolder のコメント)。
-                            .disabled(menuCheckmarkState?.hasBook != true
-                                || menuCheckmarkState?.isCurrentBookStackNestReference == true)
+                            .disabled(menuCheckmarkState?.hasBook != true)
                         }
                     }
                     .id(menuCheckmarkState?.siblingBooksRevision ?? 0)
@@ -996,10 +1001,12 @@ struct QooViewerApp: App {
                         appState.welcomeLibrary?.request(.showSmartBookInFinder(path))
                     }
                 }
+                // 置き場所の無い本(StackNest の本)を読んでいる間は淡色(MangaBook.hasBrowsableLocation)。
                 .disabled(
-                    menuCheckmarkState?.hasBook != true
-                        && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
-                        && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true
+                    menuCheckmarkState?.isCurrentBookStackNestReference == true
+                        || (menuCheckmarkState?.hasBook != true
+                            && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
+                            && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
                 )
                 // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからは、行き先は常に
                 // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。コレクションの中で選んだ本は、
@@ -1016,7 +1023,10 @@ struct QooViewerApp: App {
                             appState.welcomeLibrary?.request(.showSmartBookInFileBrowser(path))
                         }
                     }
-                    .disabled(menuCheckmarkState?.hasBook != true && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                    .disabled(
+                        menuCheckmarkState?.isCurrentBookStackNestReference == true
+                            || (menuCheckmarkState?.hasBook != true && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                    )
                 }
                 // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本を相手にする(ビューアの右クリックと同じ)。
                 // ライブラリ機能が OFF の間は出さない。シークレットウインドウ・その場限りの本・本を開いていないときは淡色

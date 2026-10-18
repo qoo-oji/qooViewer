@@ -435,8 +435,11 @@ enum LibraryImportExportService {
     private static func loadBook(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        cachesPageList: Bool, makesBookmark: Bool, stackNestPageKeys: [String] = []
+        cachesPageList: Bool, makesBookmark: Bool
     ) async -> MangaBook? {
+        // StackNest の参照ファイルの本には、保存データを残さない(MangaBook.leavesNoRecord)。取り込むファイルにあっても読み込まない
+        // (読み込みは StackNest へ問い合わせる)。
+        guard !isStackNestReferenceFile(bookID) else { return nil }
         let hints = bookLocatorHints(
             bookID: bookID, fileNodeIdentifier: fileNodeIdentifier,
             favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
@@ -444,11 +447,7 @@ enum LibraryImportExportService {
         guard let url = await FileIO.perform(qos: .utility, { locate(hints, identifies: false)?.url }) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        // StackNest の参照ファイルの本は通信しない(ページの鍵は番号で決まる。BookLoader.loadStackNestReferenceWithoutConnecting)。
-        guard var book = try? await BookLoader.load(
-            from: url, cachesPageList: cachesPageList, connectsToStackNest: false,
-            coveringStackNestPageKeys: stackNestPageKeys
-        ) else { return nil }
+        guard var book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList) else { return nil }
         let sourceURL = book.sourceURL
         book.sourceFacts = await FileIO.perform(qos: .utility) { BookSourceFacts.probe(sourceURL, makesBookmark: makesBookmark) }
         return book
@@ -1469,8 +1468,7 @@ enum LibraryImportExportService {
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                cachesPageList: cachesPageList, makesBookmark: false,
-                stackNestPageKeys: entry.bookmarks.map(\.page)
+                cachesPageList: cachesPageList, makesBookmark: false
             ) else {
                 summary.bookmarksSkippedBookIDs.append(entry.bookID)
                 continue
@@ -1545,8 +1543,7 @@ enum LibraryImportExportService {
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                cachesPageList: cachesPageList, makesBookmark: true,
-                stackNestPageKeys: (entry.layout.pages.map { Array($0.keys) } ?? []) + (entry.layout.pageOrder ?? [])
+                cachesPageList: cachesPageList, makesBookmark: true
             ) else {
                 summary.layoutsSkippedBookIDs.append(entry.bookID)
                 continue
