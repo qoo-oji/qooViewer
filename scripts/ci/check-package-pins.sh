@@ -79,4 +79,20 @@ else
     ok "sparkle: exactVersion $sparkle_version @ ${sparkle_revision:0:10}"
 fi
 
+# StackNestViewerKit(StackNest の本の参照ファイルを読む部品)はリリースのタグで、upToNextMinorVersion で使う(docs/11)。
+# 0.x の間は minor で壊す変更がありうるので、upToNextMajorVersion に広げない。
+kit_location=$(jq -r '.pins[] | select(.identity == "stacknestviewerkit") | .location // ""' "$file")
+kit_version=$(jq -r '.pins[] | select(.identity == "stacknestviewerkit") | .state.version // ""' "$file")
+kit_requirement=$(awk '/XCRemoteSwiftPackageReference "StackNestViewerKit" \*\/ = \{/ { on = 1 } on && /kind = / { gsub(/[ \t;]/, ""); print; exit }' \
+    qooViewer.xcodeproj/project.pbxproj)
+if [ "$kit_location" != "https://github.com/shelfsmith/StackNestViewerKit" ]; then
+    fail "stacknestviewerkit の location が '$kit_location'(期待: https://github.com/shelfsmith/StackNestViewerKit)"
+elif [ "$kit_requirement" != "kind=upToNextMinorVersion" ]; then
+    fail "StackNestViewerKit の requirement が upToNextMinorVersion ではない: '$kit_requirement'"
+elif [ -z "$kit_version" ]; then
+    fail "stacknestviewerkit がリリースの version で固定されていない"
+else
+    ok "stacknestviewerkit: version $kit_version"
+fi
+
 finish

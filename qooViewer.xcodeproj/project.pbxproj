@@ -612,8 +612,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/shelfsmith/StackNestViewerKit";
 			requirement = {
-				kind = revision;
-				revision = e394f585ec542b60a5021d05af204af84eeb2d80;
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.1.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
