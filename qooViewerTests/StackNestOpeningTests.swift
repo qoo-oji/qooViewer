@@ -481,6 +481,47 @@ struct StackNestOpeningTests {
         #expect(state.reloadIfStackNestReferenceChanged(plainRequest) == nil)
         withExtendedLifetime(preferences) {}
     }
+
+    @Test("参照ファイルを読んでいる間に、このウインドウで後から頼まれた本が勝つ: 読み終えても古い本を読み込み直さず、後の本を取り消さない")
+    func laterOpenWinsOverAPendingReferenceReload() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        let library = try InMemoryLibrary(label: "stacknest-reopen-order")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "stacknest-reopen-order")
+        let preferences = suite.makePreferences()
+        let state = AppState(isPrivateWindow: false, usesPageListCache: false)
+        state.preferences = preferences
+        state.favoritesStore = library.favorites
+        state.bookmarkStore = library.bookmarks
+        state.layoutStore = library.layouts
+        state.metadataStore = library.metadata
+        state.recentFiles = RecentFilesStore(defaults: suite.defaults)
+        let request = BookOpenRequest(fixture.referenceURL)
+        state.open(request: request)
+        await state.openTask?.value
+        #expect(state.currentBook?.stackNestReference?.token == StackNestTestBook.token)
+        let folder = fixture.temporary.file("Plain Book")
+        try FixtureFolder.make(at: folder, pages: [.init("001.png", number: 1)])
+
+        // StackNest が書き直した参照ファイルを読みに行く。読み終える前に(Task はまだ動いていない)、このウインドウで
+        // 待ってから開く入口が別の本を頼む。
+        try fixture.writeReference(token: "renewed-token-0123456789", pageCount: 6, startPage: 3)
+        let manifestsBefore = fixture.manifestRequestCount
+        let reload = state.reloadIfStackNestReferenceChanged(request)
+        let newer = state.beginOpenIntent()
+        await reload?.value
+        await state.openTask?.value
+        // 読み終えた後で古い本を読み込み直さない。
+        #expect(fixture.manifestRequestCount == manifestsBefore)
+        #expect(state.currentBook?.stackNestReference?.token == StackNestTestBook.token)
+
+        // 後から頼まれた本は、読み込み直しに取り消されずに開く。
+        state.open(request: BookOpenRequest(folder), intent: newer)
+        await state.openTask?.value
+        #expect(state.currentBook?.sourceURL.path == folder.path)
+        withExtendedLifetime(preferences) {}
+    }
 }
 
 /// 書き出しの 1 冊が実際に書かれたかを数える(書き込みは差し替え)。

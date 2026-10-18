@@ -20,6 +20,11 @@ extension AppState {
     ///
     /// 参照ファイルは FileIO で読む(数百バイトだが、応答しないボリュームの上でもメインを止めない)ので、読み込み直すのは
     /// 前へ出した後になる。読めないファイルは今までどおり前へ出すだけ。
+    ///
+    /// ■ 読んでいる間に頼まれた本が勝つ
+    /// 待ってから開く入口なので、読み始める前に開く意図を取り(`beginOpenIntent()`。利用者が頼んだ「開く」の続き)、読んだ後に
+    /// `isStillWanted(_:)` で照合して `open(…intent:)` へ渡す(OpenIntent の決まり)。読んでいる間にこのウインドウで別の本が
+    /// 頼まれたら、何もしない ―― 照合しないと、後から頼まれた本の読み込みを取り消して古い本を読み込み直していた。
     /// - Returns: 参照ファイルを読みに行ったときはその Task(試験が待つ)。参照ファイルの要求でない・本を表示していないなら nil。
     @discardableResult
     func reloadIfStackNestReferenceChanged(
@@ -28,14 +33,20 @@ extension AppState {
         guard !request.bundlesMultipleImages, let url = request.primaryURL,
               isStackNestReferenceFile(url.lastPathComponent), currentBook != nil
         else { return nil }
+        let intent = beginOpenIntent()
         return Task { [weak self] in
             let reference = await FileIO.perform { try? StackNestBookReference.load(contentsOf: url) }
-            // 読んでいる間に、このウインドウが別の本へ替わっていたら何もしない(同じ本かは openAppState(forBookAt:) と同じくパスで)。
-            guard let self, let reference, let shown = self.currentBook, shown.sourceURL.path == url.path,
+            // 読んでいる間に、このウインドウで別の本が頼まれた・別の本へ替わっていたら何もしない(同じ本かは
+            // openAppState(forBookAt:) と同じくパスで)。
+            guard let self, self.isStillWanted(intent), let reference, let shown = self.currentBook,
+                  shown.sourceURL.path == url.path,
                   Self.reloadsForStackNestReference(showing: shown, read: reference)
             else { return }
             // このウインドウへ開く(ほかのウインドウを探さない)。
-            self.open(request: request, reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow)
+            self.open(
+                request: request, reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
+                intent: intent
+            )
         }
     }
 
