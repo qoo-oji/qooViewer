@@ -2,12 +2,11 @@
 
 ## 前提
 
-App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`、
-`ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES`(外への接続 = `com.apple.security.network.client`)。アプリ本体が接続するのは
-StackNest の本の API(この Mac の 127.0.0.1／::1)だけで、待ち受けはしません(下の「StackNest の本と通信」)。
-自動アップデート(Sparkle)の通信は本体の権限を使わず Downloader.xpc がして、
-取りに行くのは GitHub の appcast と更新の書庫だけです(→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
-entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
+App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`。アプリ本体にネットワークの
+entitlement は無く、本体は通信しません。通信するのは自動アップデート(Sparkle)の Downloader.xpc(取りに行くのは GitHub の
+appcast と更新の書庫だけ。→ [自動アップデート](#自動アップデートsparkle2026-10-10))と、アプリに入れた XPC サービス
+`StackNestConnector.xpc`(この Mac の StackNest の本の API への決まった形の要求だけ。→ [StackNest の本と通信](#stacknest-の本と通信))
+だけです。entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
 サービスと話す mach の名前 2 つ)が加わります(→ [02](02-project-and-build.md))。
 
 サンドボックス下で触れるのは、
@@ -237,13 +236,12 @@ Ed25519 の秘密鍵で署名されているかだけで決まります。**
 新しい鍵を入れた版を手で配り直すしかありません(今の利用者のアプリは古い鍵の署名しか受け付けない)。リポジトリには入れない
 (`.gitignore` と `make-appcast.sh` がリポジトリの中の鍵ファイルを拒む)。
 
-### 更新の取得はアプリ本体ではしない
+### アプリ本体は通信しない
 
 - サンドボックスの中のアプリはインストーラを自分で起動できないので、Sparkle.framework の中の `Installer.xpc` に頼みます
   (`SUEnableInstallerLauncherService` と、Release の entitlements の mach-lookup の例外 `<バンドルID>-spks` / `-spki`)。
-- 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。本体の `com.apple.security.network.client` は StackNest の本の
-  API(この Mac の 127.0.0.1／::1)のためだけで、Sparkle はそれを使いません(`check-release-app.sh` は、Info.plist に
-  `StackNestViewerSupport` の宣言があるときだけ本体の client を許し、待ち受けの `network.server` は許さない)。
+- 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。そのため本体に `com.apple.security.network.client` を足していません
+  (`check-release-app.sh` が「無いこと」を確かめる。StackNest の本の通信も本体ではなく `StackNestConnector.xpc` がする)。
   代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
   版ごとに出し分けられないこと。リリースノートは appcast に埋め込み(`--embed-release-notes`、markdown)、JavaScript は切ってあります。
 - 送るものは Sparkle の既定の要求だけ(アプリ名と版・Sparkle の版)。`SUEnableSystemProfiling = NO` で Mac の情報は送りません。
@@ -308,58 +306,91 @@ Sparkle の値の変化(KVO)は、届いたスレッドがメインならその�
 
 ## StackNest の本と通信
 
-アプリ本体が持つ通信の権限(外への接続 = `com.apple.security.network.client`。待ち受けの `network.server` は持たない)は、
-この機能のためだけにあります(Sparkle は本体の権限を使わない。→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
-アプリ本体が接続するのは、StackNest の参照ファイル(`.stacknestbook`)に書かれた本の API だけで(更新の確認と取得は Sparkle の
-XPC サービス)、しかも**この Mac の `127.0.0.1` と `::1` だけ**です。StackNest はリモートの本も中継するため、参照ファイルには
-`http://127.0.0.1:…`(この Mac の StackNest)を書きます。参照ファイルの読み取り・通信・書き戻しは、StackNest の開発者が外部ビューア向けに
-公開している Swift パッケージ StackNestViewerKit(→ [11](11-forked-dependencies.md))が行い、その既定の制限
-(`StackNestHostPolicy.loopbackOnly`。IP の字面だけで、`localhost` などの名前は通さない)が、ほかの宛先の参照ファイルを要求の前に
-断ります(開く時点で「この本の接続先がこの Mac ではない」を出す)。ただ、この Mac の中のポートとパスは参照ファイルに書かれたままに
-使うので、細工した参照ファイルを利用者が開くと、この Mac で動くほかのサービスへ決まった形の要求(manifest とページの GET と、
-読書位置の POST。付く鍵はそのファイル自身のものだけ)を出すことはありえます。パスが StackNest の形かを確かめるのは、後から足せる
-締め付けです。API は平文の HTTP なので、ATS は `NSAllowsLocalNetworking` だけを許します(何でも許す `NSAllowsArbitraryLoads` 系の鍵は
-使わない)。
+StackNest(画像の本のライブラリ管理アプリ)は、外部ビューアに本そのものではなく**参照ファイル**(`.stacknestbook`。この Mac の
+StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と、その本だけを読める鍵)を渡します。qooViewer はページを
+1 枚ずつその API から取り、読み進めたページを書き戻します。参照ファイルの読み取り・要求の組み立て・鍵の扱い・書き戻しは、StackNest の
+開発者が公開している Swift パッケージ StackNestViewerKit(→ [11](11-forked-dependencies.md))が行います。リモートの本も StackNest が
+127.0.0.1 で中継するので、つなぐ先はこの Mac だけです。参照ファイルは StackNest の `~/Library/Application Support/StackNest/ViewerHandoff/…/<題名>.stacknestbook`
+にあり、StackNest が渡すたびに同じパスへ新しい鍵で書き直し、期限(30 日)が切れると消します。
 
-実測(2026-10-02・macOS 26.6.2・テストホスト。`StackNestATSTests` を `TEST_RUNNER_QOO_ATS_PROBE_URL` 付きで走らせる):
+### 通信は XPC サービスがする(2026-10-18 のレビュー)
 
-- 通る: 127.0.0.0/8・10.0.0.0/8・172.16.0.0/12・192.168.0.0/16
-- ATS に止められる(-1022): 100.64.0.0/10(Tailscale)と公開の IP アドレス(文書用の 192.0.2.1 を含む)
+最初の案(PR #1)はアプリ本体に `com.apple.security.network.client` を付けていました。本体は信頼できない書庫(rar・7z の C の
+コードを含む)を読むので、そこを突かれたときに外へ送り出せないことが、本体に通信の権限を持たせない理由です。宛先を
+127.0.0.1 に絞るのは部品のコードの決まりでしかなく、OS は本体のどの通信も止めません。そこで:
 
-この結果は `NSAllowsLocalNetworking` の有無に関わらず同じだった。鍵は意図を明示するためと、配備対象の macOS 15 のために残す。
+- **`StackNestConnector.xpc`**(アプリの `Contents/XPCServices`)だけが外への接続を持ちます。権限は App Sandbox と
+  `network.client` だけで、ファイルへのアクセスも待ち受けも持たず、ATS は `NSAllowsLocalNetworking` だけ(`check-release-app.sh` が確かめる)。
+- アプリの側では StackNestViewerKit をそのまま使い、そのセッションの URLSession(部品の `Configuration.makeURLSessionConfiguration`)に
+  `StackNestConnectorURLProtocol` だけを差し込みます。要求は XPC でサービスへ渡り、アプリ本体はソケットを開きません。部品の決まり
+  (宛先の制限・リダイレクトの拒否・本文の上限・時間切れ)はそのまま効きます。
+- サービスは**決まった形の要求しか出しません**(`StackNestConnectorPolicy`。アプリも送る前に同じ判定をする):
+  - `http` で、ホストは `127.0.0.1` か `::1` の字面だけ(名前・資格情報・断片は不可)
+  - パスは `/api/v1/libraries/<書庫>/books/<番号>` か `/api/v1/relay/<ID>` の下の `manifest`・`pages/<番号>`・`cover`(GET。`?maxw=<幅>` だけ可)と
+    `progress`(POST。JSON の本文 64 KiB まで)。パーセント符号化を含むパスは不可
+  - ヘッダは鍵(`Authorization: Bearer …`)・名乗り・POST の本文の型だけ
+  - 応答は 64 MiB まで、リダイレクトには付いて行かない(3xx はそのまま返す)。ephemeral のセッションで、キャッシュ・クッキー・
+    資格情報の保管・プロキシを使わない
 
-中継は試用の方式です。もし StackNest が直接の接続(リモートの本の宛先をそのまま参照ファイルに書く形)に戻ると、その宛先は
-上の部品の制限で断られます(広げるには `StackNestBookSession.Configuration.allowedHosts` を明示して広げる。Tailscale
-(100.64.0.0/10)と公開の IP アドレスは、さらに上の実測のとおり ATS にも止められる)。
+  これで、細工した参照ファイルを開いても、この Mac で待ち受けているほかのサービスへ別の形の要求が出ることはなく(部品は宛先の
+  ホストしか見ず、パスは参照ファイルのままに使うため)、アプリのプロセスが乗っ取られても外の宛先へは出せません。
+- XPC の返事は必ず 1 度(`StackNestConnectorClient`): サービスが落ちた・起動できないときは控えている要求を `.unavailable` で
+  終わらせ、部品はつながらない失敗として扱います(次の要求は立ち直ったサービスへ)。
 
-- **対応の宣言**: `Info.plist` の `StackNestViewerSupport.referenceFormatVersions`(今は `[1]`)。StackNest はこの鍵を
-  ファイルとして読んで、渡してよいかと書く版を決める。部品が読める版(`StackNestFormat.supportedVersions`)の中だけを宣言する
-  (`StackNestViewerDeclarationTests` が部品の自己点検 `StackNestViewerSupport.verify` で確かめる)。
-- **鍵(token)**: 参照ファイルに平文で入っている、その本だけに使える鍵。メモリの中だけに置き、DB・UserDefaults・保存データの
-  書き出し・ページ一覧のキャッシュ・ログに残さない(部品の `StackNestBookReference` は `Codable` でなく、文字列にすると
-  `<redacted>`)。送るのは参照ファイルの `book` と同じ宛先だけで、リダイレクトには付いて行かない。セッションは ephemeral で、
-  キャッシュ・クッキー・資格情報の保管・プロキシを使わない(部品)。
-- **名乗り**: `X-StackNest-Viewer: <バンドル ID>/<版>; format=<参照ファイルの版>; kit=<部品の版>`。各部分は印字できる ASCII の
-  英数字と `._+-` だけにする(改行が入ってもヘッダを分割させない。部品の `StackNestViewerIdentification`)。
-- **セッションは本ごとに 1 つ**: 同じ参照ファイルから作る reader(ビューア・ブックマークとレイアウトの編集・本を開くとき)と
-  書き戻しの役は、`StackNestSessions` で 1 つのセッション(部品の、直近 8 ページ・64 MiB のメモリのキャッシュと、同じページの
-  二重取得の防止)を使い回す。StackNest が参照ファイルを書き直した(鍵が変わった)ときは新しいセッションにする。開いている本の
-  ビューアがセッションを持ち、最後の持ち主が手放すと畳まれる。ページを読む `PageLoader` の reader は、開いた本が持つ参照から作る
-  (参照ファイルを actor の上で読み直さない。ビューアと同じセッションになる)。
-- **待ち方**: `ArchiveReading` は同期の API なので、網越しの reader(`RemoteArchiveReading`)の読み出しはブロックする(部品の
-  `StackNestBlockingReader`。協調スレッドを使わずに待つ。メインスレッド・`Task` の中から呼ぶと Debug で止まる)。PageLoader は
-  この reader を `FileIO` で、デコードの枠を取る前に待ち、actor(協調スレッド)も枠も塞がない。フォルダの本は枠を取ってから
-  `FileIO` で読むが、網越しの reader は枠の前に取る(応答しない StackNest への先読みが、網の待ちの間に枠を握らないように)。
+### ページの読み方(スレッドとメモリ)
+
+- ページは部品の **async の口**で待ちます(`StackNestReferenceReader.pageData`)。最初の案は `ArchiveReading` の同期の口を
+  `FileIO` のスレッドで待っていて、ページ一覧のセル・先読み・寸法の下調べが頼んだ数だけスレッドが塞がり(1 本最長 25 秒×最大 3 回)、
+  StackNest が応答しないと数ウインドウでプロセスのスレッドの上限(512)に届いて、ほかの本・ファイルブラウザの読み書きまで止まりえました。
+- 要求の同時数は本ごとの門 **`StackNestRequestGate`** が絞ります: 合わせて 6(接続先 1 つの同時の接続数と同じ)、そのうち
+  先読み・サムネイル・寸法は 4 まで(残りは表示のために空けておく)。表示は空きがあればいくつでも使え(応答の止まった表示のページが
+  あっても次の表示は通る)、空きが出たら待っている表示を先に通します。合計が接続数を超えないので、部品の待ちの時間切れ(並んでいる間も
+  数える)で正常な StackNest でも失敗する、先読みの後ろに表示のページが並ぶ、ということが起きません。先読みに表示が追いついたら
+  背景の列から表示の列へ移します(`promote`)。PageLoader は許可をデコードが終わるまで持つので、取り寄せたまま枠を待つバイト列も
+  門の数で頭打ちです。
+- 寸法の下調べで取ったバイト列のヘッダーは控え(`headerInfoCache`)、「情報を見る」の形式と名前は中身から決めます(ページの名前
+  `000041.jpg` は仮のもの)。
+- 部品のページのキャッシュ(直近 8 ページ・64 MiB)は、受け取ったページから同じ決まりで見積もってリソースモニタに出します
+  (`StackNestSessions.Book.memoryUsageItems`。部品 0.1.0 は量を外へ出さない)。ビューアの後始末(`releaseResources`)はセッションと書き戻しの役を
+  手放し(最初の案は手放さず、旧世代のビューモデルが 64 MiB と URLSession を抱えた)、PageLoader は手放した後に reader を作り直しません。
+- 本全体に及ぶレイアウトの計算(「現在の表示を基準に自動でレイアウト」・伝播範囲が本全体のページ操作)は、寸法のためにページを
+  数枚ずつ同時に取り寄せ、進み具合と取り消しのボタンを出します。取れないページが 1 枚でもあった・取り消したら**書きません**
+  (最初の案は寸法を取れなかったページを「横長でない」として計算し、誤った見開きを DB に残した)。開いたときの本全体の下調べと
+  自動レイアウトはしません。
+
+### 鍵・記録・ほかの機能との関係
+
+- **鍵(token)**: メモリの中だけに置き、DB・UserDefaults・保存データの書き出し・ページ一覧のキャッシュ・ログに残しません(部品の
+  `StackNestBookReference` は `Codable` でなく、文字列にすると `<redacted>`。アプリ側の `StackNestReferenceIdentity` も同じ)。
+- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(ビューア・ブックマークとレイアウトの編集)と
+  書き戻しの役は 1 つのセッション(ページのキャッシュと門)を使い回します。使い回すのは接続先と鍵と形式の版が同じとき
+  (`StackNestReferenceIdentity`)。開く位置(`startPage`)・題名だけが違う書き直しでは使い回し、ビューアも作り直しません
+  (`MangaBook.viewerIdentity`)。
+- **開く位置**: StackNest が渡したばかりの参照ファイル(更新日時がこの本の読書位置の記録より新しい)なら `startPage` から、
+  それ以外(qooViewer の履歴・「直前の本へ戻る」・起動時の再オープン)なら qooViewer の読書位置から開きます
+  (`ViewerViewModel.stackNestStartPageIsFresh`)。参照ファイルは StackNest が渡すときにしか書き直されないので、最初の案は
+  履歴から開き直すと古い `startPage` で開き、1 枚送ると巻き戻した位置を qooViewer と StackNest の両方に書いていました。
 - **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
   その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
-  理由を 1 度だけ知らせる(これが無いと、施錠を変えた後に読めないページが真っ黒のまま案内が無く、ページを送るたびに
-  1 枚につき寸法・表示・先読み・サムネイルの要求が重なって出る)。書き戻しもその本については送らない(部品)。終了(⌘Q)の
-  ときは、送っていない位置を最長 2 秒だけ待って送る(部品の `StackNestProgressRegistry`)。
-- **文言**: 知らせの文言は部品の既定の英日の文言を、qooViewer の表示言語(`AppLanguage`)とアプリの名前で出す(`StackNestText`)。
-  qooViewer に固有の文言(「StackNest の本は書き出せません」)だけが `Localizable.xcstrings` にある。
-- **ライブラリ機能の外**: 参照ファイルの本は StackNest の Application Support の中の、開くたびに書き直され期限が切れると
-  消えるファイル。コレクションとお気に入りへの登録・本の書き出し・メタデータへの登録はしない(表紙の待ち行列が鍵の付いた要求を出し続け、
-  行が消えるパスを指すため)。読書位置・ブックマーク・履歴は残す。
-- **テスト**: 実物の StackNest は使わない。部品の見立て `StackNestStubServer`(`URLProtocol`。StackNestViewerKitTesting)を、
-  作業フォルダの下の参照ファイルにだけ `StackNestSessions.useConfigurationForTesting` で使わせる(`StackNestTestBook`)。
-  実際に接続する `StackNestATSTests` は `TEST_RUNNER_QOO_ATS_PROBE_URL` を付けたときだけ動く。
+  理由を 1 度だけ知らせます。書き戻しもその本については送りません(部品)。終了(⌘Q)のときは、送っていない位置を最長 2 秒だけ待って
+  送ります(`StackNestQuitFlush`。送りはメインキューを使わず、メインはセマフォで待つ)。最初の案は部品の `flushAll` と
+  `.terminateLater` を使っていて、終了がメインキューの仕事の中から頼まれる(スライドショーの末尾の「終了」・保存データの削除の後の
+  終了・Debug の制御口の quit)と、メインキューが回らずに返事が来ないまま、アプリが終わらなくなりました(実測。部品へも PR で報告)。
+- **書き戻し**: シークレットウインドウでは送りません。
+- **ほかの機能の外**: コレクション(`CollectionStore.makePendingItem` が実ファイルの参照ファイルを断る)・お気に入り・本の書き出し・
+  メタデータ(`MetadataGenerator` の母体)・サムネイルのディスクキャッシュ(鍵を掛けられるライブラリの絵を、施錠や期限と関係なく
+  残さない)には入れません。読書位置・ブックマーク・レイアウト(読み方向の取り込み)・履歴は残します。起動時の掃除
+  (`ExternalMoveSweeper`・`NonBookFolderSweeper`)は参照ファイルの本を見ません。「このフォルダへのアクセスを許可」は淡色です
+  (親フォルダは StackNest の `Application Support` の中)。
+- **保存データの書き出し・取り込み**は、参照ファイルの本を通信せずに組みます(`BookLoader.loadStackNestReferenceWithoutConnecting`。
+  ページの鍵は番号で決まる)。最初の案は本ごとに manifest を問い合わせ、StackNest が起動していない・期限切れの本のブックマークを
+  バックアップから黙って落としていました。
+- **シークレットフォルダ**: 参照ファイルの場所からは StackNest の本の実際の置き場が分からないので、効きません。
+- **名乗り**: `X-StackNest-Viewer: <バンドル ID>/<版>; format=<参照ファイルの版>; kit=<部品の版>`(部品の `StackNestViewerIdentification`)。
+- **対応の宣言**: `Info.plist` の `StackNestViewerSupport.referenceFormatVersions`(今は `[1]`)。StackNest はこの鍵をファイルとして読みます。
+  部品が読める版の中だけを宣言します(`StackNestViewerDeclarationTests`)。
+- **文言**: 知らせの文言は部品の既定の英日の文言を、qooViewer の表示言語とアプリの名前で出します(`StackNestText`)。
+- **テスト**: 実物の StackNest は使いません。部品の見立て `StackNestStubServer`(`URLProtocol`)を、作業フォルダの下の参照ファイルにだけ
+  `StackNestSessions.useConfigurationForTesting` で使わせます(`StackNestTestBook`)。XPC の道は、形の判定(`StackNestConnectorPolicyTests`)と、
+  見立ての運び手を差し込んだ `StackNestConnectorURLProtocol` の試験で確かめ、サービスそのものとの往復は `TEST_RUNNER_QOO_STACKNEST_CONNECTOR_PROBE_URL`
+  を付けたときだけ走る試験で確かめます(手元で、この Mac の見立てのサーバへ)。

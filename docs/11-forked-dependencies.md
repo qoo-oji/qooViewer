@@ -9,7 +9,7 @@ qooViewer は6つの Swift パッケージに依存します(下の表の 5 つ�
 | SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
 | Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.0(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
-| StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | バージョン 0.1.0(`upToNextMinorVersion`) | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
+| StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | **正確な版** 0.1.0(`exactVersion`) | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
 どちらも `origin` = qoo-oji、`upstream` = mtgto(本家)という remote 構成です。各フォークには
@@ -332,16 +332,20 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 
 StackNest の本の参照ファイル(`.stacknestbook`)を読む部品です(`https://github.com/shelfsmith/StackNestViewerKit`。MIT・依存ゼロ・
 Foundation だけ・macOS 14 以上)。StackNest の開発者が、外部ビューア向けに公開している Swift パッケージで、フォークではありません。
-**リリースのタグで**使い、`upToNextMinorVersion` from 0.1.0 で指定します(`Package.resolved` が版と revision を固定し、
-`scripts/ci/check-package-pins.sh` が確かめる)。0.x の間は minor で壊す変更がありうるので、qooMeta の `upToNextMajorVersion` とは
-違う指定にしています(0.1.x の修正は入り、0.2.0 は手で上げる)。
+**正確な版**(`exactVersion` 0.1.0)で使います(2026-10-18 のレビューで `upToNextMinorVersion` から変えた。`Package.resolved` が
+revision を固定し、`scripts/ci/check-package-pins.sh` が exactVersion と版の一致を確かめる)。作者 1 人の新しいパッケージで、コードは
+ファイルの権限を持つアプリ本体の中で動くので、Sparkle と同じく、版を上げるのは新しい版の中身を読んでから手で行います
+(手順は Sparkle と同じ: project.pbxproj の版を書き換え → `xcodebuild -resolvePackageDependencies` → revision がそのタグの commit か
+確かめる → `build-credits.py` → テスト)。部品の不具合と改善の案は、作者へ PR で送っています(2026-10-18。待ちの数の絞り・恒久的な失敗の後の
+要求・エラー応答の振り分け・キャッシュの量の公開など)。
 
 使う製品は `StackNestViewerKit`(アプリ。参照ファイルの型・本のセッション・同期の読み出しの橋渡し・読書位置の書き戻し。
 `StackNestViewerKitCore` を再輸出する)と `StackNestViewerKitTesting`(試験だけ。`URLProtocol` の見立て)。
 
 - 参照ファイルの形式・API・状態コードの意味・鍵の扱いは部品が持ちます。qooViewer に残るのは、書類の受け付けと開く経路、
-  `ArchiveReading` に合わせる薄い reader(`StackNestReferenceReader`)、本ごとのセッションの表(`StackNestSessions`)、
-  PageLoader の待ち方です(→ [10](10-sandbox-and-security.md) の「StackNest の本と通信」)。
+  `ArchiveReading` に合わせる薄い reader(`StackNestReferenceReader`)、本ごとのセッションの表(`StackNestSessions`)と要求の門
+  (`StackNestRequestGate`)、PageLoader の待ち方、通信を XPC サービスへ回す `StackNestConnectorURLProtocol` と、そのサービス
+  (`StackNestConnector/`)です(→ [10](10-sandbox-and-security.md) の「StackNest の本と通信」)。
 - 試験のビルドでは、アプリと試験の両方が使う部品のターゲット(`StackNestViewerKit`・`StackNestViewerKitCore`)を、Xcode が
   動的なフレームワークにしてアプリと試験で 1 つを共有します(試験の側に写しが 2 つできない)。そのとき
   「'StackNestViewerKit' is missing a dependency on 'StackNestViewerKitCore'」の警告が 1 つ出ます(Xcode の側の知らせで、

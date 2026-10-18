@@ -14,6 +14,8 @@ qooViewer/
 │   ├── Resources/Localizable.xcstrings   文字列カタログ(英語ベース+日本語)
 │   ├── Resources/Credits.rtf     「qooViewer について」に出す依存ライブラリのライセンス文(scripts/dev/build-credits.py が作る。→ 11)
 │   └── Info.plist                書類の型・自動アップデートの設定(下記)
+├── StackNestConnector/           StackNest の本の API への要求だけを出す XPC サービス(App Sandbox + 外への接続。→ 10)。
+│                                 Wire と Policy の 2 ファイルはアプリにも入る(project.pbxproj のフォルダの例外)
 ├── qooViewerTests/               単体テスト(Swift Testing、下記)。Fixtures/ に本のフィクスチャと台帳、Support/ にビルダー
 ├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
 ├── Configurations/qooViewer.entitlements  Release だけが使う entitlement(Sparkle の XPC サービス用。下記)
@@ -515,8 +517,16 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | `MARKETING_VERSION` | 1.41(2026-09-05 時点) | アプリのバージョン。Debug/Release 両方にある |
 | `CURRENT_PROJECT_VERSION` | `$(MARKETING_VERSION)`(2026-10-10 から。以前は 1 固定) | `CFBundleVersion`。Sparkle はこれで新旧を比べるので、版と同じにした。版は小数点以下 2 桁で書き続ける(`1.9` と `1.10` は 1.9 < 1.10 と読まれる) |
 
-アプリ本体にネットワークの entitlement はありません。通信するのは自動アップデートの Sparkle の Downloader.xpc だけで、
-GitHub の appcast と更新の書庫しか取りに行きません(→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))。
+アプリ本体にネットワークの entitlement はありません。通信するのは自動アップデートの Sparkle の Downloader.xpc
+(GitHub の appcast と更新の書庫しか取りに行かない。→ [10](10-sandbox-and-security.md#自動アップデートsparkle2026-10-10))と、
+アプリに入れた XPC サービス `StackNestConnector.xpc`(この Mac の StackNest の本の API への決まった形の要求だけ。
+→ [10](10-sandbox-and-security.md#stacknest-の本と通信))です。
+
+**StackNestConnector ターゲット**(`com.apple.product-type.xpc-service`、2026-10-18): アプリの Embed XPC Services でアプリの
+`Contents/XPCServices` に入る。ビルド設定は `ENABLE_APP_SANDBOX = YES`・`ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES` だけ(ファイルの
+アクセスは無し)、バンドル ID はアプリのものに `.StackNestConnector` を足したもの(Debug は `com.qooProject.qooViewer.debug.StackNestConnector`)。
+アプリは Info.plist の `QOOStackNestConnectorService`(`$(PRODUCT_BUNDLE_IDENTIFIER).StackNestConnector`)でサービスの名前を知る。
+`StackNestConnector/Info.plist` の ATS は `NSAllowsLocalNetworking` だけ。
 
 **Debug ビルドは保存データが別**(2026-09-13 から)。バンドルIDが違うので、サンドボックスのコンテナ
 (`~/Library/Containers/com.qooProject.qooViewer.debug/`)ごと別になり、SwiftData のストア・
@@ -612,8 +622,8 @@ Info.plist の中のコメントに書いてある要点:
    署名は自動署名(`Configurations/Local.xcconfig` の Team の Apple Development)。Archive は `get-task-allow` を付けない(Build で作った .app には付く
    ので、Build の .app は配らない)。zip の名前は `qooViewer.zip`(appcast のダウンロード先がこの名前になる。今までの添付ファイルと同じ)。
 3. **appcast**: `scripts/release/make-appcast.sh <作業場所>/qooViewer.zip`。次をすべて確かめてから、zip の隣に `appcast.xml` を作る:
-   - `check-release-app.sh`: 署名の確かめを緩めていない・本体に通信の entitlement が無い・公開鍵が入っている・universal・
-     `CFBundleVersion` = 版、など
+   - `check-release-app.sh`: 署名の確かめを緩めていない・本体に通信の entitlement と ATS の例外が無い・公開鍵が入っている・universal・
+     `CFBundleVersion` = 版・`StackNestConnector.xpc` の権限は App Sandbox と外への接続だけで ATS はローカルだけ、など
    - アプリの公開鍵とキーチェーンの鍵(アカウント `qooProject`)が一致する(違う鍵で署名した更新は、利用者のアプリが受け付けない)
    - CHANGELOG の `## [X.YY]` をリリースノートとして埋め込み、`generate_appcast` が書庫と appcast の両方に署名する
    - 出来た appcast の署名と書庫の署名を、**配る .app の公開鍵で** CryptoKit で確かめ直す(`verify-update-signatures.swift`)

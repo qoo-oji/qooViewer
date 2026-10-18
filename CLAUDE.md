@@ -106,13 +106,18 @@ Security rests on one Ed25519 key (the app is not Developer ID signed, so there 
 requires `SUVerifyUpdateBeforeExtraction`, `SURequireSignedFeed`, `SUSignedFeedFailureExpirationInterval = 0`, an HTTPS
 `SUFeedURL` (pinned by the delegate; defaults' `SUFeedURL` is cleared) and a 32-byte `SUPublicEDKey`, and `UpdaterConfiguration`
 refuses to start Sparkle if any of that is loosened — keep the plist, `UpdaterConfigurationTests` and
-`scripts/release/check-release-app.sh` in step. The app's only network entitlement is the **outgoing client** (build setting
-`ENABLE_OUTGOING_NETWORK_CONNECTIONS`), and only for StackNest's book API on this Mac (127.0.0.1/::1) — `check-release-app.sh`
-allows it only while Info.plist declares `StackNestViewerSupport`, never `network.server`. Sparkle never uses it: Downloader.xpc
+`scripts/release/check-release-app.sh` in step. The app itself still has **no network entitlement**: Sparkle's Downloader.xpc
 fetches, Installer.xpc installs (Release-only `Configurations/qooViewer.entitlements` holds just the two mach-lookup names). Debug
 never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` because Sparkle compares
 `CFBundleVersion`. The private key never enters the repo (login keychain, account `qooProject`); the trust model and the 2026-10-10 on-device
 results are in docs/10「自動アップデート」, the on-device test procedure in docs/12.
+**StackNest books** (`.stacknestbook` reference files, PR #1 + the 2026-10-18 review; docs/10「StackNest の本と通信」): pages come from
+StackNest's book API on 127.0.0.1 through **StackNestViewerKit** (`exactVersion` 0.1.0 — a one-author package running inside the app;
+move it only after reading the new version). **The app process never opens a socket**: the kit's sessions get `StackNestConnectorURLProtocol`
+(`StackNestSessions.productionConfiguration`), which hands each request to the embedded XPC service `StackNestConnector.xpc` — the only
+part with `network.client` (sandbox + client only, ATS `NSAllowsLocalNetworking` only) — and both sides accept only the fixed request
+shapes in `StackNestConnectorPolicy`. Pages are awaited on the kit's async API behind the per-book `StackNestRequestGate`, never by
+blocking `FileIO` threads; `check-release-app.sh` checks the service's entitlements and ATS.
 **Releases may be delegated to Claude Code** ("vX.YY をリリースして"): follow docs/02「リリース」steps 1–6 exactly — `xcodebuild archive`
 (= the author's Xcode Archive + Finder compress), `scripts/release/make-appcast.sh`, then **stop and show the author the version, notes,
 zip SHA-256 and check results, and publish only after their go-ahead** (an update reaches users automatically), `gh release create … --latest`
