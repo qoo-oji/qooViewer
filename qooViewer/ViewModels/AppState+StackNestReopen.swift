@@ -21,31 +21,43 @@ extension AppState {
     /// 参照ファイルは FileIO で読む(数百バイトだが、応答しないボリュームの上でもメインを止めない)ので、読み込み直すのは
     /// 前へ出した後になる。読めないファイルは今までどおり前へ出すだけ。
     ///
-    /// ■ 読んでいる間に頼まれた本が勝つ
-    /// 待ってから開く入口なので、読み始める前に開く意図を取り(`beginOpenIntent()`。利用者が頼んだ「開く」の続き)、読んだ後に
-    /// `isStillWanted(_:)` で照合して `open(…intent:)` へ渡す(OpenIntent の決まり)。読んでいる間にこのウインドウで別の本が
-    /// 頼まれたら、何もしない ―― 照合しないと、後から頼まれた本の読み込みを取り消して古い本を読み込み直していた。
+    /// ■ 読んでいる間に頼まれた本が勝つ・先に頼まれていた本を捨てない(2026-10-18 のレビュー)
+    /// 読む前は今の意図を控えるだけにする(`openIntentWithoutClaiming()`)。以前は読む前に意図を取っていた(`beginOpenIntent()`)
+    /// ので、読み直しが要らない(中身が同じ)ときでも、このウインドウで待っていた別の「開く」(兄弟の探索・遅いボリュームの本の
+    /// 確かめ)が黙って捨てられた。読んだ後、控えが `isStillWanted(_:)` のまま(その間にこのウインドウで何も頼まれていない)で、
+    /// 読み直しが要ると分かったときだけ意図を取り、`open(…intent:)` へ渡す。
+    ///
+    /// ■ 頼んだ側の指定は持ち込まない
+    /// 要求は別のウインドウ(またはタブを作る入口)からのもの。その一覧の並び(`sequence`)・隣の本の端・スライドショーの指定を
+    /// このウインドウの読み込み直しへ渡すと、このウインドウでスライドショーが始まったり、「次の本」がよその一覧をたどったりする。
+    /// 読み込み直すのはこのウインドウの本なので、このウインドウの並び(`bookSequence`)を引き継ぐ。
+    ///
+    /// ■ 閉じかけのウインドウには読み込まない
+    /// 読んでいる間にウインドウが閉じられたら(`hostWindow` が無い)何もしない。
     /// - Returns: 参照ファイルを読みに行ったときはその Task(試験が待つ)。参照ファイルの要求でない・本を表示していないなら nil。
     @discardableResult
-    func reloadIfStackNestReferenceChanged(
-        _ request: BookOpenRequest, initialEdge: InitialPageEdge? = nil, startsSlideshow: Bool = false
-    ) -> Task<Void, Never>? {
+    func reloadIfStackNestReferenceChanged(_ request: BookOpenRequest) -> Task<Void, Never>? {
         guard !request.bundlesMultipleImages, let url = request.primaryURL,
               isStackNestReferenceFile(url.lastPathComponent), currentBook != nil
         else { return nil }
-        let intent = beginOpenIntent()
+        let noted = openIntentWithoutClaiming()
+        // 呼び出し側はウインドウを見つけてから呼ぶ(hostWindow がある)。読んでいる間にそのウインドウが閉じられたら(弱い参照が
+        // 外れる)読み込まない。ウインドウの無い AppState(試験)はこの確かめを飛ばす。
+        let hadWindow = hostWindow != nil
         return Task { [weak self] in
             let reference = await FileIO.perform { try? StackNestBookReference.load(contentsOf: url) }
-            // 読んでいる間に、このウインドウで別の本が頼まれた・別の本へ替わっていたら何もしない(同じ本かは
+            // 読んでいる間に、このウインドウで別の本が頼まれた・開いた・別の本へ替わった・閉じられたら何もしない(同じ本かは
             // openAppState(forBookAt:) と同じくパスで)。
-            guard let self, self.isStillWanted(intent), let reference, let shown = self.currentBook,
+            guard let self, self.isStillWanted(noted), !hadWindow || self.hostWindow != nil, let reference,
+                  let shown = self.currentBook,
                   shown.sourceURL.path == url.path,
                   Self.reloadsForStackNestReference(showing: shown, read: reference)
             else { return }
+            let intent = self.beginOpenIntent()
             // このウインドウへ開く(ほかのウインドウを探さない)。
             self.open(
-                request: request, reusesExistingWindow: false, initialEdge: initialEdge, startsSlideshow: startsSlideshow,
-                intent: intent
+                request: BookOpenRequest(url, recordsInHistory: request.recordsInHistory, sequence: self.bookSequence),
+                reusesExistingWindow: false, intent: intent
             )
         }
     }
@@ -53,6 +65,8 @@ extension AppState {
     /// 表示中の本 `shown` と同じパスの参照ファイルを読んだ中身が `reference` のとき、読み込み直すか(`viewerIdentity` が
     /// 変わるか)。
     static func reloadsForStackNestReference(showing shown: MangaBook, read reference: StackNestBookReference) -> Bool {
-        MangaBook.ViewerIdentity(id: shown.id, isInSecretFolder: shown.isInSecretFolder, stackNestReference: reference) != shown.viewerIdentity
+        MangaBook.ViewerIdentity(
+            id: shown.id, isInSecretFolder: shown.isInSecretFolder, stackNestReference: StackNestReferenceIdentity(reference)
+        ) != shown.viewerIdentity
     }
 }

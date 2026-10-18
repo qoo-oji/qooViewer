@@ -1082,6 +1082,7 @@ extension MemoryUsageKind {
         case .fileBrowserThumbnails: return "Thumbnails"
         case .collectionCovers: return "Collection covers"
         case .collectionTiles: return "Collection tiles"
+        case .stackNestPages: return "StackNest pages"
         case .cellImages: return "Pictures held by the list"
         }
     }
@@ -1108,6 +1109,8 @@ extension MemoryUsageKind {
             return "Decoded collection covers for the books inside a collection, against their built-in limit."
         case .collectionTiles:
             return "Decoded collection tiles for the library’s collection list, against their built-in limit."
+        case .stackNestPages:
+            return "Pages of a StackNest book received from StackNest and kept for a moment so that the same page isn’t fetched twice (up to 8 pages, against their built-in limit). They are not decoded yet. They are released when the book is closed."
         case .cellImages:
             return "An estimate of the pictures held by the cells of this list since it was last rebuilt. The list is rebuilt to let them go once they pass its budget. Some of them are the same pictures as in the caches, so this is not added to the totals."
         }

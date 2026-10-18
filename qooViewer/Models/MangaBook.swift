@@ -126,15 +126,11 @@ struct MangaBook: Identifiable, Hashable {
     var origin: BookOrigin = .fileSystem
 
     /// StackNest の本の参照ファイル(`.stacknestbook`)から開いた本なら、その中身(StackNestViewerKit の型。`pageCount` は
-    /// 参照ファイルに書かれた値で、正は下の `stackNestPageCount`)。ページは StackNest の API から読み
+    /// 参照ファイルに書かれた値で、ページ数の正は開いたときの manifest ―― `pages` の数)。ページは StackNest の API から読み
     /// (StackNestReferenceReader)、読み進めたページを書き戻す(部品の StackNestProgressReporter)。
     /// **鍵を含むのでメモリの中だけに置く** ―― MangaBook は保存されない(DB・ページ一覧のキャッシュ・保存データの書き出しは
     /// この値を読まない)。並びを組み直す所(ViewerViewModel.prepareBook)は必ず引き継ぐこと。
     var stackNestReference: StackNestBookReference? = nil
-    /// 参照ファイルの本のページ数(開いたときの manifest の値。除外・並べ替えの前)。サムネイルのディスクキャッシュの鍵が使う
-    /// (PageLoader.thumbnailDiskKey)。部品の参照の型は値を変えられないので、manifest の値はここに持つ。参照ファイルの本で
-    /// なければ nil。prepareBook は必ず引き継ぐこと。
-    var stackNestPageCount: Int? = nil
 
     /// StackNest の参照ファイルの本か。
     var isStackNestReference: Bool { stackNestReference != nil }
@@ -193,21 +189,24 @@ struct MangaBook: Identifiable, Hashable {
     /// ウインドウのビューア(ViewerViewModel)を作り直す単位としての本の同一性。ContentView がビューアの受け渡しを
     /// やり直すきっかけ(onChange の鍵)・ViewerView の `.id`・ViewerHandoff の「同じ本」の判定がこれを使う。
     ///
-    /// ふつうはパス(`id`)だけで決まる(`==` と同じ)。StackNest の参照ファイルの本は、同じパスでも参照(鍵)が替わったら
-    /// 別の本として扱う: StackNest は開き直すたびに同じパスへ新しい鍵で参照ファイルを書き直す。パスだけで比べていたときは、
+    /// ふつうはパス(`id`)だけで決まる(`==` と同じ)。StackNest の参照ファイルの本は、同じパスでも接続先か鍵
+    /// (`StackNestReferenceIdentity`)が替わったら別の本として扱う: StackNest は開き直すたびに同じパスへ新しい鍵で参照ファイルを
+    /// 書き直す。開くページ(`startPage`)・題名だけが違う書き直しでは作り直さない(2026-10-18 のレビュー: 以前は参照の全項目で
+    /// 比べていて、開く位置だけ違うファイルでも読み込み直していた)。パスだけで比べていたときは、
     /// 施錠が変わった後に部品の案内どおり「StackNest から開き直し」ても、本を表示していたウインドウのビューアが古いセッション
     /// (恒久的な失敗の記録・止まった書き戻しの役・知らせを 1 度に絞る控え)のまま残り、ページは黒いまま案内も出なかった。
     /// ページの並べ替え・除外で中身だけ変わった本は参照を引き継ぐ(ViewerViewModel.prepareBook)ので、同じ本のまま。
     /// シークレットフォルダかが変わった開き直しも別の本(ビューモデルの `skipsPersistence` は作るときに決まる)。
     var viewerIdentity: ViewerIdentity {
-        ViewerIdentity(id: id, isInSecretFolder: isInSecretFolder, stackNestReference: stackNestReference)
+        ViewerIdentity(
+            id: id, isInSecretFolder: isInSecretFolder, stackNestReference: stackNestReference.map(StackNestReferenceIdentity.init))
     }
 
-    /// `viewerIdentity` の値。参照(鍵を含む)はメモリの中で比べるだけで、どこにも書かない。
+    /// `viewerIdentity` の値。参照の同一性(鍵を含む)はメモリの中で比べるだけで、どこにも書かない。
     nonisolated struct ViewerIdentity: Hashable, Sendable {
         let id: String
         let isInSecretFolder: Bool
-        let stackNestReference: StackNestBookReference?
+        let stackNestReference: StackNestReferenceIdentity?
     }
 }
 

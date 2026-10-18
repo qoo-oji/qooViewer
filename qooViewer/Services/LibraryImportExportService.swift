@@ -444,7 +444,10 @@ enum LibraryImportExportService {
         guard let url = await FileIO.perform(qos: .utility, { locate(hints, identifies: false)?.url }) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        guard var book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList) else { return nil }
+        // StackNest の参照ファイルの本は通信しない(ページの鍵は番号で決まる。BookLoader.loadStackNestReferenceWithoutConnecting)。
+        guard var book = try? await BookLoader.load(
+            from: url, cachesPageList: cachesPageList, connectsToStackNest: false
+        ) else { return nil }
         let sourceURL = book.sourceURL
         book.sourceFacts = await FileIO.perform(qos: .utility) { BookSourceFacts.probe(sourceURL, makesBookmark: makesBookmark) }
         return book

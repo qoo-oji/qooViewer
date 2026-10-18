@@ -258,6 +258,8 @@ struct ViewerView: View {
     /// 「このページをエクスポート」の保存パネルを、いま出そうとしている最中かどうか。
     /// 同じパネルが入れ子で開くのを防ぐためだけの目印(exportImage(_:)参照)。
     @State private var isExportingImage = false
+    /// StackNest の本の 1 ページの書き出しで、保存パネルの前にページを取り寄せている間(待ちの回転表示を出す)。
+    @State private var isPreparingImageExport = false
 
     /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
     /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
@@ -915,6 +917,35 @@ struct ViewerView: View {
         case mergedSpread(leftIndex: Int, rightIndex: Int)
     }
 
+    /// StackNest の本の 1 ページの書き出し(`exportImage(.singlePage)` から。`isExportingImage` は立ててある)。
+    ///
+    /// ページの名前は仮のもの(`000041.jpg`)で、形式は中身からでないと決まらないので、保存パネルの**前に**ページを取り寄せ、
+    /// そのバイト列をそのまま書く(2026-10-18 のレビュー: 以前は形式を決めるための取り寄せとパネルの後の取り寄せで 2 回取り、
+    /// パネルが出るまで最長で数十秒、何も出さずに待った)。取り寄せている間は待ちの回転表示を出す。
+    private func exportStackNestPage(_ page: PageRef, at index: Int) {
+        isPreparingImageExport = true
+        Task {
+            defer { isExportingImage = false }
+            do {
+                let exportable = try await viewModel.exportableImage(at: index)
+                isPreparingImageExport = false
+                guard let exportable else {
+                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
+                    return
+                }
+                guard let url = await presentImageExportSavePanel(
+                    defaultFileName: ImageExporter.defaultFileName(for: page, fileExtension: exportable.fileExtension),
+                    contentType: ImageExporter.contentType(forExtension: exportable.fileExtension)
+                ) else { return }
+                let data = exportable.data
+                try await FileIO.perform { try ImageExporter.writeSinglePage(data: data, to: url) }
+            } catch {
+                isPreparingImageExport = false
+                imageExportErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     /// 画像のエクスポート本体。NSSavePanelで保存先を選んでもらってから、実際の画像の読み込み・
     /// (結合が必要な場合は)合成・書き込みを非同期に行う
     /// (パネルはこのウインドウのシート。WindowSheet)。パネルをキャンセルした場合は何もしない。
@@ -927,16 +958,18 @@ struct ViewerView: View {
             // 保存パネルを二重に開かない。すぐ下の理由でパネルが出るまでに`await`を1回挟むため、
             // その隙にもう一度この操作を起動できてしまう(パネルが出た後は WindowSheet が 2 つ目を断るが、
             // 出る前の隙はこの判定で塞ぐ)。ここから`isExportingImage`の代入までに中断点が無い。
-            guard !isExportingImage else { return }
+            guard !isExportingImage else { return UserFeedback.beep() }
             isExportingImage = true
             let page = viewModel.book.pages[index]
+            if viewModel.book.isStackNestReference {
+                exportStackNestPage(page, at: index)
+                return
+            }
             // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
             // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
             // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
-            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。ただし StackNest の参照ファイルの本の
-            // ページは名前が仮のもので、形式を中身から決めるため、パネルの前にページを取り寄せる(PageLoader.
-            // exportableImageFileExtension(at:))。表示中のページはふつう部品のセッションのキャッシュから返るが、無ければ
-            // 部品は要求を最大 3 件出し、要求ごとに waitLimit(25 秒)まで待つ。
+            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い(StackNest の本は上の
+            // exportStackNestPage。形式を中身から決めるため、パネルの前にページを取り寄せる)。
             Task {
                 defer { isExportingImage = false }
                 do {
@@ -977,7 +1010,7 @@ struct ViewerView: View {
             let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
             let leftKey = viewModel.book.pages[leftIndex].sortKey
             let rightKey = viewModel.book.pages[rightIndex].sortKey
-            guard !isExportingImage else { return }
+            guard !isExportingImage else { return UserFeedback.beep() }
             isExportingImage = true
             Task {
                 defer { isExportingImage = false }
@@ -1263,6 +1296,7 @@ struct ViewerView: View {
                     // ページの絵を待っている間・読めなかったとき(2026-10-06 の応答性の点検 R1-1・R1-14)。クリックは下へ通す
                     // (ページ送りのクリックゾーンを塞がない)。
                     .overlay { pageImageStatusOverlay }
+                    .overlay { remotePageSizeScanOverlay }
                     .contextMenu {
                         contextMenuContent
                     }
@@ -2761,7 +2795,7 @@ struct ViewerView: View {
     @ViewBuilder
     private var pageImageStatusOverlay: some View {
         Group {
-            if viewModel.isWaitingForPageImage {
+            if viewModel.isWaitingForPageImage || isPreparingImageExport {
                 ProgressView()
                     .controlSize(.large)
                     .padding(18)
@@ -2777,7 +2811,32 @@ struct ViewerView: View {
             }
         }
         .allowsHitTesting(false)
-        .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage)
+        .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage || isPreparingImageExport)
+    }
+
+    /// StackNest の本で、本全体に及ぶレイアウトの計算のためにページの寸法を取り寄せている間の進み具合と取り消し
+    /// (`ViewerViewModel.remotePageSizeScan`。2026-10-18 のレビュー: 以前は何も出さずに全ページを直列に取り寄せ、取り消せなかった)。
+    /// ページ領域の上に浮かべるだけで、パネルの面(PanelSurface)ではない(背景は不透明な素材)。ボタンは ViewerActionRelay を通す。
+    @ViewBuilder
+    private var remotePageSizeScanOverlay: some View {
+        if let scan = viewModel.remotePageSizeScan {
+            VStack(spacing: 10) {
+                Text("Getting page sizes from StackNest…")
+                    .font(.callout)
+                ProgressView(value: Double(scan.done), total: Double(max(scan.total, 1)))
+                    .frame(width: 220)
+                Text("\(scan.done) of \(scan.total) pages")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Button("Cancel") { [relay = actionRelay] in
+                    relay.send { $0.viewModel.cancelRemotePageSizeScan() }
+                }
+            }
+            .padding(18)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .transition(.opacity)
+        }
     }
 
     private var pageArea: some View {

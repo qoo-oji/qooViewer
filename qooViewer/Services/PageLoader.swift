@@ -261,7 +261,10 @@ actor PageLoader {
     ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
-        self.usesThumbnailDiskCache = usesThumbnailDiskCache
+        // StackNest の参照ファイルの本はサムネイルをディスクに残さない(2026-10-18 のレビュー): 鍵を掛けられる StackNest の
+        // ライブラリや中継したリモートの本のページの縮小画像が、StackNest の施錠や鍵の期限と関係なく qooViewer の Caches に
+        // 残り続ける。中身の目印(更新日時・大きさ)も無く、同じパスに別の本が来ると前の本の絵が出うる。メモリの上のキャッシュは使う。
+        self.usesThumbnailDiskCache = usesThumbnailDiskCache && book.stackNestReference == nil
         self.diskCaches = diskCaches
         self.stagesWholeFile = stagesWholeFile
         // ネットワークボリューム上の本を、開いたら残りを裏で手元へ取り寄せるか(読み進めるうちにいずれ全部要る。
@@ -310,6 +313,8 @@ actor PageLoader {
             thumbnailCache.memoryUsage(.thumbnails),
             gridThumbnailCache.memoryUsage(.gridThumbnails),
         ] + MemoryUsageItem.items(nestedArchives: nestedArchives)
+            // StackNest の本: 部品が持つ直近のページ(同じセッションを使う PageLoader のうち 1 つだけが届ける。StackNestSessions.Book)。
+            + (cachedStackNestReader?.book.memoryUsageItems(for: memoryOwnerID) ?? [])
     }
 
     /// 環境設定「メモリに残しておくページ画像」が変わったときにViewerViewModelから呼ぶ。
@@ -320,48 +325,22 @@ actor PageLoader {
 
     private func thumbnailDiskKey(maxPixelSize: CGFloat) async -> ThumbnailDiskCache.BookKey {
         if let cached = cachedThumbnailDiskKeys[maxPixelSize] { return cached }
+        // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
+        // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。問い合わせは本ごとに 1 回、`FileIO` の上で
+        // (`sourceFileAttributes`。2026-10-11 の規約監査 ―― 以前は actor の上、つまり協調スレッドプールで stat していた)。
+        // StackNest の参照ファイルの本はここへ来ない(ディスクキャッシュを使わない。init の usesThumbnailDiskCache)。
         let contrast = contrastCorrectionEnabled
-        let key: ThumbnailDiskCache.BookKey
-        if let stackNestKey = Self.stackNestThumbnailDiskKey(
-            for: book, contrastCorrectionEnabled: contrast, maxPixelSize: maxPixelSize
-        ) {
-            // 参照ファイルの本は、参照ファイルの属性を問い合わせない(開くたびに書き直されるので鍵にならない)。
-            key = stackNestKey
-        } else {
-            // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
-            // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。問い合わせは本ごとに 1 回、`FileIO` の上で
-            // (`sourceFileAttributes`。2026-10-11 の規約監査 ―― 以前は actor の上、つまり協調スレッドプールで stat していた)。
-            let attributes = await sourceFileAttributes()
-            key = ThumbnailDiskCache.BookKey(
-                bookID: book.id,
-                modificationDate: attributes.modificationDate,
-                fileSize: attributes.fileSize,
-                contrastCorrectionEnabled: contrast,
-                maxPixelSize: maxPixelSize
-            )
-        }
+        let attributes = await sourceFileAttributes()
+        let key = ThumbnailDiskCache.BookKey(
+            bookID: book.id,
+            modificationDate: attributes.modificationDate,
+            fileSize: attributes.fileSize,
+            contrastCorrectionEnabled: contrast,
+            maxPixelSize: maxPixelSize
+        )
         // 待っている間にコントラスト補正を切り替えられたら(`setContrastCorrectionEnabled` が控えを捨てる)、古い設定の鍵は控えない。
         if contrast == contrastCorrectionEnabled { cachedThumbnailDiskKeys[maxPixelSize] = key }
         return key
-    }
-
-    /// 参照ファイルの本のサムネイルのディスクキャッシュの鍵(参照ファイルの本でなければ nil)。参照ファイルの更新日時・大きさ・
-    /// 本の URL(中継の ID)は開くたびに変わるので、参照ファイルのパスと manifest のページ数で決める。stat もしない。
-    /// **本の URL を鍵に入れないこと**(thumbnailKeyIgnoresBookURL が押さえる)。
-    /// StackNest はリモートの本を 127.0.0.1 の中継(`…/relay/<毎回変わる ID>`)で渡すので、URL を入れると開くたびに別の鍵になり、
-    /// 全ページのサムネイルを作り直してディスクに溜めていく。鍵(token)も含めない。更新日時は無し、大きさの欄にページ数を入れる。
-    nonisolated static func stackNestThumbnailDiskKey(
-        for book: MangaBook, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat
-    ) -> ThumbnailDiskCache.BookKey? {
-        guard book.stackNestReference != nil else { return nil }
-        // 参照ファイルの本なら manifest のページ数は必ずある(BookLoader が入れ、prepareBook が引き継ぐ)。無ければ引き継ぎの
-        // 漏れなので Debug では止める。Release では今の並びのページ数で代える(除外すると鍵が変わり、キャッシュが
-        // 当たらなくなる)。
-        assert(book.stackNestPageCount != nil, "参照ファイルの本に manifest のページ数が無い(BookLoader か prepareBook の引き継ぎ漏れ)")
-        return ThumbnailDiskCache.BookKey(
-            bookID: book.id, modificationDate: nil, fileSize: Int64(book.stackNestPageCount ?? book.pages.count),
-            contrastCorrectionEnabled: contrastCorrectionEnabled, maxPixelSize: maxPixelSize
-        )
     }
 
     /// 本体の更新日時・大きさ(サムネイルのディスクキャッシュの鍵)。本ごとに 1 回だけ `FileIO` の上で問い合わせて控える。
@@ -440,6 +419,7 @@ actor PageLoader {
         // SwiftUIが旧世代を抱えているあいだ残り続けてしまうため ―― この型コメントに
         // 書いてある「書庫リーダーもここで閉じる」のと同じ理由。
         resolver.purgeAll()
+        cachedStackNestReader?.book.endMemoryReport(for: memoryOwnerID)
         cachedStackNestReader = nil
         pdfDocuments.removeAll()
         inMemoryPDFKeys.removeAll()
@@ -680,7 +660,7 @@ actor PageLoader {
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
             guard let data = await rawData(for: page.source) else { return nil }
             // 網越しのページの名前は仮のもの(exportableImageFileExtension(at:)のコメント)なので、拡張子は中身から。
-            let sniffed = isRemoteSource(page.source) ? ImageDecoder.fileExtension(sniffing: data) : nil
+            let sniffed = remoteReader(for: page.source) != nil ? ImageDecoder.fileExtension(sniffing: data) : nil
             return (data, sniffed ?? Self.fileExtension(forEntryPathOf: page))
         }
         guard let document = pdfDocument(for: container),
@@ -701,19 +681,19 @@ actor PageLoader {
     /// manifestに載っているのに実体の無いページが生まれる(EpubExportError.
     /// pageImageUnavailableのコメント参照)。書き出し先を作る前のこの段階で止めるほうがよい。
     ///
-    /// 網越しの本(StackNestの参照ファイルの本)のページだけは画像を取り寄せて中身から決める。エントリの名前は
-    /// ページ数から作った仮のもの(`000001.jpg`。StackNestReferenceReader)で、届く画像はPNG・WebPのこともある。
-    /// この本は本の書き出し(EPUB/CBZ)の対象外(MangaBook.canBeExported)なので、ここへ来るのは1ページの書き出しだけで、
-    /// 表示中のページは部品のセッションの短期キャッシュにあるため往復しないことが多い。取れなければ仮の名前の拡張子のまま
-    /// 進め、後のexportableImage(at:)がnilを返して「読み込めませんでした」になる。
+    /// 網越しの本(StackNestの参照ファイルの本)のページは、名前が仮のもの(`000001.jpg`。StackNestReferenceReader)で、
+    /// 届く画像はPNG・WebPのこともあるので、拡張子は中身からでないと決まらない。1ページの書き出し(ViewerView)は、この本では
+    /// これを使わず、先にexportableImage(at:)でバイト列ごと取り寄せる(取り寄せを1回にし、待ちを見せるため。2026-10-18)。
+    /// ここへ来た網越しのページは、取り寄せて中身から決める。取れなければ仮の名前の拡張子のまま進め、後の
+    /// exportableImage(at:)がnilを返して「読み込めませんでした」になる。
     func exportableImageFileExtension(at index: Int) async throws -> String {
         guard book.pages.indices.contains(index) else {
             throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: index + 1)
         }
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
-            if case .remote(let data) = await remoteBytes(for: page.source),
-               let sniffed = data.flatMap(ImageDecoder.fileExtension(sniffing:)) {
+            if remoteReader(for: page.source) != nil,
+               let sniffed = await rawData(for: page.source).flatMap(ImageDecoder.fileExtension(sniffing:)) {
                 return sniffed
             }
             return Self.fileExtension(forEntryPathOf: page)
@@ -804,14 +784,17 @@ actor PageLoader {
         case .archive(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }
             if let remote = reader as? any RemoteArchiveReading {
-                // 網越しの reader は先頭だけを読めない(1 ページが 1 往復)。全体を FileIO で取り、寸法もその場(FileIO の上)で読む。
-                // 取ったバイト列は本のセッション(StackNestViewerKit の StackNestBookSession)が直近の数ページぶん持っていて、
-                // 同じ本の reader はそのセッションを共有するので、続く表示の読み出しでは往復しない(StackNestSessions の型コメント)。
-                // actor の上では待たない(remoteBytes のコメント)。形はフォルダの本(上の `.file`)と同じ。
-                task = Task(priority: .utility) {
-                    await FileIO.perform(qos: .utility) {
-                        (try? remote.data(at: entryPath)).flatMap(ImageDecoder.pixelSize(of:))
-                    }
+                // 網越しの reader は先頭だけを読めない(1 ページが 1 往復)。全体を async の口で取り(背景の列。スレッドを
+                // 塞がない。StackNestRequestGate)、ヘッダーを actor の外で読む。ヘッダーは控える(headerInfoCache): 続く表示の
+                // デコードは同じバイト列からヘッダーを取り直さず、「情報を見る」も往復しない。取ったバイト列は部品のセッションも
+                // 直近の数ページぶん持つ(StackNestSessions の型コメント)。取り消し(releaseAllResources)は Task の取り消しで届く。
+                let source = page.source
+                task = Task(priority: .utility) { [weak self] in
+                    guard let data = try? await remote.pageData(at: entryPath, priority: .probe) else { return nil }
+                    let header = await Task.detached(priority: .utility) { ImageDecoder.headerInfo(of: data) }.value
+                    guard let header else { return nil }
+                    await self?.noteHeaderInfo(header, byteCount: data.count, for: source)
+                    return (width: header.pixelWidth, height: header.pixelHeight)
                 }
             } else {
                 // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
@@ -845,7 +828,7 @@ actor PageLoader {
         // 先読み)は「まだ判定できていないページ」として扱い、後で改めて問い合わせるだけなので
         // 実害は無い(キャッシュにも入っていないため、次回は正しく読み直される)。
         // 網越しの reader は最初から全体を取っている(取れなかったか寸法が読めない)ので、取り直さない。
-        if size == nil, !page.source.isFile, !isRemoteSource(page.source), let fullData = await rawData(for: page.source) {
+        if size == nil, !page.source.isFile, remoteReader(for: page.source) == nil, let fullData = await rawData(for: page.source) {
             size = await Task.detached(priority: .utility) {
                 ImageDecoder.pixelSize(of: fullData)
             }.value
@@ -1302,9 +1285,15 @@ actor PageLoader {
             let internalFolder = (entryPath as NSString).deletingLastPathComponent
             let archivePath = locator.displayPath
             let location = internalFolder.isEmpty ? archivePath : "\(archivePath)/\(internalFolder)"
+            // 網越しのページ(StackNest の本)の名前は仮のもの(`000041.jpg`)なので、拡張子と形式は中身から(2026-10-18 のレビュー:
+            // PNG のページも「JPEG」と出ていた)。
+            var fileName = page.displayName
+            if remoteReader(for: page.source) != nil, let sniffed = header.sniffedFileExtension {
+                fileName = ((fileName as NSString).deletingPathExtension as NSString).appendingPathExtension(sniffed) ?? fileName
+            }
             return PageImageInfo(
-                fileName: page.displayName,
-                formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
+                fileName: fileName,
+                formatDescription: Self.imageFormatDescription(forFileName: fileName),
                 pixelWidth: header.pixelWidth,
                 pixelHeight: header.pixelHeight,
                 colorModel: header.colorModel,
@@ -1609,19 +1598,27 @@ actor PageLoader {
     ) async -> PagePixelBuffer? {
         // 網越しのページ(StackNest の参照ファイルの本)は、デコードの枠を取る**前に**取り寄せる。枠は CPU とメモリの
         // ための絞り(最大 2)で、網の待ちに使うと、応答しない StackNest への先読み 1〜2 件が最長 25 秒枠を握り、表示要求が
-        // 待ち行列の先頭に出ても枠が空かない。同時に飛ぶ要求の数は URLSession のホストごとの接続数で抑えられる。
+        // 待ち行列の先頭に出ても枠が空かない。取り寄せの同時数は本ごとの門(StackNestRequestGate)が絞り、その許可は
+        // デコードが終わるまで持つ(2026-10-18 のレビュー: 門が無かったころは、頼まれた数だけスレッドが塞がり、取り寄せた
+        // バイト列が枠の数を超えて同時にメモリに載った)。待つのは async の口なので、スレッドは塞がない。
+        let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
+        var remotePermit: StackNestRequestGate.Permit?
+        defer { remotePermit?.release() }
         let prefetched: Data?
-        switch await remoteBytes(for: source) {
-        case .notRemote:
-            prefetched = nil
-        case .remote(let data):
-            guard let data else { return nil }
+        if let remote = remoteReader(for: source), case .archive(_, let entryPath) = source {
+            let priority: RemotePageReadPriority = isPrefetch ? .prefetch : (isFullSize ? .display : .thumbnail)
+            guard let permit = try? await remote.requestGate.acquire(priority.lane, key: waiterKey) else { return nil }
+            remotePermit = permit
+            guard let data = try? await remote.pageDataHoldingPermit(
+                at: entryPath, priority: permit.lane == .display ? .display : priority)
+            else { return nil }
             prefetched = data
+        } else {
+            prefetched = nil
         }
         guard !Task.isCancelled else { return nil }
         // フルサイズのデコードは同時実行数を絞る(decodeSlotsのコメント参照)。サムネイルは
         // 別の、より緩い枠で絞る(maxConcurrentThumbnailDecodesのコメント参照)。
-        let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
         if isFullSize {
             await acquireDecodeSlot(isPrefetch: isPrefetch, waiterKey: waiterKey)
         } else {
@@ -1731,6 +1728,8 @@ actor PageLoader {
     /// 網越しのページの先読みは、枠を取る前にバイト列を取り寄せている最中で、列にも走ってもいない。
     /// この関数は何もできないので、その読み込みが後で枠を待つとき、acquireDecodeSlot が合流済みかを見て表示要求の列へ並べる。
     private func promoteDecodeWaiter(forKey key: String) {
+        // 網越しのページの先読みがまだ取り寄せの門で待っていれば、表示の列へ移す(StackNestRequestGate.promote)。
+        cachedStackNestReader?.requestGate.promote(key: key)
         guard let index = prefetchDecodeWaiters.firstIndex(where: { $0.key == key }) else { return }
         urgentDecodeWaiters.append(prefetchDecodeWaiters.remove(at: index))
     }
@@ -1936,29 +1935,11 @@ actor PageLoader {
         return try? Data(contentsOf: url)
     }
 
-    /// 網越しの reader(StackNest の参照ファイルの本)のページかどうかと、そのバイト列。
-    private enum RemoteBytes {
-        /// 網越しの reader のページではない(今までどおり actor の上で読む)。
-        case notRemote
-        /// 網越しの reader のページ。取れなければ nil。
-        case remote(Data?)
-    }
-
-    /// 網越しの reader のページなら、バイト列を `FileIO` で取り寄せる。この actor の上では待たない: `data(at:)` は応答が返るまで
-    /// ブロックするので、ここで呼ぶと応答しない StackNest が最長 25 秒この actor(= 協調スレッド)を塞ぎ、この本のほかの読み出しも
-    /// キャッシュの操作も止まる。Sendable な reader なので actor の外(FileIO の借りたスレッド)へ渡してよい
-    /// (RemoteArchiveReading のコメント)。ほかの reader には触れずに `.notRemote` を返す。
-    private func remoteBytes(for source: PageSource) async -> RemoteBytes {
-        guard case .archive(let locator, let entryPath) = source,
-              let remote = reader(for: locator) as? any RemoteArchiveReading
-        else { return .notRemote }
-        return .remote(try? await FileIO.perform { try remote.data(at: entryPath) })
-    }
-
-    /// 網越しの reader のページか(読み出しはしない)。
-    private func isRemoteSource(_ source: PageSource) -> Bool {
-        guard case .archive(let locator, _) = source else { return false }
-        return reader(for: locator) is any RemoteArchiveReading
+    /// 網越しの reader(StackNest の参照ファイルの本)のページなら、その reader。ほかの reader には触れない
+    /// (作りもしない ―― 書庫の reader は `reader(for:)` が控えから返すだけなので、ここで呼んでも開き直さない)。
+    private func remoteReader(for source: PageSource) -> (any RemoteArchiveReading)? {
+        guard case .archive(let locator, _) = source else { return nil }
+        return reader(for: locator) as? any RemoteArchiveReading
     }
 
     /// 1 ページぶんの元のバイト列。
@@ -1972,9 +1953,9 @@ actor PageLoader {
         case .file(let url):
             return await FileIO.perform(qos: .userInitiated) { Self.readPageFile(at: url) }
         case .archive(let locator, let entryPath):
-            // 網越しの reader は actor の外で待つ(remoteBytes のコメント)。ほかの reader は今までどおり actor の中で、
-            // 待ちを挟まずに読む(この case の残り)。
-            if case .remote(let data) = await remoteBytes(for: source) { return data }
+            // 網越しの reader は async の口で待つ(表示の列。スレッドも actor も塞がない。StackNestRequestGate)。ほかの reader は
+            // 今までどおり actor の中で、待ちを挟まずに読む(この case の残り)。
+            if let remote = remoteReader(for: source) { return try? await remote.pageData(at: entryPath, priority: .display) }
             guard let reader = reader(for: locator) else { return nil }
             // 解凍爆弾よけ: 展開後サイズが上限を超えるエントリは読み込まない
             // (maxDecodableEntryBytesのコメント参照)。申告サイズを取れない形式でも、
@@ -2134,6 +2115,9 @@ actor PageLoader {
     /// 別のセッションになり、ページの読み出しで記録した恒久的な失敗がビューアに見えなかった。
     private func stackNestReader(for reference: StackNestBookReference, at url: URL) -> StackNestReferenceReader? {
         if let cachedStackNestReader { return cachedStackNestReader }
+        // 手放した後は作り直さない(2026-10-18 のレビュー: 手放した後に届いた寸法・情報・書き出しの要求が reader を作り直し、
+        // 手放したはずのセッションを PageLoader がまた握っていた)。
+        guard !isReleased else { return nil }
         let reader = try? StackNestReferenceReader(reference: reference, at: url)
         cachedStackNestReader = reader
         return reader

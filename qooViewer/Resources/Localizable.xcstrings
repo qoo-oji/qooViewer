@@ -1370,6 +1370,22 @@
         }
       }
     },
+    "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The layout wasn’t changed because the sizes of some pages couldn’t be got from StackNest."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest から一部のページの寸法を取り寄せられなかったため、レイアウトは変更しませんでした。"
+          }
+        }
+      }
+    },
     "The location of the next book didn’t respond. Try again later." : {
       "localizations" : {
         "en" : {
@@ -3569,6 +3585,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld件 / %2$lld件を表示中"
+          }
+        }
+      }
+    },
+    "%lld of %lld pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld of %lld pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld ページ"
           }
         }
       }
@@ -15877,6 +15909,22 @@
         }
       }
     },
+    "Getting page sizes from StackNest…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Getting page sizes from StackNest…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest からページの寸法を取り寄せています…"
+          }
+        }
+      }
+    },
     "Give the book a series name first" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23500,6 +23548,22 @@
         }
       }
     },
+    "Pages of a StackNest book received from StackNest and kept for a moment so that the same page isn’t fetched twice (up to 8 pages, against their built-in limit). They are not decoded yet. They are released when the book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages of a StackNest book received from StackNest and kept for a moment so that the same page isn’t fetched twice (up to 8 pages, against their built-in limit). They are not decoded yet. They are released when the book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本で、同じページを二度取り寄せないよう、StackNest から受け取ってしばらく持っておくページです(最大 8 ページ。組み込みの上限に対する量)。まだデコードしていないデータです。本を閉じると手放します。"
+          }
+        }
+      }
+    },
     "Pages outside the “Pages to preload before and after” range are being loaded ahead. Preloading should stay within that range." : {
       "localizations" : {
         "en" : {
@@ -29668,6 +29732,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正方形 (1:1)"
+          }
+        }
+      }
+    },
+    "StackNest pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest のページ"
           }
         }
       }

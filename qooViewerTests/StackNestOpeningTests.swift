@@ -35,7 +35,6 @@ struct StackNestOpeningTests {
         #expect(book.title == "Reference Title")
         #expect(book.pages.map(\.sortKey) == (0..<7).map(StackNestPageNaming.entryName(forPage:)))
         #expect(book.pages.map(\.id) == (0..<7).map { "\(fixture.referenceURL.path)#\(StackNestPageNaming.entryName(forPage: $0))" })
-        #expect(book.stackNestPageCount == 7)
         #expect(book.stackNestReference?.token == StackNestTestBook.token)
         // 本を文字列にしても鍵は出ない(入れ子の値は debugDescription で出る = <redacted>。将来 MangaBook に description が
         // 付いても守れるように固定しておく)。
@@ -115,23 +114,69 @@ struct StackNestOpeningTests {
         #expect(ViewerViewModel.stackNestStartPageID(for: plain) == nil)
     }
 
-    @Test("StackNest で読んでいたページ(startPage)から開き、qooViewer の記録より優先し、再開の確認は出さない")
+    /// アプリと同じく、開いたときの事実(sourceFacts。参照ファイルの更新日時)を持たせて読む。URL は作り直す(使い回した URL は
+    /// 前に読んだ更新日時を覚えている)。
+    private static func loadWithFacts(_ url: URL) async throws -> MangaBook {
+        let fresh = URL(fileURLWithPath: url.path)
+        var book = try await FixtureBook.load(fresh)
+        book.sourceFacts = await BookSourceFacts.gather(fresh, makesBookmark: false)
+        return book
+    }
+
+    @Test("StackNest が渡したばかりの参照ファイルなら、StackNest で読んでいたページ(startPage)から開き、qooViewer の記録より優先し、再開の確認は出さない")
     func opensAtStartPage() async throws {
         let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
         defer { fixture.close() }
+        // 書き直す前の参照ファイルの更新日時を過去にずらす(書き直しが qooViewer の記録より後になるよう、時間で待たずに)。
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: fixture.referenceURL.path
+        )
         let harness = try ViewerHarness()
         defer { harness.close() }
         harness.preferences.reopenBehavior = .ask
         // qooViewer 側の記録(2 ページ目)を先に作る。
-        let first = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let first = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
         first.jump(toPageIndex: 1)
         await first.settle()
         harness.close()
-        // StackNest が、ほかで読み進めた位置(4)で参照ファイルを書き直した。
+        // StackNest が、ほかで読み進めた位置(4)で参照ファイルを書き直した(更新日時は今 = 記録より後)。
         try fixture.writeReference(pageCount: 6, startPage: 4)
-        let reopened = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let reopened = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
         #expect(reopened.book.pages[reopened.currentIndex].sortKey == "000004.jpg")
         #expect(!reopened.needsResumeConfirmation)
+    }
+
+    @Test("qooViewer の履歴などから開き直したとき(参照ファイルが記録より古い)は、古い startPage ではなく qooViewer の読書位置から開く")
+    func reopeningFromHistoryKeepsTheQooViewerPosition() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        // StackNest が渡したのは 1 時間前(この後の qooViewer の記録より古い)。
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: fixture.referenceURL.path
+        )
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.reopenBehavior = .resume
+        let first = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
+        #expect(first.book.pages[first.currentIndex].sortKey == "000000.jpg")
+        first.jump(toPageIndex: 3)
+        await first.settle()
+        harness.close()
+        // 参照ファイルは書き直されていない(startPage は 0 のまま)。
+        let reopened = await harness.open(try await Self.loadWithFacts(fixture.referenceURL))
+        #expect(reopened.book.pages[reopened.currentIndex].sortKey == "000003.jpg")
+    }
+
+    @Test("startPage を使うかの判定: 記録が無ければ使う。記録があれば、参照ファイルが記録より新しいときだけ使う")
+    func startPageFreshness() {
+        let now = Date()
+        #expect(ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: nil, readingStateUpdatedAt: nil))
+        #expect(ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: now, readingStateUpdatedAt: nil))
+        #expect(ViewerViewModel.stackNestStartPageIsFresh(
+            referenceModifiedAt: now, readingStateUpdatedAt: now.addingTimeInterval(-1)))
+        #expect(!ViewerViewModel.stackNestStartPageIsFresh(
+            referenceModifiedAt: now.addingTimeInterval(-1), readingStateUpdatedAt: now))
+        #expect(!ViewerViewModel.stackNestStartPageIsFresh(referenceModifiedAt: nil, readingStateUpdatedAt: now))
     }
 
     @Test("ページを除外した本(並びを組み直した本)でも、参照ファイルの中身を落とさない")
@@ -145,8 +190,6 @@ struct StackNestOpeningTests {
         let viewer = await harness.open(book)
         #expect(viewer.book.pages.count == 5)
         #expect(viewer.book.stackNestReference?.bookURL == fixture.server.bookURL)
-        // manifest のページ数(除外の前)も引き継ぐ。落とすとサムネイルの鍵が除外の後の数になる。
-        #expect(viewer.book.stackNestPageCount == 6)
     }
 
     @Test(
@@ -420,13 +463,17 @@ struct StackNestOpeningTests {
 
     // MARK: - 同じ本を表示しているウインドウを前へ出すとき
 
-    @Test("同じパスの参照ファイルを読み直した中身が表示中の本と違うとき(StackNest が新しい鍵で書き直した)だけ、読み込み直す")
+    @Test("同じパスの参照ファイルを読み直した中身が表示中の本と違うとき(StackNest が新しい鍵で書き直した)だけ、読み込み直す。開く位置・題名だけの違いでは読み込み直さない")
     func rewrittenReferenceNeedsReload() async throws {
         let fixture = try StackNestTestBook(pageCount: 6)
         defer { fixture.close() }
         let shown = try await FixtureBook.load(fixture.referenceURL)
         let unchanged = try StackNestBookReference.load(contentsOf: fixture.referenceURL)
         #expect(!AppState.reloadsForStackNestReference(showing: shown, read: unchanged))
+        try fixture.writeReference(pageCount: 6, startPage: 4, title: "Renamed Title")
+        let movedOnly = try StackNestBookReference.load(contentsOf: fixture.referenceURL)
+        #expect(movedOnly.startPage == 4)
+        #expect(!AppState.reloadsForStackNestReference(showing: shown, read: movedOnly))
         try fixture.writeReference(token: "renewed-token-0123456789", pageCount: 6, startPage: 2)
         let rewritten = try StackNestBookReference.load(contentsOf: fixture.referenceURL)
         #expect(AppState.reloadsForStackNestReference(showing: shown, read: rewritten))
@@ -479,7 +526,7 @@ struct StackNestOpeningTests {
         await state.openTask?.value
         #expect(state.currentBook?.sourceURL.path == folder.path)
         #expect(state.reloadIfStackNestReferenceChanged(plainRequest) == nil)
-        withExtendedLifetime(preferences) {}
+        withExtendedLifetime((preferences, recentFiles)) {}
     }
 
     @Test("参照ファイルを読んでいる間に、このウインドウで後から頼まれた本が勝つ: 読み終えても古い本を読み込み直さず、後の本を取り消さない")
@@ -496,7 +543,8 @@ struct StackNestOpeningTests {
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata
-        state.recentFiles = RecentFilesStore(defaults: suite.defaults)
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        state.recentFiles = recentFiles
         let request = BookOpenRequest(fixture.referenceURL)
         state.open(request: request)
         await state.openTask?.value
@@ -520,7 +568,101 @@ struct StackNestOpeningTests {
         state.open(request: BookOpenRequest(folder), intent: newer)
         await state.openTask?.value
         #expect(state.currentBook?.sourceURL.path == folder.path)
-        withExtendedLifetime(preferences) {}
+        withExtendedLifetime((preferences, recentFiles)) {}
+    }
+
+    @Test("読み込み直しが要らない(参照ファイルが同じ)ときは、このウインドウで先に待っていた「開く」を捨てさせない")
+    func unchangedReferenceDoesNotDropAPendingOpen() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        let library = try InMemoryLibrary(label: "stacknest-reopen-pending")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "stacknest-reopen-pending")
+        let preferences = suite.makePreferences()
+        let state = AppState(isPrivateWindow: false, usesPageListCache: false)
+        state.preferences = preferences
+        state.favoritesStore = library.favorites
+        state.bookmarkStore = library.bookmarks
+        state.layoutStore = library.layouts
+        state.metadataStore = library.metadata
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        state.recentFiles = recentFiles
+        let request = BookOpenRequest(fixture.referenceURL)
+        state.open(request: request)
+        await state.openTask?.value
+        // このウインドウで、待ってから開く入口が先に待ち始めている(兄弟の探索など)。
+        let pending = state.beginOpenIntent()
+        // その間に、同じ本を開く別の要求が来た(参照ファイルは書き直されていない)。
+        await state.reloadIfStackNestReferenceChanged(request)?.value
+        await state.openTask?.value
+        // 先に待っていた入口は、まだ開いてよい。
+        #expect(state.isStillWanted(pending))
+        withExtendedLifetime((preferences, recentFiles)) {}
+    }
+
+    @Test("読み込み直しは、頼んだ側の一覧の並びを持ち込まない(このウインドウの並びのまま)")
+    func reloadKeepsThisWindowsSequence() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        let library = try InMemoryLibrary(label: "stacknest-reopen-sequence")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "stacknest-reopen-sequence")
+        let preferences = suite.makePreferences()
+        let state = AppState(isPrivateWindow: false, usesPageListCache: false)
+        state.preferences = preferences
+        state.favoritesStore = library.favorites
+        state.bookmarkStore = library.bookmarks
+        state.layoutStore = library.layouts
+        state.metadataStore = library.metadata
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        state.recentFiles = recentFiles
+        state.open(request: BookOpenRequest(fixture.referenceURL))
+        await state.openTask?.value
+        #expect(state.bookSequence == nil)
+        // 別のウインドウの一覧(並び)から同じ本が頼まれ、StackNest は参照ファイルを書き直していた。
+        let sequence = try #require(BookSequence(
+            entries: [.file(path: fixture.referenceURL.path), .file(path: fixture.temporary.file("Other.cbz").path)], position: 0
+        ))
+        let foreign = BookOpenRequest(fixture.referenceURL, sequence: sequence)
+        try fixture.writeReference(token: "renewed-token-0123456789", pageCount: 6, startPage: 2)
+        await state.reloadIfStackNestReferenceChanged(foreign)?.value
+        await state.openTask?.value
+        #expect(state.currentBook?.stackNestReference?.token == "renewed-token-0123456789")
+        #expect(state.bookSequence == nil)
+        withExtendedLifetime((preferences, recentFiles)) {}
+    }
+
+    @Test("保存データの書き出し・取り込みの読み込みは、参照ファイルの本でも StackNest に問い合わせない(ページは参照ファイルのページ数で組む)")
+    func offlineLoadDoesNotConnect() async throws {
+        let fixture = try StackNestTestBook(pageCount: 5)
+        defer { fixture.close() }
+        fixture.setPageCount(9)
+        let book = try await BookLoader.load(from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false)
+        #expect(fixture.requests.isEmpty)
+        #expect(book.pages.map(\.sortKey) == (0..<5).map(StackNestPageNaming.entryName(forPage:)))
+        #expect(book.id == fixture.referenceURL.path)
+        // 期限が切れた参照ファイルでも、ページの鍵は組める(通信しないので期限は見ない)。
+        try fixture.writeReference(pageCount: 5, startPage: 0, expiresAt: Date().addingTimeInterval(-60))
+        let expired = try await BookLoader.load(from: fixture.referenceURL, cachesPageList: false, connectsToStackNest: false)
+        #expect(expired.pages.count == 5)
+        #expect(fixture.requests.isEmpty)
+    }
+
+    @Test("コレクションの登録の要(makePendingItem)は、実ファイルの参照ファイルを断る(同じ名前のフォルダは本として通す)")
+    func pendingItemRefusesReferenceFiles() throws {
+        let fixture = try StackNestTestBook()
+        defer { fixture.close() }
+        #expect(CollectionStore.makePendingItem(for: fixture.referenceURL) == nil)
+        let folder = fixture.temporary.file("Looks Like.stacknestbook")
+        try FixtureFolder.make(at: folder, pages: [.init("001.png", number: 1)])
+        #expect(CollectionStore.makePendingItem(for: folder) != nil)
+    }
+
+    @Test("起動時の掃除は参照ファイルの本を見ない(フォルダでありうる本の候補に入れない)")
+    func sweepersSkipReferenceBooks() {
+        let reference = "/架空の置き場/Sample Book.stacknestbook"
+        let folder = "/架空の棚/月の庭"
+        #expect(NonBookFolderSweeper.candidates(in: [reference, folder]) == [folder])
     }
 }
 

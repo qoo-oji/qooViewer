@@ -79,20 +79,24 @@ else
     ok "sparkle: exactVersion $sparkle_version @ ${sparkle_revision:0:10}"
 fi
 
-# StackNestViewerKit(StackNest の本の参照ファイルを読む部品)はリリースのタグで、upToNextMinorVersion で使う(docs/11)。
-# 0.x の間は minor で壊す変更がありうるので、upToNextMajorVersion に広げない。
+# StackNestViewerKit(StackNest の本の参照ファイルを読む部品)は **正確な版**(exactVersion)で使う(docs/11)。作者 1 人の
+# 新しいパッケージで、コードはファイルの権限を持つアプリ本体の中で動くので、Sparkle と同じく版を上げるのは中身を読んでから手で。
+# Package.resolved の版も project.pbxproj の版と一致すること(パッケージの解決が新しい版を拾っていないこと)。
 kit_location=$(jq -r '.pins[] | select(.identity == "stacknestviewerkit") | .location // ""' "$file")
 kit_version=$(jq -r '.pins[] | select(.identity == "stacknestviewerkit") | .state.version // ""' "$file")
+kit_revision=$(jq -r '.pins[] | select(.identity == "stacknestviewerkit") | .state.revision // ""' "$file")
 kit_requirement=$(awk '/XCRemoteSwiftPackageReference "StackNestViewerKit" \*\/ = \{/ { on = 1 } on && /kind = / { gsub(/[ \t;]/, ""); print; exit }' \
+    qooViewer.xcodeproj/project.pbxproj)
+kit_required_version=$(awk '/XCRemoteSwiftPackageReference "StackNestViewerKit" \*\/ = \{/ { on = 1 } on && /version = / { gsub(/[ \t;]/, ""); sub(/^version=/, ""); print; exit }' \
     qooViewer.xcodeproj/project.pbxproj)
 if [ "$kit_location" != "https://github.com/shelfsmith/StackNestViewerKit" ]; then
     fail "stacknestviewerkit の location が '$kit_location'(期待: https://github.com/shelfsmith/StackNestViewerKit)"
-elif [ "$kit_requirement" != "kind=upToNextMinorVersion" ]; then
-    fail "StackNestViewerKit の requirement が upToNextMinorVersion ではない: '$kit_requirement'"
-elif [ -z "$kit_version" ]; then
-    fail "stacknestviewerkit がリリースの version で固定されていない"
+elif [ "$kit_requirement" != "kind=exactVersion" ]; then
+    fail "StackNestViewerKit の requirement が exactVersion ではない: '$kit_requirement'"
+elif [ -z "$kit_version" ] || [ "$kit_version" != "$kit_required_version" ]; then
+    fail "stacknestviewerkit の Package.resolved の版 '$kit_version' が project.pbxproj の exactVersion '$kit_required_version' と違う"
 else
-    ok "stacknestviewerkit: version $kit_version"
+    ok "stacknestviewerkit: exactVersion $kit_version @ ${kit_revision:0:10}"
 fi
 
 finish

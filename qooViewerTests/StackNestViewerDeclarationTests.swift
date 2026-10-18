@@ -64,25 +64,28 @@ struct StackNestViewerDeclarationTests {
         #expect((archives["CFBundleTypeExtensions"] as? [String])?.contains("stacknestbook") == false)
     }
 
-    @Test("ATS: ローカルの通信だけ平文の HTTP を許す(何でも許す NSAllowsArbitraryLoads は使わない)")
-    func allowsOnlyLocalNetworking() throws {
+    @Test("アプリ本体は ATS の例外を持たない(通信しない)。StackNestConnector.xpc の ATS はローカルの平文の HTTP だけ")
+    func atsLivesOnlyInTheConnector() throws {
         let plist = try Self.builtInfoPlist()
-        let ats = try #require(plist["NSAppTransportSecurity"] as? [String: Any])
+        #expect(plist["NSAppTransportSecurity"] == nil)
+        let serviceName = try #require(plist[StackNestConnectorClient.serviceNameInfoKey] as? String)
+        #expect(serviceName == "\(try #require(Bundle.main.bundleIdentifier)).StackNestConnector")
+        let connector = Bundle.main.bundleURL.appending(path: "Contents/XPCServices/StackNestConnector.xpc")
+        let connectorPlist = try #require(NSDictionary(contentsOf: connector.appending(path: "Contents/Info.plist")) as? [String: Any])
+        #expect(connectorPlist["CFBundleIdentifier"] as? String == serviceName)
+        let ats = try #require(connectorPlist["NSAppTransportSecurity"] as? [String: Any])
+        #expect(ats.keys.sorted() == ["NSAllowsLocalNetworking"])
         #expect(ats["NSAllowsLocalNetworking"] as? Bool == true)
-        #expect(ats["NSAllowsArbitraryLoads"] == nil)
-        #expect(ats["NSAllowsArbitraryLoadsInWebContent"] == nil)
-        #expect(ats["NSAllowsArbitraryLoadsForMedia"] == nil)
     }
 
-    @Test("サンドボックスのまま、外への接続(network.client)だけを持つ")
-    func hasTheNetworkClientEntitlement() throws {
+    @Test("アプリ本体はサンドボックスのまま、通信の entitlement を持たない(外への接続を持つのは StackNestConnector.xpc だけ)")
+    func appHasNoNetworkEntitlement() throws {
         let task = try #require(SecTaskCreateFromSelf(nil))
         func value(_ key: String) -> Bool? {
             SecTaskCopyValueForEntitlement(task, key as CFString, nil) as? Bool
         }
         #expect(value("com.apple.security.app-sandbox") == true)
-        #expect(value("com.apple.security.network.client") == true)
-        // 待ち受け(server)は要らない。
+        #expect(value("com.apple.security.network.client") != true)
         #expect(value("com.apple.security.network.server") != true)
     }
 }

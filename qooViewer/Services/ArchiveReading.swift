@@ -133,15 +133,23 @@ protocol ArchiveReading {
 
 /// 網越しに読む reader(StackNest の参照ファイルの本)。
 ///
-/// `ArchiveReading` は同期の API なので、この reader の `listFilePaths()`・`data(at:)` は応答が返るまでその場で待つ。
-/// PageLoader(actor)の上で呼ぶと協調スレッドを塞ぐ(FileIO の型コメント)ので、PageLoader はこの印の付いた reader だけを
-/// `FileIO.perform` で待つ。`Sendable`(どのスレッドから呼んでもよい作り)であることを印の条件にする ―― ほかの reader は
+/// ページは `pageData(at:priority:)` / `pageDataHoldingPermit(at:priority:)` で **async に**待つ(スレッドを塞がない)。
+/// 要求の同時数は `requestGate` が絞る(StackNestRequestGate の型コメント。以前はページごとに `FileIO` のスレッドを塞いで待ち、
+/// 頼まれた数だけスレッドが増えた)。`ArchiveReading` の同期の口は応答が返るまでその場で待つので、PageLoader(actor)からは呼ばない。
+/// `Sendable`(どのスレッドから呼んでもよい作り)であることを印の条件にする ―― ほかの reader は
 /// スレッドセーフでなく actor の中から出せない。
 ///
 /// `nonisolated` を付ける: 既定の分離が MainActor なので、付けないと準拠が MainActor に分離されたものと推論されうる。そうなると
 /// PageLoader(actor)の上での `as? any RemoteArchiveReading` が実行時に失敗し(分離された準拠への動的なキャストは、その
 /// actor の外では成り立たない)、網越しの reader が actor の上で読まれる。
-nonisolated protocol RemoteArchiveReading: ArchiveReading, Sendable {}
+nonisolated protocol RemoteArchiveReading: ArchiveReading, Sendable {
+    /// この本の要求の同時数の門。
+    var requestGate: StackNestRequestGate { get }
+    /// 1 ページのバイト列(門の許可を取ってから待つ)。
+    func pageData(at path: String, priority: RemotePageReadPriority) async throws -> Data
+    /// 呼び出し側が門の許可を持っているときの `pageData(at:priority:)`。
+    func pageDataHoldingPermit(at path: String, priority: RemotePageReadPriority) async throws -> Data
+}
 
 extension ArchiveReading {
     /// dataPrefix(at:maxByteCount:)の既定実装(プロトコルのコメント参照)。

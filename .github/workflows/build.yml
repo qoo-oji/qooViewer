@@ -246,8 +246,9 @@ jobs:
             *) echo "::error::expected a universal binary (arm64 + x86_64), got: $archs"; exit 1 ;;
           esac
           codesign --verify --strict --verbose=2 "$app"
-          # 自動アップデート(Sparkle)の約束: 署名の確かめを緩めていない・本体の通信の entitlement は StackNest の宣言があるときの外への接続だけ・公開鍵が入っている、など
-          # (docs/10「自動アップデート」)。配布前に手元で make-appcast.sh が呼ぶものと同じ。
+          # 自動アップデート(Sparkle)と通信の約束: 署名の確かめを緩めていない・本体に通信の entitlement が無い・公開鍵が入っている・
+          # StackNestConnector.xpc の権限は App Sandbox と外への接続だけ、など(docs/10「自動アップデート」「StackNest の本と通信」)。
+          # 配布前に手元で make-appcast.sh が呼ぶものと同じ。
           scripts/release/check-release-app.sh "$app"
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/qooViewer.zip"
           shasum -a 256 "$RUNNER_TEMP/qooViewer.zip"

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>XPCService</key>
+	<dict>
+		<key>ServiceType</key>
+		<string>Application</string>
+	</dict>
+	<!--
+	  StackNest の本の API はこの Mac(127.0.0.1／::1)の平文の HTTP。通す宛先と形は StackNestConnectorPolicy が決め、
+	  ATS で許すのはローカルへの平文の HTTP だけ(NSAllowsArbitraryLoads の類は使わない。scripts/release/check-release-app.sh)。
+	  アプリ本体の Info.plist には NSAppTransportSecurity を置かない(本体は通信しない)。
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

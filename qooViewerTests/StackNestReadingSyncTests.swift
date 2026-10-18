@@ -123,3 +123,34 @@ struct StackNestReadingSyncTests {
         #expect(reader.book === held)
     }
 }
+
+/// 終了のときの送り切り(StackNestQuitFlush)。
+@MainActor
+struct StackNestQuitFlushTests {
+    @Test("終了のときは、送っていない位置をメインキューを使わずに送り切る(メインの仕事の中から呼んでも止まらない)")
+    func flushesWithoutTheMainQueue() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let progress = try #require(viewer.stackNestProgress)
+        let session = try #require(viewer.stackNestBook?.session)
+        let flush = StackNestQuitFlush()
+        flush.register(owner: viewer, reporter: progress, session: session) { 3 }
+        viewer.jump(toPageIndex: 3)
+        await viewer.settle()
+        #expect(progress.hasUnsentWork)
+        #expect(fixture.progressPages.isEmpty)
+        // このテストはメインアクター(= メインキューの仕事)の上: ここで待つ作りなら、送りがメインを要るときに止まる。
+        let started = ContinuousClock.now
+        #expect(flush.flushBlocking(timeout: 2) == 1)
+        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(fixture.progressPages == [3])
+        // 送るものが無ければ待たない。
+        flush.unregister(owner: viewer)
+        #expect(flush.flushBlocking(timeout: 2) == 0)
+        progress.close()
+        await progress.waitUntilIdle()
+    }
+}

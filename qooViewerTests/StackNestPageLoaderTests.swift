@@ -7,8 +7,8 @@ import Testing
 @testable import qooViewer
 
 /// 参照ファイルの本を PageLoader で読む。網越しの読み出しが actor(協調スレッド)もデコードの枠も塞がないこと、寸法と
-/// 表示で同じページを 2 度取らないこと、ComicInfo.xml を探しに行かないこと、サムネイルの鍵が参照ファイルの書き直しで
-/// 変わらないことを固定する。
+/// 表示で同じページを 2 度取らないこと、ComicInfo.xml を探しに行かないこと、取り寄せの同時数の門(StackNestRequestGate)、
+/// サムネイルをディスクに残さないこと、リソースモニタへの届け出を固定する。
 struct StackNestPageLoaderTests {
     @Test("網越しのページを待っているあいだも、PageLoader の actor は塞がらない")
     func remoteFetchDoesNotBlockTheActor() async throws {
@@ -139,7 +139,7 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
-    @Test("シークバーのサムネイルも網越しの読み出しを FileIO で待つ(部品の同期の読み手は、メインスレッド・Task の中では Debug で止まる)")
+    @Test("シークバーのサムネイルも網越しの読み出しを async の口で待つ(部品の同期の読み手は、メインスレッド・Task の中では Debug で止まる)")
     func remoteThumbnailIsFetchedOffTheActor() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)
         defer { fixture.close() }
@@ -193,80 +193,104 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
-    @Test("サムネイルのディスクキャッシュの鍵: 渡すたびに変わる本の URL(中継の ID・ポート)では変わらず、参照ファイルのパスと manifest のページ数で決まる")
-    func thumbnailKeyIgnoresBookURL() throws {
-        let path = "/private/tmp/Sample Book.stacknestbook"
-        // 同じ参照ファイルのパス・同じページ数で、本の URL と鍵だけが違う本(別の手渡し)。鍵は PageLoader と同じ道で作る。
-        func book(relay: String, port: Int, pageCount: Int = 6, path: String = path) throws -> MangaBook {
-            let url = try #require(URL(string: "http://127.0.0.1:\(port)/api/v1/relay/\(relay)"))
-            let reference = try StackNestBookReference(
-                version: 1, title: "t", bookURL: url, token: "token-\(relay)",
-                expiresAt: Date(timeIntervalSince1970: 2_000_000_000), pageCount: 6, direction: .rightToLeft, startPage: 0
-            )
-            var book = MangaBook(id: path, title: "t", sourceURL: URL(fileURLWithPath: path), pages: [])
-            book.stackNestReference = reference
-            book.stackNestPageCount = pageCount
-            return book
-        }
-        func key(_ book: MangaBook) throws -> String {
-            try #require(PageLoader.stackNestThumbnailDiskKey(for: book, contrastCorrectionEnabled: false, maxPixelSize: 160)).fingerprint
-        }
-        let first = try book(relay: "AAAAAAAA-0000-0000-0000-000000000001", port: 51234)
-        let second = try book(relay: "BBBBBBBB-0000-0000-0000-000000000002", port: 51999)
-        #expect(first.stackNestReference?.bookURL != second.stackNestReference?.bookURL)
-        #expect(try key(first) == key(second))
-        // manifest のページ数が変われば別の鍵(参照ファイルに書かれたページ数ではなく)。
-        #expect(try key(first) != key(book(relay: "AAAAAAAA-0000-0000-0000-000000000001", port: 51234, pageCount: 7)))
-        #expect(try key(first) != key(book(relay: "AAAAAAAA-0000-0000-0000-000000000001", port: 51234, path: "/private/tmp/Other Book.stacknestbook")))
-    }
-
-    @Test("サムネイルのディスクキャッシュは、参照ファイルが書き直された(別の鍵・別の中継の URL)本を開き直しても当たる")
-    func thumbnailDiskCacheSurvivesAReopenedReference() async throws {
+    @Test("参照ファイルの本のサムネイルはディスクに残さない(鍵を掛けられるライブラリの絵を、施錠や期限と関係なく残さない)")
+    func noThumbnailDiskCache() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)
         defer { fixture.close() }
-        // 作業フォルダの中のディスクキャッシュ(`.shared` は使わない)。注入したサムネイルのキャッシュは既定で無効なので有効にする
-        // (DiskCacheInjectionTests と同じ)。
+        // 作業フォルダの中のディスクキャッシュ(`.shared` は使わない)を有効にしておく(DiskCacheInjectionTests と同じ)。
         let caches = BookDiskCaches(directory: fixture.temporary.file("caches"))
         await caches.thumbnails.configure(isEnabled: true, maxTotalBytes: 16 * 1024 * 1024, generation: 1)
-        let thumbnails = caches.thumbnails
-        let maxPixelSize = ImageDecoder.progressBarThumbnailMaxPixelSize
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: true, diskCaches: caches)
+        let thumbnail = await loader.thumbnail(at: 0)
+        #expect(thumbnail.flatMap { PageColorReader.number(in: $0) } == 1)
+        // 書き込みは待たない作りなので、少し待ってから何も書かれていないことを見る。
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await caches.thumbnails.totalBytes() == 0)
+        await loader.releaseAllResources()
+    }
 
-        let first = try await FixtureBook.load(fixture.referenceURL)
-        let firstPageID = first.pages[0].id
-        let firstKey = try #require(
-            PageLoader.stackNestThumbnailDiskKey(for: first, contrastCorrectionEnabled: false, maxPixelSize: maxPixelSize)
-        )
-        let writer = PageLoader(book: first, usesThumbnailDiskCache: true, diskCaches: caches)
-        let made = try #require(await writer.thumbnail(at: 0))
-        #expect(PageColorReader.number(in: made) == 1)
-        // 書き込みは待たない作り(PageLoader.thumbnail(at:))なので、見えるまで待つ。PageLoader が参照ファイルの属性で鍵を
-        // 作っていれば、ここで別の鍵に書かれていて見えない。
-        #expect(await eventually { await thumbnails.hasThumbnail(bookKey: firstKey, pageID: firstPageID) })
-        await writer.releaseAllResources()
+    @Test("先読み・サムネイル・寸法の取り寄せは、本ごとに同時 4 件まで(残りはスレッドを塞がずに門で待つ)")
+    func backgroundFetchesAreLimited() async throws {
+        let fixture = try StackNestTestBook(pageCount: 8)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<8).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let thumbnails = (0..<8).map { index in Task { await loader.thumbnail(at: index) } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 4 })
+        #expect(shared.gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit)
+        // 門を通った 4 件だけが見立てに届く。
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(fixture.pageRequestIndices.count == 4)
+        gates.forEach { $0.open() }
+        for task in thumbnails { _ = await task.value }
+        #expect(Set(fixture.pageRequestIndices) == Set(0..<8))
+        #expect(shared.gate.inUseCount(.background) == 0)
+        await loader.releaseAllResources()
+    }
 
-        // StackNest が開き直したときと同じく、同じパスへ別の鍵・別の中継の URL で書き直す(更新日時と大きさが変わる。鍵の
-        // 長さを変えて大きさも確かに変える)。見立ては宛先のホストを見ずに道で応えるので、ポートだけを変える。
-        var components = try #require(URLComponents(url: fixture.server.bookURL, resolvingAgainstBaseURL: false))
-        components.port = 51999
-        let relayedURL = try #require(components.url)
-        try fixture.writeReference(
-            token: "test-token-reopened-0123456789abcdef", pageCount: 3, startPage: 0, bookURL: relayedURL
-        )
-        // 開き直しは新しい URL の値で(アプリでも開くたびに別の値が来る)。URL は問い合わせた属性を覚えているので、同じ値を
-        // 使い回すと、参照ファイルの属性で鍵を作る道でも書き直しが見えず、ディスクのサムネイルが当たってしまう。
-        let reopened = try await FixtureBook.load(URL(fileURLWithPath: fixture.referenceURL.path))
-        #expect(reopened.stackNestReference?.bookURL != first.stackNestReference?.bookURL)
-        #expect(reopened.pages[0].id == firstPageID)
-        let reopenedKey = try #require(
-            PageLoader.stackNestThumbnailDiskKey(for: reopened, contrastCorrectionEnabled: false, maxPixelSize: maxPixelSize)
-        )
-        #expect(await thumbnails.hasThumbnail(bookKey: reopenedKey, pageID: firstPageID))
+    @Test("背景の取り寄せが止まって門を埋めていても、表示のページは表示の列で取り寄せる")
+    func displayIsNotStuckBehindBackgroundFetches() async throws {
+        let fixture = try StackNestTestBook(pageCount: 8)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<6).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let thumbnails = (0..<6).map { index in Task { await loader.thumbnail(at: index) } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        #expect(await Self.waitUntil { shared.gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit })
+        var waited = false
+        let display = Task { await loader.pageImage(at: 7).flatMap { PageColorReader.number(in: $0) } }
+        do {
+            _ = try await FileIO.withDeadline(.seconds(3)) { await display.value }
+        } catch {
+            waited = true
+        }
+        gates.forEach { $0.open() }
+        for task in thumbnails { _ = await task.value }
+        #expect(!waited, "背景の取り寄せの後ろで表示のページが待った")
+        #expect(await display.value == 8)
+        await loader.releaseAllResources()
+    }
 
-        // 開き直した本の PageLoader も、StackNest に取りに行かずディスクから返す(0 番の応答を断っておく)。
-        fixture.server.respond(.page(0), with: .status(404))
-        let reader = PageLoader(book: reopened, usesThumbnailDiskCache: true, diskCaches: caches)
-        let fromDisk = await reader.thumbnail(at: 0)
-        #expect(fromDisk.flatMap { PageColorReader.number(in: $0) } == 1)
-        await reader.releaseAllResources()
+    @Test("リソースモニタ: 部品が持つ直近のページを、同じセッションを使う PageLoader のうち 1 つだけが届ける")
+    func memoryItemsAreReportedOnce() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let first = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let second = PageLoader(book: book, usesThumbnailDiskCache: false)
+        _ = await first.pageImage(at: 0)
+        _ = await second.pageImage(at: 1)
+        let firstItems = await first.memoryUsageItems().filter { $0.kind == .stackNestPages }
+        let secondItems = await second.memoryUsageItems().filter { $0.kind == .stackNestPages }
+        #expect(firstItems.count + secondItems.count == 1)
+        let item = try #require((firstItems + secondItems).first)
+        #expect(item.count == 2)
+        #expect(item.usedBytes > 0)
+        // 届けていた側が手放したら、もう一方が届ける。
+        let reporter = firstItems.isEmpty ? second : first
+        let other = firstItems.isEmpty ? first : second
+        await reporter.releaseAllResources()
+        #expect(await other.memoryUsageItems().filter { $0.kind == .stackNestPages }.count == 1)
+        await other.releaseAllResources()
+    }
+
+    @Test("手放した後の PageLoader は、参照ファイルの本の reader を作り直さない(セッションを握り直さない)")
+    func releasedLoaderDoesNotRecreateTheReader() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        await loader.releaseAllResources()
+        #expect(try await loader.exportableImage(at: 0) == nil)
+        #expect(await loader.pageSize(at: 1) == nil)
+        #expect(fixture.pageRequestIndices.isEmpty)
     }
 }

@@ -15,10 +15,10 @@ import Sparkle
 /// - メニューの淡色に使う `canCheckForUpdates` を写して publish する(`AppStores.allObjectWillChangePublishers`
 ///   に並べてあるので、メニューの作り直しは MenuBarMenuGate を通る)。
 ///
-/// ■ 更新の通信はアプリ本体ではしない
-/// アプリ本体の通信の entitlement は外への接続(client)だけで、StackNest の本の API(この Mac の 127.0.0.1／::1)
-/// のためにある(docs/10)。更新は Sparkle の Downloader.xpc に取りに行かせる(Info.plist の `SUEnableDownloaderService`)
-/// ので、Sparkle は本体の権限を使わない。
+/// ■ 通信はアプリ本体ではしない
+/// このアプリの本体は一切通信しない(ネットワークの entitlement が無い)。Sparkle の Downloader.xpc に
+/// 取りに行かせる(Info.plist の `SUEnableDownloaderService`)ので、本体のサンドボックスは今まで通り閉じたまま
+/// (StackNest の本の API への要求も、アプリに入れた XPC サービス StackNestConnector.xpc が出す。docs/10)。
 /// インストールも Installer.xpc 経由(`SUEnableInstallerLauncherService` + Configurations/qooViewer.entitlements)。
 ///
 /// ■ テストの中では起動しない

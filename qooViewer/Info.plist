@@ -42,16 +42,13 @@
 		</dict>
 	</array>
 	<!--
-	  qooViewer が StackNest の本を読むときの接続先は、参照ファイルに書かれた 127.0.0.1(この Mac の StackNest)だけ。
-	  リモートの本は StackNest が 127.0.0.1 で中継するので、Tailscale や公開の宛先へは直接繋がない。NSAllowsLocalNetworking は「ローカルへの平文の HTTP だけを許す」という意図を明示する鍵で、配備対象の macOS 15 の
-	  ためにも残す。実測では、この鍵が有っても無くても通る範囲は同じだった(通る範囲の決め手ではない。docs/10)。
-	  何でも許す NSAllowsArbitraryLoads は使わない。
+	  StackNest の本の API への要求を運ぶ XPC サービス(Contents/XPCServices/StackNestConnector.xpc)のバンドル ID
+	  (StackNestConnectorClient)。サービスのバンドル ID はアプリのものに .StackNestConnector を足したもの(Debug と Release で違う)。
+	  アプリ本体はネットワークの entitlement も NSAppTransportSecurity の例外も持たない ―― 外への接続を持つのはサービスだけで、
+	  サービスはこの Mac の StackNest の本の API への決まった形の要求しか出さない(StackNestConnectorPolicy。docs/10)。
 	-->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
+	<key>QOOStackNestConnectorService</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER).StackNestConnector</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -173,8 +170,7 @@
 	  - SURequireSignedFeed / SUSignedFeedFailureExpirationInterval = 0: appcast(版・リリースノート)にも署名を求め、
 	    署名が合わない状態が続いても期限切れで受け入れる逃げ道を作らない(上と同じく鍵の差し替えはしない前提)。
 	  - SUEnableInstallerLauncherService / SUEnableDownloaderService: サンドボックスのアプリのための XPC サービス。
-	    更新の取得は Downloader がするので、Sparkle はアプリ本体の通信の entitlement を使わない(本体の client は
-	    StackNest の本の API のためだけ。Configurations/qooViewer.entitlements)。
+	    Downloader を使うことで、アプリ本体に通信の entitlement を足さずに済む(Configurations/qooViewer.entitlements)。
 	  - SUEnableSystemProfiling = NO / SUEnableJavaScript = NO: 既定と同じだが明示する。更新の確認で Mac の情報を
 	    送らない・リリースノートでスクリプトを動かさない。
 	  - SUEnableAutomaticChecks = YES: 既定で自動確認する(利用者の判断 2026-10-10)。実際の ON/OFF は環境設定

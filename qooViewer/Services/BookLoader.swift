@@ -23,9 +23,13 @@ nonisolated enum BookLoader {
     ///   `cachesPageList` が false ならどれを渡しても触らない。
     /// - Parameter onPageListStored: ページ一覧をキャッシュへ書き終えたとき(書かなかったときは呼ばない)。書き込みは
     ///   待たずに裏で行うので、書けたことを確かめたいテストが使う。
+    /// - Parameter connectsToStackNest: StackNest の参照ファイルの本で、manifest を StackNest に問い合わせるか。false なら
+    ///   参照ファイルに書かれたページ数でページを組み、通信しない(`loadStackNestReferenceWithoutConnecting`)。保存データの
+    ///   書き出し・取り込みのように、ページの鍵と名前しか要らない読み込みが渡す。
     static func load(
         from url: URL,
         cachesPageList: Bool = true,
+        connectsToStackNest: Bool = true,
         caches: BookDiskCaches = .shared,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil,
@@ -42,7 +46,9 @@ nonisolated enum BookLoader {
         if isStackNestReferenceFile(url.lastPathComponent), !url.hasDirectoryPath,
            await FileIO.perform({ isNotExistingDirectory(url) })
         {
-            return try await loadStackNestReference(at: url)
+            return connectsToStackNest
+                ? try await loadStackNestReference(at: url)
+                : try await loadStackNestReferenceWithoutConnecting(at: url)
         }
         // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
         // ある。2回目以降はその走査ごと飛ばす(BookPageListCache.Entryの構造キャッシュの
@@ -147,6 +153,23 @@ nonisolated enum BookLoader {
         return book
     }
 
+    /// StackNest の参照ファイルの本を、通信せずに組む(参照ファイルに書かれたページ数と読み方向で)。ページの鍵(`sortKey`)は
+    /// 番号から決まるので、保存データの書き出し・取り込み(ブックマーク・レイアウトの鍵を引く)にはこれで足りる。
+    /// 2026-10-18 のレビュー: 以前は保存データの書き出しが本ごとに manifest を問い合わせ、StackNest が起動していない・参照の期限が
+    /// 切れた本のブックマークをバックアップから黙って落とし、応答しない StackNest では 1 冊ごとに最長 25〜75 秒止まった。
+    static func loadStackNestReferenceWithoutConnecting(at url: URL) async throws -> MangaBook {
+        try await FileIO.perform {
+            guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
+            let reference: StackNestBookReference
+            do {
+                reference = try StackNestBookReference.load(contentsOf: url)
+            } catch let error as StackNestViewerError {
+                throw StackNestOpenError(error: error)
+            }
+            return try stackNestReferenceBook(reference: reference, pageCount: reference.pageCount, direction: reference.direction, at: url)
+        }
+    }
+
     private static func stackNestReferenceBook(at url: URL) throws -> MangaBook {
         guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
         do {
@@ -154,32 +177,37 @@ nonisolated enum BookLoader {
             // manifest がページ数と読み方向の正(参照ファイルの値は開いた時点のもの)。開くたびに問い合わせる: 覚えた manifest を
             // 使うと要求が出ず、StackNest が「読み込まれた」と知る合図にならない。
             let manifest = try reader.manifest(refresh: true)
-            let names = StackNestPageNaming.entryNames(pageCount: manifest.pageCount)
-            guard !names.isEmpty else { throw BookLoaderError.noPages }
-            let locator = ArchiveLocator(rootURL: url)
-            // id・sortKey の組み立ては書庫の本(collectPages の最上位)と同じ式。sortKey はブックマーク・レイアウト・読書位置の鍵。
-            // 名前は StackNest の番号順に並んで生まれるので並べ替えない。
-            let pages = names.map { name in
-                PageRef(id: "\(url.path)#\(name)", sortKey: name, source: .archive(locator: locator, entryPath: name))
-            }
-            let reference = reader.reference
-            let title = reference.title
-            return MangaBook(
-                id: url.path,
-                title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
-                sourceURL: url,
-                pages: pages,
-                // StackNest の読み方向。EPUB・PDF のヒントと同じく、初めて開いたときに 1 度だけ DB へ取り込まれ
-                // (LayoutStore.importSourceLayoutIfNeeded)、以後は利用者の選択(DB)が勝つ。
-                sourceLayoutHint: layoutHint(forStackNestDirection: manifest.direction ?? reference.direction),
-                stackNestReference: reference,
-                // ページ数の正は manifest(参照ファイルの値は開いた時点のもの)。サムネイルの鍵(PageLoader.thumbnailDiskKey)が使う。
-                stackNestPageCount: names.count
-            )
+            return try stackNestReferenceBook(
+                reference: reader.reference, pageCount: manifest.pageCount,
+                direction: manifest.direction ?? reader.reference.direction, at: url)
         } catch let error as StackNestViewerError {
             // アラートは errorDescription を出す。部品のエラーのままだと qooViewer の表示言語にならない(StackNestOpenError)。
             throw StackNestOpenError(error: error)
         }
+    }
+
+    private static func stackNestReferenceBook(
+        reference: StackNestBookReference, pageCount: Int, direction: StackNestReadingDirection?, at url: URL
+    ) throws -> MangaBook {
+        let names = StackNestPageNaming.entryNames(pageCount: pageCount)
+        guard !names.isEmpty else { throw BookLoaderError.noPages }
+        let locator = ArchiveLocator(rootURL: url)
+        // id・sortKey の組み立ては書庫の本(collectPages の最上位)と同じ式。sortKey はブックマーク・レイアウト・読書位置の鍵。
+        // 名前は StackNest の番号順に並んで生まれるので並べ替えない。
+        let pages = names.map { name in
+            PageRef(id: "\(url.path)#\(name)", sortKey: name, source: .archive(locator: locator, entryPath: name))
+        }
+        let title = reference.title
+        return MangaBook(
+            id: url.path,
+            title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
+            sourceURL: url,
+            pages: pages,
+            // StackNest の読み方向。EPUB・PDF のヒントと同じく、初めて開いたときに 1 度だけ DB へ取り込まれ
+            // (LayoutStore.importSourceLayoutIfNeeded)、以後は利用者の選択(DB)が勝つ。
+            sourceLayoutHint: layoutHint(forStackNestDirection: direction),
+            stackNestReference: reference
+        )
     }
 
     /// StackNest の読み方向を、本のソースのヒントにする。知らない値は使わない(既定の向きのまま)。

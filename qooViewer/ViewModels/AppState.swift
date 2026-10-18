@@ -1396,9 +1396,7 @@ final class AppState: ObservableObject {
            let existingWindow = existingAppState.hostWindow {
             // StackNest の参照ファイルを StackNest が書き直していたら(新しい鍵)、前へ出すだけでなく、そのウインドウで読み込み
             // 直す。こちらで開くと同じ本が 2 つのウインドウで開くので、落として開かない(reloadIfStackNestReferenceChanged)。
-            existingAppState.reloadIfStackNestReferenceChanged(
-                request, initialEdge: initialEdge, startsSlideshow: startsSlideshow
-            )
+            existingAppState.reloadIfStackNestReferenceChanged(request)
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -2494,6 +2492,10 @@ final class AppState: ObservableObject {
     /// (許可はセキュリティスコープ付きブックマークとして保存されるため、次回以降も有効)
     func grantAccessToCurrentFolder() {
         guard let currentURL = currentBook?.sourceURL else { return }
+        // StackNest の参照ファイルの本の親フォルダは StackNest の Application Support の中(本の部屋)。許可を求めない
+        // (2026-10-18 のレビュー: 許可すると、その中の参照ファイルをファイルブラウザから改名・ゴミ箱へ移せるようになった)。
+        // メニューは同じ条件で淡色(MenuCheckmarkState.isCurrentBookStackNestReference)。
+        guard currentBook?.isStackNestReference != true else { return UserFeedback.beep() }
         let parent = currentURL.deletingLastPathComponent()
 
         // 既に許可済みならensureAccessがパネルを出さずにtrueを返す。通常その状態なら

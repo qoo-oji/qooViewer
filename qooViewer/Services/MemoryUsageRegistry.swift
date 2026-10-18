@@ -212,6 +212,9 @@ nonisolated enum MemoryUsageKind: String, CaseIterable, Sendable {
     case fileBrowserThumbnails
     case collectionCovers
     case collectionTiles
+    /// StackNest の本で、StackNestViewerKit のセッションが持っている直近のページのバイト列(StackNestSessions.Book。部品は
+    /// 量を外へ出さないので、受け取ったページから同じ決まりで見積もる)。
+    case stackNestPages
     /// Lazy な一覧のセルが抱えている絵(LazyCellImageBudget の帳簿)。キャッシュの絵と同じバッファを共有していることが
     /// あるので**見積もり**で、合計には足さない(`countsTowardTotal`)。
     case cellImages

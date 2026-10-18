@@ -946,7 +946,10 @@ struct QooViewerApp: App {
                             Button("Grant Access to This Folder…") {
                                 focusedAppState?.grantAccessToCurrentFolder()
                             }
-                            .disabled(menuCheckmarkState?.hasBook != true)
+                            // StackNest の参照ファイルの本の「フォルダ」は StackNest の Application Support の中(AppState.
+                            // grantAccessToCurrentFolder のコメント)。
+                            .disabled(menuCheckmarkState?.hasBook != true
+                                || menuCheckmarkState?.isCurrentBookStackNestReference == true)
                         }
                     }
                     .id(menuCheckmarkState?.siblingBooksRevision ?? 0)
@@ -3368,12 +3371,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// 既定のボタン(Return)とEscは**終了しない**(取り返しのつかない側を既定にしない。起動時の保存データの警告と同じ)。
     /// ウインドウが1枚も無いこともある(最後のウインドウを閉じて終了する設定)ので、シートではなくアプリモーダルで出す。
+    ///
+    /// 終える前に、StackNest へ送っていない読書位置を最長 2 秒だけ待って送る(`StackNestQuitFlush`。⌘Q は SwiftUI の onDisappear を
+    /// 通らないので、ここで送る)。`.terminateLater` は使わない: 終了がメインキューの仕事の中から頼まれると、返事を待つ間に
+    /// メインキューが回らず、アプリが止まったまま終わらなかった(StackNestQuitFlush のコメント。2026-10-18 の実測)。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // StackNest への送り切りを待っている間の再入: 先の待ちが終了の応答を返すので、ここでは何も始めず・尋ねない
-        // (尋ねて取り消されても、先の待ちが終わって終了させてしまう)。確認のアラートが開いている間の再入も取り消す。
-        if StackNestProgressRegistry.shared.isFlushing { return .terminateLater }
+        // 確認のアラートが開いている間の再入は取り消す(先のアラートの答えで決まる)。
         if isAskingToQuit { return .terminateCancel }
-        guard RunningWorkRegistry.shared.hasRunningWork else { return terminateAfterFlushingStackNestProgress(sender) }
+        guard RunningWorkRegistry.shared.hasRunningWork else { return terminateAfterFlushingStackNestProgress() }
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -3388,16 +3393,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isAskingToQuit = true
         defer { isAskingToQuit = false }
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
-        return terminateAfterFlushingStackNestProgress(sender)
+        return terminateAfterFlushingStackNestProgress()
     }
 
-    /// StackNest へ送っていない読書位置があれば、短く(最長 2 秒)待って送り切ってから終了する。無ければ待たずに終了する。
-    /// ⌘Q は SwiftUI の onDisappear を通らないので、ここで送る。StackNest が答えなくても 2 秒で終わる(部品の登録簿)。
-    private func terminateAfterFlushingStackNestProgress(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let registry = StackNestProgressRegistry.shared
-        guard registry.hasUnsentWork else { return .terminateNow }
-        registry.flushAll(timeout: .seconds(2)) { sender.reply(toApplicationShouldTerminate: true) }
-        return .terminateLater
+    /// StackNest へ送っていない読書位置を送り(最長 2 秒。無ければ待たない)、終了する。
+    private func terminateAfterFlushingStackNestProgress() -> NSApplication.TerminateReply {
+        StackNestQuitFlush.shared.flushBlocking(timeout: 2)
+        return .terminateNow
     }
 
     /// 正常終了時に、この起動が作った一時ファイル(入れ子の書庫の展開物)を消す。

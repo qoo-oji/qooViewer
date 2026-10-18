@@ -407,8 +407,9 @@ final class CoverOverrideController: ObservableObject {
         guard !Task.isCancelled, let url = await resolveURL(bookID), !Task.isCancelled else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        // 名前だけが要るので、StackNest の参照ファイルの本は通信しない(BookLoader.loadStackNestReferenceWithoutConnecting)。
         return try? await BookLoader.load(
-            from: url, cachesPageList: cachesPageList(forBookID: url.path), caches: diskCaches
+            from: url, cachesPageList: cachesPageList(forBookID: url.path), connectsToStackNest: false, caches: diskCaches
         )
     }
 
