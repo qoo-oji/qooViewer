@@ -1447,8 +1447,11 @@ struct ViewerView: View {
             if let notice { showToast(notice.message) }
         }
         // 本を開く前に出した知らせ(複数を落として開いたときの「開かなかったもの」。AppState.open(urls:))を、開いてから出す。
+        // StackNest の知らせも同じ: ビューモデルはこのビューより先に作られ、最初の見開きを読む間(ViewerHandoff が前の中身を
+        // 出している間)に出した知らせは、上の onChange には届かない。
         .onAppear {
             if let notice = appState.viewerNotice, notice.isFresh { showToast(notice.message) }
+            if let notice = viewModel.stackNestNotice, notice.isFresh { showToast(notice.message) }
         }
         // 拡大率そのものが変わるたびにアニメーションさせると、ピンチ操作中ずっと数字が
         // ふわふわして読みにくいため、出す/消すの切り替わりだけをアニメーションさせる。

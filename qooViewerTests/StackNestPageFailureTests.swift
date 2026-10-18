@@ -114,6 +114,23 @@ struct StackNestPageFailureTests {
         #expect(viewer.stackNestNotice == notice)
     }
 
+    @Test("ビューア: 最初の見開きが恒久的な失敗で読めないと、ビューより先に(ViewerHandoff が ViewerView を作る前に)知らせが立つ。ViewerView はこれを onAppear で拾う(isFresh)")
+    @MainActor
+    func firstSpreadFailureSetsTheNoticeBeforeTheViewExists() async throws {
+        let fixture = try StackNestTestBook(pageCount: 8, startPage: 0)
+        defer { fixture.close() }
+        for index in 0..<8 { fixture.server.respond(.page(index), with: Self.locked) }
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.prefetchPageCount = 0
+        let viewer = await harness.open(try await FixtureBook.load(fixture.referenceURL))
+        let notice = try #require(viewer.stackNestNotice)
+        #expect(notice.isFresh)
+        #expect(notice.message == StackNestText.message(
+            for: StackNestViewerError(.libraryLocked), locale: harness.preferences.effectiveLocale
+        ))
+    }
+
     @Test("同じ恒久的な失敗は、ページが先でも位置の書き戻しが先でも、知らせを 1 度だけ出す(種類ごとの 1 度)")
     @MainActor
     func samePermanentFailureIsShownOnceAcrossNoticeKinds() async throws {
