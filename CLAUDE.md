@@ -123,7 +123,9 @@ part with `network.client` (sandbox + client only, ATS `NSAllowsLocalNetworking`
 shapes in `StackNestConnectorPolicy`. Pages are awaited on the kit's async API behind the per-origin `StackNestRequestGate`, never by
 blocking `FileIO` threads; every waiter of a remote page (display included) goes through `PageLoader.awaitRemote`, so a fetch nobody
 waits for any more is cancelled, and a page turn through a StackNest book shows only pages already downloaded while flipping and fetches the
-landing spread first (both pages at display priority) — measured against a 300 ms-per-page fake StackNest, docs/10「ページ送りの待ち」;
+landing spread first (both pages at display priority) — measured against a 300 ms-per-page fake StackNest, docs/10「ページ送りの待ち」; never
+add `?maxw=` to page requests (StackNest's relay serves remote pages from its own disk cache only for the default width, so a smaller
+thumbnail width goes to the remote library every time);
 `check-release-app.sh` checks the service's entitlements and ATS. **A StackNest book records nothing**
 (`MangaBook.leavesNoRecord`, same treatment as secret-folder books — the reference is rewritten on every open and qooViewer cannot tell
 it is the same book): it always opens at the reference's `startPage`, looks like a private window, is titled "(StackNest) …", and still

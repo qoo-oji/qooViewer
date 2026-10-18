@@ -553,7 +553,12 @@ actor PageLoader {
     ///   エンコードと書き込みがスクロールのたびに走り、既定200MBの上限では数十枚で、本来この
     ///   キャッシュが守りたい240px/セルサイズのサムネイルを刈り込んでしまう(監査で指摘)。
     ///   シークレットウインドウ(usesThumbnailDiskCache == false)ではこの値に関わらず使わない。
-    func gridThumbnail(at index: Int, maxPixelSize: CGFloat, usesDiskCache: Bool = true) async -> CGImage? {
+    /// - Parameter asksAsDisplay: 網越しの本(StackNest)で、取り寄せを表示の列で頼むか。利用者がいま見ようとしている絵
+    ///   (ホバーした拡大プレビュー)だけ true にする。サムネイルの列のままだと、先読みとサムネイルの後ろに並び、1 ページの
+    ///   往復が遅い StackNest ではプレビューが何秒も出なかった(2026-10-19 の監査)。
+    func gridThumbnail(
+        at index: Int, maxPixelSize: CGFloat, usesDiskCache: Bool = true, asksAsDisplay: Bool = false
+    ) async -> CGImage? {
         guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
@@ -580,7 +585,8 @@ actor PageLoader {
             }
         }
 
-        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize), !isReleased else {
+        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize, asksAsDisplay: asksAsDisplay),
+              !isReleased else {
             return nil
         }
         gridThumbnailCache.store(decoded, forKey: key)
@@ -1631,8 +1637,10 @@ actor PageLoader {
     /// - Parameter waiterKey: この読み込みのinFlightKey。先読みとして空き待ちに並んでいる間に
     ///   表示要求が合流したとき、その待ちを表示要求の列へ移すための突き合わせに使う
     ///   (promoteDecodeWaiter参照)。合流の仕組みが無い経路(拡大サムネイル)はnil。
+    /// - Parameter asksAsDisplay: 網越しのページを、大きさに関わらず表示の列で取り寄せる(gridThumbnail の同名の引数)。
     private func decodedPixels(
-        for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil
+        for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil,
+        asksAsDisplay: Bool = false
     ) async -> PagePixelBuffer? {
         // 網越しのページ(StackNest の参照ファイルの本)は、デコードの枠を取る**前に**取り寄せる。枠は CPU とメモリの
         // ための絞り(最大 2)で、網の待ちに使うと、応答しない StackNest への先読み 1〜2 件が最長 25 秒枠を握り、表示要求が
@@ -1650,7 +1658,7 @@ actor PageLoader {
             // 背景の列のまま先読みの後ろに並んでいた。100 ms おきに 11 回飛んだ後、最後のページが出るまで 1.3 秒)。
             let joinedByDisplay = isPrefetch && waiterKey.map { !cancellableInFlightKeys.contains($0) } ?? false
             let priority: RemotePageReadPriority =
-                isPrefetch && !joinedByDisplay ? .prefetch : (isFullSize ? .display : .thumbnail)
+                isPrefetch && !joinedByDisplay ? .prefetch : (isFullSize || asksAsDisplay ? .display : .thumbnail)
             guard let permit = try? await remote.requestGate.acquire(priority.lane, key: waiterKey) else { return nil }
             remotePermit = permit
             guard let data = try? await remote.pageDataHoldingPermit(

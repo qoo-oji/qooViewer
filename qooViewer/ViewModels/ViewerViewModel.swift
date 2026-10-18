@@ -1957,10 +1957,13 @@ final class ViewerViewModel: ObservableObject {
     /// 枠に合わせた解像度(AppPreferences.thumbnailHoverPreviewPixelSize)でデコードする。
     /// 以前は原寸のpageImage(at:)を使っていた(同プロパティのコメント参照)。
     /// ディスクキャッシュには載せない(PageLoader.gridThumbnailのusesDiskCache参照)。
-    func loadPreviewImage(at index: Int) async -> CGImage? {
+    /// - Parameter isHovered: 利用者がいまホバーしているプレビューか(StackNest の本では表示の列で取り寄せる ――
+    ///   PageLoader.gridThumbnail の asksAsDisplay)。環境設定「表示中のサムネイルの拡大画像を先読み」の先読みは false。
+    func loadPreviewImage(at index: Int, isHovered: Bool = true) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         return await pageLoader.gridThumbnail(
-            at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
+            at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false,
+            asksAsDisplay: isHovered
         )
     }
 
@@ -2992,7 +2995,7 @@ final class ViewerViewModel: ObservableObject {
         // StackNest の参照ファイルの本で、表示するページが読めず、この本に恒久的な失敗(施錠が変わった・期限切れ など)が
         // 記録されていたら、理由を知らせる(以前は真っ黒のまま案内が無かった)。同じ種類は 1 度だけ。
         showImages(images, forIndex: targetIndex)
-        if images.isEmpty { showStackNestPageFailureIfNeeded() }
+        if images.isEmpty { showStackNestPageFailureIfNeeded(at: targetIndex) }
         // 直前の表示範囲との比較で、ユーザーがどちらへ読み進めているかを決める(先読みの向き。
         // PageLoader.prefetchのdirection参照)。同じ位置の再表示や開いた直後は「不明」。
         let direction: PageLoader.PrefetchDirection
@@ -3170,10 +3173,13 @@ final class ViewerViewModel: ObservableObject {
         stackNestNotice = ViewerNotice(message: StackNestText.message(for: failure, locale: preferences.effectiveLocale))
     }
 
-    /// ページが読めなかったときに、この本の恒久的な失敗を知らせる(StackNestSessions.Book.permanentFailure)。ページを送るたびに
-    /// 呼ばれるが、直前に知らせたのと同じ種類なら showStackNestFailure が出さない。
-    private func showStackNestPageFailureIfNeeded() {
-        guard let failure = stackNestBook?.permanentFailure else { return }
+    /// ページが読めなかったときに、理由を知らせる(StackNestSessions.Book.pageFailureToShow: 恒久的な失敗、無ければその
+    /// ページの一時的な失敗)。ページを送るたびに呼ばれる。恒久的な失敗は、直前に知らせたのと同じ種類なら showStackNestFailure が
+    /// 出さない。一時的な失敗は読めなかったページのたびに出す(直ったかどうかは、次に読めるかで分かる)。
+    private func showStackNestPageFailureIfNeeded(at index: Int) {
+        let page = book.pages.indices.contains(index)
+            ? StackNestPageNaming.pageIndex(fromEntryName: book.pages[index].sortKey) : nil
+        guard let failure = stackNestBook?.pageFailureToShow(page: page) else { return }
         showStackNestFailure(failure)
     }
 

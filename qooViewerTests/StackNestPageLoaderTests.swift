@@ -352,6 +352,35 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
+    @Test("ホバーした拡大プレビューは表示の列で取り寄せる(背景の列が埋まっていても待たない)。環境設定の先読みはサムネイルの列のまま")
+    func hoverPreviewUsesTheDisplayLane() async throws {
+        let fixture = try StackNestTestBook(pageCount: 8)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<6).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        let thumbnails = (0..<4).map { index in Task { await loader.thumbnail(at: index) } }
+        #expect(await Self.waitUntil { shared.gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit })
+        // 先読みのプレビュー(4・5 番)は背景の列で待つ。
+        let preloads = (4..<6).map { index in
+            Task { await loader.gridThumbnail(at: index, maxPixelSize: 800, usesDiskCache: false) }
+        }
+        #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 2 })
+        // ホバーしたプレビュー(7 番)は待たずに取りに行く。
+        let hovered = Task {
+            await loader.gridThumbnail(at: 7, maxPixelSize: 800, usesDiskCache: false, asksAsDisplay: true)
+        }
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(7) }, "ホバーしたプレビューが背景の列で待った")
+        #expect(await hovered.value != nil)
+        gates.forEach { $0.open() }
+        for task in thumbnails { _ = await task.value }
+        for task in preloads { _ = await task.value }
+        await loader.releaseAllResources()
+    }
+
     @Test("リソースモニタ: 部品が持つ直近のページを、同じセッションを使う PageLoader のうち 1 つだけが届ける")
     func memoryItemsAreReportedOnce() async throws {
         let fixture = try StackNestTestBook(pageCount: 3)

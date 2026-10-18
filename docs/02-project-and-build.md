@@ -482,6 +482,9 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 - **テストはビルドと分ける**。Debug ジョブは `build-for-testing` → `test-without-building` の2段で、
   どちらで落ちたのかがログで分かるようにしています。署名していない .app にテストバンドルを
   差し込む形になりますが(`CODE_SIGNING_ALLOWED=NO`)、手元で同じ条件で通ることを確認済みです。
+  署名していないので、CI のテストホストには entitlement がひとつも入りません(サンドボックスも無い)。entitlement を読むテストは、
+  署名に entitlement が入っているときだけサンドボックスを確かめます(`StackNestViewerDeclarationTests`。2026-10-19、PR #1 で
+  CI を初めて走らせて落ちた)。署名した配布物の entitlement は `scripts/release/check-release-app.sh` が見ます。
 - **書き出したものは外の実装に照らす**。Debug ジョブの「Validate exported files」が
   `scripts/ci/validate-exports.sh` を呼び、結果バンドルから取り出した EPUB を EPUBCheck
   (W3C。zip の sha256 で版を固定し `actions/cache` に載せる)に、ComicInfo.xml を

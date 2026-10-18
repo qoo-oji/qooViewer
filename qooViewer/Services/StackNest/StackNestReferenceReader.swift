@@ -97,7 +97,7 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
             return page.data
         } catch let error as StackNestViewerError {
             if error.code == .pageOutOfRange { throw ArchiveReaderError.entryNotFound }
-            book.record(error)
+            book.record(error, page: index)
             throw error
         }
     }
@@ -112,7 +112,7 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
         // 仮の名前でないもの(ComicInfo.xml を探しに来た等)は、問い合わせずに「無い」。
         guard let index = StackNestPageNaming.pageIndex(fromEntryName: path) else { throw ArchiveReaderError.entryNotFound }
         do {
-            let data = try recordingFailure { try blocking.page(index).data }
+            let data = try recordingFailure(page: index) { try blocking.page(index).data }
             book.noteReceivedPage(index, byteCount: data.count)
             return data
         } catch let error as StackNestViewerError where error.code == .pageOutOfRange {
@@ -123,12 +123,12 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
 
     /// この本に恒久的な失敗が記録されていれば、問い合わせずにそれを投げる。部品の失敗は記録してから投げ直す
     /// (`StackNestSessions.Book.permanentFailure` のコメント)。
-    private func recordingFailure<T>(_ body: () throws -> T) throws -> T {
+    private func recordingFailure<T>(page: Int? = nil, _ body: () throws -> T) throws -> T {
         if let failure = book.permanentFailure { throw failure }
         do {
             return try body()
         } catch let error as StackNestViewerError {
-            book.record(error)
+            book.record(error, page: page)
             throw error
         }
     }

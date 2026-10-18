@@ -62,9 +62,9 @@ struct StackNestPageFailureTests {
         #expect(fixture.pageRequestIndices == [1, 2, 1])
     }
 
-    @Test("ビューア: 一時的な失敗(500)で読めないページでは知らせを出さない(次にそのページへ来たら問い合わせ直す)")
+    @Test("ビューア: 一時的な失敗(500)で読めないページでは理由を知らせ、止めない(次にそのページへ来たら問い合わせ直す)。読めたら理由は忘れる")
     @MainActor
-    func transientPageFailureShowsNoNotice() async throws {
+    func transientPageFailureShowsTheReasonAndRetries() async throws {
         let fixture = try StackNestTestBook(pageCount: 8, startPage: 0)
         defer { fixture.close() }
         let harness = try ViewerHarness()
@@ -74,14 +74,23 @@ struct StackNestPageFailureTests {
         fixture.server.respond(.page(6), with: .status(500))
         viewer.jump(toPageIndex: 6)
         await viewer.settle()
-        #expect(viewer.stackNestNotice == nil)
+        // 以前は「このページを表示できません」だけで理由が出なかった(2026-10-19 の監査)。
+        let notice = try #require(viewer.stackNestNotice)
+        #expect(notice.message == StackNestText.message(
+            for: StackNestViewerError(.httpStatus, statusCode: 500), locale: harness.preferences.effectiveLocale
+        ))
         #expect(viewer.stackNestBook?.permanentFailure == nil)
         let before = fixture.pageRequestIndices.filter { $0 == 6 }.count
         viewer.jump(toPageIndex: 0)
         await viewer.settle()
+        // StackNest が直った: もう一度 6 番へ来ると問い合わせ直し、読めたので理由は忘れる。
+        fixture.server.respond(
+            .page(6), with: .status(200, headers: ["Content-Type": "image/png"], body: PageImageFactory.png(number: 7))
+        )
         viewer.jump(toPageIndex: 6)
         await viewer.settle()
         #expect(fixture.pageRequestIndices.filter { $0 == 6 }.count > before)
+        #expect(viewer.stackNestBook?.pageFailureToShow(page: 6) == nil)
     }
 
     @Test("ビューア: 施錠が変わった後は、読めないページを真っ黒のままにせず解錠の案内を 1 度だけ出し、ページを送っても問い合わせない")

@@ -709,7 +709,7 @@ private struct ThumbnailCell: View {
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
             if preferences.preloadThumbnailGridPreviews, appearance.showThumbnailHoverPreview,
                !Task.isCancelled {
-                await loadPreviewImageIfNeeded()
+                await loadPreviewImageIfNeeded(isHovered: false)
             }
         }
     }
@@ -722,10 +722,11 @@ private struct ThumbnailCell: View {
     /// (監査で指摘。PageLoader側のキャッシュは解像度込みのキーなので、古いのはこの
     /// @Stateだけだった)。サイドパネルのページモード・ブックマーク編集・書き出しウインドウの
     /// 同種のプレビューも同じ判定を持つ。
-    private func loadPreviewImageIfNeeded() async {
+    /// `isHovered` は、ホバーしたプレビューの表示か(false は環境設定の先読み。ViewerViewModel.loadPreviewImage)。
+    private func loadPreviewImageIfNeeded(isHovered: Bool = true) async {
         let pixelSize = preferences.thumbnailHoverPreviewPixelSize
         guard previewImage == nil || previewPixelSize != pixelSize else { return }
-        guard let loaded = await viewModel.loadPreviewImage(at: index), !Task.isCancelled else { return }
+        guard let loaded = await viewModel.loadPreviewImage(at: index, isHovered: isHovered), !Task.isCancelled else { return }
         previewImage = loaded
         previewPixelSize = pixelSize
         onRetainedImage(loaded)

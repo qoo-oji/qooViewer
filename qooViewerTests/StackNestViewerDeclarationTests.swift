@@ -84,8 +84,27 @@ struct StackNestViewerDeclarationTests {
         func value(_ key: String) -> Bool? {
             SecTaskCopyValueForEntitlement(task, key as CFString, nil) as? Bool
         }
-        #expect(value("com.apple.security.app-sandbox") == true)
+        // CI はテストを署名せずに(CODE_SIGNING_ALLOWED=NO)走らせるので、entitlement がひとつも入らず、サンドボックスも無い
+        // (2026-10-19、PR #1 で CI を初めて走らせて分かった)。そのときは「通信の entitlement を持たない」だけを見る。署名した
+        // 配布物の entitlement は scripts/release/check-release-app.sh が確かめる。
+        if Self.embeddedEntitlements()?.isEmpty == false {
+            #expect(value("com.apple.security.app-sandbox") == true)
+        }
         #expect(value("com.apple.security.network.client") != true)
         #expect(value("com.apple.security.network.server") != true)
+    }
+
+    /// 動いているアプリ(テストホスト)の署名に入っている entitlement。署名に無ければ nil。
+    private static func embeddedEntitlements() -> [String: Any]? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSRequirementInformation), &information)
+                == errSecSuccess,
+              let dictionary = information as? [String: Any]
+        else { return nil }
+        return dictionary[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
     }
 }

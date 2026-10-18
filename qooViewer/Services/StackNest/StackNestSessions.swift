@@ -40,6 +40,8 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         let gate: StackNestRequestGate
         private let lock = NSLock()
         private var failure: StackNestViewerError?
+        /// ページごとの一時的な失敗(そのページを次に受け取るまで)。
+        private var transientFailures: [Int: StackNestViewerError] = [:]
         private var cacheEstimate: PageCacheEstimate
         /// 部品のページのキャッシュの大きさを届け出ている持ち主(PageLoader の `memoryOwnerID`)。2 つの PageLoader が同じ
         /// セッションを使っても、届けるのは最初の 1 つだけ(二重に数えない)。
@@ -63,17 +65,34 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         /// 送るたびに、1 枚につき寸法・表示・先読み・サムネイルの要求が重なって何度も出る(すべて 403 で返る)。
         var permanentFailure: StackNestViewerError? { lock.withLock { failure } }
 
-        /// 失敗を記録する。恒久的な失敗だけを、最初の 1 つだけ覚える(一時的な失敗は次の要求で直りうる)。
-        func record(_ error: StackNestViewerError) {
-            guard error.isPermanent else { return }
+        /// 失敗を記録する。恒久的な失敗は、最初の 1 つだけ覚える。ページの一時的な失敗(StackNest が応答しない・リモートの
+        /// ライブラリにつながらない・想定外の応答)は、そのページを次に受け取るまで、ページごとに覚える ―― 次の要求で直りうるので
+        /// 要求は止めないが、読めなかったページで理由を知らせるため(2026-10-19 の監査: 以前は「このページを表示できません」だけで
+        /// 理由が出なかった)。ページごとなのは、見開きの相方や先読みのページが届いたことで、読めなかったページの理由を消さないため。
+        /// 取り消し(`CancellationError`)はここへ来ない。
+        /// - Parameter page: 失敗した要求のページ番号(StackNest の番号)。manifest・書き戻しは nil(一時的なら覚えない)。
+        func record(_ error: StackNestViewerError, page: Int? = nil) {
             lock.withLock {
-                if failure == nil { failure = error }
+                if error.isPermanent {
+                    if failure == nil { failure = error }
+                } else if let page {
+                    transientFailures[page] = error
+                }
             }
         }
 
-        /// 部品のセッションから受け取ったページ(部品のキャッシュに入ったかを、同じ決まりで見積もる)。
+        /// ページ(StackNest の番号)が読めなかったときに知らせる理由: 恒久的な失敗があればそれ、無ければそのページの一時的な失敗。
+        func pageFailureToShow(page: Int?) -> StackNestViewerError? {
+            lock.withLock { failure ?? page.flatMap { transientFailures[$0] } }
+        }
+
+        /// 部品のセッションから受け取ったページ(部品のキャッシュに入ったかを、同じ決まりで見積もる)。届いたので、そのページの
+        /// 一時的な失敗は忘れる。
         func noteReceivedPage(_ index: Int, byteCount: Int) {
-            lock.withLock { cacheEstimate.note(index, byteCount: byteCount) }
+            lock.withLock {
+                cacheEstimate.note(index, byteCount: byteCount)
+                transientFailures[index] = nil
+            }
         }
 
         /// リソースモニタへ届ける項目。届けるのは最初に名乗った持ち主だけ(ほかの持ち主には空)。
