@@ -426,6 +426,35 @@ Info.plist の Sparkle の設定や `AppUpdater` を変えたときは、これ�
 6. 片付け: アプリを終了 → サーバーを止める → `lsregister -u` で試験の .app の登録を外す → 試験の .app・鍵・コンテナ
    (`~/Library/Containers/<id>`)・`~/Library/Caches/<id>`・`~/Library/Application Scripts/<id>` を消す。
 
+## StackNest の本の実機の確かめ方
+
+StackNest の本(→ [10「StackNest の本と通信」](10-sandbox-and-security.md#stacknest-の本と通信))の扱いを変えたら、**本が出る場所をすべて**目で
+確かめる(2026-10-18: 記録を残さない扱いへ変えたとき、サイドパネルの下段の本の中身ブラウザが出ない状態を、テストも制御口の確認も
+通ったまま見過ごし、利用者に実機を見せて初めて分かった。変えたつもりの所だけでなく、「そのまま動くはず」の所も見る)。
+
+- **道具**: `scripts/dev/fake-stacknest.py`(本の API の作り物。`serve` で待ち受け、`reference` で参照ファイルを書く。`--progress-status 401` で
+  書き戻しの失敗、`--hang` で応答しない StackNest、`reference --expired` で期限切れ)。参照ファイルは Debug のコンテナの `tmp/` の下に置き
+  (サンドボックスの外のファイルは開けない)、制御口の `open … --via finder`(Finder・Dock から渡されたのと同じ入口)で開く。普通の本を
+  比べる相手として一緒に開く(`qooViewerTests/Fixtures/zip` の書庫を写す)。始める前に Debug の保存データと設定の写しを取り、終わったら戻す
+  (「実物のアプリを外から操作する」)。
+- **読み方**: 状態は制御口の `state`(題・ページ・`leavesNoRecord`)。**メニューバーの淡色は AX で読む** ―― 制御口の `menu` は、本を開いた
+  ウインドウを前面・キーにしても本に依る項目を淡色と返した(2026-10-18 実測。普通の本でも同じだったので、比べる相手を必ず読む)。
+  前面に出すのは `osascript -e 'tell application id "com.qooProject.qooViewer.debug" to activate'`(制御口の `focusWindow` だけでは、隠して
+  起動したアプリは前面にならない)。見た目はそのウインドウだけを `screencapture -x -o -l<ウインドウ番号>` で撮って見る(ホームの窓は撮らない)。
+- **見る所**(普通の本・StackNest の本・シークレットウインドウの StackNest の本で):
+  1. ビューア: タイトル「(StackNest) 題名」/「(シークレット) (StackNest) 題名」、外観がシークレットの揃い、開いたときのトースト、開くページが
+     `startPage`、ツールバーの前の本・次の本が淡色、右クリック(本の移動・Finder・ファイルブラウザ・コレクション・本の書き出し・ブックマーク・
+     レイアウトの項目)、「情報を見る」の場所が「StackNest」、キーの「次の本へ」が理由のトースト
+  2. メニューバー: ファイル(同じフォルダのファイルを開く・Finder で表示・ファイルブラウザで表示・コレクションに登録)、移動(前の本へ・次の本へ)、
+     編集とブックマークの書き込みの項目
+  3. サイドパネルの全モード: ブラウザ(上段は見た目どおりで一覧の場所に理由・ボタンと絞り込みが淡色、下段はページの一覧・今のページの強調・
+     押すとそのページへ)、ブックマーク、履歴(StackNest の本が増えない)、ページ(右クリックの Finder が淡色)、リソース(StackNest のページ)
+  4. ページ一覧(サムネイルグリッド)の右クリック、画像の書き出し(形式が中身どおり)
+  5. 閉じた後のホーム: 「直前の本へ戻る」が淡色で理由のツールチップ、履歴の吹き出しに出ない
+  6. 通信: 作り物のログで、普通の窓では読書位置の POST がある・シークレットウインドウでは無い、終了(⌘Q 相当の `quit`)で送り切る、
+     失敗(401・期限切れ・応答しない)の知らせ
+  7. 保存データ: DB(`ZBOOKREADINGSTATE`・`ZBOOKMARK`・`ZBOOKLAYOUTSETTINGS`・`ZBOOKMETADATA`)にその本の行が無い
+
 ## 書き出しの検証
 
 - **往復そのものは `qooViewerTests` が見ています**(`CbzExportTests` / `EpubExportTests` /
