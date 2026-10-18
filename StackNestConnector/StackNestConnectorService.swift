@@ -28,6 +28,8 @@ nonisolated final class StackNestConnectorService: NSObject, StackNestConnecting
     private static let requestTimeout: TimeInterval = 20
     /// 1 回の要求の全体の上限。部品は 25 秒で待つのをやめて取り消すので、これはその取り消しが届かなかったときの歯止め。
     private static let resourceTimeout: TimeInterval = 60
+    /// 応答の本文のために先に確保する上限(1 ページの画像の多くはこれに収まる)。
+    private static let maxReservedBodyBytes: Int64 = 8 << 20
 
     /// 走っている要求 1 件。
     private final class Pending: @unchecked Sendable {
@@ -94,14 +96,16 @@ nonisolated final class StackNestConnectorService: NSObject, StackNestConnecting
             return reply(nil, nil, StackNestConnectorFailure.refused.rawValue)
         }
         let pending = Pending(id: decoded.id, reply: reply)
-        let task = session.dataTask(with: urlRequest)
-        let duplicate: Bool = lock.withLock {
-            guard tasksByID[decoded.id] == nil else { return true }
+        // 同じ ID の要求が走っていれば、タスクを作らずに断る(2026-10-19 のレビュー: 以前は先にタスクを作り、断った後も resume も cancel も
+        // されないまま、接続が切れるまで残った)。
+        let task: URLSessionDataTask? = lock.withLock {
+            guard tasksByID[decoded.id] == nil else { return nil }
+            let task = session.dataTask(with: urlRequest)
             pendingByTask[task.taskIdentifier] = pending
             tasksByID[decoded.id] = task
-            return false
+            return task
         }
-        guard !duplicate else { return reply(nil, nil, StackNestConnectorFailure.refused.rawValue) }
+        guard let task else { return reply(nil, nil, StackNestConnectorFailure.refused.rawValue) }
         task.resume()
     }
 
@@ -156,8 +160,11 @@ nonisolated final class StackNestConnectorService: NSObject, StackNestConnecting
                 pending.exceededLimit = true
                 return false
             }
+            // 申告された長さは先に確保するが、上限を設ける(2026-10-19 のレビュー: 細工した参照ファイルが指す、この Mac のほかの
+            // サービスが大きな長さだけを申告すると、本文を 1 バイトも送らずに 1 要求あたり 64 MiB を確保させられた)。超える分は
+            // 受け取りながら伸ばす。
             if response.expectedContentLength > 0 {
-                pending.body.reserveCapacity(Int(response.expectedContentLength))
+                pending.body.reserveCapacity(Int(min(response.expectedContentLength, Self.maxReservedBodyBytes)))
             }
             return true
         }

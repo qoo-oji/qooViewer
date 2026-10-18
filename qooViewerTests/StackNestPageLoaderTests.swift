@@ -233,6 +233,41 @@ struct StackNestPageLoaderTests {
         await loader.releaseAllResources()
     }
 
+    @Test("サムネイル・寸法を待つ人が全員取り消したら、門で待っている取り寄せも取り消す(ページ一覧を流し読みしても全ページを取りに行かない)")
+    func cancelledThumbnailsLeaveTheGate() async throws {
+        let fixture = try StackNestTestBook(pageCount: 12)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
+        let gates = (0..<12).map { fixture.holdPage($0) }
+        defer { gates.forEach { $0.open() } }
+        let reference = try #require(book.stackNestReference)
+        let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
+        // 8 枚のサムネイルと 2 枚の寸法を頼む(門の背景の枠は 4。残りは門で待つ)。
+        let thumbnails = (0..<8).map { index in Task { await loader.thumbnail(at: index) } }
+        let sizes = (8..<10).map { index in Task { await loader.pageSize(at: index) } }
+        #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 6 })
+        // セルが画面から消えた(呼び出し側の取り消し)。
+        thumbnails.forEach { $0.cancel() }
+        sizes.forEach { $0.cancel() }
+        // 門で待っていた分は抜ける。飛んでいた 4 件も部品の要求ごと取り消される。
+        #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 0 })
+        #expect(await Self.waitUntil { shared.gate.inUseCount(.background) == 0 })
+        for task in thumbnails { #expect(await task.value == nil) }
+        for task in sizes { #expect(await task.value == nil) }
+        // 届いた要求は、最初に門を通った 4 件だけ。
+        #expect(fixture.pageRequestIndices.count <= StackNestRequestGate.backgroundLimit)
+        // 対照: 待つ人が残っていれば取り消さない(同じページを 2 人が待ち、1 人だけ取り消す)。
+        let kept = Task { await loader.thumbnail(at: 11) }
+        let dropped = Task { await loader.thumbnail(at: 11) }
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(11) })
+        dropped.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+        gates[11].open()
+        #expect(await kept.value != nil)
+        await loader.releaseAllResources()
+    }
+
     @Test("背景の取り寄せが止まって門を埋めていても、表示のページは表示の列で取り寄せる")
     func displayIsNotStuckBehindBackgroundFetches() async throws {
         let fixture = try StackNestTestBook(pageCount: 8)

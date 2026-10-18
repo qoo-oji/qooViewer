@@ -243,13 +243,22 @@ struct ContentView: View {
                 baseName: $0.displayName(locale: preferences.effectiveLocale), bookID: $0.id
             )
         } ?? welcomeTitle
-        // StackNest の本は「(StackNest) 題名」(2026-10-18、利用者の決定。窓はシークレットウインドウの見た目になるが、StackNest へ
-        // 読書位置を返すのは続けるので「シークレット」とは書かない)。シークレットウインドウでは「(シークレット) (StackNest) 題名」。
-        let titled = appState.currentBook?.isStackNestReference == true
+        return Self.bookWindowTitle(
+            base: base, book: appState.currentBook, isPrivateWindow: isPrivateWindow, preferences: preferences)
+    }
+
+    /// タイトルの飾り(`windowTitle`。試験が直に呼ぶ)。
+    /// - StackNest の本は「(StackNest) 題名」(2026-10-18、利用者の決定。窓はシークレットウインドウの見た目になるが、StackNest へ
+    ///   読書位置を返すのは続けるので「シークレット」とは書かない)。シークレットウインドウでは「(シークレット) (StackNest) 題名」。
+    /// - シークレットフォルダの本を開いている間も、シークレットウインドウと同じ表記(SecretFolderStore。窓はシークレットウインドウの
+    ///   見た目になる)。
+    static func bookWindowTitle(
+        base: String, book: MangaBook?, isPrivateWindow: Bool, preferences: AppPreferences
+    ) -> String {
+        let titled = book?.isStackNestReference == true
             ? String(localized: "(StackNest) \(base)", language: preferences.effectiveLocale)
             : base
-        // シークレットフォルダの本を開いている間も同じ表記(SecretFolderStore。窓はシークレットウインドウの見た目になる)。
-        guard isPrivateWindow || appState.currentBook?.isInSecretFolder == true else { return titled }
+        guard isPrivateWindow || book?.isInSecretFolder == true else { return titled }
         return preferences.privateWindowTitle(for: titled)
     }
 
@@ -1467,7 +1476,7 @@ struct ContentView: View {
             }))
         .modifier(WindowValueSync(windowValue: windowValue, state: windowValueState))
         .modifier(NoRecordNotice(
-            reason: NoRecordNotice.Reason(shown: viewerHandoff.shown?.book), isPrivateWindow: isPrivateWindow,
+            reason: NoRecordReason(shown: viewerHandoff.shown?.book), isPrivateWindow: isPrivateWindow,
             post: { [appState, preferences] reason in
                 switch reason {
                 case .secretFolder:
@@ -2480,31 +2489,32 @@ extension ContentView {
 /// SecretFolderStore・MangaBook.leavesNoRecord)。シークレットフォルダの中で次の本へ進んだときは出さない。
 /// ContentView.bookOrHome の式を短くするため切り出してある(そこのコメント: CI の Xcode 26.6 が型を決めきれずに止まる)。
 private struct NoRecordNotice: ViewModifier {
-    /// 出ている本が記録を残さない理由のうち、知らせるもの(シークレットフォルダの本・StackNest の本)。
-    enum Reason: Equatable {
-        case secretFolder, stackNest
-
-        init?(shown book: MangaBook?) {
-            guard let book else { return nil }
-            if book.isStackNestReference {
-                self = .stackNest
-            } else if book.isInSecretFolder {
-                self = .secretFolder
-            } else {
-                return nil
-            }
-        }
-    }
-
-    let reason: Reason?
+    let reason: NoRecordReason?
     let isPrivateWindow: Bool
-    let post: (Reason) -> Void
+    let post: (NoRecordReason) -> Void
 
     func body(content: Content) -> some View {
         // そうでない本から替わったとき(理由が替わったときも)だけ知らせる。同じ理由の本が続くあいだは繰り返さない。
         content.onChange(of: reason) { previous, reason in
             guard let reason, reason != previous, !isPrivateWindow else { return }
             post(reason)
+        }
+    }
+}
+
+/// 出ている本が記録を残さない理由のうち、ノーマルの窓で知らせるもの(NoRecordNotice)。StackNest の本はシークレットフォルダの中に
+/// あっても StackNest の本として知らせる(参照ファイルの場所は本の置き場所ではない)。
+enum NoRecordReason: Equatable {
+    case secretFolder, stackNest
+
+    init?(shown book: MangaBook?) {
+        guard let book else { return nil }
+        if book.isStackNestReference {
+            self = .stackNest
+        } else if book.isInSecretFolder {
+            self = .secretFolder
+        } else {
+            return nil
         }
     }
 }

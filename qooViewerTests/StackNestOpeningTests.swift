@@ -173,7 +173,7 @@ struct StackNestOpeningTests {
         #expect(((try? context.fetch(FetchDescriptor<BookMetadata>())) ?? []).filter { $0.bookID == path }.isEmpty)
     }
 
-    @Test("ページを除外した本(並びを組み直した本)でも、参照ファイルの中身を落とさない")
+    @Test("除外の行が残っている本(以前のビルド・手で作った保存データ)を読み込んで並びを組み直しても、参照ファイルの中身を落とさない")
     func preparedBookKeepsReference() async throws {
         let fixture = try StackNestTestBook(pageCount: 6)
         defer { fixture.close() }
@@ -342,10 +342,6 @@ struct StackNestOpeningTests {
         try library.context.save()
         library.favorites.reload()
         #expect(library.favorites.isFavorited(bookID: url.path))
-        // ビューアのトグル: 登録済みなら使える(削除)・未登録なら使えない(追加)。
-        #expect(FavoritesStore.canToggleFavorite(isReferenceBook: true, isFavorited: true))
-        #expect(!FavoritesStore.canToggleFavorite(isReferenceBook: true, isFavorited: false))
-        #expect(FavoritesStore.canToggleFavorite(isReferenceBook: false, isFavorited: false))
         library.favorites.removeFavorites(forBookID: url.path)
         #expect(!library.favorites.isFavorited(bookID: url.path))
         #expect(library.favorites.totalFavoritesCount() == 0)
@@ -449,9 +445,15 @@ struct StackNestOpeningTests {
         #expect(state.lastOpenedBook?.comesFromStackNest == true)
         #expect(!state.canReopenLastBook)
         #expect(state.takeLastBookForHomeSelection() == nil)
+        // 前へ・次へのどちらも、それぞれ理由を知らせる(片方が黙って何もしない形を見逃さないよう、1 回ずつ確かめる)。
+        let expectedNotice = AppState.noBrowsableLocationNotice(locale: preferences.effectiveLocale)
         state.openSibling(after: fixture.referenceURL)
+        let afterNotice = try #require(state.viewerNotice)
+        #expect(afterNotice.message == expectedNotice)
         state.openSibling(before: fixture.referenceURL)
-        #expect(state.viewerNotice?.message == AppState.noBrowsableLocationNotice(locale: preferences.effectiveLocale))
+        let beforeNotice = try #require(state.viewerNotice)
+        #expect(beforeNotice.message == expectedNotice)
+        #expect(beforeNotice.id != afterNotice.id)
         #expect(state.siblingBooks.isEmpty)
         #expect(state.currentBook?.viewerIdentity == opened.viewerIdentity)
 
@@ -597,14 +599,27 @@ struct StackNestOpeningTests {
         let library = try InMemoryLibrary(label: "stacknest-import")
         defer { library.close() }
         let path = fixture.referenceURL.path
-        let summary = await library.apply(
-            QooLibraryExportFile(
-                bookmarks: [ExportedBookmarkEntry(bookID: path, bookmarks: [ExportedBookmark(page: "000001.jpg", name: "x")])]
-            ),
-            policies: .all(.merge)
+        var file = QooLibraryExportFile(
+            bookmarks: [ExportedBookmarkEntry(bookID: path, bookmarks: [ExportedBookmark(page: "000001.jpg", name: "x")])]
         )
-        #expect(summary.bookmarksSkippedBookIDs == [path])
+        // 読書位置とメタデータも(本を読み込まずに行を書くカテゴリ)。
+        file.readingStates = [ExportedBookReadingState(
+            bookID: path, inodeNumber: nil, volumeDeviceNumber: nil, volumeUUID: nil, lastPageIndex: 2, lastPageKey: "000002.jpg",
+            displayMode: DisplayMode.spread.rawValue, readingDirection: ReadingDirection.rightToLeft.rawValue,
+            scalingMode: ScalingMode.fitWidth.rawValue, updatedAt: Date(), recordedPageCount: 5,
+            recordedSourceModificationDate: nil, recordedSourceFileSize: nil, isAtLastPage: false
+        )]
+        file.metadata = [ExportedBookMetadataEntry(
+            bookID: path, author: "著者", title: "題名", series: "シリーズ", seriesIndex: "1"
+        )]
+        let summary = await library.apply(file, policies: .all(.merge))
+        // 見つからなかった本としては数えず、StackNest の本として 1 冊数える。
+        #expect(summary.bookmarksSkippedBookIDs.isEmpty)
+        #expect(summary.stackNestSkippedBooks == 1)
         #expect(library.bookmarkRows(forBookID: path).isEmpty)
+        let states = (try? library.context.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        #expect(!states.contains { $0.bookID == path })
+        #expect(library.metadata.metadata(forBookID: path) == nil)
         #expect(fixture.requests.isEmpty)
     }
 

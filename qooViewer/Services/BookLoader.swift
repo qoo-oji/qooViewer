@@ -180,8 +180,8 @@ nonisolated enum BookLoader {
             title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
             sourceURL: url,
             pages: pages,
-            // StackNest の読み方向。EPUB・PDF のヒントと同じく、初めて開いたときに 1 度だけ DB へ取り込まれ
-            // (LayoutStore.importSourceLayoutIfNeeded)、以後は利用者の選択(DB)が勝つ。
+            // StackNest の読み方向。記録を残さない本なので DB へは取り込まず(skipsPersistence)、開くたびにこの向きで始める
+            // (ViewerViewModel の unimportedSourceHint。切り替えはその場だけ)。
             sourceLayoutHint: layoutHint(forStackNestDirection: direction),
             stackNestReference: reference
         )

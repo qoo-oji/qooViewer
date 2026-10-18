@@ -69,7 +69,12 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     `send closeBook` / `perform '{"action":"moveNext"}'`(ViewerAction の rawValue)/ `jumpToPage '{"index":3}'` /
     `selectHomeMode '{"mode":"browser"}'` / `setPreference '{"key":"libraryFeatureEnabled","value":false}'`(機能の ON/OFF と
     読み取り専用だけ)/ `performMenuItem '{"path":["ファイル","…"]}'`(表示言語の題。淡色なら押さずに断る)/ `newWindow` /
-    `closeWindow '{"windowNumber":N}'`。どれも既存の入口を通す。
+    `closeWindow '{"windowNumber":N}'` / `setSidePanel '{"mode":"browser","hidden":false}'`(サイドパネルのモードと、前面の窓の
+    「サイドパネルを隠す」)/ `contextClick '{"windowNumber":N,"x":…,"y":…}'`(窓の内容の左上からの pt を右クリックした形にして
+    右クリックメニューを開く。中身は AX の `menu 1 of window …` などで読み、AX の `AXCancel` で閉じる。プロセスを名指しした CGEvent の
+    右クリックは窓に届かなかった ―― 2026-10-19)。どれも既存の入口を通す。
+  - **`menu` の淡色は、メニューバーの今の状態を映さないことがある**(2026-10-18 実測。本に依る項目が、普通の本でも淡色と返った)。
+    淡色の確認は AX で読む(下の「StackNest の本の実機の確かめ方」)。
   - 置き場所はコンテナの `tmp/qooViewer-debug-control/`(署名していない CI のビルドでは `$(getconf DARWIN_USER_TEMP_DIR)`、
     環境変数 `QOO_DEBUG_CONTROL_DIR` で変えられる)。`inbox/` に置いた頼みに `outbox/` で答える。
   - アプリを隠して起動(`open -g -j <app>`)すれば、画面に何も出さずに状態を読める。終わりは

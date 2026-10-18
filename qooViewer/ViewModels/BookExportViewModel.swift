@@ -507,8 +507,8 @@ class BookExportViewModel: ObservableObject {
         // 全部数えるとスマートライブラリの全冊が並び、メタデータの知らせのたびに全冊のブックマークを解決し直した)。
         bookIDs.formUnion(metadataStore.registeredBookIDs.filter { metadataStore.metadata(forBookID: $0).map { !$0.isParsedOnly } ?? false })
 
-        // StackNest の参照ファイルの本は書き出さない: 全ページを鍵付きで取り直すことになる。
-        // 読み方向の取り込みでレイアウトの行を持つので、ここで落とさないと一覧に並ぶ。
+        // StackNest の参照ファイルの本は書き出さない: 全ページを鍵付きで取り直すことになる。StackNest の本は記録を残さない
+        // (MangaBook.leavesNoRecord)ので行は作られないが、以前のビルドや手で作った保存データに行が残っていても、一覧に並べない。
         bookIDs = bookIDs.filter { !isStackNestReferenceFile($0) }
 
         let candidates = bookIDs.map { bookID in

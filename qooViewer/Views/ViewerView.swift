@@ -1696,11 +1696,15 @@ struct ViewerView: View {
             .sheet(item: $viewModel.pendingBoundaryPrompt) { direction in
                 switch direction {
                 case .backward:
-                    PageBoundaryChoiceSheet<FirstPageBehavior>(titleKey: "This is the first page.") {
+                    PageBoundaryChoiceSheet<FirstPageBehavior>(
+                        titleKey: "This is the first page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                    ) {
                         viewModel.performFirstPageBehavior($0)
                     }
                 case .forward:
-                    PageBoundaryChoiceSheet<LastPageBehavior>(titleKey: "This is the last page.") {
+                    PageBoundaryChoiceSheet<LastPageBehavior>(
+                        titleKey: "This is the last page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                    ) {
                         viewModel.performLastPageBehavior($0)
                     }
                 }
@@ -2228,11 +2232,6 @@ struct ViewerView: View {
                     )
                 }
                 .buttonStyle(.borderless)
-                // 参照ファイルの本は登録できないが、すでにある登録は削除できる(FavoritesStore.isReferenceBook)。
-                .disabled(
-                    !FavoritesStore.canToggleFavorite(
-                        isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited)
-                )
                 .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
             }
 
@@ -2316,21 +2315,24 @@ struct ViewerView: View {
             }
         }
 
-        Menu("Book Navigation") {
-            Button("Go to Previous Book") {
-                relay.send { view in
-                    view.perform(.previousBook)
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。`.contextMenu` の中の `Menu` には
+        // `.disabled` が効かない(親が押せる見た目のまま残る)ので、「レイアウト」と同じく押せない Button で描く。
+        if viewModel.book.hasBrowsableLocation {
+            Menu("Book Navigation") {
+                Button("Go to Previous Book") {
+                    relay.send { view in
+                        view.perform(.previousBook)
+                    }
+                }
+                Button("Go to Next Book") {
+                    relay.send { view in
+                        view.perform(.nextBook)
+                    }
                 }
             }
-            // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。項目を淡色にする
-            // (`.contextMenu` の中の `Menu` には `.disabled` が効かないので、サブメニューの中の項目で)。
-            .disabled(!viewModel.book.hasBrowsableLocation)
-            Button("Go to Next Book") {
-                relay.send { view in
-                    view.perform(.nextBook)
-                }
-            }
-            .disabled(!viewModel.book.hasBrowsableLocation)
+        } else {
+            Button("Book Navigation") {}
+                .disabled(true)
         }
 
         Divider()
@@ -2382,11 +2384,7 @@ struct ViewerView: View {
                     view.perform(.toggleFavorite)
                 }
             }
-            .disabled(
-                viewModel.skipsPersistence
-                    || !FavoritesStore.canToggleFavorite(
-                        isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited)
-            )
+            .disabled(viewModel.skipsPersistence)
             Menu("Favorites List") {
                 FavoritesMenuContent(
                     favoritesStore: favoritesStore,
@@ -4194,10 +4192,6 @@ struct ViewerView: View {
         case .toggleFavorite:
             guard FavoritesFeature.isEnabled else { return }
             guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
-            // 参照ファイルの本は登録しない。すでにある登録の削除だけは通す。
-            guard FavoritesStore.canToggleFavorite(
-                isReferenceBook: viewModel.book.isStackNestReference, isFavorited: isCurrentBookFavorited
-            ) else { return UserFeedback.beep() }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
             guard FavoritesFeature.isEnabled else { return }

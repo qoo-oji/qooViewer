@@ -437,8 +437,8 @@ enum LibraryImportExportService {
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         cachesPageList: Bool, makesBookmark: Bool
     ) async -> MangaBook? {
-        // StackNest の参照ファイルの本には、保存データを残さない(MangaBook.leavesNoRecord)。取り込むファイルにあっても読み込まない
-        // (読み込みは StackNest へ問い合わせる)。
+        // StackNest の参照ファイルの本は、保存データの書き出しでも読み込みでも本を読み込まない(読み込みは StackNest へ問い合わせる。
+        // 読み込みでは `apply` が先に外している ―― removingStackNestBooks)。
         guard !isStackNestReferenceFile(bookID) else { return nil }
         let hints = bookLocatorHints(
             bookID: bookID, fileNodeIdentifier: fileNodeIdentifier,
@@ -745,7 +745,37 @@ enum LibraryImportExportService {
         var settings: ImportPolicy = .ignore
     }
 
+    /// 取り込むファイルから、StackNest の本(参照ファイルのパスの本)をすべてのカテゴリで外す(`apply` のコメント)。外した本の bookID も返す。
+    static func removingStackNestBooks(from file: QooLibraryExportFile) -> (QooLibraryExportFile, Set<String>) {
+        var file = file
+        var removed = Set<String>()
+        func keeps(_ bookID: String) -> Bool {
+            guard isStackNestReferenceFile(bookID) else { return true }
+            removed.insert(bookID)
+            return false
+        }
+        file.bookmarks = file.bookmarks?.filter { keeps($0.bookID) }
+        file.layouts = file.layouts?.filter { keeps($0.bookID) }
+        file.metadata = file.metadata?.filter { keeps($0.bookID) }
+        file.readingStates = file.readingStates?.filter { keeps($0.bookID) }
+        if var favorites = file.favorites {
+            favorites.books = favorites.books.filter { keeps($0.bookID) }
+            file.favorites = favorites
+        }
+        if var libraries = file.libraries {
+            for libraryIndex in libraries.indices {
+                for collectionIndex in libraries[libraryIndex].collections.indices {
+                    libraries[libraryIndex].collections[collectionIndex].books.removeAll { !keeps($0.bookID) }
+                }
+            }
+            file.libraries = libraries
+        }
+        return (file, removed)
+    }
+
     struct ImportSummary {
+        /// StackNest の本なので読み込まなかった本の数(`removingStackNestBooks`)。
+        var stackNestSkippedBooks = 0
         var favoritesImportedFolders = 0
         var favoritesImportedBooks = 0
         var favoritesSkippedForLimit = 0
@@ -793,6 +823,11 @@ enum LibraryImportExportService {
         cachesPageList: Bool = true
     ) async -> ImportSummary {
         var summary = ImportSummary()
+        // StackNest の本(参照ファイル)には保存データを残さない(MangaBook.leavesNoRecord)。取り込むファイルにあっても、どのカテゴリでも
+        // 読み込まない(本を読み込むカテゴリは StackNest へ問い合わせることにもなる)。飛ばした冊数は結果に出す(見つからなかった本とは
+        // 分けて数える)。
+        let (file, stackNestBookIDs) = Self.removingStackNestBooks(from: file)
+        summary.stackNestSkippedBooks = stackNestBookIDs.count
 
         if let favorites = file.favorites, policies.favorites != .ignore {
             await applyFavorites(

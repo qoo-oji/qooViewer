@@ -153,6 +153,9 @@ actor PageLoader {
     /// wideImageAspectRatios)から重なると、キャッシュに入る前に二重に読み込みうる。
     private var inFlightPageSizeTasks: [String: Task<(width: Int, height: Int)?, Never>] = [:]
 
+    /// 網越しの読み込み(StackNest の本のサムネイルと寸法)を待っている人の札(`awaitRemote`)。鍵は読み込みの鍵。
+    private var remoteWaiters: [String: Set<UUID>] = [:]
+
     /// 画像のヘッダー解析のために読む先頭バイト数。JPEGのSOFマーカー・PNGのIHDRチャンクなどは
     /// ファイル先頭のごく近くにあるが、EXIF/ICCプロファイルが大きい画像ではSOFがその後ろへ
     /// 押し出されるため、ある程度の余裕を持たせる。ここで足りずにヘッダーを読み取れなかった
@@ -747,7 +750,13 @@ actor PageLoader {
             notePageSize(size, for: page)
             return size
         }
-        if let existing = inFlightPageSizeTasks[page.id] { return await existing.value }
+        // 網越しの本(StackNest)の寸法は、待っている人が全員取り消したら取り寄せも取り消す(awaitRemote)。
+        let sizeWaitKey = "size#\(page.id)"
+        let waitsRemotely = isRemoteSource(page.source)
+        // 待っていた人が全員抜けて取り消された読み込みには合流しない(nil が返る。読み直す)。
+        if let existing = inFlightPageSizeTasks[page.id], !existing.isCancelled {
+            return waitsRemotely ? await awaitRemote(existing, key: sizeWaitKey) : await existing.value
+        }
 
         // PDFはページ寸法がCGPDFPageから直接取れる(ファイルの読み込み・解析を伴わない)ため、
         // actorの外へ逃がす意味が無い。ここで完結させる。
@@ -811,8 +820,8 @@ actor PageLoader {
         }
 
         inFlightPageSizeTasks[page.id] = task
-        var size = await task.value
-        inFlightPageSizeTasks[page.id] = nil
+        var size = waitsRemotely ? await awaitRemote(task, key: sizeWaitKey) : await task.value
+        if inFlightPageSizeTasks[page.id] == task { inFlightPageSizeTasks[page.id] = nil }
 
         // 先頭だけではヘッダーを読み取れなかった書庫エントリは、従来通りエントリ全体を読んで
         // やり直す(巨大なEXIF/ICCプロファイルがJPEGのSOFマーカーを先頭から押し出している
@@ -1548,6 +1557,11 @@ actor PageLoader {
 
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
         let inFlightKey = "\(ObjectIdentifier(cache))#\(page.id)"
+        // 網越しの本(StackNest)のサムネイルは、待っている人(ページ一覧のセル・進捗バー)が全員取り消したら取り寄せも取り消す
+        // (awaitRemote。2026-10-19 のレビュー: 以前は切り離した Task が最後まで走り、ページ一覧を流し読みしただけで全ページを
+        // 取り寄せ、先読みがその後ろで何分も待った)。表示のページ(imageCache)は先読みの打ち切りの仕組み(cancellableInFlightKeys)の
+        // ままにする。
+        let waitsRemotely = cache !== imageCache && isRemoteSource(page.source)
         // **打ち切った先読みには、表示の要求は合流しない**(2026-10-06 のコードレビュー)。打ち切られた読み込みも終わるまで
         // `inFlightTasks` に残るので、そこへ合流すると nil を受け取り、ビューアが「このページを表示できません」と出した。読み直す。
         if let existingTask = inFlightTasks[inFlightKey], isPrefetch || !existingTask.isCancelled {
@@ -1558,7 +1572,7 @@ actor PageLoader {
                 // (promoteDecodeWaiterのコメント参照)。
                 promoteDecodeWaiter(forKey: inFlightKey)
             }
-            return await existingTask.value
+            return waitsRemotely ? await awaitRemote(existingTask, key: inFlightKey) : await existingTask.value
         }
 
         // 呼び出し元(ViewerViewModel側)のタスクがすでにキャンセルされているなら、
@@ -1579,7 +1593,7 @@ actor PageLoader {
             cancellableInFlightKeys.insert(inFlightKey)
         }
 
-        let decoded = await task.value
+        let decoded = waitsRemotely ? await awaitRemote(task, key: inFlightKey) : await task.value
         // 打ち切られた自分の後に別の読み込みが同じ鍵で始まっていたら(上の合流しない場合)、そちらの控えは消さない。
         if inFlightTasks[inFlightKey] == task {
             inFlightTasks[inFlightKey] = nil
@@ -1942,6 +1956,34 @@ actor PageLoader {
     /// 網越しの reader(StackNest の参照ファイルの本)のページなら、その reader。ほかの本では書庫の reader に触れずに nil
     /// (2026-10-18 のレビュー: 以前は `reader(for:)` を通していて、ふつうの書庫の本でも、デコードの枠を取る前に毎回 reader を
     /// 引き、LRU から追い出された入れ子の書庫をここで展開し直しえた)。
+    /// 網越しのページか(`remoteReader(for:)` と同じ判定。reader は作らない)。
+    private func isRemoteSource(_ source: PageSource) -> Bool {
+        guard book.stackNestReference != nil, case .archive(let locator, _) = source else { return false }
+        return locator.nestedPath.isEmpty
+    }
+
+    /// 網越しの読み込みを待つ。待っている人が**全員**取り消したら、読み込みそのもの(`task`)を取り消す ―― 門の待ち
+    /// (StackNestRequestGate)からも部品の要求からも抜ける。1 人でも待っていれば続ける。読み込みは切り離した Task なので、
+    /// 呼び出し側の取り消しはそのままでは届かない(2026-10-19 のレビュー)。
+    private func awaitRemote<Value: Sendable>(_ task: Task<Value?, Never>, key: String) async -> Value? {
+        let token = UUID()
+        remoteWaiters[key, default: []].insert(token)
+        let value = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: { [weak self] in
+            Task { await self?.leaveRemoteWait(key: key, token: token, cancel: { task.cancel() }) }
+        }
+        leaveRemoteWait(key: key, token: token, cancel: nil)
+        return value
+    }
+
+    /// 札を返す。取り消しで返した最後の 1 人なら、読み込みを取り消す(終わって返した札はもう無いので、何もしない)。
+    private func leaveRemoteWait(key: String, token: UUID, cancel: (@Sendable () -> Void)?) {
+        guard var waiters = remoteWaiters[key], waiters.remove(token) != nil else { return }
+        remoteWaiters[key] = waiters.isEmpty ? nil : waiters
+        if waiters.isEmpty { cancel?() }
+    }
+
     private func remoteReader(for source: PageSource) -> (any RemoteArchiveReading)? {
         guard let reference = book.stackNestReference, case .archive(let locator, _) = source, locator.nestedPath.isEmpty
         else { return nil }

@@ -11,6 +11,8 @@ protocol PageBoundaryChoice: Identifiable, Hashable {
     static var doNothing: Self { get }
     /// シートのボタンに出す名前。
     var titleKey: LocalizedStringKey { get }
+    /// 前の本・次の本へ移る選択肢か(置き場所の無い本 ―― StackNest の本 ―― ではシートで淡色にする。MangaBook.hasBrowsableLocation)。
+    var opensAdjacentBook: Bool { get }
 }
 
 /// 最初のページで「前のページへ」の操作をしたときの挙動。
@@ -40,6 +42,7 @@ enum FirstPageBehavior: String, CaseIterable, Identifiable, Codable, Hashable, P
 
     static var promptChoices: [FirstPageBehavior] { allCases.filter { $0 != .ask } }
     static var doNothing: FirstPageBehavior { .none }
+    var opensAdjacentBook: Bool { self == .previousBook || self == .previousBookLastPage }
 
     var titleKey: LocalizedStringKey {
         switch self {
@@ -87,6 +90,7 @@ enum LastPageBehavior: String, CaseIterable, Identifiable, Codable, Hashable, Pa
 
     static var promptChoices: [LastPageBehavior] { allCases.filter { $0 != .ask } }
     static var doNothing: LastPageBehavior { .none }
+    var opensAdjacentBook: Bool { self == .nextBook || self == .nextBookFirstPage }
 
     var titleKey: LocalizedStringKey {
         switch self {

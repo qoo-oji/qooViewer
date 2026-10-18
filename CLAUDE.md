@@ -126,7 +126,10 @@ blocking `FileIO` threads; `check-release-app.sh` checks the service's entitleme
 it is the same book): it always opens at the reference's `startPage`, looks like a private window, is titled "(StackNest) …", and still
 writes the position back to StackNest except in private windows (`ViewerViewModel.recordingRule` → `writesBackToStackNest`). It has no
 folder (`MangaBook.hasBrowsableLocation` = false): previous/next book, same-folder files, Show in Finder/File Browser, folder access and
-"Return to Last Book" are dimmed, and the side panel's folder browser shows the reason instead of a list — new folder-based UI must check it.
+"Return to Last Book" are dimmed, and the side panel's folder browser keeps its layout but shows the reason in its list area — new
+folder-based UI must check it. StackNest hands over a multi-selection one `NSWorkspace.open` per book and checks 15 s later that each token
+was used, so reference files are never merged into a "next book" sequence: each opens at once, the 2nd and later as tabs
+(`AppDelegate.openStackNestReferences`). Saved-data import drops StackNest books in every category (`removingStackNestBooks`).
 **Releases may be delegated to Claude Code** ("vX.YY をリリースして"): follow docs/02「リリース」steps 1–6 exactly — `xcodebuild archive`
 (= the author's Xcode Archive + Finder compress), `scripts/release/make-appcast.sh`, then **stop and show the author the version, notes,
 zip SHA-256 and check results, and publish only after their go-ahead** (an update reaches users automatically), `gh release create … --latest`

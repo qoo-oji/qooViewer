@@ -362,7 +362,7 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
 
 - **鍵(token)**: メモリの中だけに置き、DB・UserDefaults・保存データの書き出し・ページ一覧のキャッシュ・ログに残しません(部品の
   `StackNestBookReference` は `Codable` でなく、文字列にすると `<redacted>`。アプリ側の `StackNestReferenceIdentity` も同じ)。
-- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(ビューア・サイドパネルの本の中身ブラウザ)と
+- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(開くときの BookLoader・ビューア・同じ本を開いたほかのウインドウのビューア)と
   書き戻しの役は 1 つのセッション(ページのキャッシュと門)を使い回します。使い回すのは接続先と鍵と形式の版が同じとき
   (`StackNestReferenceIdentity`)。開く位置(`startPage`)・題名だけが違う書き直しでは使い回し、ビューアも作り直しません
   (`MangaBook.viewerIdentity`)。
@@ -370,9 +370,12 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
   開くたびに同じパスへ新しい鍵で書き直され、中身が前回と同じ本かを qooViewer から確かめる手段がありません(本の置き場所も中身の
   指紋も届かない)。そのまま読書位置・ブックマーク・レイアウトを残すと、別の本や増減したページに古い記録が当たりえます。そのため
   どの窓でも、履歴・読書位置・ブックマーク・レイアウト・メタデータ・「前回の本」のどれも書きません(`ViewerViewModel.skipsPersistence`)。
-  保存データの取り込みも参照ファイルの本の行を作りません(StackNest へも問い合わせない)。表示している間は外観をシークレットの
+  保存データの読み込みも、どのカテゴリでも参照ファイルの本を外し(`LibraryImportExportService.removingStackNestBooks`。StackNest へも
+  問い合わせない)、外した冊数を結果に出します。表示している間は外観をシークレットの
   揃いにし、タイトルを「(StackNest) 題名」(シークレットウインドウでは「(シークレット) (StackNest) 題名」)にし、出たときに一度だけ
-  知らせます(`ContentView.showsAsPrivate`・`NoRecordNotice`)。ブックマークとレイアウトの扱いは改めて決めます(今は淡色)。
+  知らせます(`ContentView.showsAsPrivate`・`NoRecordNotice`。シークレットウインドウでは知らせない)。ブックマークとレイアウトを
+  StackNest の本で使えるようにするか(同じ本だと確かめる手がかり ―― manifest の `etag` など ―― を何にするか)は、別に決めます。今は
+  記録を残さない本として淡色です。
 - **開く位置**: いつも参照ファイルの `startPage` から開き、再開の確認は出しません(`ViewerViewModel.stackNestStartPageID`)。
   読み方向は manifest の向きで、切り替えはその場だけです。最初の案は qooViewer の読書位置を残し、履歴から開き直すと古い
   `startPage` で開いて巻き戻していました(その後の修正で更新日時を比べたが、記録を残さないことにしたので要らなくなった)。
@@ -384,6 +387,11 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
   読み込みも止めます(`SidePanelView.folderSection`。フォルダ名の欄は「StackNest」)。下段の本の中身ブラウザは、本のページを平坦な
   1 階層で並べます(書庫として開かない。`BookContentsBrowserState` の `.pages`)。
   「情報を見る」の場所は「StackNest」です。
+- **続けて渡される本**(2026-10-19、利用者の決定「案 B」): StackNest は書庫の窓で選んだ本を 1 冊ずつ外部ビューアへ渡す(StackNest の
+  `openInExternalViewerSyncing`。`NSWorkspace.open` を 1 冊に 1 回)。ほかの「開く」のように 1 秒の間に届いた回をまとめて「次の本へ」の
+  並びにすると、2 冊目以降は開かれず、StackNest が 15 秒後に「qooViewer が本を読み込んでいません」と知らせていた(鍵が使われたかを
+  確かめる。`viewerUseCheckDelay`)。参照ファイルはまとめず、届いたものをどれもすぐ開く: 続けて届いたうち最初の 1 冊は環境設定「Finder
+  から開いたとき」に従い、2 冊目以降は直前の本のタブの右に新しいタブで開く(渡された順に並ぶ。`AppDelegate.openStackNestReferences`)。
 - **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
   その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
   理由を 1 度だけ知らせます。書き戻しもその本については送りません(部品)。終了(⌘Q)のときは、送っていない位置を最長 2 秒だけ待って

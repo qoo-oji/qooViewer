@@ -147,10 +147,12 @@ struct StackNestQuitFlushTests {
         #expect(flush.flushBlocking(timeout: 2) == 1)
         #expect(ContinuousClock.now - started < .seconds(2))
         #expect(fixture.progressPages == [3])
-        // 送るものが無ければ待たない。
-        flush.unregister(owner: viewer)
-        #expect(flush.flushBlocking(timeout: 2) == 0)
+        // 本を閉じて役が送り終えたら、送るものが無いので待たない(送り終える前に閉じた本は、控えに残る ―― StackNestUIRulesTests)。
         progress.close()
         await progress.waitUntilIdle()
+        flush.unregister(owner: viewer)
+        let idleStarted = ContinuousClock.now
+        #expect(flush.flushBlocking(timeout: 2) == 0)
+        #expect(ContinuousClock.now - idleStarted < .seconds(1))
     }
 }

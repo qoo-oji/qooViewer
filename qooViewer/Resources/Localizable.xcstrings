@@ -3155,6 +3155,22 @@
         }
       }
     },
+    "%d book(s) from StackNest were skipped because StackNest books leave no saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d book(s) from StackNest were skipped because StackNest books leave no saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本 %d 冊は、保存データを残さないため読み込みませんでした。"
+          }
+        }
+      }
+    },
     "%d book(s) were skipped because their files couldn't be found." : {
       "localizations" : {
         "en" : {

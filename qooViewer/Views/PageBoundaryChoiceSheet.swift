@@ -15,6 +15,8 @@ import SwiftUI
 struct PageBoundaryChoiceSheet<Choice: PageBoundaryChoice>: View {
     /// 見出し(「最初のページです。」「最後のページです。」)。
     let titleKey: LocalizedStringKey
+    /// 前の本・次の本へ移る選択肢を淡色にするか(置き場所の無い本 ―― StackNest の本。MangaBook.hasBrowsableLocation)。
+    var dimsAdjacentBookChoices = false
     /// ボタンが押されたときに呼ばれる。シートを閉じるのは呼び出し先の責任
     /// (performFirstPageBehavior/performLastPageBehaviorがpendingBoundaryPromptをnilへ戻す)。
     let onChoose: (Choice) -> Void
@@ -39,6 +41,7 @@ struct PageBoundaryChoiceSheet<Choice: PageBoundaryChoice>: View {
                             .frame(maxWidth: .infinity)
                     }
                     .controlSize(.large)
+                    .disabled(dimsAdjacentBookChoices && choice.opensAdjacentBook)
                     // ラベルを.frame(maxWidth:)で包むと、VoiceOver/アクセシビリティ検査から
                     // ボタン名が読めなくなる(実機で確認: AXTitleがmissing value)ため明示する。
                     .accessibilityLabel(Text(choice.titleKey))

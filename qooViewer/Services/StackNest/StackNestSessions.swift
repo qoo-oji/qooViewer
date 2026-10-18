@@ -4,7 +4,8 @@ import StackNestViewerKit
 /// StackNest の参照ファイルの本の、1 冊に 1 つのセッション(StackNestViewerKit の `StackNestBookSession`)の表。
 ///
 /// ■ なぜ共有するか
-/// 同じ本の reader はいくつも作られる(ビューアの PageLoader・ブックマークとレイアウトの編集の PageLoader)。reader ごとに
+/// 同じ本の reader はいくつも作られる(開くときの BookLoader・ビューアの PageLoader・同じ本を開いたほかのウインドウ ―― ノーマルと
+/// シークレット ―― のビューア)。reader ごとに
 /// セッションを作ると、ページの短期キャッシュ・同じページの二重取得の防止・要求の同時数の門(`StackNestRequestGate`)が
 /// reader ごとに別になる。同じ参照ファイルから作る reader は、ここで 1 つのセッションを使い回す。
 /// 本を開くときの BookLoader が manifest を問い合わせるセッションは、そのあと誰も持たなければ表から消える(表は弱い参照)。

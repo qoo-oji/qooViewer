@@ -342,6 +342,17 @@ struct LibraryImportWindow: View {
         let summary = outcome.summary
         let categories = FileCategories(outcome.file)
         let policies = outcome.policies
+        // StackNest の本は保存データを残さないので、どのカテゴリでも読み込まない(LibraryImportExportService.removingStackNestBooks)。
+        if summary.stackNestSkippedBooks > 0 {
+            Text(
+                String(
+                    format: String(localized: "%d book(s) from StackNest were skipped because StackNest books leave no saved data.", language: preferences.effectiveLocale),
+                    summary.stackNestSkippedBooks
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
         if categories.hasFavorites, policies.favorites != .ignore {
             Text(
                 String(

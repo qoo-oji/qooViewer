@@ -30,7 +30,7 @@ struct StackNestPageFailureTests {
         await #expect(throws: StackNestViewerError(.libraryLocked)) {
             try await FileIO.perform { try reader.manifest(refresh: true) }
         }
-        // 同じ参照ファイルから作ったほかの reader(サムネイル・レイアウトの編集)も問い合わせない。
+        // 同じ参照ファイルから作ったほかの reader(ほかのウインドウのビューア)も問い合わせない。
         let other = try StackNestReferenceReader(referenceFileURL: fixture.referenceURL)
         await #expect(throws: StackNestViewerError(.libraryLocked)) {
             try await FileIO.perform { try other.data(at: "000003.jpg") }

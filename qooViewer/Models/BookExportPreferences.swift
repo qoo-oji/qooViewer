@@ -84,6 +84,7 @@ enum BookExportCompletionBehavior: String, CaseIterable, Identifiable, Codable, 
 
     static var promptChoices: [BookExportCompletionBehavior] { allCases.filter { $0 != .ask } }
     static var doNothing: BookExportCompletionBehavior { .none }
+    var opensAdjacentBook: Bool { self == .nextBook || self == .nextBookFirstPage }
 
     /// 「毎回確認」のシートに出すボタン名。`LastPageBehavior`と同じ文字列カタログのキーを
     /// 使い回している(同じ意味のものを別の語で呼ばないため。UI文言の用語表)。

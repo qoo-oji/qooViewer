@@ -86,6 +86,11 @@ nonisolated final class StackNestConnectorClient: StackNestConnectorTransport, @
     }
 
     /// 控えている要求をすべて `.unavailable` で終える(中断・無効化)。
+    ///
+    /// 中断の知らせは、サービスが落ちてから少し遅れて届く。その間に送った要求は立ち上がり直したサービスへ届いていることがあるが、
+    /// それも `.unavailable` で終える(見分ける手段が無い)。部品は一時的な失敗として扱い、次に読むときに問い合わせ直すので、
+    /// 1 度ぶんの読み込みが失敗するだけで済む(サービスの側で走り続ける要求は、その時間切れまでに終わる)。2026-10-19 のレビューで
+    /// 受け入れた。
     private func failAllPending(invalidated: Bool) {
         let all: [Completion] = lock.withLock {
             let completions = Array(pending.values)

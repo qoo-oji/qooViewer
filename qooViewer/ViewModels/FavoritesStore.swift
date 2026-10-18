@@ -850,15 +850,10 @@ final class FavoritesStore: ObservableObject {
 
     /// 登録を断る本か(StackNest の参照ファイル)。本の属性だけでなく**パス(id)も**見る: 保存データの取り込みが作る本は、
     /// 参照ファイルから読み込んだものではなく、パスだけを持つ(`stackNestReference` が無い)。登録だけを断り、すでにある
-    /// 登録の削除は止めない(ビューアの「お気に入りから削除」)。
+    /// 登録の削除は止めない。ビューアからは、StackNest の本は記録を残さない本なので、お気に入りの項目そのものが淡色
+    /// (skipsPersistence。ここは多重の守り)。
     private static func isReferenceBook(_ book: MangaBook) -> Bool {
         book.isStackNestReference || isStackNestReferenceFile(book.id)
-    }
-
-    /// 「お気に入りに追加/削除」のトグルを使えるか。参照ファイルの本は**追加だけ**を断り、すでにある登録の削除は通す
-    /// (ビューアのボタン・メニュー・キー操作が同じ判定を使う)。
-    static func canToggleFavorite(isReferenceBook: Bool, isFavorited: Bool) -> Bool {
-        !isReferenceBook || isFavorited
     }
 
     /// お気に入りへの登録を試みる。

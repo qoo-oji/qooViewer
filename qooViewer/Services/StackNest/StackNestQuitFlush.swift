@@ -32,6 +32,8 @@ final class StackNestQuitFlush {
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
+    /// 閉じた本のうち、閉じたときの送信がまだ終わっていないもの(`unregister`)。役が送り終えたら(役が消えた・送るものが無い)外す。
+    private var closing: [Entry] = []
 
     init() {}
 
@@ -45,15 +47,23 @@ final class StackNestQuitFlush {
     }
 
     /// 本を閉じた(書き戻しの役は自分で送り切る)。
+    ///
+    /// 閉じたときの送信がまだ飛んでいれば、送り終えるまで控えに残す(2026-10-19 のレビュー: 以前はすぐ外したので、「最後のウインドウを
+    /// 閉じたら終了」で閉じてすぐ終了すると、控えが空のまま待たずに終わり、その送信が切れえた)。持ち主(ビューア)はもう居ないので、
+    /// ページは今の値を写して持つ。
     func unregister(owner: AnyObject) {
-        entries[ObjectIdentifier(owner)] = nil
+        guard let entry = entries.removeValue(forKey: ObjectIdentifier(owner)) else { return }
+        if let reporter = entry.reporter, reporter.hasUnsentWork, let page = entry.lastPage() {
+            closing.append(Entry(reporter: reporter, session: entry.session, lastPage: { page }))
+        }
     }
 
     /// 送っていない位置を送り、送り終わるか `timeout` が来るまでメインで待つ。送るものが無ければ待たない。
     /// - Returns: 送ろうとした数。
     @discardableResult
     func flushBlocking(timeout: TimeInterval) -> Int {
-        let jobs: [(StackNestBookSession, Int)] = entries.values.compactMap { entry in
+        closing.removeAll { $0.reporter?.hasUnsentWork != true }
+        let jobs: [(StackNestBookSession, Int)] = (Array(entries.values) + closing).compactMap { entry in
             guard let reporter = entry.reporter, reporter.hasUnsentWork, let page = entry.lastPage() else { return nil }
             return (entry.session, page)
         }

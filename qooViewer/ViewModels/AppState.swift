@@ -2814,8 +2814,7 @@ struct MenuCheckmarkState: Equatable {
     /// フォーカス中のウインドウのビューアに本が出ているか(`AppState.menuShownBook`。監査 M-6 ―― 以前メニューは `focusedAppState?.currentBook`
     /// を参照で読み、受け渡し中は新しい本、画面と操作の相手は前の本、とずれた)。メニューの「本を開いているか」はこれで見る。
     var hasBook = false
-    /// 画面に出ている本が StackNest の本か(`menuShownBook`。監査 M-6 ―― メニューの淡色は写しから読む)。お気に入りの登録を断り、
-    /// 置き場所の無い本として前の本・次の本・同じフォルダのファイルを開く・Finder / ファイルブラウザで表示・フォルダへのアクセスの
+    /// 画面に出ている本が StackNest の本か(`menuShownBook`。監査 M-6 ―― メニューの淡色は写しから読む)。置き場所の無い本として前の本・次の本・同じフォルダのファイルを開く・Finder / ファイルブラウザで表示・フォルダへのアクセスの
     /// 許可を淡色にする(MangaBook.hasBrowsableLocation)。
     var isCurrentBookStackNestReference = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。

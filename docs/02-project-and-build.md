@@ -295,7 +295,7 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 `AppStores.lastFileSystemChangeHandling` を待ってから確かめます。終わりに `close()`(`AppStores.releaseResources()`)。
 
 **新しい配線は `Dependencies` か引数で渡す**のが原則で、認めている例外は 2 つだけです(2026-10-18、PR #1 のレビューで決めた):
-- **ウインドウをまたいで 1 つでなければならない表**(`StackNestSessions` ―― ビューアとブックマーク・レイアウトの編集が同じ本のページの
+- **ウインドウをまたいで 1 つでなければならない表**(`StackNestSessions` ―― 同じ本を開いたビューア(ほかのウインドウを含む)が同じ本のページの
   キャッシュと失敗の記録を共有する ―― と `NetworkVolumeReading`)は static のままでよい。テストは**自分の作業フォルダだけを登録して**分ける
   (`StackNestSessions.useConfigurationForTesting(_:under:)`・`NetworkVolumeReading.treatAsRemoteForTesting`)。表そのものを差し替える口は
   作らない(並行して走るテストが混ざる)。

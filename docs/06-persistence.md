@@ -573,7 +573,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 StackNest の参照ファイルの本(`.stacknestbook`)も**シークレットフォルダの本と同じく記録を残さない**(利用者の決定。`MangaBook.leavesNoRecord`)。
 参照ファイルは開くたびに同じパスへ書き直され、前回と同じ本かを qooViewer から確かめられないため。窓の性質は元のまま、外観はシークレットの
 揃い、タイトルは「(StackNest) 題名」。読書位置を StackNest へ返すのは保存データではないので普通の窓では続ける
-(`ViewerViewModel.recordingRule`)。保存データの取り込みは参照ファイルの本の行を作らない。詳細と、置き場所の無い本としての淡色の一覧は
+(`ViewerViewModel.recordingRule`)。保存データの読み込みは、どのカテゴリでも参照ファイルの本を外す(`removingStackNestBooks`)。詳細と、置き場所の無い本としての淡色の一覧は
 [10「StackNest の本と通信」](10-sandbox-and-security.md#stacknest-の本と通信)。
 
 ## 削除とリセット
