@@ -155,7 +155,8 @@ nonisolated enum BookLoader {
             // 使うと要求が出ず、StackNest が「読み込まれた」と知る合図にならない。
             let manifest = try reader.manifest(refresh: true)
             var book = try stackNestReferenceBook(
-                reference: reader.reference, pageCount: manifest.pageCount,
+                // 表は manifest を読んだときにセッションが作ったもの(StackNestSessions.Book.noteManifest)を使う(作り直さない)。
+                reference: reader.reference, pageMap: reader.knownPageMap ?? StackNestPageMap(manifest),
                 direction: manifest.direction ?? reader.reference.direction, at: url)
             book.stackNestBookIdentity = manifest.bookIdentity
             return book
@@ -166,13 +167,16 @@ nonisolated enum BookLoader {
     }
 
     private static func stackNestReferenceBook(
-        reference: StackNestBookReference, pageCount: Int, direction: StackNestReadingDirection?, at url: URL
+        reference: StackNestBookReference, pageMap: StackNestPageMap, direction: StackNestReadingDirection?, at url: URL
     ) throws -> MangaBook {
-        let names = StackNestPageNaming.entryNames(pageCount: pageCount)
+        // ページの名前は StackNest が返した書庫の中のパス(返さなければ番号の仮の名前。StackNestPageMap)。
+        let names = pageMap.entryNames
         guard !names.isEmpty else { throw BookLoaderError.noPages }
         let locator = ArchiveLocator(rootURL: url)
         // id・sortKey の組み立ては書庫の本(collectPages の最上位)と同じ式。sortKey はブックマーク・レイアウト・読書位置の鍵。
-        // 名前は StackNest の番号順に並んで生まれるので並べ替えない。
+        // 並びは StackNest の番号順のまま(`pageOrderSource: .document` ―― qooViewer の名前順で並べ直さない。実際の名前になって、
+        // 名前順の決まりの違いで StackNest の内蔵ビューアや「開くページ」と順番が食い違わないように)。番号はいつも名前から引く
+        // (MangaBook.stackNestPageIndex)。
         let pages = names.map { name in
             PageRef(id: "\(url.path)#\(name)", sortKey: name, source: .archive(locator: locator, entryPath: name))
         }
@@ -182,10 +186,12 @@ nonisolated enum BookLoader {
             title: title.isEmpty ? url.deletingPathExtension().lastPathComponent : title,
             sourceURL: url,
             pages: pages,
+            pageOrderSource: .document,
             // StackNest の読み方向。記録を残さない本なので DB へは取り込まず(skipsPersistence)、開くたびにこの向きで始める
             // (ViewerViewModel の unimportedSourceHint。切り替えはその場だけ)。
             sourceLayoutHint: layoutHint(forStackNestDirection: direction),
-            stackNestReference: reference
+            stackNestReference: reference,
+            stackNestPages: pageMap
         )
     }
 

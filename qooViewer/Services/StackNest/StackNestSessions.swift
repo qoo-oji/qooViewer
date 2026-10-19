@@ -47,6 +47,10 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
         /// 部品のページのキャッシュの大きさを届け出ている持ち主(PageLoader の `memoryOwnerID`)。2 つの PageLoader が同じ
         /// セッションを使っても、届けるのは最初の 1 つだけ(二重に数えない)。
         private var memoryReporter: UUID?
+        /// このセッションで最後に読んだ manifest の、名前と番号の表(StackNestPageMap)。開いた本の表を持たない reader
+        /// (サムネイル・表紙の下調べ)が、ページを読むたびに manifest を問い合わせずに番号を引くため。
+        private var lastPageMap: StackNestPageMap?
+        private var lastPageMapSource: (pageCount: Int, names: [String]?)?
 
         init(session: StackNestBookSession, configuration: StackNestBookSession.Configuration, gate: StackNestRequestGate) {
             self.session = session
@@ -56,6 +60,20 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
 
         /// 開いている参照ファイルの中身。
         var reference: StackNestBookReference { session.reference }
+
+        /// このセッションで最後に読んだ manifest の名前と番号の表。まだ読んでいなければ nil。
+        var knownPageMap: StackNestPageMap? { lock.withLock { lastPageMap } }
+
+        /// 読んだ manifest を覚える(名前とページ数が前と同じなら表を作り直さない)。
+        func noteManifest(_ manifest: StackNestBookManifest) {
+            lock.withLock {
+                if let source = lastPageMapSource, source.pageCount == manifest.pageCount, source.names == manifest.pageNames {
+                    return
+                }
+                lastPageMapSource = (manifest.pageCount, manifest.pageNames)
+                lastPageMap = StackNestPageMap(manifest)
+            }
+        }
 
         /// この本で起きた恒久的な失敗(期限切れ・認証の失敗・施錠・本が無い・宛先の制限。StackNest から開き直すまで直らない)。
         /// 起きた後は、この本のページも manifest も StackNest へ問い合わせない(reader が要求の前に見る)。
@@ -189,6 +207,8 @@ nonisolated final class StackNestSessions: @unchecked Sendable {
     static var productionConfiguration: StackNestBookSession.Configuration {
         var configuration = StackNestBookSession.Configuration()
         configuration.makeURLSessionConfiguration = { StackNestConnectorURLProtocol.makeSessionConfiguration() }
+        // ページの名前(書庫の中のパス)を manifest で頼む(StackNestPageMap)。名前を知らない StackNest は問い合わせを読み飛ばす。
+        configuration.requestsPageNames = true
         return configuration
     }
 }

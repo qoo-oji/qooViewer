@@ -5,18 +5,132 @@ import Testing
 
 @testable import qooViewer
 
-/// StackNest が manifest に付ける本の同一性(`bookIdentity`)。付けない StackNest(古い版)では nil。
+/// StackNest が manifest で返すページの名前(`?pageNames=1`)と本の同一性(`bookIdentity`)。名前はエントリのパス・ページの鍵・
+/// 中身ブラウザのフォルダになり、ページを取る番号・書き戻す番号は名前から引く(StackNestPageMap)。
 @MainActor
-struct StackNestBookIdentityTests {
-    @Test("manifest の同一性を本が持つ(付けない StackNest では nil)")
-    func bookCarriesTheIdentity() async throws {
-        let fixture = try StackNestTestBook(pageCount: 3, bookIdentity: "sn1-fixture")
+struct StackNestPageNamesTests {
+    /// StackNest の番号の順の名前(書庫の中のパス。StackNest は書庫の中のパスを自然順に並べる)。
+    static let names = ["第1話/001.jpg", "第1話/002.png", "第2話/001.jpg", "第2話/002.jpg", "あとがき.jpg"]
+
+    @Test("名前を返す StackNest: ページの名前・鍵・表示名は実際の名前、並びは StackNest の番号順、同一性も持つ")
+    func pagesUseTheRealNames() async throws {
+        let fixture = try StackNestTestBook(pageCount: 5, pageNames: Self.names, bookIdentity: "sn1-fixture")
         defer { fixture.close() }
         let book = try await FixtureBook.load(fixture.referenceURL)
+        #expect(book.pages.map(\.sortKey) == Self.names)
+        #expect(book.pages.map(\.displayName) == ["001.jpg", "002.png", "001.jpg", "002.jpg", "あとがき.jpg"])
+        #expect(book.pageOrderSource == .document)
+        #expect(book.stackNestPages?.usesRealNames == true)
         #expect(book.stackNestBookIdentity == "sn1-fixture")
-        let older = try StackNestTestBook(pageCount: 3, label: "stacknest-older")
-        defer { older.close() }
-        #expect(try await FixtureBook.load(older.referenceURL).stackNestBookIdentity == nil)
+        #expect(book.stackNestPageIndex(forKey: "第2話/001.jpg") == 2)
+        #expect(book.stackNestPageKey(forPage: 4) == "あとがき.jpg")
+        // manifest は名前を頼む形で 1 回だけ。
+        let manifest = try #require(fixture.requests.first { $0.route == .manifest })
+        #expect(manifest.url.query == "pageNames=1")
+        #expect(fixture.manifestRequestCount == 1)
+        // 場所は書庫の中のフォルダ(PageRef.location)。
+        #expect(book.pages[2].location(inBookAt: book.sourceURL).folderPath == "第2話")
+    }
+
+    @Test("名前を返さない StackNest(古い版)では、これまでどおり番号の仮の名前")
+    func olderStackNestKeepsSyntheticNames() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        #expect(book.pages.map(\.sortKey) == (0..<3).map(StackNestPageNaming.entryName(forPage:)))
+        #expect(book.stackNestPages?.usesRealNames == false)
+        #expect(book.stackNestBookIdentity == nil)
+    }
+
+    @Test("ページは名前から引いた番号で取る(仮の名前と同じ形の実際の名前でも、名前の番号では読まない)")
+    func pagesAreFetchedByTheNumberLookedUpFromTheName() async throws {
+        // 書庫の中の名前が仮の名前と同じ形で、番号がずれている本(000001.jpg が 0 番)。
+        let tricky = ["000001.jpg", "000002.jpg", "000003.jpg"]
+        let fixture = try StackNestTestBook(pageCount: 3, pageNames: tricky)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let reader = try StackNestReferenceReader(
+            reference: try #require(book.stackNestReference), at: fixture.referenceURL, pageMap: book.stackNestPages)
+        let data = try await reader.pageData(at: "000001.jpg", priority: .display)
+        #expect(PageColorReader.matches(data, number: 1), "0 番(R = 番号 + 1)")
+        #expect(fixture.pageRequestIndices == [0])
+        await #expect(throws: ArchiveReaderError.self) { try await reader.pageData(at: "000000.jpg", priority: .display) }
+        // 表を持たない reader(サムネイルの下調べなど)は、一覧を取った後はセッションの manifest の表で引く(同期の口は FileIO の上で)。
+        let url = fixture.referenceURL
+        let (listed, third) = try await FileIO.perform {
+            let plain = try StackNestReferenceReader(referenceFileURL: url)
+            return (try plain.listFilePaths(), try plain.data(at: "000003.jpg"))
+        }
+        #expect(listed == tricky)
+        #expect(PageColorReader.matches(third, number: 3))
+    }
+
+    @Test("書き戻す番号は名前から引く(除外・並べ替えの後の位置ではない)")
+    func progressUsesTheNumberOfTheName() async throws {
+        let fixture = try StackNestTestBook(pageCount: 5, startPage: 2, pageNames: Self.names)
+        defer { fixture.close() }
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        harness.library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .excluded)
+        let viewer = await harness.openInWindow(book)
+        // 開くページは参照ファイルの startPage(StackNest の 2 番 = 第2話/001.jpg)。
+        #expect(viewer.book.pages[viewer.currentIndex].sortKey == "第2話/001.jpg")
+        viewer.jump(toPageIndex: 0)
+        await viewer.settle()
+        viewer.flushPendingSave()
+        await viewer.stackNestProgress?.waitUntilIdle()
+        #expect(fixture.progressPages == [1], "今の並びの 0 番目は StackNest の 1 番(第1話/002.png)")
+    }
+
+    @Test("中身ブラウザは書庫の中のフォルダを辿れ、押すとそのページへ(StackNest へは問い合わせない)。今のページのフォルダへ追従する")
+    func bookContentsBrowsesTheFolders() async throws {
+        let fixture = try StackNestTestBook(pageCount: 5, pageNames: Self.names)
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let requestsAfterLoad = fixture.requests.count
+        let state = try #require(await BookContentsBrowserState.make(book: book))
+        defer { state.releaseResources() }
+        // 並びはビューアのページ順(サイドパネルが流し込む)。
+        state.pageOrder = Dictionary(uniqueKeysWithValues: book.pages.enumerated().map { ($1.sortKey, $0) })
+        await state.waitUntilListed()
+        #expect(state.entries.map(\.displayName) == ["第1話", "第2話", "あとがき.jpg"])
+        #expect(state.entries[0].isContainer)
+        state.navigate(state.entries[1])
+        await state.waitUntilListed()
+        #expect(state.currentLocationName == "第2話")
+        #expect(state.entries.map(\.matchKey) == ["第2話/001.jpg", "第2話/002.jpg"])
+        if case .jumpToPage(let index) = state.resolveImageClick(on: state.entries[1], bookPages: book.pages) {
+            #expect(index == 3)
+        } else {
+            Issue.record("ページへ移らなかった")
+        }
+        state.goBack()
+        await state.waitUntilListed()
+        #expect(state.currentLocationName == nil)
+        // 今のページ(第1話/002.png)を見せると、そのフォルダへ入る。
+        state.revealCurrentPage(sortKeys: ["第1話/002.png"])
+        await state.waitUntilListed()
+        #expect(state.currentLocationName == "第1話")
+        #expect(state.highlightedMatchKeys == ["第1話/002.png"])
+        #expect(fixture.requests.count == requestsAfterLoad)
+    }
+
+    @Test(
+        "使えない名前の一覧は、一覧ごと仮の名前に戻す(.. を含む・揃えると重なる)。./ と先頭の / は落とす",
+        arguments: [
+            (["a/../b.jpg", "c.jpg"], nil),
+            (["./a.jpg", "a.jpg"], nil),
+            (["/a.jpg", "a.jpg"], nil),
+            (["./a.jpg", "/x//b.jpg"], ["a.jpg", "x/b.jpg"]),
+            ([".", "b.jpg"], nil),
+        ] as [([String], [String]?)]
+    )
+    func namesAreNormalizedOrDropped(names: [String], expected: [String]?) {
+        #expect(StackNestPageMap.normalizedEntryNames(names, pageCount: names.count) == expected)
+        let map = StackNestPageMap(names: names, pageCount: names.count)
+        #expect(map.usesRealNames == (expected != nil))
+        #expect(map.entryNames == (expected ?? StackNestPageNaming.entryNames(pageCount: names.count)))
     }
 }
 
@@ -26,7 +140,7 @@ struct StackNestBookIdentityTests {
 struct StackNestHandoffSequenceTests {
     @Test("並びのある StackNest の本は「次の本へ」で並びの次の参照ファイルを開き、並びの無い本は今までどおり断る")
     func nextBookFollowsTheSequence() async throws {
-        let first = try StackNestTestBook(pageCount: 3, label: "stacknest-seq-1")
+        let first = try StackNestTestBook(pageCount: 3, label: "stacknest-seq-1", pageNames: ["a.jpg", "b.jpg", "c.jpg"])
         defer { first.close() }
         let second = try StackNestTestBook(pageCount: 2, label: "stacknest-seq-2", fileName: "Second Book.stacknestbook")
         defer { second.close() }

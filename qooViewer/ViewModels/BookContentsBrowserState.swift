@@ -154,6 +154,10 @@ final class BookContentsBrowserState: ObservableObject {
         switch level {
         case .documentPages(let fileName, _):
             return fileName
+        case .pageTree(let fileName, _, let prefix):
+            // ルートは本の名前、仮想のフォルダの中ならその最後の要素(prefix は末尾 "/" 付き)。
+            guard !prefix.isEmpty else { return fileName }
+            return prefix.split(separator: "/").last.map(String.init) ?? fileName
         case .imageFileList:
             // 常にルート階層のみ(踏み込めない)ため、そもそもここへ来ない。
             return nil
@@ -202,12 +206,13 @@ final class BookContentsBrowserState: ObservableObject {
         }
         // StackNest の本(2026-10-18、利用者の指示「本の中身ブラウザは出す」): 参照ファイルは書庫ではなく、ページは StackNest から
         // 1 枚ずつ取り寄せるので、書庫として開いて一覧を取らない(開けば manifest の問い合わせが増え、同期の読み手で待つことになる)。
-        // 本のページ(名前は StackNest の番号)をそのまま平坦な 1 階層として見せる。行の鍵はページの sortKey(押すとそのページへ)。
-        // ファイルに触らないので、メインで作ってよい。
+        // 本のページをそのまま見せる。行の鍵はページの sortKey(押すとそのページへ)。ページの名前が StackNest の返した書庫の中の
+        // パス(MangaBook.stackNestPages)なら、ローカルの書庫の本と同じく書庫の中のフォルダを辿れる形(`.pageTree`)にし、
+        // 番号の仮の名前なら平坦な 1 階層。ファイルに触らないので、メインで作ってよい。
         if book.isStackNestReference {
-            self.init(book: book, root: .pages(fileName: book.title, book.pages.map {
-                BookDocumentPage(displayName: $0.displayName, matchKey: $0.sortKey)
-            }))
+            let pages = book.pages.map { BookDocumentPage(displayName: $0.displayName, matchKey: $0.sortKey) }
+            self.init(book: book, root: book.stackNestPages?.usesRealNames == true
+                      ? .pageTree(fileName: book.title, pages) : .pages(fileName: book.title, pages))
             return
         }
         guard let root = Self.prepareRoot(of: book) else { return nil }
@@ -252,6 +257,9 @@ final class BookContentsBrowserState: ObservableObject {
             currentLocator = nil
         case .pages(let fileName, let pages):
             currentLevel = .documentPages(fileName: fileName, pages: pages)
+            currentLocator = nil
+        case .pageTree(let fileName, let pages):
+            currentLevel = .pageTree(fileName: fileName, pages: pages, prefix: "")
             currentLocator = nil
         case .folder(let url):
             currentLevel = .folder(url)
@@ -555,6 +563,10 @@ final class BookContentsBrowserState: ObservableObject {
             // 組み立てるため)。
             guard case .archive(let archive, let allPaths, _, let matchKeyPrefix) = level else { return nil }
             return (.archive(archive: archive, allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix), locator)
+        case .pageTreeFolder(let prefix):
+            // 本のページのフォルダの形の中で深くするだけ(I/O無し。StackNest の本)。
+            guard case .pageTree(let fileName, let pages, _) = level else { return nil }
+            return (.pageTree(fileName: fileName, pages: pages, prefix: prefix), nil)
         case .archiveFileOnDisk(let url):
             let archive = try NestedArchiveResolver.openRootArchive(at: url)
             let allPaths = try archive.reader.listFilePaths()
@@ -695,6 +707,9 @@ final class BookContentsBrowserState: ObservableObject {
             case .archive(let allPaths, let prefix, let matchKeyPrefix):
                 guard case .archive(let archive, _, _, _) = rootLevel else { return (rootLevel, rootLocator) }
                 return (.archive(archive: archive, allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix), rootLocator)
+            case .pageTree(let pages, let prefix):
+                guard case .pageTree(let fileName, _, _) = rootLevel else { return (rootLevel, rootLocator) }
+                return (.pageTree(fileName: fileName, pages: pages, prefix: prefix), nil)
             case .documentPages, .imageFileList:
                 // 裏では踏み込まない(`walk` の switch)。出発点だけがこれになりうる。
                 return (rootLevel, rootLocator)
@@ -936,8 +951,10 @@ final class BookContentsBrowserState: ObservableObject {
 /// 本の中身ブラウザの最上位の階層の下ごしらえ(`BookContentsBrowserState.prepareRoot`)。
 private nonisolated enum PreparedRoot {
     case imageFiles([URL])
-    /// StackNest の本のページ(`make(book:)` のコメント)。
+    /// StackNest の本のページ(`make(book:)` のコメント)。`pages` は番号の仮の名前の平坦な 1 階層、`pageTree` は実際の名前の
+    /// フォルダの形。
     case pages(fileName: String, [BookDocumentPage])
+    case pageTree(fileName: String, [BookDocumentPage])
     case folder(URL)
     /// 本そのものの書庫(開いた状態)と、その一覧。
     case archive(URL, OpenArchive, [String])

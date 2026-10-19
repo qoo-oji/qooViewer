@@ -1506,6 +1506,9 @@ private struct BookContentsSectionView: View {
             return true
         case .archiveVirtualFolder, .nestedArchiveEntry, .documentEntry:
             return bookSourceURL != nil
+        case .pageTreeFolder:
+            // 本のページのフォルダの形(StackNest の本)。示す実体が無い(本の置き場所が無い ―― MangaBook.hasBrowsableLocation)。
+            return false
         case nil:
             if bookSourceURL != nil { return true }
             return entry.matchKey.hasPrefix("/")
@@ -1521,6 +1524,9 @@ private struct BookContentsSectionView: View {
         case .archiveVirtualFolder, .nestedArchiveEntry, .documentEntry:
             // 書庫の中にしか存在しない。本そのものを示す。
             if let bookSourceURL { body(bookSourceURL) }
+        case .pageTreeFolder:
+            // hasRevealTarget が false の行なので来ない。来たら黙らない。
+            UserFeedback.beep()
         case nil:
             // 画像(またはその他のファイル)。フォルダの本ではmatchKeyが絶対パスそのもの
             // (BookInternalBrowsing.folderEntries/imageFileEntries参照)なので、それが実在
@@ -1553,7 +1559,7 @@ private struct BookContentsSectionView: View {
     private func icon(for entry: BookInternalBrowsing.Entry) -> String {
         if entry.isImage { return "photo" }
         switch entry.navigateTarget {
-        case .realFolder, .archiveVirtualFolder:
+        case .realFolder, .archiveVirtualFolder, .pageTreeFolder:
             return "folder"
         case .archiveFileOnDisk, .nestedArchiveEntry:
             return "doc.zipper"

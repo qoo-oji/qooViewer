@@ -1319,19 +1319,23 @@ actor PageLoader {
             let internalFolder = (entryPath as NSString).deletingLastPathComponent
             let archivePath = locator.displayPath
             var location = internalFolder.isEmpty ? archivePath : "\(archivePath)/\(internalFolder)"
-            // 網越しのページ(StackNest の本)の名前は仮のもの(`000041.jpg`)なので、拡張子と形式は中身から(2026-10-18 のレビュー:
-            // PNG のページも「JPEG」と出ていた)。
+            // 網越しのページ(StackNest の本)の形式は中身から(2026-10-18 のレビュー: PNG のページも「JPEG」と出ていた。リモートの
+            // 本の中継は大きなページを JPEG に変えて返すので、実際の名前の拡張子とも食い違いうる)。名前は、StackNest が実際の名前を
+            // 返した本(MangaBook.stackNestPages)ならそのまま、番号の仮の名前(`000041.jpg`)なら拡張子を中身に合わせる。
             var fileName = page.displayName
+            var formatSource = fileName
             let isRemote = remoteReader(for: page.source) != nil
             if isRemote, let sniffed = header.sniffedFileExtension {
-                fileName = ((fileName as NSString).deletingPathExtension as NSString).appendingPathExtension(sniffed) ?? fileName
+                let renamed = ((fileName as NSString).deletingPathExtension as NSString).appendingPathExtension(sniffed) ?? fileName
+                formatSource = renamed
+                if book.stackNestPages?.usesRealNames != true { fileName = renamed }
             }
             // 場所は「StackNest」(2026-10-18、利用者の決定)。参照ファイルのパスは StackNest の受け渡し用のファイルで、本の置き場所では
-            // ない(MangaBook.hasBrowsableLocation)。製品名なので訳さない。
-            if isRemote { location = "StackNest" }
+            // ない(MangaBook.hasBrowsableLocation)。製品名なので訳さない。書庫の中のフォルダがあれば続ける(実際の名前の本)。
+            if isRemote { location = internalFolder.isEmpty ? "StackNest" : "StackNest/\(internalFolder)" }
             return PageImageInfo(
                 fileName: fileName,
-                formatDescription: Self.imageFormatDescription(forFileName: fileName),
+                formatDescription: Self.imageFormatDescription(forFileName: formatSource),
                 pixelWidth: header.pixelWidth,
                 pixelHeight: header.pixelHeight,
                 colorModel: header.colorModel,
@@ -2200,7 +2204,7 @@ actor PageLoader {
         // 手放した後は作り直さない(2026-10-18 のレビュー: 手放した後に届いた寸法・情報・書き出しの要求が reader を作り直し、
         // 手放したはずのセッションを PageLoader がまた握っていた)。
         guard !isReleased else { return nil }
-        let reader = try? StackNestReferenceReader(reference: reference, at: url)
+        let reader = try? StackNestReferenceReader(reference: reference, at: url, pageMap: book.stackNestPages)
         cachedStackNestReader = reader
         return reader
     }

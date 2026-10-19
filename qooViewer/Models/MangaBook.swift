@@ -132,6 +132,11 @@ struct MangaBook: Identifiable, Hashable {
     /// この値を読まない)。並びを組み直す所(ViewerViewModel.prepareBook)は必ず引き継ぐこと。
     var stackNestReference: StackNestBookReference? = nil
 
+    /// StackNest の本のページの名前(エントリのパス)と、StackNest のページ番号の対応(開いたときの manifest から。StackNestPageMap)。
+    /// ページを取る番号・StackNest へ書き戻す番号は、ページの名前からこれで引く。並びを組み直す所(ViewerViewModel.prepareBook)は
+    /// `stackNestReference` と一緒に必ず引き継ぐこと(落とすと、名前から番号を引けずにページが読めなくなる)。
+    var stackNestPages: StackNestPageMap? = nil
+
     /// StackNest が manifest に付けた本の同一性(`StackNestBookManifest.bookIdentity`。同じライブラリの同じ本なら、改題・移動・
     /// StackNest の再起動・リモートの本の中継を通しても同じ値)。付けない StackNest では nil。**今は保存データの鍵には使っていない**
     /// (StackNest の本は記録を残さない ―― `leavesNoRecord`)。ブックマーク・レイアウトを残すときの鍵の候補として持つ。
@@ -140,6 +145,21 @@ struct MangaBook: Identifiable, Hashable {
 
     /// StackNest の参照ファイルの本か。
     var isStackNestReference: Bool { stackNestReference != nil }
+
+    /// ページの鍵(`PageRef.sortKey` ―― StackNest の本ではエントリのパスと同じ)の、StackNest のページ番号。StackNest の本でなければ nil。
+    /// 表を持たない本(試験が直接組んだ本)は番号の仮の名前として読む。
+    func stackNestPageIndex(forKey key: String) -> Int? {
+        guard isStackNestReference else { return nil }
+        if let stackNestPages { return stackNestPages.pageIndex(ofEntry: key) }
+        return StackNestPageNaming.pageIndex(fromEntryName: key)
+    }
+
+    /// StackNest のページ番号のページの鍵(`stackNestPageIndex(forKey:)` の逆)。
+    func stackNestPageKey(forPage page: Int) -> String? {
+        guard isStackNestReference else { return nil }
+        if let stackNestPages { return stackNestPages.entryName(forPage: page) }
+        return StackNestPageNaming.entryName(forPage: page)
+    }
 
     /// qooViewer から辿れる「本の置き場所」(親フォルダ)があるか。StackNest の本には無い(2026-10-18、利用者の決定「本が置かれて
     /// いるフォルダという大前提が崩れる。前の表示を残さず、理由を示して隠す」): 参照ファイルは StackNest が本を渡すために自分の

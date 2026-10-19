@@ -34,6 +34,12 @@ nonisolated enum BookEntryLevel {
     /// 型コメントと同じ理由)。行のmatchKeyはBookContentsBrowserStateが踏み込む時点で
     /// BookLoader.documentPageSortKeyから組み立てる。
     case documentPages(fileName: String, pages: [BookDocumentPage])
+    /// 本のページそのものを、ページの鍵(`matchKey`。`/` で区切ったパス)のフォルダの形で辿る階層(StackNest の本。ページの名前は
+    /// StackNest が返した書庫の中のパス)。書庫を開かず(reader を持たない)、ページの一覧だけで仮想のフォルダを辿る ―― ページは
+    /// StackNest から 1 枚ずつ取るので、中身ブラウザのために書庫の一覧を問い合わせない。並ぶのは本のページと、それを含むフォルダ
+    /// だけで、入れ子の書庫・PDF などへ踏み込む行は無い(StackNest は画像のページの名前しか返さない)。
+    /// `prefix` は `.archive` と同じ形(""=ルート、末尾 "/" 付き)。
+    case pageTree(fileName: String, pages: [BookDocumentPage], prefix: String)
     /// ユーザーが直接渡した画像ファイル(MangaBook.BookOrigin.imageFiles)そのものの一覧。
     /// この本には辿るべき「中身の階層」が存在しないため、常にこの1階層だけで完結し、
     /// 踏み込む(navigate)ことも1階層上がることもない。
@@ -80,6 +86,8 @@ nonisolated enum BookInternalBrowsing {
         case realFolder(URL)
         /// 同じreaderのまま、仮想パスをさらに深くする(I/O無し)。
         case archiveVirtualFolder(prefix: String)
+        /// 本のページのフォルダの形(`BookEntryLevel.pageTree`)の中で、仮想のフォルダを深くする(I/O無し)。
+        case pageTreeFolder(prefix: String)
         /// フォルダ本の中で見つかった、ディスク上に実在するネストしたアーカイブファイル
         /// (makeArchiveReader(for:)にそのまま渡せる。一時ファイル書き出し不要)。
         case archiveFileOnDisk(URL)
@@ -114,6 +122,7 @@ nonisolated enum BookInternalBrowsing {
         case folder(URL)
         case archive(allPaths: [String], prefix: String, matchKeyPrefix: String?)
         case documentPages([BookDocumentPage])
+        case pageTree(pages: [BookDocumentPage], prefix: String)
         case imageFileList([URL])
     }
 
@@ -123,6 +132,7 @@ nonisolated enum BookInternalBrowsing {
         case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
             .archive(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix)
         case .documentPages(_, let pages): .documentPages(pages)
+        case .pageTree(_, let pages, let prefix): .pageTree(pages: pages, prefix: prefix)
         case .imageFileList(let urls): .imageFileList(urls)
         }
     }
@@ -138,6 +148,8 @@ nonisolated enum BookInternalBrowsing {
             )
         case .documentPages(let pages):
             return documentEntries(pages, pageOrder: pageOrder)
+        case .pageTree(let pages, let prefix):
+            return pageTreeEntries(pages, prefix: prefix, pageOrder: pageOrder)
         case .imageFileList(let urls):
             return imageFileEntries(urls)
         }
@@ -186,6 +198,8 @@ nonisolated enum BookInternalBrowsing {
                 source = .folder(url)
             case (.archiveVirtualFolder(let prefix), .archive(let allPaths, _, let matchKeyPrefix)):
                 source = .archive(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix)
+            case (.pageTreeFolder(let prefix), .pageTree(let pages, _)):
+                source = .pageTree(pages: pages, prefix: prefix)
             default:
                 return RevealWalk(steps: steps, entries: list, outcome: .needsContainer(target))
             }
@@ -216,6 +230,38 @@ nonisolated enum BookInternalBrowsing {
             },
             pageOrder: pageOrder
         )
+    }
+
+    /// 本のページのフォルダの形(`BookEntryLevel.pageTree`)の、`prefix` の直下 1 段。ページの鍵を `/` で区切り、その段の
+    /// フォルダ(配下にページを持つもの)とページを並べる。ページは名前の拡張子に関わらず画像の行(本のページそのもの)。
+    /// フォルダの行の鍵は `prefix + 名前 + "/"`(書庫の仮想フォルダと同じ形 ―― `walk` の含む判定が末尾 "/" で揃う)。
+    private static func pageTreeEntries(_ pages: [BookDocumentPage], prefix: String, pageOrder: [String: Int]) -> [Entry] {
+        var folderNames = Set<String>()
+        var pageEntries: [Entry] = []
+        for page in pages {
+            let key = page.matchKey
+            guard key.hasPrefix(prefix) else { continue }
+            let remainder = key.dropFirst(prefix.count)
+            guard !remainder.isEmpty else { continue }
+            if let slash = remainder.firstIndex(of: "/") {
+                let name = String(remainder[remainder.startIndex..<slash])
+                guard !name.isEmpty else { continue }
+                folderNames.insert(name)
+            } else {
+                pageEntries.append(Entry(
+                    id: key, displayName: String(remainder), isContainer: false, isImage: true,
+                    matchKey: key, navigateTarget: nil
+                ))
+            }
+        }
+        let folderEntries = folderNames.map { name -> Entry in
+            let childPrefix = prefix + name + "/"
+            return Entry(
+                id: childPrefix, displayName: name, isContainer: true, isImage: false,
+                matchKey: childPrefix, navigateTarget: .pageTreeFolder(prefix: childPrefix)
+            )
+        }
+        return sortedEntries(folderEntries + pageEntries, pageOrder: pageOrder)
     }
 
     /// 直接渡された画像ファイルの一覧。

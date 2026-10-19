@@ -7,7 +7,7 @@ import Foundation
 ///
 /// | 要求 | メソッド |
 /// |---|---|
-/// | `…/manifest` | GET |
+/// | `…/manifest`(`?pageNames=1` だけ付けてよい) | GET |
 /// | `…/pages/<番号>`(`?maxw=<幅>` だけ付けてよい) | GET |
 /// | `…/cover`(同上) | GET |
 /// | `…/progress`(JSON の本文。64 KiB まで) | POST |
@@ -53,7 +53,11 @@ nonisolated enum StackNestConnectorPolicy {
             return .failure(.path)
         }
         if let query = components.percentEncodedQuery {
-            guard endpoint.acceptsWidth, isWidthQuery(query) else { return .failure(.query) }
+            switch endpoint.query {
+            case .width: guard isWidthQuery(query) else { return .failure(.query) }
+            case .pageNames: guard query == "pageNames=1" else { return .failure(.query) }
+            case .none: return .failure(.query)
+            }
         }
         let method = request.method.uppercased()
         guard method == endpoint.method else { return .failure(.method) }
@@ -93,7 +97,17 @@ nonisolated enum StackNestConnectorPolicy {
     /// 本の基点の下の要求の種類。
     struct Endpoint: Equatable {
         let method: String
-        let acceptsWidth: Bool
+        /// 付けてよい問い合わせ。
+        let query: Query
+
+        enum Query: Equatable, Sendable {
+            /// 付けない。
+            case none
+            /// `maxw=<幅>` だけ(ページ・表紙)。
+            case width
+            /// `pageNames=1` だけ(manifest。StackNestViewerKit の `requestsPageNames` が付けるページの名前の頼み)。
+            case pageNames
+        }
     }
 
     /// `/api/v1/libraries/<書庫>/books/<番号>/<要求>` か `/api/v1/relay/<ID>/<要求>` なら、その要求の種類。
@@ -117,10 +131,10 @@ nonisolated enum StackNestConnectorPolicy {
             return nil
         }
         switch rest.count {
-        case 1 where rest[0] == "manifest": return Endpoint(method: "GET", acceptsWidth: false)
-        case 1 where rest[0] == "cover": return Endpoint(method: "GET", acceptsWidth: true)
-        case 1 where rest[0] == "progress": return Endpoint(method: "POST", acceptsWidth: false)
-        case 2 where rest[0] == "pages" && isDecimal(rest[1]): return Endpoint(method: "GET", acceptsWidth: true)
+        case 1 where rest[0] == "manifest": return Endpoint(method: "GET", query: .pageNames)
+        case 1 where rest[0] == "cover": return Endpoint(method: "GET", query: .width)
+        case 1 where rest[0] == "progress": return Endpoint(method: "POST", query: .none)
+        case 2 where rest[0] == "pages" && isDecimal(rest[1]): return Endpoint(method: "GET", query: .width)
         default: return nil
         }
     }

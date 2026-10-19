@@ -36,8 +36,13 @@ nonisolated enum RemotePageReadPriority: Sendable {
 /// ページの短期キャッシュは部品が持つ)。
 ///
 /// ■ 一覧と名前
-/// `listFilePaths()` は manifest のページ数から仮の名前(`000041.jpg`。`StackNestPageNaming`)を作る。書庫のエントリのパスの役を
-/// そのまま担わせるので、PageLoader・書き出しの判定は書庫の本と同じ道を通る。作るのは `makeArchiveReader(for:)` の先頭
+/// `listFilePaths()` は manifest のページの名前(StackNest が返す書庫の中のパス・フォルダの本のファイル名。返さなければ番号の
+/// 仮の名前 `000041.jpg`)を、StackNest のページ番号の順に返す(`StackNestPageMap`)。書庫のエントリのパスの役をそのまま担わせる
+/// ので、PageLoader・書き出しの判定・本の中身ブラウザは書庫の本と同じ道を通る。名前から番号を引くのは必ずこの表で
+/// (`pageIndex(ofEntry:)`)、表は開いた本が持つもの(`init(reference:at:pageMap:)`)を使い、無ければこのセッションで最後に読んだ
+/// manifest のもの(`StackNestSessions.Book.knownPageMap`)。どちらも無ければ(一覧を取る前)、名前を番号の仮の名前としてだけ読む ――
+/// ページを読むために manifest を問い合わせない(ComicInfo.xml を探しに来ただけの要求で StackNest へ往復しない。恒久的な失敗の後に
+/// 要求を出さない約束も保つ)。一覧(`listFilePaths`)は manifest を読み、表を覚える。作るのは `makeArchiveReader(for:)` の先頭
 /// (書庫の分類には入れない)と、開いた本が持つ参照から作る `PageLoader.stackNestReader(for:at:)` の 2 か所。
 ///
 /// ■ ページは async で待つ(2026-10-18 のレビュー)
@@ -52,15 +57,20 @@ nonisolated enum RemotePageReadPriority: Sendable {
 /// 同じ参照ファイルから作る reader は、`StackNestSessions` で 1 つのセッション(ページのキャッシュと門)を使い回す。
 nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
     let book: StackNestSessions.Book
+    /// 開いた本が持つ名前と番号の表(MangaBook.stackNestPages)。nil なら manifest から作る。
+    private let pinnedPageMap: StackNestPageMap?
 
     /// 参照ファイルを読む(呼んだスレッドで同期に。数百バイト)。読めない・つないでよい宛先でないときは部品のエラーを投げる。
     init(referenceFileURL: URL) throws {
         book = try StackNestSessions.shared.book(forReferenceAt: referenceFileURL)
+        pinnedPageMap = nil
     }
 
     /// 読んだ参照ファイルの中身から(ファイルは読まない)。つないでよい宛先でないときは部品のエラーを投げる。
-    init(reference: StackNestBookReference, at referenceFileURL: URL) throws {
+    /// `pageMap` は開いた本の名前と番号の表(ページの名前を本と食い違わせないため。PageLoader が渡す)。
+    init(reference: StackNestBookReference, at referenceFileURL: URL, pageMap: StackNestPageMap? = nil) throws {
         book = try StackNestSessions.shared.book(for: reference, at: referenceFileURL)
+        pinnedPageMap = pageMap
     }
 
     /// 開いている参照ファイルの中身。
@@ -74,13 +84,24 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
     /// manifest(ページ数と読み方向の正。同期。FileIO の上で呼ぶ)。`refresh` が真なら覚えた manifest を使わずに StackNest へ
     /// 問い合わせる(本を開くとき。StackNest は manifest の要求で「読み込まれた」と知る)。
     func manifest(refresh: Bool = false) throws -> StackNestBookManifest {
-        try recordingFailure { try blocking.manifest(refresh: refresh) }
+        let manifest = try recordingFailure { try blocking.manifest(refresh: refresh) }
+        book.noteManifest(manifest)
+        return manifest
+    }
+
+    /// 名前と番号の表: 開いた本の表、このセッションで最後に読んだ manifest の表の順。どちらも無ければ nil(問い合わせない)。
+    var knownPageMap: StackNestPageMap? { pinnedPageMap ?? book.knownPageMap }
+
+    /// エントリのパスの StackNest のページ番号。表があれば表で、無ければ番号の仮の名前として読む(型コメント)。
+    func pageIndex(ofEntry path: String) -> Int? {
+        if let map = knownPageMap { return map.pageIndex(ofEntry: path) }
+        return StackNestPageNaming.pageIndex(fromEntryName: path)
     }
 
     // MARK: - 網越しの読み出し(async)
 
     /// 1 ページのバイト列。門の許可を取ってから部品の async の口で待つ(スレッドを塞がない)。取り消されたら `CancellationError`。
-    /// 仮の名前でないもの・範囲外のページは `ArchiveReaderError.entryNotFound`。
+    /// この本のページの名前でないもの・範囲外のページは `ArchiveReaderError.entryNotFound`。
     func pageData(at path: String, priority: RemotePageReadPriority) async throws -> Data {
         let permit = try await book.gate.acquire(priority.lane)
         defer { permit.release() }
@@ -89,7 +110,7 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
 
     /// 門の許可を呼び出し側が持っているときの `pageData(at:priority:)`(PageLoader は背景の列の許可をデコードが終わるまで持つ)。
     func pageDataHoldingPermit(at path: String, priority: RemotePageReadPriority) async throws -> Data {
-        guard let index = StackNestPageNaming.pageIndex(fromEntryName: path) else { throw ArchiveReaderError.entryNotFound }
+        guard let index = pageIndex(ofEntry: path) else { throw ArchiveReaderError.entryNotFound }
         if let failure = book.permanentFailure { throw failure }
         do {
             let page = try await book.session.page(index, priority: priority.kitPriority)
@@ -105,12 +126,13 @@ nonisolated final class StackNestReferenceReader: RemoteArchiveReading {
     // MARK: - ArchiveReading(同期。FileIO の上でだけ呼ぶ)
 
     func listFilePaths() throws -> [String] {
-        StackNestPageNaming.entryNames(pageCount: try manifest().pageCount)
+        if let map = knownPageMap { return map.entryNames }
+        return StackNestPageMap(try manifest()).entryNames
     }
 
     func data(at path: String) throws -> Data {
-        // 仮の名前でないもの(ComicInfo.xml を探しに来た等)は、問い合わせずに「無い」。
-        guard let index = StackNestPageNaming.pageIndex(fromEntryName: path) else { throw ArchiveReaderError.entryNotFound }
+        // この本のページの名前でないもの(ComicInfo.xml を探しに来た等)は、ページを問い合わせずに「無い」。
+        guard let index = pageIndex(ofEntry: path) else { throw ArchiveReaderError.entryNotFound }
         do {
             let data = try recordingFailure(page: index) { try blocking.page(index).data }
             book.noteReceivedPage(index)

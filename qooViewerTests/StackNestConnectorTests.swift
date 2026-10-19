@@ -24,6 +24,8 @@ struct StackNestConnectorPolicyTests {
         "StackNest の本の基点の下の 4 つの要求は通す(ローカルの本・中継の本、IPv4・IPv6)",
         arguments: [
             "http://127.0.0.1:51234/api/v1/libraries/0F8D2C1E-1111-2222-3333-444455556666/books/12/manifest",
+            "http://127.0.0.1:51234/api/v1/libraries/lib-1/books/12/manifest?pageNames=1",
+            "http://127.0.0.1/api/v1/relay/R1/manifest?pageNames=1",
             "http://127.0.0.1:51234/api/v1/libraries/lib-1/books/12/pages/0",
             "http://127.0.0.1:51234/api/v1/libraries/lib-1/books/12/pages/41?maxw=1600",
             "http://127.0.0.1:51234/api/v1/libraries/lib-1/books/12/cover?maxw=300",
@@ -71,6 +73,10 @@ struct StackNestConnectorPolicyTests {
             ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/pages/-1", .path),
             ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/pages/1?maxw=1&x=2", .query),
             ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/manifest?maxw=10", .query),
+            ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/manifest?pageNames=0", .query),
+            ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/manifest?pageNames=1&x=2", .query),
+            ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/pages/1?pageNames=1", .query),
+            ("http://127.0.0.1:51234/api/v1/libraries/lib/books/1/progress?pageNames=1", .query),
         ]
     )
     func refusesOtherTargets(url: String, expected: StackNestConnectorPolicy.Refusal) {

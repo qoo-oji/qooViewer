@@ -30,14 +30,18 @@ nonisolated final class StackNestTestBook: @unchecked Sendable {
     init(
         pageCount: Int = 6, startPage: Int = 0, expiresAt: Date = Date().addingTimeInterval(86_400),
         title: String = "Reference Title", direction: String = "rtl", label: String = "stacknest",
-        bookIdentity: String? = nil, fileName: String = "Sample Book.stacknestbook"
+        pageNames: [String]? = nil, bookIdentity: String? = nil, fileName: String = "Sample Book.stacknestbook"
     ) throws {
         temporary = try TemporaryDirectory(label)
         server = StackNestViewerKitTesting.StackNestStubServer(pageCount: pageCount, direction: direction)
         servedPageCount = 0
         referenceURL = temporary.file(fileName)
+        // 本番と同じくページの名前を頼む(StackNestSessions.productionConfiguration)。見立ては `pageNames` を渡したときだけ返す。
+        var configuration = server.configuration()
+        configuration.requestsPageNames = true
+        server.setPageNames(pageNames)
         server.setBookIdentity(bookIdentity)
-        StackNestSessions.shared.useConfigurationForTesting(server.configuration(), under: temporary.url)
+        StackNestSessions.shared.useConfigurationForTesting(configuration, under: temporary.url)
         setPageCount(pageCount)
         try writeReference(pageCount: pageCount, startPage: startPage, expiresAt: expiresAt, title: title)
     }

@@ -2840,11 +2840,11 @@ final class ViewerViewModel: ObservableObject {
     // MARK: - 内部処理
 
     private func persistState() {
-        // StackNest へ書き戻すページ。番号は今の並び(除外・並べ替えの後)の位置ではなく、ページの名前が持つ StackNest の
-        // ページ番号(StackNestPageNaming)。読書位置の行を消した後(readingStateDiscarded)でも StackNest の位置は進めてよいので、
-        // その判定より前に置く。
+        // StackNest へ書き戻すページ。番号は今の並び(除外・並べ替えの後)の位置ではなく、ページの名前から引く StackNest の
+        // ページ番号(MangaBook.stackNestPageIndex)。読書位置の行を消した後(readingStateDiscarded)でも StackNest の位置は進めて
+        // よいので、その判定より前に置く。
         if let stackNestProgress, book.pages.indices.contains(currentIndex),
-           let page = StackNestPageNaming.pageIndex(fromEntryName: book.pages[currentIndex].sortKey) {
+           let page = book.stackNestPageIndex(forKey: book.pages[currentIndex].sortKey) {
             stackNestProgress.note(page: page)
         }
         // 削除済みの行へは何も書かない(readingStateDiscardedのコメント参照)。
@@ -3173,7 +3173,7 @@ final class ViewerViewModel: ObservableObject {
     /// 出さない。一時的な失敗は読めなかったページのたびに出す(直ったかどうかは、次に読めるかで分かる)。
     private func showStackNestPageFailureIfNeeded(at index: Int) {
         let page = book.pages.indices.contains(index)
-            ? StackNestPageNaming.pageIndex(fromEntryName: book.pages[index].sortKey) : nil
+            ? book.stackNestPageIndex(forKey: book.pages[index].sortKey) : nil
         guard let failure = stackNestBook?.pageFailureToShow(page: page) else { return }
         showStackNestFailure(failure)
     }
@@ -3193,9 +3193,10 @@ final class ViewerViewModel: ObservableObject {
     /// なら再開の確認が出る。まれなので受け入れる)。
     static func stackNestStartPageID(for book: MangaBook) -> String? {
         guard let reference = book.stackNestReference, !book.pages.isEmpty else { return nil }
-        let name = StackNestPageNaming.entryName(
-            forPage: StackNestBookReference.clampedStartPage(reference.startPage, pageCount: book.pages.count)
-        )
+        let pageCount = book.stackNestPages?.entryNames.count ?? book.pages.count
+        guard let name = book.stackNestPageKey(
+            forPage: StackNestBookReference.clampedStartPage(reference.startPage, pageCount: pageCount)
+        ) else { return nil }
         return book.pages.first { $0.sortKey == name }?.id
     }
 
@@ -3552,6 +3553,8 @@ final class ViewerViewModel: ObservableObject {
             origin: rawBook.origin,
             // これも引き継ぎ必須。落とすと、ページは読めても書き戻し・ディスクキャッシュの除外・下調べの省略が効かなくなる。
             stackNestReference: rawBook.stackNestReference,
+            // これも引き継ぎ必須(StackNest の本で、ページの名前から StackNest の番号を引く表 ―― MangaBook.stackNestPages)。
+            stackNestPages: rawBook.stackNestPages,
             stackNestBookIdentity: rawBook.stackNestBookIdentity,
             // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
             isInSecretFolder: rawBook.isInSecretFolder,
