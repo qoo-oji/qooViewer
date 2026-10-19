@@ -1697,13 +1697,13 @@ struct ViewerView: View {
                 switch direction {
                 case .backward:
                     PageBoundaryChoiceSheet<FirstPageBehavior>(
-                        titleKey: "This is the first page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                        titleKey: "This is the first page.", dimsAdjacentBookChoices: !appState.hasAdjacentBooks
                     ) {
                         viewModel.performFirstPageBehavior($0)
                     }
                 case .forward:
                     PageBoundaryChoiceSheet<LastPageBehavior>(
-                        titleKey: "This is the last page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                        titleKey: "This is the last page.", dimsAdjacentBookChoices: !appState.hasAdjacentBooks
                     ) {
                         viewModel.performLastPageBehavior($0)
                     }
@@ -2112,8 +2112,8 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Previous Book")
-                // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
-                .disabled(!viewModel.book.hasBrowsableLocation)
+                // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。いっしょに渡された本の並びがあれば有る(AppState.hasAdjacentBooks)。
+                .disabled(!appState.hasAdjacentBooks)
 
                 Button {
                     relay.send { view in
@@ -2125,7 +2125,7 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Next Book")
-                .disabled(!viewModel.book.hasBrowsableLocation)
+                .disabled(!appState.hasAdjacentBooks)
             }
 
             Spacer()
@@ -2315,9 +2315,9 @@ struct ViewerView: View {
             }
         }
 
-        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。`.contextMenu` の中の `Menu` には
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation。並びがあれば有る ―― AppState.hasAdjacentBooks)。`.contextMenu` の中の `Menu` には
         // `.disabled` が効かない(親が押せる見た目のまま残る)ので、「レイアウト」と同じく押せない Button で描く。
-        if viewModel.book.hasBrowsableLocation {
+        if appState.hasAdjacentBooks {
             Menu("Book Navigation") {
                 Button("Go to Previous Book") {
                     relay.send { view in

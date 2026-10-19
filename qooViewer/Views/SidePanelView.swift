@@ -98,6 +98,9 @@ struct SidePanelView: View {
     /// 「履歴」モードの行が開けなかった(繋がっていないボリューム・消えた・ゴミ箱)ときの知らせを出す(2026-10-04 の監査 SP-7。
     /// 呼び出し側は `AppState.postViewerNotice` へ渡す。以前は黙って何もしなかった)。
     var onHistoryOpenFailure: (String) -> Void
+    /// フォルダブラウザの仮想のフォルダ(画面に出ている本の並び。SidePanelBrowserState.sequenceFolder)の行を押した。並びの位置を渡す。
+    /// 呼び出し側はこのウインドウで並びの中のその本へ動く(AppState.openSequenceEntry)。
+    var onOpenSequenceEntry: (Int) -> Void
     /// フォルダブラウザの移動でたどり着いたフォルダの画像を表示する(moveAndShowImages)。
     /// `onOpen`と違い**履歴に残さない** ―― 目的の本を探して通り抜けただけのフォルダで履歴が
     /// 埋まらないようにするため(BookOpenRequest.recordsInHistory参照)。
@@ -164,7 +167,8 @@ struct SidePanelView: View {
     var allowsLibraryEditing: Bool = true
     /// 開いている本に、qooViewer から辿れる置き場所が無いか(StackNest の本。MangaBook.hasBrowsableLocation)。真の間、
     /// フォルダブラウザは一覧の代わりに理由を出し(前の本のフォルダを残さない ―― 2026-10-18、利用者の決定)、ページの右クリックの
-    /// 「Finder で表示」「ファイルブラウザで表示」は淡色にする。
+    /// 「Finder で表示」「ファイルブラウザで表示」は淡色にする。画面の本が並びを持つ間は、理由の代わりに並びの仮想のフォルダを出す
+    /// (`SidePanelBrowserState.sequenceFolder`)。
     var bookLacksBrowsableLocation: Bool = false
     /// ページモードのサムネイルをホバーしたときの拡大プレビュー用のフル解像度画像取得
     /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
@@ -233,6 +237,9 @@ struct SidePanelView: View {
     /// どうかの判定(PanelListScrollTracker。3つの一覧で共有。行間・余白ゼロの詰めた一覧)。
     @State private var folderScrollPosition = ScrollPosition()
     @State private var folderScrollTracker = PanelListScrollTracker()
+    /// 上段の仮想のフォルダ(画面の本の並び)の一覧のスクロール位置と実測(フォルダの一覧とは別の一覧なので別に持つ)。
+    @State private var sequenceScrollPosition = ScrollPosition()
+    @State private var sequenceScrollTracker = PanelListScrollTracker()
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
 
@@ -580,17 +587,40 @@ struct SidePanelView: View {
     /// 表示する」という前提が崩れるので、前の本のフォルダを残さない ―― 2026-10-18、利用者の指示「デザインは通常どおりで、フォルダの
     /// 中身を出す場所に文言を出して非表示の状態に」)。フォルダ名の欄は「StackNest」(「情報を見る」の場所と同じ)。フォルダブラウザの
     /// 読み込みも止まっている(ContentView.isSidePanelFolderBrowserOnScreen)。
+    ///
+    /// 画面に出ている本が並び(Finder・StackNest でまとめて開いた本、コレクション・スマートライブラリから開いた本)を持つ間は、フォルダの
+    /// 代わりにその並びを仮想のフォルダとして出す(`SidePanelBrowserState.sequenceFolder`。2026-10-19、利用者の指示)。置き場所の無い本
+    /// (StackNest の本)でも、並びがあれば理由の文の代わりにこちらを出す。並びの外へは出られないので、移動・並べ替え・Finder で表示は
+    /// 淡色、見出しは並びの名前。絞り込みは並びの名前に効く。
     private var folderSection: some View {
-        let hidesFolder = bookLacksBrowsableLocation
+        let sequenceFolder = folderState.sequenceFolder
+        let hidesFolder = bookLacksBrowsableLocation && sequenceFolder == nil
+        // 場所を動かす・場所に関わる操作を淡色にする(理由の文を出している間と、仮想のフォルダを出している間)。
+        let locksLocation = hidesFolder || sequenceFolder != nil
+        let locale = preferences.effectiveLocale
+        let heading: String = if let sequenceFolder {
+            sequenceFolder.sequence.displayName(locale: locale)
+        } else if hidesFolder {
+            "StackNest"
+        } else {
+            folderState.currentDirectoryName ?? String(localized: "Computer", language: locale)
+        }
+        let headingHelp: String = if sequenceFolder != nil {
+            heading
+        } else if hidesFolder {
+            ""
+        } else {
+            folderState.currentDirectory?.path ?? ""
+        }
         return VStack(spacing: 0) {
             HStack(spacing: 6) {
-                SidePanelNavButton(systemName: "chevron.left", isDisabled: hidesFolder || !folderState.canGoBack, help: "Back") {
+                SidePanelNavButton(systemName: "chevron.left", isDisabled: locksLocation || !folderState.canGoBack, help: "Back") {
                     moveAndShowImages { folderState.goBack() }
                 }
-                SidePanelNavButton(systemName: "chevron.right", isDisabled: hidesFolder || !folderState.canGoForward, help: "Forward") {
+                SidePanelNavButton(systemName: "chevron.right", isDisabled: locksLocation || !folderState.canGoForward, help: "Forward") {
                     moveAndShowImages { folderState.goForward() }
                 }
-                SidePanelNavButton(systemName: "arrow.up", isDisabled: hidesFolder || !folderState.canGoUp, help: "Enclosing Folder") {
+                SidePanelNavButton(systemName: "arrow.up", isDisabled: locksLocation || !folderState.canGoUp, help: "Enclosing Folder") {
                     moveAndShowImages { folderState.goUp() }
                 }
                 Spacer(minLength: 0)
@@ -604,10 +634,11 @@ struct SidePanelView: View {
                     key: $preferences.folderBrowserSortKey,
                     direction: $preferences.folderBrowserSortDirection
                 )
-                .disabled(hidesFolder)
+                // 仮想のフォルダの行は並びの順のまま(並べ替えは効かない)なので、そのときも淡色。
+                .disabled(locksLocation)
                 SidePanelNavButton(
                     systemName: "arrow.up.forward.square",
-                    isDisabled: hidesFolder || folderState.currentDirectory == nil,
+                    isDisabled: locksLocation || folderState.currentDirectory == nil,
                     help: "Show in Finder"
                 ) {
                     folderState.openInFinder()
@@ -615,9 +646,7 @@ struct SidePanelView: View {
             }
             .padding(10)
 
-            Text(hidesFolder
-                ? "StackNest"
-                : folderState.currentDirectoryName ?? String(localized: "Computer", language: preferences.effectiveLocale))
+            Text(heading)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
@@ -625,7 +654,8 @@ struct SidePanelView: View {
                 .truncationMode(.middle)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
-                .help(hidesFolder ? "" : folderState.currentDirectory?.path ?? "")
+                // 並びの名前は省略されうるので全体を出す(フォルダはパスを出す)。
+                .help(headingHelp)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             SidePanelSearchField(text: $folderFilterText)
@@ -634,11 +664,18 @@ struct SidePanelView: View {
                 .padding(.bottom, 8)
                 // フォルダを移動したら絞り込みは解除する(移動先でも前のフォルダ向けの
                 // 絞り込みが効いたままだと、中身が空に見えて戸惑うため)。
-                .onChange(of: folderState.currentDirectory) { _, _ in folderFilterText = "" }
+                // 仮想のフォルダを出している間は、下のフォルダが本の切り替わりで付け替わっても残す(見えていないフォルダの移動)。
+                .onChange(of: folderState.currentDirectory) { _, _ in
+                    if folderState.sequenceFolder == nil { folderFilterText = "" }
+                }
+                // 仮想のフォルダに入った・出たときも空に戻す(並びの中で本を替えただけなら残す)。
+                .onChange(of: sequenceFolder == nil) { _, _ in folderFilterText = "" }
 
             Divider()
 
-            if hidesFolder {
+            if let sequenceFolder {
+                sequenceList(sequenceFolder)
+            } else if hidesFolder {
                 SidePanelEmptyMessage(textKey: "A book from StackNest has no folder that qooViewer can open.")
             } else if folderState.needsFolderAccessGrant {
                 VStack(spacing: 8) {
@@ -748,6 +785,85 @@ struct SidePanelView: View {
         .onAppear { folderState.applySortSettings() }
         .onChange(of: preferences.folderBrowserSort) { _, _ in
             folderState.applySortSettings()
+        }
+    }
+
+    // MARK: - 上段の仮想のフォルダ(画面の本の並び。2026-10-19)
+
+    /// 仮想のフォルダの一覧(`SidePanelBrowserState.sequenceFolder`)。行はファイルシステムに触らずに作ってあるので、読み込み中の表示は無い。
+    @ViewBuilder
+    private func sequenceList(_ folder: SidePanelBrowserState.SequenceFolder) -> some View {
+        let rows = filteredSequenceRows(folder)
+        if rows.isEmpty {
+            SidePanelEmptyMessage(textKey: "(No Matches)")
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(rows) { row in
+                        sequenceRow(row, isCurrent: row.position == folder.currentPosition)
+                    }
+                }
+            }
+            .scrollPosition($sequenceScrollPosition)
+            // 寸法とスクロール量の実測(フォルダの一覧と同じ。PanelListScrollTracker ―― 行の高さはどれも同じ)。
+            .onScrollGeometryChange(for: PanelListScrollTracker.Metrics.self) { geometry in
+                PanelListScrollTracker.Metrics(
+                    offsetY: geometry.contentOffset.y,
+                    visibleRect: geometry.visibleRect,
+                    contentHeight: geometry.contentSize.height
+                )
+            } action: { _, newValue in
+                if sequenceScrollTracker.update(newValue, rowCount: rows.count) {
+                    scrollToCurrentSequenceRow(animated: false)
+                }
+            }
+            // フォルダの一覧の同名の .focusable(false) と同じ理由。
+            .focusable(false)
+            // 現れたとき・今の本が替わったとき・並びが替わったときに、今の本の行が見えるように(フォルダの一覧と同じ)。
+            .onAppear { scrollToCurrentSequenceRow(animated: false) }
+            .onChange(of: folder.currentPosition) { _, _ in scrollToCurrentSequenceRow() }
+            .onChange(of: folder.rowsID) { _, _ in scrollToCurrentSequenceRow() }
+        }
+    }
+
+    /// 絞り込み欄を当てた仮想のフォルダの行(フォルダの一覧と同じく、名前に対する大文字小文字を区別しない部分一致。結果は状態が
+    /// 控える ―― SidePanelBrowserState.filteredSequenceRows)。
+    private func filteredSequenceRows(_ folder: SidePanelBrowserState.SequenceFolder) -> [SidePanelBrowserState.SequenceFolder.Row] {
+        folderState.filteredSequenceRows(matching: folderFilterText)
+    }
+
+    /// 仮想のフォルダの 1 行。今の本の行はフォルダの今の本の行と同じ強調(塗りの選択色 ―― SelectionEmphasis)。押すと、このウインドウで
+    /// 並びの中のその本へ動く(今の本の行は何もしない ―― AppState.openSequenceEntry)。クリックの回数はフォルダのファイルの行と同じ
+    /// (「開く・移動をダブルクリックにする」に従う)。
+    private func sequenceRow(_ row: SidePanelBrowserState.SequenceFolder.Row, isCurrent: Bool) -> some View {
+        let label = rowLabel(icon: row.iconName, name: row.name)
+            .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
+            .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
+            .help(row.name)
+        let position = row.position
+        let onOpenSequenceEntry = onOpenSequenceEntry
+        return Group {
+            if preferences.sidePanelUsesDoubleClick {
+                label.onTapGesture(count: 2) { if !isCurrent { onOpenSequenceEntry(position) } }
+            } else {
+                label.onTapGesture {
+                    handleSingleClick(rowID: "sequence:\(position)") { if !isCurrent { onOpenSequenceEntry(position) } }
+                }
+            }
+        }
+    }
+
+    /// 今の本の行までスクロールする(`scrollToHighlightedFolder` の仮想のフォルダ版)。
+    private func scrollToCurrentSequenceRow(animated: Bool = true) {
+        guard let folder = folderState.sequenceFolder else { return }
+        let rows = filteredSequenceRows(folder)
+        guard let row = rows.firstIndex(where: { $0.position == folder.currentPosition }),
+              let target = sequenceScrollTracker.offsetToReveal(rows: row...row, rowCount: rows.count)
+        else { return }
+        if animated {
+            withAnimation { sequenceScrollPosition.scrollTo(y: target) }
+        } else {
+            sequenceScrollPosition.scrollTo(y: target)
         }
     }
 

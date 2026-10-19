@@ -422,6 +422,16 @@ enum DebugStateDump {
                 "isPinchZoomed": state.isPinchZoomed,
                 "bookmarkCount": state.currentBookmarks.count,
                 "leavesNoRecord": book.leavesNoRecord,
+                // StackNest の本(いっしょに渡された本の並び)を画面に出さずに確かめるため。
+                "currentPageKey": state.currentBookPages.indices.contains(state.currentPageIndex)
+                    ? state.currentBookPages[state.currentPageIndex].sortKey : NSNull(),
+                "bookSequenceCount": state.bookSequence?.entries.count ?? NSNull(),
+                "bookSequencePosition": state.bookSequence?.position ?? NSNull(),
+                // 画面に出ている本の並び(サイドパネルのフォルダブラウザの仮想のフォルダ。AppState.shownBookSequence)。
+                "shownBookSequenceCount": state.shownBookSequence?.entries.count ?? NSNull(),
+                "shownBookSequencePosition": state.shownBookSequence?.position ?? NSNull(),
+                "shownBookSequenceTitle": state.shownBookSequence?.displayName(locale: AppLanguage.currentLocale) ?? NSNull(),
+                "hasAdjacentBooks": state.hasAdjacentBooks,
             ] as [String: Any]
         }
         return entry

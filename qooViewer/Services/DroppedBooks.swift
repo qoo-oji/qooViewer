@@ -122,7 +122,7 @@ nonisolated enum ExternalOpenPreparation {
         let books = found.books.filter { !routed.contains($0.path) }
         guard let book = books.first else { return Prepared(request: nil, skipped: found.skipped) }
         let sequence = books.count > 1
-            ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0) : nil
+            ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0, title: .openedTogether) : nil
         return Prepared(request: BookOpenRequest(book, sequence: sequence), skipped: found.skipped)
     }
 
@@ -165,9 +165,13 @@ nonisolated enum ExternalOpenPreparation {
         let urls = sequence.entries.map { URL(fileURLWithPath: $0.path) }
         let secret = urls.filter(isSecret)
         let other = urls.filter { !isSecret($0) }
+        // 分けた並びも出どころは元の並びのまま(サイドパネルの見出し ―― BookSequence.Title)。
+        let title = sequence.title ?? .openedTogether
         func make(_ books: [URL]) -> BookOpenRequest? {
             guard let first = books.first else { return nil }
-            let sequence = books.count > 1 ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0) : nil
+            let sequence = books.count > 1
+                ? BookSequence(entries: books.map { .file(path: $0.path) }, position: 0, title: title)
+                : nil
             return BookOpenRequest(first, recordsInHistory: request.recordsInHistory, sequence: sequence)
         }
         guard let secretRequest = make(secret), let otherRequest = make(other) else { return nil }

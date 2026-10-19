@@ -262,6 +262,22 @@
         }
       }
     },
+    "Books Opened Together" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books Opened Together"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まとめて開いた本"
+          }
+        }
+      }
+    },
     "Books being read for a moment to make the covers of books added to a collection." : {
       "localizations" : {
         "en" : {
@@ -1581,6 +1597,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "! ? ♡ …「X♡2」はシリーズ「X♡」の 2 巻になります"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be found. It may have been moved or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be found. It may have been moved or deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」が見つかりませんでした。移動または削除された可能性があります。"
           }
         }
       }

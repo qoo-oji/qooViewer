@@ -510,7 +510,9 @@ final class SmartLibraryViewState: ObservableObject {
             }
         }
         guard let position = paths.firstIndex(of: book.id) else { return nil }
-        return BookSequence(entries: paths.map { .file(path: $0) }, position: position)
+        // 見出し(サイドパネルの仮想フォルダ。BookSequence.Title)は、開いている束の名前、無ければ選んでいるスマートコレクションの名前。
+        return BookSequence(entries: paths.map { .file(path: $0) }, position: position,
+                            title: .smartLibrary(name: openedGroup ?? selectedShelf?.name))
     }
 
     /// 右クリックした枠を相手にする操作の対象。**右クリックした枠が選択に入っていれば選択の全部、入っていなければ

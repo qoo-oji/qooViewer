@@ -120,9 +120,94 @@ final class SidePanelBrowserState: ObservableObject {
     /// 見えていない間に読み直しを見送った。見えたら読み直す。
     private var needsReloadWhenVisible = false
 
-    var canGoBack: Bool { !backStack.isEmpty }
-    var canGoForward: Bool { !forwardStack.isEmpty }
-    var canGoUp: Bool { currentDirectory != nil }
+    /// 移動(戻る・進む・上へ)は、本の並びの仮想のフォルダを出している間はできない(`sequenceFolder` のコメント)。
+    var canGoBack: Bool { sequenceFolder == nil && !backStack.isEmpty }
+    var canGoForward: Bool { sequenceFolder == nil && !forwardStack.isEmpty }
+    var canGoUp: Bool { sequenceFolder == nil && currentDirectory != nil }
+
+    // MARK: - 本の並びの仮想のフォルダ(2026-10-19、利用者の指示)
+
+    /// 画面に出ている本が並び(`BookSequence` ―― Finder・StackNest でまとめて開いた本、コレクション・スマートライブラリから開いた本)を
+    /// 持つ間、本の置き場所のフォルダの代わりに出す**仮想のフォルダ**。nil なら今までどおりフォルダを出す。
+    ///
+    /// - 行は並びの順そのまま(並べ替えの設定は効かない)。名前はファイル名(`BookSequence.displayName(of:)`)。**ファイルシステムには
+    ///   触らない** ―― 並びの本は分かっているので読まない(行ごとの確かめ・サムネイルも無い。アイコンは名前の拡張子から決める)。
+    /// - 今の本の行は、フォルダの今の本の行と同じ強調(`currentPosition`)。行を押すと、このウインドウで並びの中のその本へ動く
+    ///   (`AppState.openSequenceEntry(at:)`)。
+    /// - 外へは出られない(戻る・進む・上へ・移動は淡色。見出しは並びの名前 ―― `BookSequence.displayName(locale:)`)。
+    /// - 並びの外の本を開けば(並びが nil になる)、今までどおりその本のフォルダへ戻る。下のフォルダの状態(`currentDirectory`・履歴)は
+    ///   この間も本の切り替わりで今までどおり付け替える(`handlePanelRevealed`)。一覧の読み込みは、出ていないので先送りになる
+    ///   (ContentView.isSidePanelFolderBrowserOnScreen ―― 仮想のフォルダを出している間はフォルダの一覧は画面に無い)。
+    ///
+    /// 並びは**画面に出ている本**のもの(`AppState.shownBookSequence`。ContentView が `showSequence` で渡す)。読み込み中の本の並びではない。
+    @Published private(set) var sequenceFolder: SequenceFolder?
+
+    struct SequenceFolder: Equatable {
+        let sequence: BookSequence
+        let rows: [Row]
+        /// 行を作り直すたびに進む番号。行の変化はこれで見る(`rows` を比べない ―― スマートライブラリの並びは数万冊になり、パネルの
+        /// 本体はページ送りのたびに評価されるので、`onChange(of: rows)` だと毎回配列ごと比べることになる。2 回目のレビュー L3)。
+        let rowsID: Int
+
+        struct Row: Identifiable, Equatable {
+            /// 並びの位置(`BookSequence.entries` の添字)。
+            let position: Int
+            let name: String
+            /// SF Symbols の名前(名前の拡張子だけで決める。`SidePanelBrowserState.sequenceRowIconName`)。
+            let iconName: String
+            var id: Int { position }
+        }
+
+        /// 今の本の行の位置。
+        var currentPosition: Int { sequence.position }
+    }
+
+    /// 画面に出ている本の並びが替わった(ContentView。`AppState.shownBookSequence`)。nil なら仮想のフォルダを下ろす。
+    /// 同じ並びで位置だけ動いたときは、行を作り直さない。
+    func showSequence(_ sequence: BookSequence?) {
+        guard sequence != sequenceFolder?.sequence else { return }
+        guard let sequence else {
+            sequenceFolder = nil
+            return
+        }
+        if let current = sequenceFolder, current.sequence.entries == sequence.entries {
+            sequenceFolder = SequenceFolder(sequence: sequence, rows: current.rows, rowsID: current.rowsID)
+            return
+        }
+        let rows = sequence.entries.enumerated().map { position, entry in
+            let name = BookSequence.displayName(of: entry)
+            return SequenceFolder.Row(
+                position: position, name: name,
+                iconName: Self.sequenceRowIconName(path: entry.path))
+        }
+        sequenceRowsGeneration &+= 1
+        sequenceFolder = SequenceFolder(sequence: sequence, rows: rows, rowsID: sequenceRowsGeneration)
+    }
+
+    private var sequenceRowsGeneration = 0
+    /// `filteredSequenceRows(matching:)` の控え(同じ行・同じ絞り込みなら作り直さない)。
+    private var sequenceFilterMemo: (rowsID: Int, text: String, rows: [SequenceFolder.Row])?
+
+    /// 絞り込み欄を当てた仮想のフォルダの行(名前に対する大文字小文字を区別しない部分一致)。パネルの本体はページ送りのたびに評価される
+    /// ので、同じ行・同じ文字なら前の結果を返す(数万冊の並びを毎回なめない。2 回目のレビュー L3)。
+    func filteredSequenceRows(matching text: String) -> [SequenceFolder.Row] {
+        guard let folder = sequenceFolder else { return [] }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return folder.rows }
+        if let memo = sequenceFilterMemo, memo.rowsID == folder.rowsID, memo.text == trimmed { return memo.rows }
+        let rows = folder.rows.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+        sequenceFilterMemo = (folder.rowsID, trimmed, rows)
+        return rows
+    }
+
+    /// 仮想のフォルダの行のアイコン。名前の拡張子だけで決める(ファイルシステムに触らない ―― フォルダかどうかも確かめない)。開ける
+    /// 書類の拡張子(書庫・PDF・EPUB)でなければフォルダの本とみなす(並びに入るのは本だけ)。StackNest の参照ファイルは本。
+    static func sequenceRowIconName(path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        if isStackNestReferenceFile(name) { return "book.closed" }
+        if isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) { return sidePanelFileIconName(fileName: name) }
+        return "folder"
+    }
 
     /// - Parameter changeCenter: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの)。
     /// - Parameter observesSystem: アクティブ化・ボリュームの着脱で読み直すか。**テストは false**(放送の通知なので、並んで走る
@@ -215,7 +300,8 @@ final class SidePanelBrowserState: ObservableObject {
         // 親はアプリの一時フォルダで、そこへ移ると利用者の知らないフォルダ(空、または UUID 名の書庫)が並んだ。
         // 一時フォルダの中なので、どの行も今の本として強調しない。
         // StackNest の本も同じ(MangaBook.hasBrowsableLocation): 親は StackNest の Application Support の中で、本の置き場所ではない。
-        // 表示している間、パネルは一覧の代わりに理由を出す(SidePanelView.folderSection)。
+        // 表示している間、パネルは一覧の代わりに理由を出す(SidePanelView.folderSection。いっしょに渡された本の並びがあれば、理由の代わりに
+        // 仮想のフォルダ ―― sequenceFolder)。
         if currentBook.isTemporaryCopy || !currentBook.hasBrowsableLocation {
             currentBookRowURL = nil
             skipsNextAnchorFor = nil
@@ -298,6 +384,7 @@ final class SidePanelBrowserState: ObservableObject {
     /// highlightedURLにしてから読み込み直す(ユーザー要望: 上へ移動したら元いたフォルダが
     /// フォーカスされる)。
     func goUp() {
+        guard sequenceFolder == nil else { return }
         guard let leaving = currentDirectory else { return }
         backStack.append(currentDirectory)
         forwardStack.removeAll()
@@ -311,6 +398,7 @@ final class SidePanelBrowserState: ObservableObject {
     }
 
     func goBack() {
+        guard sequenceFolder == nil else { return }
         guard let previous = backStack.popLast() else { return }
         forwardStack.append(currentDirectory)
         currentDirectory = previous
@@ -319,6 +407,7 @@ final class SidePanelBrowserState: ObservableObject {
     }
 
     func goForward() {
+        guard sequenceFolder == nil else { return }
         guard let next = forwardStack.popLast() else { return }
         backStack.append(currentDirectory)
         currentDirectory = next

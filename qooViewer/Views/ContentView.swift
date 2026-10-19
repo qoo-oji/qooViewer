@@ -676,6 +676,10 @@ struct ContentView: View {
         // ビューアに出ている本をメニューの写しへ(AppState.menuShownBook。監査 M-6)。閉包の無い modifier にしてあるのは、この本体の
         // 式の型の推論を重くしないため(bookOrHome のコメント。CI の Xcode 26.6 が止まったことがある)。
         .modifier(MenuShownBookSync(book: MenuShownBook(viewerHandoff.shown?.book), appState: appState))
+        // ビューアに出ている本の並びを AppState へ知らせ(shownBookSequence)、それをサイドパネルのフォルダブラウザの仮想のフォルダへ
+        // (SidePanelBrowserState.sequenceFolder。2026-10-19)。閉包の無い modifier にしてあるのは上と同じ理由。
+        .modifier(ShownBookSequenceSync(
+            handoff: viewerHandoff, sequence: appState.shownBookSequence, appState: appState, browser: sidePanelBrowser))
         .frame(minWidth: 900, minHeight: 640)
         // ウインドウ/タブのタイトルバーおよびタブバーに表示される文字列。本を開いている間は
         // その本のタイトル(ファイル/フォルダ名)を表示し、どのタブが何の本を開いているか
@@ -1048,6 +1052,8 @@ struct ContentView: View {
             // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
             hasBook: appState.menuShownBook.hasBook,
             isCurrentBookStackNestReference: appState.menuShownBook.isStackNestReference,
+            // 並びも画面に出ている本のもの(AppState.shownBookSequence。2026-10-19 のレビュー L3 ―― 以前は読み込みを始めた本の bookSequence)。
+            hasBookSequence: appState.shownBookSequence != nil,
             isPrivateWindow: appState.isPrivateWindow,
             isTransientBook: appState.menuShownBook.isTransient,
             currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
@@ -1641,8 +1647,12 @@ struct ContentView: View {
 
     /// フォルダブラウザ(ブラウザモードの上段)の一覧が今画面に出ているか。置き場所の無い本(StackNest の本)を開いている間は、
     /// 一覧の代わりに理由を出すので読まない(SidePanelView.folderSection)。
+    ///
+    /// 画面の本の並びを仮想のフォルダとして出している間(SidePanelBrowserState.sequenceFolder。2026-10-19)も、フォルダの一覧は画面に
+    /// 無いので読まない(並びが消えて一覧へ戻ったときに、見送った読み直しをする)。
     private var isSidePanelFolderBrowserOnScreen: Bool {
         isSidePanelBrowserModeOnScreen && appState.currentBook?.hasBrowsableLocation != false
+            && sidePanelBrowser.sequenceFolder == nil
     }
 
     /// 本の中身ブラウザ(ブラウザモードの下段)が今画面に出ているか(`isSidePanelBrowserModeOnScreen` のコメント)。
@@ -1721,6 +1731,11 @@ struct ContentView: View {
                 if openedHere, dismissesOnAction { appState.isSidePanelRevealed = false }
             },
             onHistoryOpenFailure: { message in appState.postViewerNotice(message) },
+            // フォルダブラウザの仮想のフォルダ(画面の本の並び)の行。このウインドウで並びの中のその本へ動く(AppState.openSequenceEntry)。
+            onOpenSequenceEntry: { position in
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+                appState.openSequenceEntry(at: position)
+            },
             onBrowseToFolder: { url, intent in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。
@@ -2390,6 +2405,26 @@ private struct SidePanelEditingDialogs: ViewModifier {
 }
 
 /// ビューアに出ている本の値を AppState の写しへ渡す(`AppState.setMenuShownBook`。監査 M-6)。
+/// ビューアに出ている本(`ViewerHandoff.shown`)を `AppState.noteShownBook` へ、画面の本の並び(`AppState.shownBookSequence`)を
+/// サイドパネルのフォルダブラウザ(`SidePanelBrowserState.showSequence`)へ渡す。受け渡しの値は同じ本でも入れ替わる(開き直し)ので、
+/// 本の比較ではなく出版のたびに受ける(`onReceive`)。
+private struct ShownBookSequenceSync: ViewModifier {
+    let handoff: ViewerHandoff
+    let sequence: BookSequence?
+    let appState: AppState
+    let browser: SidePanelBrowserState
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(handoff.$shown) { [appState] shown in
+                appState.noteShownBook(shown?.book)
+            }
+            .onChange(of: sequence, initial: true) { [browser] _, sequence in
+                browser.showSequence(sequence)
+            }
+    }
+}
+
 private struct MenuShownBookSync: ViewModifier {
     let book: MenuShownBook
     let appState: AppState

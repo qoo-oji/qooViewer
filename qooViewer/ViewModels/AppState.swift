@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import SwiftUI
 import SwiftData
+import StackNestViewerKit
 
 /// アプリ全体で「今どの本を開いているか」を管理する。
 /// 本棚は持たず、パネル選択・ドラッグ&ドロップ・Finderからの「開く」だけで本を開く。
@@ -323,6 +324,51 @@ final class AppState: ObservableObject {
     /// あれば「次の本へ」「前の本へ」はこの並びをたどり、無ければ同じフォルダの本をたどる。本を開くたびに要求の値で
     /// 置き換える(一覧の外から開けば消える)。本を閉じても消える。
     private(set) var bookSequence: BookSequence?
+
+    /// **画面に出ている本**の並び(2026-10-19。サイドパネルのフォルダブラウザが仮想のフォルダとして出す ―― `SidePanelBrowserState.showSequence`
+    /// ―― のと、メニューの写しの `MenuCheckmarkState.hasBookSequence`)。
+    ///
+    /// `bookSequence` は読み込みを**始めた**ときに要求の並びへ替わり(失敗したら戻る)、本が画面に出るのは読み込みが済んで、さらに
+    /// 最初の見開きが揃ってから(`ViewerHandoff`、最長 300ms)。パネルがそちらを見ると、読み込み中・受け渡し中に、まだ出ていない本の
+    /// 並び(と位置)を出してしまう(以前メニューの写しが `bookSequence` から作られていた食い違い ―― 2026-10-19 のレビュー L3)。
+    /// こちらは**本が画面に出たとき**(ContentView が `noteShownBook` で知らせる)だけ変わる。読み込みの失敗・中止では変わらない。次の本・前の本がたどるのは今までどおり `bookSequence`。
+    ///
+    /// 書き換えはメニューバーのメニューが開いている間は保留する(メニューの写しが読む値。`menuShownBook` と同じ)。
+    @Published private(set) var shownBookSequence: BookSequence?
+    /// 読み込みを終えた本(`currentBook`)の並び(その本が画面に出たら `shownBookSequence` になる)。
+    private var committedBookSequence: BookSequence?
+    /// 画面に出ている本(`noteShownBook`)。本の受け渡しの間は `currentBook` と違う。
+    private var shownBookIdentity: MangaBook.ViewerIdentity?
+
+    /// ビューアに出ている本が替わった(`ViewerHandoff.shown`。ContentView が知らせる。nil はビューアを出していない)。出た本が読み込みを
+    /// 終えた本なら、その並びを画面の並びにする。
+    func noteShownBook(_ book: MangaBook?) {
+        guard let book else {
+            shownBookIdentity = nil
+            setShownBookSequence(nil)
+            return
+        }
+        shownBookIdentity = book.viewerIdentity
+        // 受け渡しは `currentBook` から作るので、出た本はふつう読み込みを終えた本。違えば(さらに別の本の読み込みが済んだ)、その本が
+        // 出たときにまた呼ばれる。
+        guard let current = currentBook, current.viewerIdentity == book.viewerIdentity else { return }
+        setShownBookSequence(committedBookSequence)
+    }
+
+    /// 読み込みを終えた本の並びを控える(`open(request:)` の成功)。その本がもう画面に出ているなら(同じ本の開き直し ―― 受け渡しは
+    /// 起きない)、画面の並びもその場で替える。
+    private func commitShownBookSequence(_ sequence: BookSequence?, of book: MangaBook?) {
+        committedBookSequence = sequence
+        guard let book, shownBookIdentity == book.viewerIdentity else { return }
+        setShownBookSequence(sequence)
+    }
+
+    private func setShownBookSequence(_ sequence: BookSequence?) {
+        MenuBarMenuGate.shared.run(menuGateKey("shownBookSequence")) { [weak self] in
+            guard let self, self.shownBookSequence != sequence else { return }
+            self.shownBookSequence = sequence
+        }
+    }
 
     /// 現在表示中のビューワー(ViewerView)へ、メニューバーからの操作を橋渡しするためのクロージャ。
     /// ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
@@ -1306,7 +1352,7 @@ final class AppState: ObservableObject {
                 return
             }
             let sequence = found.books.count > 1
-                ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0) : nil
+                ? BookSequence(entries: found.books.map { .file(path: $0.path) }, position: 0, title: .openedTogether) : nil
             self.open(request: BookOpenRequest(first, sequence: sequence), intent: intent)
             if found.skipped > 0 {
                 self.postViewerNotice(Self.skippedNotice(found.skipped, locale: locale))
@@ -1567,8 +1613,8 @@ final class AppState: ObservableObject {
                                 onProgress: onProgress
                             )
                             break
-                        } catch BookLoaderError.epubNotPictureBook
-                                    where (candidate != url || step != nil) && skipped < 50 && !Task.isCancelled {
+                        } catch let skipError where Self.skipsWhileStepping(skipError, book: candidate, inSequence: sequenceSteps != nil)
+                                    && (candidate != url || step != nil) && skipped < 50 && !Task.isCancelled {
                             let next: URL
                             if var steps = sequenceSteps {
                                 // 一覧の並び: 残りの位置を近い順に確かめる(openInSequence と同じ確かめ・期限)。
@@ -1584,9 +1630,9 @@ final class AppState: ObservableObject {
                                 case .timedOut:
                                     // 期限切れは先へ進まずに止める(openInSequence のコメント)。
                                     UserFeedback.beep()
-                                    throw BookLoaderError.epubNotPictureBook
+                                    throw skipError
                                 case .end, .abandoned:
-                                    throw BookLoaderError.epubNotPictureBook
+                                    throw skipError
                                 }
                             } else {
                                 // 棚の中・同じフォルダの兄弟: 向きは step(棚は前向き)。
@@ -1594,7 +1640,7 @@ final class AppState: ObservableObject {
                                 let found = forward
                                     ? await SiblingFinder.url(after: candidate, order: shelfOrder)
                                     : await SiblingFinder.url(before: candidate, order: shelfOrder)
-                                guard let found else { throw BookLoaderError.epubNotPictureBook }
+                                guard let found else { throw skipError }
                                 next = found
                             }
                             candidate = next
@@ -1771,6 +1817,8 @@ final class AppState: ObservableObject {
                                                        sequence: landedSequence ?? request.sequence)
                     }
                     if let landedSequence { self.bookSequence = landedSequence }
+                    // 開けた本の並び(画面に出たらサイドパネルの仮想のフォルダになる。shownBookSequence)。
+                    self.commitShownBookSequence(self.bookSequence, of: book)
                     // 次の本・前の本で飛ばして別の本を開いたなら、飛ばした本(要求の URL)のスコープはもう要らない(R7-1)。
                     // 表示中の本のぶんだけを持つ(securityScopedBookURLs のコメント)。棚の読み替え(step が無い)は、棚の
                     // フォルダのスコープで中の本を読むので残す。
@@ -1841,6 +1889,7 @@ final class AppState: ObservableObject {
                         return
                     }
                     self.currentBook = nil
+                    self.commitShownBookSequence(nil, of: nil)
                     self.loadRestorePoint = nil
                     // 失敗して出たホームでは、直前の本を選びに行かない(lastBookAwaitsHomeSelection のコメント)。
                     self.lastBookAwaitsHomeSelection = false
@@ -1911,9 +1960,10 @@ final class AppState: ObservableObject {
         after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false, claimsOpenIntent: Bool = true
     ) {
         let claims = claimsOpenIntent && !startsSlideshow
-        // 置き場所の無い本(StackNest の本)には「次の本」が無い(MangaBook.hasBrowsableLocation)。利用者が頼んだ一歩なら理由を
-        // 知らせ、スライドショーの末尾・書き出しの後の動作なら黙る(兄弟が見つからなかったときと同じ使い分け ―― stepToSibling)。
-        if lacksBrowsableLocation(currentURL) {
+        // 置き場所の無い本(StackNest の本)には同じフォルダの「次の本」が無い(MangaBook.hasBrowsableLocation)。ただし本を開いた
+        // 並び(`bookSequence`。参照ファイルをまとめて落としたときなど)があれば、それをたどる(コレクションの本と同じ)。並びも無ければ、利用者が頼んだ一歩なら理由を知らせ、スライドショーの末尾・書き出しの
+        // 後の動作なら黙る(兄弟が見つからなかったときと同じ使い分け ―― stepToSibling)。
+        if bookSequence == nil, lacksBrowsableLocation(currentURL) {
             if claims { noteNoBrowsableLocation() }
             return
         }
@@ -1942,8 +1992,8 @@ final class AppState: ObservableObject {
     /// - Parameter landsOnLastPage: 環境設定「最初のページで」が「前の本の最後のページへ」の
     ///   場合にtrue(openSibling(after:landsOnFirstPage:)の逆向き)。
     func openSibling(before currentURL: URL, landsOnLastPage: Bool = false) {
-        // 「次の本へ」と同じ(置き場所の無い本には前の本も無い)。前へは利用者が頼んだときしか進まないので、いつも知らせる。
-        if lacksBrowsableLocation(currentURL) { return noteNoBrowsableLocation() }
+        // 「次の本へ」と同じ(置き場所の無い本にも、並びがあれば前の本がある)。前へは利用者が頼んだときしか進まないので、いつも知らせる。
+        if bookSequence == nil, lacksBrowsableLocation(currentURL) { return noteNoBrowsableLocation() }
         let passed = passedOverBook?.forward == false ? passedOverBook : nil
         if let bookSequence {
             openInSequence(passed?.sequence ?? bookSequence, forward: false, initialEdge: landsOnLastPage ? .last : nil,
@@ -2037,6 +2087,22 @@ final class AppState: ObservableObject {
     }
     /// いま走っている同じフォルダの探索(`stepToSibling`)。
     private var siblingProbeKey: SiblingProbeKey?
+
+    /// 次の本・前の本・棚の先頭として開いた本が開けなかったとき、同じ向きの次の本を試すか(`open(request:step:)`)。画像の本でない
+    /// EPUB は飛ばす(2026-10-04 の監査 O-1)。StackNest の本は、一覧の並び(いっしょに渡された本の組)をたどっているときだけ、
+    /// **その本だけの失敗**なら飛ばす(期限切れ・鍵が通らない・本が消えた・参照ファイルが読めない。2026-10-19 のレビュー L2 ―― 以前は
+    /// 並びの途中の 1 冊が開けないと、その先へ進めなかった)。StackNest 全体の失敗(つながらない・施錠・宛先の制限・リモートが応えない)は
+    /// どの本でも同じなので飛ばさない(2 回目のレビュー L1: 飛ばすと、応答しない StackNest で 1 冊ずつ待ちの上限まで待って並びを
+    /// 端までたどった)。
+    nonisolated static func skipsWhileStepping(_ error: any Error, book: URL, inSequence: Bool) -> Bool {
+        if case BookLoaderError.epubNotPictureBook = error { return true }
+        guard inSequence, !(error is CancellationError), isStackNestReferenceFile(book.lastPathComponent) else { return false }
+        guard let failure = error as? StackNestOpenError else { return true }
+        switch failure.error.code {
+        case .cannotConnect, .libraryLocked, .hostNotAllowed, .insecureConnectionBlocked, .remoteUnavailable: return false
+        default: return true
+        }
+    }
 
     /// 次の本・前の本(一覧の並びを含む)として開くときの向きと、一覧の並びならその残り(`open(request:step:)`)。
     struct BookStep: Sendable {
@@ -2169,6 +2235,79 @@ final class AppState: ObservableObject {
 
     /// 一覧の並びをたどって次の本を探している最中の仕事(テストが終わりを待つ。続けて押されたら前のものは取り消す)。
     private(set) var sequenceTask: Task<Void, Never>?
+
+    /// 画面に出ている本の並び(`shownBookSequence`)の `position` の本を、このウインドウで開く(サイドパネルのフォルダブラウザの
+    /// 仮想のフォルダの行を押したとき。2026-10-19、利用者の指示)。並びを持ったまま位置だけ動かす(次の本・前の本と同じ)。
+    ///
+    /// 確かめは次の本・前の本と同じ道具で行う(`sequenceProbe` → `FileIO` の上で `sequenceProbeLimit` の期限つき。待つ間は札を出し、
+    /// 待ち始めるときに開く意図を取る。別のウインドウへは譲らない ―― `reusesExistingWindow: false`。シークレットフォルダの本は
+    /// `open(request:)` がシークレットウインドウへ回す)。違うのは**名指しの 1 冊だけを確かめる**こと: 見つからない・繋がって
+    /// いない・応答しないときは、隣の本へ飛ばさずに理由を知らせる(CLAUDE.md「An entry point that refuses or fails says so」)。
+    /// 開いた本が開けなかった(壊れた書庫・画像の本でない EPUB・止まっている StackNest)ときは、ほかの読み込みの失敗と同じく
+    /// 今の本を残して知らせる(`open(request:)` の失敗側。`step` を渡さないので飛ばさない)。
+    ///
+    /// 今出ている本の行(`position` が並びの今の位置)なら何もしない。
+    func openSequenceEntry(at position: Int) {
+        guard let sequence = shownBookSequence, let target = sequence.moved(to: position) else {
+            UserFeedback.beep()
+            return
+        }
+        guard position != sequence.position else { return }
+        sequenceTask?.cancel()
+        // 確かめを待つ間に別の本を頼んだら(後から頼んだ方が勝つ。R6-1)やめる。
+        let intent = beginOpenIntent()
+        let wait = beginOpenWait(intent: intent)
+        let entry = sequence.entries[position]
+        let name = BookSequence.displayName(of: entry)
+        let probe = sequenceProbe(for: entry)
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        // 繋がっていないボリューム上のパス(スマートライブラリの本など)は、マウント表の綴りだけで分かるので触らない(nextReachable と同じ)。
+        // コレクションの本はブックマークで追う(移した先は別のボリュームかもしれない)ので、ここでは見ない。
+        let isOnUnmountedVolume: Bool = {
+            guard case .file(let path) = entry else { return false }
+            return MountTable.current().isOnAnUnmountedVolume(URL(filePath: path, directoryHint: .notDirectory))
+        }()
+        sequenceTask = Task { [weak self] in
+            defer { self?.endOpenWait(wait) }
+            guard let self else { return }
+            var url: URL?
+            var timedOut = false
+            if !isOnUnmountedVolume {
+                do {
+                    url = try await FileIO.withDeadline(Self.sequenceProbeLimit) {
+                        await FileIO.perform { probe.resolve() }
+                    }
+                } catch {
+                    timedOut = true
+                }
+            }
+            // 待つ間に別の本を頼んだ・中止した(札の「中止」)なら、何も言わずにやめる(OpenIntent の決まり)。
+            guard !Task.isCancelled, self.isStillWanted(intent), !self.isOpenWaitCancelled(wait) else { return }
+            guard let url else {
+                let failure: RecentFilesStore.OpenFailure = isOnUnmountedVolume ? .volumeNotConnected : timedOut ? .timedOut : .missing
+                self.postViewerNotice(Self.sequenceEntryFailureMessage(failure, name: name, locale: locale))
+                return
+            }
+            self.open(
+                request: BookOpenRequest(url, sequence: target), reusesExistingWindow: false, intent: intent
+            )
+        }
+    }
+
+    /// `openSequenceEntry(at:)` が開けなかったときの知らせ。繋がっていない・応答しないは履歴と同じ文(`RecentFilesStore.OpenFailure`)。
+    /// 見つからないときは、履歴の文(「履歴から削除しました」)ではなく、見つからなかったことだけを言う(並びからは消さない)。
+    static func sequenceEntryFailureMessage(
+        _ failure: RecentFilesStore.OpenFailure, name: String, locale: Locale
+    ) -> String {
+        switch failure {
+        case .missing, .inTrash:
+            String(format: String(
+                localized: "“%@” couldn’t be found. It may have been moved or deleted.", language: locale
+            ), name)
+        case .volumeNotConnected, .timedOut:
+            failure.message(name: name, locale: locale)
+        }
+    }
 
     // MARK: - 開く意図(2026-10-04 のレビューの R6-1)
 
@@ -2386,6 +2525,7 @@ final class AppState: ObservableObject {
         // 閉じて戻ったホームには、直前の本を選ばせてよい(lastBookAwaitsHomeSelection のコメント)。
         if currentBook != nil, lastOpenedBook != nil { lastBookAwaitsHomeSelection = true }
         currentBook = nil
+        commitShownBookSequence(nil, of: nil)
         clearSiblingBooks()
         siblingProbeKey = nil
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの
@@ -2563,6 +2703,9 @@ final class AppState: ObservableObject {
     func postViewerNotice(_ message: String) {
         viewerNotice = ViewerNotice(message: message)
     }
+
+    /// 画面に出ている本に前後の本があるか(置き場所があるか、本を開いた一覧の並びがあるか)。前の本・次の本の淡色に使う。
+    var hasAdjacentBooks: Bool { bookSequence != nil || !lacksBrowsableLocation() }
 
     /// `url` の本(nil なら画面に出ている本)に、qooViewer から辿れる置き場所が無いか(MangaBook.hasBrowsableLocation ―― StackNest
     /// の本)。読み込みの受け渡しの間は `currentBook` と画面の本(`menuShownBook`)が違うことがあるので、`url` がどちらかの本ならその本で
@@ -2820,6 +2963,9 @@ struct MenuCheckmarkState: Equatable {
     /// 画面に出ている本が StackNest の本か(`menuShownBook`。監査 M-6 ―― メニューの淡色は写しから読む)。置き場所の無い本として前の本・次の本・同じフォルダのファイルを開く・Finder / ファイルブラウザで表示・フォルダへのアクセスの
     /// 許可を淡色にする(MangaBook.hasBrowsableLocation)。
     var isCurrentBookStackNestReference = false
+    /// フォーカス中のウインドウの画面に出ている本が、本を開いた一覧の並び(`AppState.shownBookSequence`。`hasBook` と同じく画面の本の
+    /// 値 ―― 2026-10-19 のレビュー L3)を持つか。置き場所の無い本(StackNest の本)でも、並びがあれば前の本・次の本は淡色にしない。
+    var hasBookSequence = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
     /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
     /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の

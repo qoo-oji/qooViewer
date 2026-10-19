@@ -308,8 +308,9 @@ struct QooViewerApp: App {
 
         Divider()
 
-        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
-        let hasAdjacentBooks = hasBook && menuCheckmarkState?.isCurrentBookStackNestReference != true
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。本を開いた並びがあれば有る。
+        let hasAdjacentBooks = hasBook
+            && (menuCheckmarkState?.isCurrentBookStackNestReference != true || menuCheckmarkState?.hasBookSequence == true)
 
         // 相手は淡色と同じ「画面に出ている本」(menuShownBook。レビュー R5-3 と同じ決まり ―― 以前は currentBook で、本の受け渡しの間は
         // 画面に出ていない次の本から進もうとした)。
