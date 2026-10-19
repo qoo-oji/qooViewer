@@ -2246,8 +2246,8 @@ private struct SidePanelHistorySectionView: View {
         .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // 今の本の行の強調も、重ね色がアクセントカラーに近いと面に溶ける(フォルダ行と同じ。監査 SP-11)。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
-        // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
-        .help(entry.path)
+        // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする(StackNest の本は「StackNest/題名」)。
+        .help(entry.locationText)
         // 開く直前に初めてブックマークを解決する(消えた本は履歴から取り除かれ、開けない理由は知らせる ―― resolve(_:))。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) {
             resolve(entry, replacesBook: appState.historyOpenReplacesCurrentBook) { url, intent in onOpen(url, intent) }
@@ -2263,7 +2263,9 @@ private struct SidePanelHistorySectionView: View {
                 },
                 onOpenIn: { destination in
                     resolve(entry, replacesBook: false) { url, _ in onOpenInNewWindow(url, destination) }
-                }
+                },
+                // StackNest の本の項目は開く先を選べない(StackNest への頼み。BookOpenContextMenuItems.choosesDestination)。
+                choosesDestination: entry.hasFileLocation
             )
             Divider()
             // entry.displayURLはセキュリティスコープの付いていない表示専用のURLなので、
@@ -2274,6 +2276,8 @@ private struct SidePanelHistorySectionView: View {
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.displayURL, isDirectory: entry.isDirectory)
             }
+            // StackNest の本はファイルを指さない(淡色にする)。
+            .disabled(!entry.hasFileLocation)
             // 同じ理由でフォルダかどうかはキャッシュ済みの値を渡す。一覧を読むのはファイルブラウザ側で、
             // そのフォルダに許可が無ければ「アクセスを許可…」が出る。
             // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
@@ -2281,6 +2285,7 @@ private struct SidePanelHistorySectionView: View {
                 Button("Show in File Browser") {
                     revealInFileBrowser(entry.displayURL, isDirectory: entry.isDirectory)
                 }
+                .disabled(!entry.hasFileLocation)
             }
 
             Divider()

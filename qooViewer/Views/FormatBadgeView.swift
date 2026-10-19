@@ -20,7 +20,11 @@ struct FormatBadgeView: View {
 
     var body: some View {
         Group {
-            if pathExtension.isEmpty {
+            if isStackNestReferenceFile(bookID) {
+                // StackNest の本(履歴の項目 ―― RecentFilesStore.Entry.formatBadgeID)。形式は StackNest の中の本で決まり、ここからは
+                // 分からないので「StackNest」と出す(固有名なので訳さない)。
+                Text(verbatim: "StackNest")
+            } else if pathExtension.isEmpty {
                 Text("Folder")
             } else {
                 // 拡張子自体(CBZ/ZIP/RARなど)は表示言語に関わらず同じ表記のため、
@@ -54,8 +58,8 @@ struct FormatBadgeView: View {
     ///   @Environment(\.locale)を渡すこと。
     static func estimatedWidth(bookID: String, locale: Locale) -> CGFloat {
         let pathExtension = BookFileName.bookExtension(forBookID: bookID)
-        let label = pathExtension.isEmpty
-            ? String(localized: "Folder", language: locale)
+        let label = isStackNestReferenceFile(bookID) ? "StackNest"
+            : pathExtension.isEmpty ? String(localized: "Folder", language: locale)
             : pathExtension.uppercased()
         let font = NSFont.systemFont(
             ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .semibold

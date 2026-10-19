@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import StackNestViewerKit
 
 /// 「最近開いたファイルを開く」メニュー、およびサイドパネルの「履歴」モード用に、開いたことの
 /// あるフォルダ/アーカイブの履歴を新しい順で保持する。保持件数は環境設定「一般」タブの
@@ -39,17 +40,43 @@ final class RecentFilesStore: ObservableObject {
         let path: String
         /// フォルダかどうか。アイコンの出し分けに使う(記録時・再検証時にキャッシュ済み)。
         let isDirectory: Bool
-        /// 開くときにだけ解決するセキュリティスコープ付きブックマーク。
+        /// 開くときにだけ解決するセキュリティスコープ付きブックマーク。StackNest の本(`stackNestReopen`)では、頼みの URL の
+        /// UTF-8(ブックマークではない。照合 ―― 削除・戻す ―― の鍵として本ごとに違う値を持たせるため)。
         let bookmark: Data
+        /// 記録したときの題名(StackNest の本だけ。`path` は頼みの URL で、名前にならない)。
+        var title: String? = nil
 
         var id: String { path }
         var displayName: String {
+            if stackNestReopen != nil { return title ?? "StackNest" }
             // フォルダの本の名前の「.」を拡張子と取り違えない(BookFileName)。
-            isDirectory ? (path as NSString).lastPathComponent : BookFileName.displayName(forBookID: path)
+            return isDirectory ? (path as NSString).lastPathComponent : BookFileName.displayName(forBookID: path)
         }
         /// 表示専用のURL(ファイル名・拡張子の取り出し用)。セキュリティスコープが付いていない
         /// ため、これを使って本を開いてはいけない(開くときは必ずresolveForOpening(_:)を通す)。
-        var displayURL: URL { URL(fileURLWithPath: path, isDirectory: isDirectory) }
+        /// StackNest の本は、題名に参照ファイルの拡張子を付けた名前(アイコン・種類の出し分け用。実在しない)。
+        var displayURL: URL {
+            if stackNestReopen != nil {
+                return URL(fileURLWithPath: "/\(displayName.replacingOccurrences(of: "/", with: ":")).stacknestbook", isDirectory: false)
+            }
+            return URL(fileURLWithPath: path, isDirectory: isDirectory)
+        }
+
+        /// 一覧で本の場所として見せる文(ツールチップ・「履歴の項目を削除」の列)。ファイルの項目はパス、StackNest の本は
+        /// 「StackNest/題名」(頼みの URL はライブラリの番号の並びで、場所として読めない)。
+        var locationText: String { stackNestReopen != nil ? "StackNest/\(displayName)" : path }
+        /// 形式の印(FormatBadgeView)に渡す名前。StackNest の本は `displayURL`(参照ファイルの拡張子)。
+        var formatBadgeID: String { stackNestReopen != nil ? displayURL.path : path }
+        /// Finder・ファイルブラウザで場所を見せられるか(StackNest の本はファイルを指さない)。
+        var hasFileLocation: Bool { stackNestReopen == nil }
+
+        /// StackNest の本の項目なら、開き直すときに StackNest へ出す頼み(`path` が `stacknest://viewer/reopen?…`)。ファイルの
+        /// 項目では nil。StackNest の本の項目にはファイルが無いので、ファイルを扱う所(ファイルブラウザの「最近の項目」・
+        /// 移動の追従・シークレットフォルダ)はこれで見分ける。
+        var stackNestReopen: StackNestReopenRequest? {
+            guard path.hasPrefix(StackNestReopenRequest.scheme + ":"), let url = URL(string: path) else { return nil }
+            return StackNestReopenRequest(url: url)
+        }
     }
 
     /// UserDefaultsへ保存する形。旧形式(ブックマークデータの配列のみ)からの移行はloadStored()で
@@ -57,9 +84,14 @@ final class RecentFilesStore: ObservableObject {
     fileprivate struct StoredEntry: Codable, Equatable, Sendable {
         let bookmark: Data
         /// 解決済みのパスのキャッシュ。旧形式からの移行直後だけ空文字列になりうる
-        /// (直後のscheduleRefresh()が解決して埋める)。
+        /// (直後のscheduleRefresh()が解決して埋める)。StackNest の本では頼みの URL(`Entry.stackNestReopen`)。
         let path: String
         let isDirectory: Bool
+        /// StackNest の本の題名(`Entry.title`)。ファイルの項目・これを知らない版が書いた項目では nil。
+        var title: String? = nil
+
+        /// StackNest の本の項目か(再検証でブックマークとして解決しない)。
+        var isStackNestBook: Bool { path.hasPrefix(StackNestReopenRequest.scheme + ":") }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -190,6 +222,61 @@ final class RecentFilesStore: ObservableObject {
         return task
     }
 
+    /// StackNest の本を履歴に残す(参照ファイルではなく、もう一度渡してもらう頼みを残す ―― `Entry.stackNestReopen`)。ファイルに
+    /// 触らないので待たないが、書く順は `recordInBackground` と同じ列に並べる(続けて開いた本の後のほうが先頭に来る)。同じ本
+    /// (同じ頼み)の古い行は取り除く。
+    @discardableResult
+    func recordStackNestBook(_ request: StackNestReopenRequest, title: String) -> Task<Void, Never> {
+        let previous = pendingRecord
+        let path = request.url.absoluteString
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            var stored = self.loadStored()
+            stored.removeAll { $0.path == path }
+            stored.insert(StoredEntry(bookmark: Data(path.utf8), path: path, isDirectory: false, title: title), at: 0)
+            if stored.count > self.maxCount { stored = Array(stored.prefix(self.maxCount)) }
+            self.save(stored)
+            self.publish(stored)
+        }
+        pendingRecord = task
+        return task
+    }
+
+    /// StackNest への頼みの URL を開く口(開けたら true)。試験は自分のストアで差し替える(本物の StackNest を起動しない)。
+    var openStackNestRequest: @MainActor (URL) async -> Bool = { url in
+        // StackNest を前に出さない(形式の文書の勧め。本が届くまでに前面がこのアプリ → StackNest → このアプリと行き来しない)。
+        // 解錠などで画面が要るときは StackNest が自分で前に出る。
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        return await withCheckedContinuation { continuation in
+            NSWorkspace.shared.open(url, configuration: configuration) { _, error in
+                continuation.resume(returning: error == nil)
+            }
+        }
+    }
+
+    /// StackNest の本の項目を開く: 頼みの URL を開き、StackNest にもう一度渡してもらう(StackNest が動いていなければ macOS が
+    /// 起動する)。本はその後 StackNest からふつうの受け渡しで届く(AppDelegate.openStackNestReferences)ので、ここでは開かない。
+    /// 開けたら頼んだことを、開けなければ(StackNest が無い・頼みを知らない古い版)そう知らせる。
+    private func requestFromStackNest(_ entry: Entry, _ request: StackNestReopenRequest, locale: Locale,
+                                      report: ((String) -> Void)?) async {
+        let opened = await openStackNestRequest(request.url)
+        let message = opened
+            ? String(format: String(localized: "Asked StackNest to open “%@”.", language: locale), entry.displayName)
+            : String(localized: "StackNest couldn’t be asked to open the book. Install or update StackNest, then try again.",
+                     language: locale)
+        if let report {
+            report(message)
+        } else if !opened {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+            alert.informativeText = message
+            _ = await WindowSheet.run(alert)
+        }
+    }
+
     /// 最後に頼まれた `recordInBackground` の仕事(次の記録はこれの後に書く)。
     private var pendingRecord: Task<Void, Never>?
 
@@ -260,6 +347,8 @@ final class RecentFilesStore: ObservableObject {
     /// 期限(`CollectionItemOpenProbe.limit`。利用者が自分で開いた本なので、眠っていた共有へ繋ぎに行く時間は待つ)を過ぎたら、
     /// 行は残して `.timedOut`(無いとは言い切れない)。
     func resolveForOpening(_ entry: Entry) async -> Result<URL, OpenFailure> {
+        // StackNest の本にファイルは無い(開くのは StackNest への頼み ―― 下の `resolveForOpening(_:locale:report:…)`)。
+        if entry.stackNestReopen != nil { return .failure(.handledByStackNest) }
         let result = await probeForOpening(entry)
         removeIfGone(entry, after: result)
         return result
@@ -349,12 +438,14 @@ final class RecentFilesStore: ObservableObject {
         case missing
         /// 期限までに確かめが返ってこなかった(応答しない共有)。無いとは言い切れないので行は残す。
         case timedOut
+        /// StackNest の本の項目(開くのは StackNest への頼みで、URL は無い)。行は残す。
+        case handledByStackNest
 
         /// 行を取り除く理由か(上の各 case の説明)。
         var removesEntry: Bool {
             switch self {
             case .inTrash, .missing: true
-            case .volumeNotConnected, .timedOut: false
+            case .volumeNotConnected, .timedOut, .handledByStackNest: false
             }
         }
 
@@ -379,6 +470,9 @@ final class RecentFilesStore: ObservableObject {
                 String(format: String(
                     localized: "The location of “%@” didn’t respond. Try again later.", language: locale
                 ), name)
+            case .handledByStackNest:
+                // 出さない(StackNest の本は `resolveForOpening(_:locale:report:…)` が StackNest へ頼み、そこで知らせる)。
+                ""
             }
         }
     }
@@ -400,6 +494,12 @@ final class RecentFilesStore: ObservableObject {
         then body: @escaping @MainActor (URL) -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor [self] in
+            // StackNest の本: StackNest にもう一度渡してもらう(本はその後ふつうの受け渡しで届く。`body` は呼ばない)。
+            if let request = entry.stackNestReopen {
+                guard stillWanted() else { return }
+                await requestFromStackNest(entry, request, locale: locale, report: report)
+                return
+            }
             let result = await probeForOpening(entry)
             guard stillWanted() else { return }
             removeIfGone(entry, after: result)
@@ -626,7 +726,7 @@ final class RecentFilesStore: ObservableObject {
         var seenPaths: Set<String> = []
         let newEntries = stored
             .filter { !$0.path.isEmpty && seenPaths.insert($0.path).inserted }
-            .map { Entry(path: $0.path, isDirectory: $0.isDirectory, bookmark: $0.bookmark) }
+            .map { Entry(path: $0.path, isDirectory: $0.isDirectory, bookmark: $0.bookmark, title: $0.title) }
         // バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを
         // 発火する。メニューバーが開かれている最中に発火すると、SwiftUIがメニューバーを
         // 組み立て直してAppKitのメニュー更新と競合するため、中身が変わったときだけ代入する。
@@ -736,6 +836,11 @@ final class RecentFilesStore: ObservableObject {
         var result: [StoredEntry] = []
         let mounts = MountTable.current()
         for item in stored {
+            // StackNest の本の項目はファイルを指さない(頼みの URL)。確かめずに残す。
+            if item.isStackNestBook {
+                result.append(item)
+                continue
+            }
             if !item.path.isEmpty, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: item.path, isDirectory: false)) {
                 result.append(item)
                 continue

@@ -1865,6 +1865,12 @@ final class AppState: ObservableObject {
                     // (RecentFilesStore.recordInBackground。2026-09-27、表示の切り替えの監査の 11)。
                     if !skipsPersistence, request.recordsInHistory, request.primaryURL != nil {
                         self.recentFiles?.recordInBackground(url: book.sourceURL)
+                    } else if !self.isPrivateWindow, !book.isInSecretFolder, request.recordsInHistory,
+                              let reopen = book.stackNestReopenRequest {
+                        // StackNest の本は参照ファイルを残しても開き直せない(鍵の期限・ポート・StackNest が動いていないことも)ので、
+                        // 履歴には「StackNest にもう一度渡してもらう頼み」を残す(2026-10-19、利用者の指示「案 A」。鍵は含まない)。
+                        // 履歴から開くと StackNest が新しい参照ファイルで渡し直す(RecentFilesStore.resolveForOpening)。
+                        self.recentFiles?.recordStackNestBook(reopen, title: book.title)
                     }
                     self.reloadSiblingBooks()
                 }
@@ -2325,7 +2331,7 @@ final class AppState: ObservableObject {
             String(format: String(
                 localized: "“%@” couldn’t be found. It may have been moved or deleted.", language: locale
             ), name)
-        case .volumeNotConnected, .timedOut:
+        case .volumeNotConnected, .timedOut, .handledByStackNest:
             failure.message(name: name, locale: locale)
         }
     }

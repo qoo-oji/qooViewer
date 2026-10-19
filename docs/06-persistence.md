@@ -576,6 +576,12 @@ StackNest の参照ファイルの本(`.stacknestbook`)も**シークレット�
 (`ViewerViewModel.recordingRule`)。保存データの読み込みは、どのカテゴリでも参照ファイルの本を外す(`removingStackNestBooks`)。詳細と、置き場所の無い本としての淡色の一覧は
 [10「StackNest の本と通信」](10-sandbox-and-security.md#stacknest-の本と通信)。
 
+例外は履歴(2026-10-19、試作): StackNest が本の同一性を付けたローカルのライブラリの本は、参照ファイルのパスではなく
+「StackNest にもう一度渡してもらう頼み」(`stacknest://viewer/reopen?…`)を題名と一緒に履歴へ残す(シークレットウインドウでは残さない)。
+行の形は `RecentFilesStore.StoredEntry` のまま(`path` = 頼みの URL、`bookmark` = その URL のバイト列、`title` を足した ―― 知らない版は
+読み飛ばす)。**古い版の qooViewer に戻すと、起動時の再検証で URL のバイト列をブックマークとして解けず、その行は消える**(戻しても
+復活しない。ファイルの本の行には影響しない)。詳細は [10](10-sandbox-and-security.md#stacknest-の本と通信)。
+
 ## 削除とリセット
 
 | 操作 | 場所 | 範囲 |

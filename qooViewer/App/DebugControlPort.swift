@@ -199,6 +199,18 @@ final class DebugControlPort {
             return try setPreference(arguments)
         case "performMenuItem":
             return try performMenuItem(arguments)
+        case "openRecent":
+            // 履歴の項目を、ファイル ▸ 最近使った項目と同じ解決で開く(`index` 番目。StackNest の本の項目なら StackNest へ頼む)。
+            // メニューの中身は SwiftUI が開く直前に組み直すので、裏で起動した Debug ビルドではメニューから選べないことがある。
+            guard let index = arguments["index"] as? Int, stores.recentFiles.entries.indices.contains(index) else {
+                throw Failure("no history entry \(arguments["index"] ?? "nil")")
+            }
+            let entry = stores.recentFiles.entries[index]
+            let target = stores.launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
+            stores.recentFiles.resolveForOpening(entry, reportingTo: target, replacesBook: false) { url, _ in
+                target?.open(url: url)
+            }
+            return ["name": entry.displayName]
         case "setSidePanel":
             // サイドパネルのモード(アプリ全体で 1 つ)と、前面の窓の「サイドパネルを隠す」(実機の検証で、全モードを順に見るため)。
             if let raw = arguments["mode"] as? String {
@@ -380,6 +392,10 @@ enum DebugStateDump {
             "windows": windows,
             "contentWindowCount": appStates.count,
             "openBookIDs": ViewerViewModel.openBookIDs.sorted(),
+            // 履歴(名前と、StackNest の本の項目か。StackNest への頼みの実機確認用)。
+            "recentEntries": stores.recentFiles.entries.map {
+                ["name": $0.displayName, "isStackNestBook": $0.stackNestReopen != nil] as [String: Any]
+            },
             "hasRunningWork": RunningWorkRegistry.forCurrentProcess?.hasRunningWork ?? false,
             "liveInstances": DebugLiveInstances.snapshot,
             "features": [

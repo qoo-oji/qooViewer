@@ -60,7 +60,8 @@ struct ClassicWelcomeView: View {
                     WelcomeQuickOpenItem(
                         id: entry.id,
                         title: entry.displayName,
-                        bookID: entry.path,
+                        bookID: entry.formatBadgeID,
+                        helpText: entry.locationText,
                         action: {
                             // 開けなければ理由を下に知らせる(2026-10-04 の監査 SP-7)。解決はメインの外で(監査 §2-4)。
                             // 待つ間にこの窓で別の本が頼まれたら開かない(AppState.OpenIntent。2026-10-04 のレビューの R6-1)。
@@ -178,6 +179,9 @@ struct WelcomeQuickOpenItem: Identifiable {
     /// 拡張子バッジ(FormatBadgeView)で見分けられるようにするため保持する(ユーザー報告:
     /// タイトルは拡張子を除いた名前で表示するため、epubとcbzの見分けがつかない)。
     let bookID: String
+    /// 指したときに出す場所(nil なら `bookID`)。StackNest の本の履歴の項目は、`bookID` が形式の印のための名前で実在しないので
+    /// 「StackNest/題名」(RecentFilesStore.Entry.locationText)。
+    var helpText: String? = nil
     let action: () -> Void
     /// 非nilなら右クリックメニューに破壊的な項目を1つ出す(「最近開いたファイル」の
     /// 「履歴から削除」用。ユーザー要望)。「最近お気に入りに追加したファイル」側は
@@ -323,7 +327,7 @@ private struct WelcomeQuickOpenList: View {
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
         // 名前は中間を省略するので、指したときにパスごと出す(履歴の吹き出し・サイドパネルの履歴と同じ。2026-10-12)。
-        .help(item.bookID)
+        .help(item.helpText ?? item.bookID)
 
         if let titleKey = item.destructiveActionTitleKey,
            let destructiveAction = item.destructiveAction {

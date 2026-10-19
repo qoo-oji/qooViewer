@@ -66,7 +66,7 @@ struct HistoryCleanupWindow: View {
         guard !query.isEmpty else { return recentFiles.entries }
         return recentFiles.entries.filter {
             $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
+                || $0.locationText.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -201,12 +201,12 @@ struct HistoryCleanupWindow: View {
                     // 参照してもファイルアクセスは発生しない(RecentFilesStore.Entry参照)。
                     Image(systemName: entry.isDirectory ? "folder" : "doc")
                         .foregroundStyle(.secondary)
-                    Text(entry.path)
+                    Text(entry.locationText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
-                        .help(entry.path)
-                    FormatBadgeView(bookID: entry.path)
+                        .help(entry.locationText)
+                    FormatBadgeView(bookID: entry.formatBadgeID)
                 }
             }
             .width(min: Self.pathColumnMin, ideal: pathColumnWidth)
@@ -236,7 +236,7 @@ struct HistoryCleanupWindow: View {
     private func autoSizeColumnsIfNeeded() {
         guard !didAutoSizeColumns, !recentFiles.entries.isEmpty else { return }
         pathColumnWidth = ExportColumnWidthEstimator.idealWidth(
-            for: recentFiles.entries.map(\.path),
+            for: recentFiles.entries.map(\.locationText),
             minWidth: Self.pathColumnMin,
             maxWidth: Self.pathColumnMax,
             extraChrome: 44 // 形式バッジ＋フォルダ/ファイルのアイコンぶんの余白

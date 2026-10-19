@@ -292,3 +292,111 @@ struct StackNestHandoffSequenceTests {
         withExtendedLifetime(keep) {}
     }
 }
+
+/// StackNest の本の履歴(2026-10-19、案 A): 参照ファイルではなく「もう一度渡してもらう頼み」(stacknest://viewer/reopen)を残し、
+/// 開くと StackNest へ頼む(本はその後 StackNest から届く)。
+@MainActor
+struct StackNestHistoryTests {
+    private func makeState(label: String, isPrivate: Bool = false)
+        throws -> (AppState, RecentFilesStore, InMemoryLibrary, AnyObject)
+    {
+        let library = try InMemoryLibrary(label: label)
+        let suite = PreferencesSuite(label: label)
+        let preferences = suite.makePreferences()
+        let state = AppState(isPrivateWindow: isPrivate, usesPageListCache: false)
+        state.preferences = preferences
+        state.favoritesStore = library.favorites
+        state.bookmarkStore = library.bookmarks
+        state.layoutStore = library.layouts
+        state.metadataStore = library.metadata
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        state.recentFiles = recentFiles
+        return (state, recentFiles, library, [preferences, suite] as NSArray)
+    }
+
+    @Test("同一性のある StackNest の本は、頼みの URL と題名で履歴に残る(参照ファイルのパスは残さない)")
+    func recordsTheReopenRequest() async throws {
+        let fixture = try StackNestTestBook(pageCount: 2, title: "Synthetic Title", label: "stacknest-history",
+                                            bookIdentity: "sn1-history-fixture")
+        defer { fixture.close() }
+        let (state, recentFiles, library, keep) = try makeState(label: "stacknest-history")
+        defer { library.close() }
+        state.open(request: BookOpenRequest(fixture.referenceURL))
+        await state.openTask?.value
+        await recentFiles.waitForPendingRecords()
+        let entry = try #require(recentFiles.entries.first)
+        #expect(recentFiles.entries.count == 1)
+        let request = try #require(entry.stackNestReopen)
+        #expect(request.bookIdentity == "sn1-history-fixture")
+        #expect(entry.path == request.url.absoluteString)
+        #expect(entry.displayName == "Synthetic Title")
+        #expect(!entry.hasFileLocation)
+        #expect(entry.locationText == "StackNest/Synthetic Title")
+        // 開き直しても 1 行のまま(同じ本は同じ頼み)。
+        state.open(request: BookOpenRequest(fixture.referenceURL))
+        await state.openTask?.value
+        await recentFiles.waitForPendingRecords()
+        #expect(recentFiles.entries.count == 1)
+        withExtendedLifetime(keep) {}
+    }
+
+    @Test("同一性の無い StackNest の本・シークレットウインドウでは履歴に残さない")
+    func doesNotRecordWithoutIdentityOrInPrivateWindows() async throws {
+        let plain = try StackNestTestBook(pageCount: 2, label: "stacknest-history-plain")
+        defer { plain.close() }
+        let (state, recentFiles, library, keep) = try makeState(label: "stacknest-history-plain")
+        defer { library.close() }
+        state.open(request: BookOpenRequest(plain.referenceURL))
+        await state.openTask?.value
+        await recentFiles.waitForPendingRecords()
+        #expect(recentFiles.entries.isEmpty)
+
+        let identified = try StackNestTestBook(pageCount: 2, label: "stacknest-history-private", bookIdentity: "sn1-private")
+        defer { identified.close() }
+        let (privateState, privateRecents, privateLibrary, keepPrivate) = try makeState(
+            label: "stacknest-history-private", isPrivate: true)
+        defer { privateLibrary.close() }
+        privateState.open(request: BookOpenRequest(identified.referenceURL))
+        await privateState.openTask?.value
+        await privateRecents.waitForPendingRecords()
+        #expect(privateRecents.entries.isEmpty)
+        withExtendedLifetime((keep, keepPrivate)) {}
+    }
+
+    @Test("履歴から開くと StackNest へ頼みの URL を出して知らせ、行は残す。再検証でも消えず、削除はその行だけ")
+    func openingAsksStackNest() async throws {
+        let suite = PreferencesSuite(label: "stacknest-history-open")
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        let request = try StackNestReopenRequest(
+            libraryUUID: "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0", bookID: 3, bookIdentity: "sn1-open")
+        let other = try StackNestReopenRequest(
+            libraryUUID: "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0", bookID: 4, bookIdentity: "sn1-other")
+        await recentFiles.recordStackNestBook(other, title: "Other").value
+        await recentFiles.recordStackNestBook(request, title: "Asked").value
+        final class Opened { var urls: [URL] = [] }
+        let opened = Opened()
+        recentFiles.openStackNestRequest = { url in opened.urls.append(url); return true }
+        let entry = try #require(recentFiles.entries.first)
+        var reports: [String] = []
+        var bodyCalled = false
+        await recentFiles.resolveForOpening(entry, locale: Locale(identifier: "en"), report: { reports.append($0) }) { _ in
+            bodyCalled = true
+        }.value
+        #expect(opened.urls == [request.url])
+        #expect(!bodyCalled, "本は StackNest から届く(ここでは開かない)")
+        #expect(reports.count == 1 && reports[0].contains("Asked"))
+        #expect(await recentFiles.resolveForOpening(entry) == .failure(.handledByStackNest))
+        #expect(recentFiles.entries.count == 2)
+
+        // 開けない(StackNest が無い・古い)ときはそう知らせる。
+        recentFiles.openStackNestRequest = { _ in false }
+        reports = []
+        await recentFiles.resolveForOpening(entry, locale: Locale(identifier: "en"), report: { reports.append($0) }) { _ in }
+            .value
+        #expect(reports.count == 1 && reports[0].contains("StackNest"))
+
+        recentFiles.remove(entry)
+        #expect(recentFiles.entries.map(\.displayName) == ["Other"])
+        withExtendedLifetime(suite) {}
+    }
+}

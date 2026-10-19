@@ -98,12 +98,12 @@ struct RecentBooksPopover: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            FormatBadgeView(bookID: entry.path)
+            FormatBadgeView(bookID: entry.formatBadgeID)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .help(entry.path)
+        .help(entry.locationText)
         // 開く直前に初めてブックマークを解決する(SidePanelHistorySectionView.rowと同じ約束。
         // 行を描くたびに解決すると、一覧全体でディスクを触ることになる)。
         .onTapGesture {
@@ -122,12 +122,16 @@ struct RecentBooksPopover: View {
                             launchCoordinator: launchCoordinator, openWindow: openWindow
                         )
                     }
-                }
+                },
+                // StackNest の本の項目は開く先を選べない(StackNest への頼み。BookOpenContextMenuItems.choosesDestination)。
+                choosesDestination: entry.hasFileLocation
             )
             Divider()
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.displayURL, isDirectory: entry.isDirectory)
             }
+            // StackNest の本はファイルを指さない(淡色にする。項目は消さない ―― CLAUDE.md の「淡色の条件」)。
+            .disabled(!entry.hasFileLocation)
             Divider()
             Button("Remove from History", role: .destructive) {
                 DataUndoStack.removeHistory([entry], in: recentFiles, recordingOn: dataUndo)

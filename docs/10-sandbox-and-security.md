@@ -397,6 +397,18 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
   知らせます(`ContentView.showsAsPrivate`・`NoRecordNotice`。シークレットウインドウでは知らせない)。ブックマークとレイアウトを
   StackNest の本で使えるようにするか(同じ本だと確かめる手がかり ―― manifest の `etag` など ―― を何にするか)は、別に決めます。今は
   記録を残さない本として淡色です。
+- **履歴だけは残す(試作、2026-10-19、利用者の指示「案 A」)**: 参照ファイルは残しても後から開き直せない(鍵の期限・ポートと中継の id が
+  渡すたびに変わる・StackNest が動いていないこともある)ので、履歴には参照ファイルのパスではなく、StackNest に**もう一度渡してもらう頼み**
+  (`stacknest://viewer/reopen?library=…&book=…&identity=…`。StackNestViewerKit の `StackNestReopenRequest` ―― 鍵は含まない)を題名と
+  一緒に残します(`MangaBook.stackNestReopenRequest` → `RecentFilesStore.recordStackNestBook`。ローカルのライブラリの本で、StackNest が
+  manifest に `bookIdentity` を付けたときだけ。シークレットウインドウでは残さない)。履歴から開くと頼みの URL を `NSWorkspace.open` で
+  開き(StackNest が動いていなければ macOS が起動する)、本はその後ふつうの受け渡しで届きます(`RecentFilesStore.resolveForOpening` は
+  「頼みました」と知らせるだけで、本は開かない)。StackNest は、頼んだアプリがその本を渡す外部ビューアであること(Apple Event の送り手)・
+  同一性が同じことを確かめ、閉じたライブラリは開き、施錠なら解錠を待ってから渡します(StackNest の `ViewerReopen`)。頼みを知らない StackNest
+  では `open` が失敗し、そう知らせます。履歴の項目にはファイルが無いので、「Finder で表示」「ファイルブラウザで表示」は淡色、ファイルブラウザの
+  「最近の項目」には出しません(`RecentFilesStore.Entry.hasFileLocation`)。2026-10-19 の実機確認(合成の本): StackNest が動いてライブラリが
+  開いている・ライブラリを閉じている・StackNest が動いていない、のどれでも履歴から開けた。Terminal の `open` からの頼みは渡さなかった。
+  一時フォルダの中のアプリ(ビルドの出力)は LaunchServices がスキームの受け手にしない(`in-temp-dir`)ので、検証ではアプリを写して登録した。
 - **開く位置**: いつも参照ファイルの `startPage` から開き、再開の確認は出しません(`ViewerViewModel.stackNestStartPageID`)。
   読み方向は manifest の向きで、切り替えはその場だけです。最初の案は qooViewer の読書位置を残し、履歴から開き直すと古い
   `startPage` で開いて巻き戻していました(その後の修正で更新日時を比べたが、記録を残さないことにしたので要らなくなった)。

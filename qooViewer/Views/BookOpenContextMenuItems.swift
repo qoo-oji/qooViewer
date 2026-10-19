@@ -29,16 +29,22 @@ struct BookOpenContextMenuItems: View {
     var onOpen: (() -> Void)?
     /// 「新規◯◯で開く」が選ばれたときに呼ぶ。実際に開くのは`BookWindowOpener.open`。
     let onOpenIn: (BookOpenDestination) -> Void
+    /// 開く先を選べない本(StackNest の本の履歴の項目 ―― 開くのは StackNest への頼みで、本は StackNest からのふつうの受け渡しで
+    /// 届くので、開く先は選べない)なら false。「新規◯◯で開く」を淡色にする(項目は消さない ―― CLAUDE.md の「淡色の条件」)。
+    var choosesDestination = true
 
     var body: some View {
         if let onOpen {
             Button("Open") { onOpen() }
             Divider()
         }
-        Button("Open in New Normal Window") { onOpenIn(.newNormalWindow) }
-        Button("Open in New Private Window") { onOpenIn(.newPrivateWindow) }
-        // タブだけノーマル/シークレットを選ばせない理由はBookOpenDestination.newTabのコメント参照
-        // (このタブは、今のウインドウの性質をそのまま引き継ぐ)。
-        Button("Open in New Tab") { onOpenIn(.newTab) }
+        Group {
+            Button("Open in New Normal Window") { onOpenIn(.newNormalWindow) }
+            Button("Open in New Private Window") { onOpenIn(.newPrivateWindow) }
+            // タブだけノーマル/シークレットを選ばせない理由はBookOpenDestination.newTabのコメント参照
+            // (このタブは、今のウインドウの性質をそのまま引き継ぐ)。
+            Button("Open in New Tab") { onOpenIn(.newTab) }
+        }
+        .disabled(!choosesDestination)
     }
 }

@@ -146,6 +146,18 @@ struct MangaBook: Identifiable, Hashable {
     /// StackNest の参照ファイルの本か。
     var isStackNestReference: Bool { stackNestReference != nil }
 
+    /// この本を後から StackNest にもう一度渡してもらう頼み(`stacknest://viewer/reopen?…` ―― StackNestViewerKit の
+    /// `StackNestReopenRequest`)。ローカルのライブラリの本で、StackNest が同一性を付けたときだけある(中継の本・古い StackNest の
+    /// 本では nil)。履歴が StackNest の本を開き直すのに使う(RecentFilesStore.recordStackNestBook)。鍵は含まない。
+    var stackNestReopenRequest: StackNestReopenRequest? {
+        guard let stackNestReference, let stackNestBookIdentity else { return nil }
+        return StackNestReopenRequest(reference: stackNestReference, bookIdentity: stackNestBookIdentity)
+    }
+
+    /// 履歴の項目でこの本を見分ける名前(`RecentFilesStore.Entry.path`): ふつうの本は `id`(パス)、履歴に頼みとして残る StackNest の本は
+    /// 頼みの URL。
+    var historyKey: String { stackNestReopenRequest?.url.absoluteString ?? id }
+
     /// ページの鍵(`PageRef.sortKey` ―― StackNest の本ではエントリのパスと同じ)の、StackNest のページ番号。StackNest の本でなければ nil。
     /// 表を持たない本(試験が直接組んだ本)は番号の仮の名前として読む。
     func stackNestPageIndex(forKey key: String) -> Int? {

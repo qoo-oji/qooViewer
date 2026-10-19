@@ -1501,6 +1501,10 @@ struct ContentView: View {
                     appState.postViewerNotice(String(
                         localized: "Books from StackNest leave no history or saved data.",
                         language: preferences.effectiveLocale))
+                case .stackNestKeepsHistory:
+                    appState.postViewerNotice(String(
+                        localized: "Books from StackNest leave no saved data. History reopens them through StackNest.",
+                        language: preferences.effectiveLocale))
                 }
             }))
     }
@@ -1785,7 +1789,9 @@ struct ContentView: View {
             currentPageIndex: appState.currentPageIndex,
             partnerPageIndex: appState.currentPartnerPageIndex,
             hasBook: appState.currentBook != nil,
-            currentBookPath: appState.currentBook?.id,
+            // StackNest の本は、履歴の項目の名前(もう一度渡してもらう頼みの URL ―― RecentFilesStore.Entry.stackNestReopen)で今の本を
+            // 見分ける(参照ファイルのパスは履歴に残さない)。ライブラリの一覧には StackNest の本は無いので、どちらにも差し支えない。
+            currentBookPath: appState.currentBook?.historyKey,
             loadPageThumbnail: appState.loadPageThumbnail,
             isPrivateWindow: isPrivateWindow,
             // ＋/鉛筆(お気に入り・ブックマークの追加/編集)は、履歴の非表示とは別条件。
@@ -2548,12 +2554,14 @@ private struct NoRecordNotice: ViewModifier {
 /// 出ている本が記録を残さない理由のうち、ノーマルの窓で知らせるもの(NoRecordNotice)。StackNest の本はシークレットフォルダの中に
 /// あっても StackNest の本として知らせる(参照ファイルの場所は本の置き場所ではない)。
 enum NoRecordReason: Equatable {
-    case secretFolder, stackNest
+    /// `stackNestKeepsHistory`: StackNest の本で、履歴には残す(もう一度渡してもらう頼みとして ―― MangaBook.stackNestReopenRequest。
+    /// 保存データは残さない)。
+    case secretFolder, stackNest, stackNestKeepsHistory
 
     init?(shown book: MangaBook?) {
         guard let book else { return nil }
         if book.isStackNestReference {
-            self = .stackNest
+            self = book.stackNestReopenRequest != nil ? .stackNestKeepsHistory : .stackNest
         } else if book.isInSecretFolder {
             self = .secretFolder
         } else {

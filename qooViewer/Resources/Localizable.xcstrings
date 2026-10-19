@@ -198,6 +198,22 @@
         }
       }
     },
+    "Asked StackNest to open “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Asked StackNest to open “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest に「%@」を開くよう頼みました。"
+          }
+        }
+      }
+    },
     "Book being exported" : {
       "localizations" : {
         "en" : {
@@ -258,6 +274,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ブックマーク・読書位置・ページのレイアウト・メタデータ・ライブラリとコレクションです(SwiftData のストアと先行書き込みログ)。"
+          }
+        }
+      }
+    },
+    "Books from StackNest leave no saved data. History reopens them through StackNest." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books from StackNest leave no saved data. History reopens them through StackNest."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest の本は、保存データを残しません。履歴からは StackNest を通して開き直します。"
           }
         }
       }
@@ -1206,6 +1238,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "スマートライブラリの一覧"
+          }
+        }
+      }
+    },
+    "StackNest couldn’t be asked to open the book. Install or update StackNest, then try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest couldn’t be asked to open the book. Install or update StackNest, then try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest に本を開くよう頼めませんでした。StackNest をインストールするかアップデートしてから、もう一度試してください。"
           }
         }
       }

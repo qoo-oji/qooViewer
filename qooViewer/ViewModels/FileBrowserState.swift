@@ -1007,7 +1007,9 @@ final class FileBrowserState: ObservableObject {
         loadTask?.cancel()
         let folder = currentFolder
         // 「最近の項目」の中身は履歴の写し(新しい順のまま。FileBrowserLocation の型コメント)。項目の属性はここで読む(FileIO の上)。
-        let recentEntries: [RecentFilesStore.Entry]? = isShowingRecents ? (recentFiles?.entries ?? []) : nil
+        // StackNest の本の項目はファイルを指さない(StackNest への頼み)ので、ファイルを並べるこの一覧には出さない。
+        let recentEntries: [RecentFilesStore.Entry]? = isShowingRecents
+            ? (recentFiles?.entries ?? []).filter(\.hasFileLocation) : nil
         // 並べ替えも読み込みと一緒に FileIO の上で(2026-09-25 の監査)。`localizedStandardCompare` の比較は数万件で数百ミリ秒に
         // なり、以前はメインで、アクティブ化・ホームへ戻る・FSEvents のたびに走っていた。読んでいる間に並びの設定が変わっていたら、
         // `apply` がメインで並べ直す。
