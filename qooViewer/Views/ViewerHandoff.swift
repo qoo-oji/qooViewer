@@ -15,6 +15,9 @@ import Combine
 ///
 /// ビューモデルは最初の見開きをビューの大きさに関係なく読む(`ViewerViewModel.loadCurrentSpread`)ので、ビューより先に作ってよい。
 /// 使われずに捨てるビューモデル(待っている間にさらに別の本・ホームへ替わった)は `releaseResources()` で資源を手放す。
+///
+/// 「同じ本」かどうかは `viewIdentity(of:)`(`MangaBook.viewerIdentity`)で見る(パスとシークレットフォルダの本か。
+/// StackNest の参照ファイルの本は参照の中身も)。
 @MainActor
 final class ViewerHandoff: ObservableObject {
     /// いまビューアに出している本とそのビューモデル。nil ならビューアを出していない(ホームなど)。
@@ -78,16 +81,16 @@ final class ViewerHandoff: ObservableObject {
         }
     }
 
-    private func showPending(bookID: String) {
+    private func showPending(bookID: MangaBook.ViewerIdentity) {
         guard let pending, Self.viewIdentity(of: pending.book) == bookID else { return }
         stopWaiting()
         self.pending = nil
         shown = pending
     }
 
-    /// ビューア(ViewerView とビューモデル)を作り直す単位。本の id に、シークレットフォルダの本かを足したもの。
-    static func viewIdentity(of book: MangaBook) -> String {
-        book.isInSecretFolder ? book.id + "\u{0}secret" : book.id
+    /// ビューア(ViewerView とビューモデル)を作り直す単位。本の id に、シークレットフォルダの本かと StackNest の参照を足したもの。
+    static func viewIdentity(of book: MangaBook) -> MangaBook.ViewerIdentity {
+        book.viewerIdentity
     }
 
     private func stopWaiting() {

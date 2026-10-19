@@ -70,8 +70,9 @@ enum NonBookFolderSweeper {
         return targets.count
     }
 
-    /// フォルダでありうる `bookID`(書庫・PDF・EPUB の名前のものは除く。数千冊のファイルの本に触らないため)。
+    /// フォルダでありうる `bookID`(書庫・PDF・EPUB・StackNest の参照ファイルの名前のものは除く。数千冊のファイルの本に
+    /// 触らないため)。
     nonisolated static func candidates(in bookIDs: Set<String>) -> [String] {
-        bookIDs.filter { !isArchiveFile($0) && !isPDFFile($0) && !isEpubFile($0) }.sorted()
+        bookIDs.filter { !isArchiveFile($0) && !isPDFFile($0) && !isEpubFile($0) && !isStackNestReferenceFile($0) }.sorted()
     }
 }

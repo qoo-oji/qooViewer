@@ -1,5 +1,5 @@
 #!/bin/bash
-# 配布する qooViewer.app が、自動アップデート(Sparkle)の約束を守っているかを確かめる。
+# 配布する qooViewer.app が、自動アップデート(Sparkle)と通信の約束を守っているかを確かめる。
 #
 #   scripts/release/check-release-app.sh path/to/qooViewer.app
 #
@@ -85,18 +85,75 @@ v = plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2])
 print("" if v is None else json.dumps(v, separators=(",", ":")) if isinstance(v, list) else str(v).lower())' "$entitlements" "$1"
     }
     if [ "$(ent com.apple.security.app-sandbox)" = "true" ]; then ok "App Sandbox が有効"; else fail "App Sandbox が無効"; fi
-    # アプリ本体は通信しない。更新の取得は Sparkle の Downloader.xpc の仕事(Info.plist のコメント)。
-    if [ "$(ent com.apple.security.network.client)" = "true" ]; then
-        fail "アプリ本体に com.apple.security.network.client が付いている"
-    else
-        ok "アプリ本体に通信の entitlement は無い"
-    fi
+    # アプリ本体は通信しない。更新の取得は Sparkle の Downloader.xpc、StackNest の本の API への要求は
+    # StackNestConnector.xpc の仕事(Info.plist のコメント・docs/10)。
+    for key in com.apple.security.network.client com.apple.security.network.server; do
+        if [ "$(ent "$key")" = "true" ]; then fail "アプリ本体に $key が付いている"; else ok "アプリ本体に $key は無い"; fi
+    done
     names=$(ent com.apple.security.temporary-exception.mach-lookup.global-name)
     expected="[\"$bundle_id-spks\",\"$bundle_id-spki\"]"
     if [ "$names" = "$expected" ]; then
         ok "mach-lookup の例外は Sparkle の 2 つだけ: $names"
     else
         fail "mach-lookup の例外が '$names'(期待: $expected)"
+    fi
+fi
+
+# ── ATS ───────────────────────────────────────────────────────────────────────
+# アプリ本体は通信しないので、ATS の例外を一切持たない。
+if plutil -extract NSAppTransportSecurity xml1 -o - "$info" >/dev/null 2>&1; then
+    fail "アプリ本体の Info.plist に NSAppTransportSecurity がある(本体は通信しない)"
+else
+    ok "アプリ本体の Info.plist に NSAppTransportSecurity は無い"
+fi
+
+# ── StackNestConnector.xpc(StackNest の本の API への要求だけを出す。docs/10「StackNest の本と通信」)────────────
+connector="$app/Contents/XPCServices/StackNestConnector.xpc"
+connector_info="$connector/Contents/Info.plist"
+if [ ! -d "$connector" ]; then
+    fail "Contents/XPCServices/StackNestConnector.xpc が無い"
+else
+    connector_id=$(plutil -extract CFBundleIdentifier raw -o - "$connector_info" 2>/dev/null || true)
+    service_name=$(value QOOStackNestConnectorService)
+    if [ -n "$connector_id" ] && [ "$connector_id" = "$service_name" ] && [ "$connector_id" = "$bundle_id.StackNestConnector" ]; then
+        ok "StackNestConnector のバンドル ID = QOOStackNestConnectorService = $connector_id"
+    else
+        fail "StackNestConnector のバンドル ID '$connector_id' が QOOStackNestConnectorService '$service_name'・'$bundle_id.StackNestConnector' と合わない"
+    fi
+    connector_archs=$(lipo -archs "$connector/Contents/MacOS/StackNestConnector" 2>/dev/null || true)
+    if [[ " $connector_archs " == *" arm64 "* && " $connector_archs " == *" x86_64 "* ]]; then
+        ok "StackNestConnector は universal($connector_archs)"
+    else
+        fail "StackNestConnector が universal ではない: '$connector_archs'"
+    fi
+    connector_entitlements=$(mktemp)
+    if ! codesign -d --entitlements - --xml "$connector" > "$connector_entitlements" 2>/dev/null || [ ! -s "$connector_entitlements" ]; then
+        fail "StackNestConnector の entitlements を読めない"
+    else
+        # 持ってよいのは App Sandbox と外への接続だけ(ファイル・待ち受け・その他の例外は持たない)。開発用の署名が足す
+        # get-task-allow は数えない(本体と同じく、ここでは見ない)。
+        keys=$(python3 -I -c 'import plistlib, sys
+print(",".join(sorted(k for k in plistlib.load(open(sys.argv[1], "rb")) if k != "com.apple.security.get-task-allow")))' "$connector_entitlements")
+        allowed="com.apple.security.app-sandbox,com.apple.security.network.client"
+        if [ "$keys" = "$allowed" ]; then
+            ok "StackNestConnector の entitlements は App Sandbox と外への接続だけ"
+        else
+            fail "StackNestConnector の entitlements が '$keys'(期待: $allowed)"
+        fi
+        values=$(python3 -I -c 'import plistlib, sys
+d = plistlib.load(open(sys.argv[1], "rb"))
+print(d.get("com.apple.security.app-sandbox") is True and d.get("com.apple.security.network.client") is True)' "$connector_entitlements")
+        if [ "$values" = "True" ]; then ok "StackNestConnector の App Sandbox と外への接続は true"; else fail "StackNestConnector の entitlements の値が true でない"; fi
+    fi
+    rm -f "$connector_entitlements"
+    # ATS で許すのはローカルへの平文の HTTP だけ。
+    ats=$(python3 -I -c 'import plistlib, sys
+d = plistlib.load(open(sys.argv[1], "rb")).get("NSAppTransportSecurity")
+print(sorted(d.items()) if isinstance(d, dict) else d)' "$connector_info")
+    if [ "$ats" = "[('NSAllowsLocalNetworking', True)]" ]; then
+        ok "StackNestConnector の ATS は NSAllowsLocalNetworking だけ"
+    else
+        fail "StackNestConnector の ATS が $ats(期待: NSAllowsLocalNetworking だけ)"
     fi
 fi
 
@@ -111,7 +168,7 @@ done
 sparkle_version=$(plutil -extract CFBundleShortVersionString raw -o - "$sparkle/Resources/Info.plist" 2>/dev/null || true)
 note "Sparkle $sparkle_version"
 if codesign --verify --deep --strict "$app" 2>/dev/null; then
-    ok "署名は有効(入れ子の Sparkle の部品を含む)"
+    ok "署名は有効(入れ子の Sparkle の部品・StackNestConnector を含む)"
 else
     fail "codesign --verify --deep --strict が通らない"
 fi

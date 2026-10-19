@@ -3,9 +3,10 @@
 ## 前提
 
 App Sandbox + Hardened Runtime、`ENABLE_USER_SELECTED_FILES = readwrite`。アプリ本体にネットワークの
-entitlement は無く、本体は通信しません。通信するのは自動アップデート(Sparkle)の Downloader.xpc だけで、
-取りに行くのは GitHub の appcast と更新の書庫だけです(→ [自動アップデート](#自動アップデートsparkle2026-10-10))。
-entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
+entitlement は無く、本体は通信しません。通信するのは自動アップデート(Sparkle)の Downloader.xpc(取りに行くのは GitHub の
+appcast と更新の書庫だけ。→ [自動アップデート](#自動アップデートsparkle2026-10-10))と、アプリに入れた XPC サービス
+`StackNestConnector.xpc`(この Mac の StackNest の本の API への決まった形の要求だけ。→ [StackNest の本と通信](#stacknest-の本と通信))
+だけです。entitlement はビルド設定から生成され、Release だけ `Configurations/qooViewer.entitlements`(Sparkle の XPC
 サービスと話す mach の名前 2 つ)が加わります(→ [02](02-project-and-build.md))。
 
 サンドボックス下で触れるのは、
@@ -240,7 +241,8 @@ Ed25519 の秘密鍵で署名されているかだけで決まります。**
 - サンドボックスの中のアプリはインストーラを自分で起動できないので、Sparkle.framework の中の `Installer.xpc` に頼みます
   (`SUEnableInstallerLauncherService` と、Release の entitlements の mach-lookup の例外 `<バンドルID>-spks` / `-spki`)。
 - 取りに行くのは `Downloader.xpc`(`SUEnableDownloaderService`)。そのため本体に `com.apple.security.network.client` を足していません
-  (`check-release-app.sh` が「無いこと」を確かめる)。代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
+  (`check-release-app.sh` が「無いこと」を確かめる。StackNest の本の通信も本体ではなく `StackNestConnector.xpc` がする)。
+  代償は Sparkle の文書のとおり、リリースノートが古い WebView で描かれる・
   版ごとに出し分けられないこと。リリースノートは appcast に埋め込み(`--embed-release-notes`、markdown)、JavaScript は切ってあります。
 - 送るものは Sparkle の既定の要求だけ(アプリ名と版・Sparkle の版)。`SUEnableSystemProfiling = NO` で Mac の情報は送りません。
   本や保存データに関わるものは何も送りません。
@@ -302,3 +304,138 @@ Sparkle の値の変化(KVO)は、届いたスレッドがメインならその�
 | 「インストールできます」でボタンを押さずに終了 | 終了時に 1.83 へ入れ替わり、起動し直さない |
 | 環境設定「アップデートを自動的にダウンロードしてインストール」ON(コンテナの defaults)で起動 | `AppUpdater` が Sparkle の `SUAutomaticallyUpdate` を 1 にし、起動直後に何も出さずに appcast と zip を取得、終了時に何も聞かずに 1.83 へ入れ替わった |
 
+## StackNest の本と通信
+
+StackNest(画像の本のライブラリ管理アプリ)は、外部ビューアに本そのものではなく**参照ファイル**(`.stacknestbook`。この Mac の
+StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と、その本だけを読める鍵)を渡します。qooViewer はページを
+1 枚ずつその API から取り、読み進めたページを書き戻します。参照ファイルの読み取り・要求の組み立て・鍵の扱い・書き戻しは、StackNest の
+開発者が公開している Swift パッケージ StackNestViewerKit(→ [11](11-forked-dependencies.md))が行います。リモートの本も StackNest が
+127.0.0.1 で中継するので、つなぐ先はこの Mac だけです。参照ファイルは StackNest の `~/Library/Application Support/StackNest/ViewerHandoff/…/<題名>.stacknestbook`
+にあり、StackNest が渡すたびに同じパスへ新しい鍵で書き直し、期限(30 日)が切れると消します。
+
+### 通信は XPC サービスがする(2026-10-18 のレビュー)
+
+最初の案(PR #1)はアプリ本体に `com.apple.security.network.client` を付けていました。本体は信頼できない書庫(rar・7z の C の
+コードを含む)を読むので、そこを突かれたときに外へ送り出せないことが、本体に通信の権限を持たせない理由です。宛先を
+127.0.0.1 に絞るのは部品のコードの決まりでしかなく、OS は本体のどの通信も止めません。そこで:
+
+- **`StackNestConnector.xpc`**(アプリの `Contents/XPCServices`)だけが外への接続を持ちます。権限は App Sandbox と
+  `network.client` だけで、ファイルへのアクセスも待ち受けも持たず、ATS は `NSAllowsLocalNetworking` だけ(`check-release-app.sh` が確かめる)。
+- アプリの側では StackNestViewerKit をそのまま使い、そのセッションの URLSession(部品の `Configuration.makeURLSessionConfiguration`)に
+  `StackNestConnectorURLProtocol` だけを差し込みます。要求は XPC でサービスへ渡り、アプリ本体はソケットを開きません。部品の決まり
+  (宛先の制限・リダイレクトの拒否・本文の上限・時間切れ)はそのまま効きます。
+- サービスは**決まった形の要求しか出しません**(`StackNestConnectorPolicy`。アプリも送る前に同じ判定をする):
+  - `http` で、ホストは `127.0.0.1` か `::1` の字面だけ(名前・資格情報・断片は不可)
+  - パスは `/api/v1/libraries/<書庫>/books/<番号>` か `/api/v1/relay/<ID>` の下の `manifest`・`pages/<番号>`・`cover`(GET。`?maxw=<幅>` だけ可)と
+    `progress`(POST。JSON の本文 64 KiB まで)。パーセント符号化を含むパスは不可
+  - ヘッダは鍵(`Authorization: Bearer …`)・名乗り・POST の本文の型だけ
+  - 応答は 64 MiB まで、リダイレクトには付いて行かない(3xx はそのまま返す)。ephemeral のセッションで、キャッシュ・クッキー・
+    資格情報の保管・プロキシを使わない
+
+  これで、細工した参照ファイルを開いても、この Mac で待ち受けているほかのサービスへ別の形の要求が出ることはなく(部品は宛先の
+  ホストしか見ず、パスは参照ファイルのままに使うため)、アプリのプロセスが乗っ取られても外の宛先へは出せません。
+- XPC の返事は必ず 1 度(`StackNestConnectorClient`): サービスが落ちた・起動できないときは控えている要求を `.unavailable` で
+  終わらせ、部品はつながらない失敗として扱います(次の要求は立ち直ったサービスへ)。
+
+### ページの読み方(スレッドとメモリ)
+
+- ページは部品の **async の口**で待ちます(`StackNestReferenceReader.pageData`)。最初の案は `ArchiveReading` の同期の口を
+  `FileIO` のスレッドで待っていて、ページ一覧のセル・先読み・寸法の下調べが頼んだ数だけスレッドが塞がり(1 本最長 25 秒×最大 3 回)、
+  StackNest が応答しないと数ウインドウでプロセスのスレッドの上限(512)に届いて、ほかの本・ファイルブラウザの読み書きまで止まりえました。
+- 要求の同時数は接続先(StackNest の 127.0.0.1 のポート)ごとの門 **`StackNestRequestGate`** が絞ります(同じ StackNest の本どうしで共有。
+  本ごとに持つと 2 冊で接続数を超え、サービスの URLSession の中で待つ): 合わせて 6(接続先 1 つの同時の接続数と同じ。サービスは門を通らない
+  manifest と書き戻しの分の余りを足して 8)、そのうち
+  先読み・サムネイル・寸法は 4 まで(残りは表示のために空けておく)。表示は空きがあればいくつでも使え(応答の止まった表示のページが
+  あっても次の表示は通る)、空きが出たら待っている表示を先に通します。合計が接続数を超えないので、部品の待ちの時間切れ(並んでいる間も
+  数える)で正常な StackNest でも失敗する、先読みの後ろに表示のページが並ぶ、ということが起きません。先読みに表示が追いついたら
+  背景の列から表示の列へ移します(`promote`)。PageLoader は許可をデコードが終わるまで持つので、取り寄せたまま枠を待つバイト列も
+  門の数で頭打ちです。
+- **ページ送りの待ち**(2026-10-19、1 ページの往復に 300 ms かかる作り物の StackNest で測って直したもの。手元の StackNest は往復が
+  数 ms で、直接開いた本とほぼ同じ速さ ―― 数字は [12「StackNest の本の実機の確かめ方」](12-verification-and-debugging.md#stacknest-の本の実機の確かめ方)):
+  - 表示するページを頼む**前に**先読みを始め(`ViewerViewModel.loadCurrentSpread`)、見開きの相方も 1 枚目と同時に**表示として**頼みます
+    (組まないと分かったら取り消す)。以前は相方を 1 枚目が届いてから頼み、往復 2 回ぶん待ちました(先読みの外へ飛ぶと 660 ms → 345 ms)。
+  - 先読みに合流した表示の要求は、門に並ぶ前の合流でも表示の列で通ります(`decodedPixels` が門に並ぶときに `cancellableInFlightKeys` を
+    見る。`promote` は並んだ後の合流しか移せず、表示するページが背景の列で 0.9 秒待っていました)。
+  - 表示の要求も、待つ人(表示・先読み・セル)が全員取り消したら取り寄せごと取り消します(`awaitRemote`)。つまみを動かすように続けて飛ぶと、
+    通り過ぎたページの取り寄せが門の枠を握ったまま最後まで走り、最後のページが出るまで 1.3 秒かかっていました(今は 0.37 秒)。
+  - 続けて送ったときの通過コマは、手元に届いている絵だけを出し(相方が無いコマは出さない)、取り寄せは着地する先を頼みます
+    (`loadTransitFrame`・`drainPageFlipQueue`)。以前は通過する全ページを 1 枚ずつ待ち、キーを 30 回押すと最後のキーから着地まで 12.6 秒
+    (60 回で 33 秒)かかっていました(今は 0.5 秒)。
+  - サムネイルの一覧(ページ一覧・サイドパネル)は背景の 4 本で取り寄せるので、往復 300 ms なら 1 秒に十数枚です(先読みと同じ枠)。
+    ホバーした拡大プレビューだけは表示の列で頼みます(`gridThumbnail(asksAsDisplay:)`。環境設定「表示中のサムネイルの拡大画像を先読み」の
+    先読みは背景の列のまま)。背景の列のままだと、先読みとサムネイルの後ろに並んでプレビューが出なかった。
+  - 原寸大のウインドウは、表示用の絵が上限(4096 px)に届いたページだけを読み直すので、StackNest の本ではほとんど起きません
+    (リモートのライブラリの本は、StackNest の取り次ぎが幅 1600 px に揃えて返す。手元のライブラリの本は往復が数 ms)。
+  - StackNest は、リモートのライブラリの本を取り次ぐときに、ページを内蔵ビューアと共有するディスクのキャッシュに入れ、開いたページの近くを
+    自分でも先読みします(StackNest の `ViewerRelayCache`)。キャッシュを使うのは幅を指定しない(または内蔵の 1600 px の)要求だけなので、
+    **qooViewer は `?maxw=` を付けない** ―― サムネイルを小さく頼むと、毎回リモートへ取りに行く。
+- 寸法の下調べで取ったバイト列のヘッダーは控え(`headerInfoCache`)、「情報を見る」の形式と名前は中身から決めます(ページの名前
+  `000041.jpg` は仮のもの)。寸法の下調べは、同じページの絵をもう取り寄せていればそれを待って、届いた中身のヘッダーで答えます
+  (先読みと同じページを別々に取りに行き、背景の枠を取り合っていた)。
+- 部品のページのキャッシュ(直近 8 ページ・64 MiB)は、受け取ったページから同じ決まりで見積もってリソースモニタに出します
+  (`StackNestSessions.Book.memoryUsageItems`。量は部品 0.2.0 の `cachedPageBytes` と、受け取りの途中の本文 `bufferedResponseBytes`。
+  0.1.0 は量を外へ出さなかったので、受け取ったページから部品のキャッシュの決まりをなぞって見積もっていた)。ビューアの後始末(`releaseResources`)はセッションと書き戻しの役を
+  手放し(最初の案は手放さず、旧世代のビューモデルが 64 MiB と URLSession を抱えた)、PageLoader は手放した後に reader を作り直しません。
+- 開いたときの本全体の下調べはしません(横長の判定は表示したページの近傍だけ)。レイアウトの計算は、記録を残さない本なので
+  そもそも走りません(下の「記録を残さない」)。
+
+### 鍵・記録・ほかの機能との関係
+
+- **鍵(token)**: メモリの中だけに置き、DB・UserDefaults・保存データの書き出し・ページ一覧のキャッシュ・ログに残しません(部品の
+  `StackNestBookReference` は `Codable` でなく、文字列にすると `<redacted>`。アプリ側の `StackNestReferenceIdentity` も同じ)。
+- **セッションは本ごとに 1 つ**(`StackNestSessions`): 同じ参照ファイルから作る reader(開くときの BookLoader・ビューア・同じ本を開いたほかのウインドウのビューア)と
+  書き戻しの役は 1 つのセッション(ページのキャッシュと門)を使い回します。使い回すのは接続先と鍵と形式の版が同じとき
+  (`StackNestReferenceIdentity`)。開く位置(`startPage`)・題名だけが違う書き直しでは使い回し、ビューアも作り直しません
+  (`MangaBook.viewerIdentity`)。
+- **記録を残さない**(2026-10-18、利用者の決定「シークレットフォルダの本と同じ扱い」。`MangaBook.leavesNoRecord`): 参照ファイルは
+  開くたびに同じパスへ新しい鍵で書き直され、中身が前回と同じ本かを qooViewer から確かめる手段がありません(本の置き場所も中身の
+  指紋も届かない)。そのまま読書位置・ブックマーク・レイアウトを残すと、別の本や増減したページに古い記録が当たりえます。そのため
+  どの窓でも、履歴・読書位置・ブックマーク・レイアウト・メタデータ・「前回の本」のどれも書きません(`ViewerViewModel.skipsPersistence`)。
+  保存データの読み込みも、どのカテゴリでも参照ファイルの本を外し(`LibraryImportExportService.removingStackNestBooks`。StackNest へも
+  問い合わせない)、外した冊数を結果に出します。表示している間は外観をシークレットの
+  揃いにし、タイトルを「(StackNest) 題名」(シークレットウインドウでは「(シークレット) (StackNest) 題名」)にし、出たときに一度だけ
+  知らせます(`ContentView.showsAsPrivate`・`NoRecordNotice`。シークレットウインドウでは知らせない)。ブックマークとレイアウトを
+  StackNest の本で使えるようにするか(同じ本だと確かめる手がかり ―― manifest の `etag` など ―― を何にするか)は、別に決めます。今は
+  記録を残さない本として淡色です。
+- **開く位置**: いつも参照ファイルの `startPage` から開き、再開の確認は出しません(`ViewerViewModel.stackNestStartPageID`)。
+  読み方向は manifest の向きで、切り替えはその場だけです。最初の案は qooViewer の読書位置を残し、履歴から開き直すと古い
+  `startPage` で開いて巻き戻していました(その後の修正で更新日時を比べたが、記録を残さないことにしたので要らなくなった)。
+- **本の置き場所が無い**(`MangaBook.hasBrowsableLocation`): 参照ファイルのフォルダは StackNest の受け渡し用の場所で、本の置き場所
+  ではありません(並ぶのはほかの本の参照ファイル)。前の本・次の本、「同じフォルダのファイルを開く」、Finder・ファイルブラウザで
+  表示(ページの右クリックも)、「このフォルダへのアクセスを許可」、ホームの「直前の本へ戻る」(開き直すのは StackNest から)は淡色で、
+  キーや境界の動作で届いたら理由を知らせます(`AppState.noteNoBrowsableLocation`。スライドショーの末尾は黙る)。サイドパネルの
+  フォルダブラウザは見た目はいつもどおりで、前の本のフォルダを残さず、一覧の場所に理由を出し、移動・並べ替え・絞り込みを淡色にし、
+  読み込みも止めます(`SidePanelView.folderSection`。フォルダ名の欄は「StackNest」)。下段の本の中身ブラウザは、本のページを平坦な
+  1 階層で並べます(書庫として開かない。`BookContentsBrowserState` の `.pages`)。
+  「情報を見る」の場所は「StackNest」です。
+- **続けて渡される本**(2026-10-19、利用者の決定「案 B」): StackNest は書庫の窓で選んだ本を 1 冊ずつ外部ビューアへ渡す(StackNest の
+  `openInExternalViewerSyncing`。`NSWorkspace.open` を 1 冊に 1 回)。ほかの「開く」のように 1 秒の間に届いた回をまとめて「次の本へ」の
+  並びにすると、2 冊目以降は開かれず、StackNest が 15 秒後に「qooViewer が本を読み込んでいません」と知らせていた(鍵が使われたかを
+  確かめる。`viewerUseCheckDelay`)。参照ファイルはまとめず、届いたものをどれもすぐ開く: 続けて届いたうち最初の 1 冊は環境設定「Finder
+  から開いたとき」に従い、2 冊目以降は直前の本のタブの右に新しいタブで開く(渡された順に並ぶ。`AppDelegate.openStackNestReferences`)。
+- **止め方**: 期限切れ・認証失敗・本が無い・ライブラリのロック・宛先の制限は、StackNest から開き直すまで直らない。その後は、
+  その本のページも manifest も StackNest へ問い合わせず(`StackNestSessions.Book.permanentFailure`)、表示できないページでは
+  理由を 1 度だけ知らせます。書き戻しもその本については送りません(部品)。それ以外の失敗(StackNest が応答しない・リモートの
+  ライブラリにつながらない・想定外の応答)は一時的なものとして要求を止めず、読めなかったページでは、そのページを次に受け取るまで
+  覚えた理由を毎回知らせます(`Book.record(_:page:)`・`pageFailureToShow(page:)`。2026-10-19 の監査: 以前は「このページを表示できません」
+  だけで理由が出なかった。ページごとに覚えるのは、見開きの相方や先読みのページが届いたことで、読めなかったページの理由を消さないため)。終了(⌘Q)のときは、送っていない位置を最長 2 秒だけ待って
+  送ります(部品の `StackNestProgressRegistry.shared.flushAllBlocking`。送りはメインスレッドの外で走り、メインはそこで待つ)。最初の案は
+  部品 0.1.0 の `flushAll` と `.terminateLater` を使っていて、終了がメインキューの仕事の中から頼まれる(スライドショーの末尾の「終了」・
+  保存データの削除の後の終了・Debug の制御口の quit)と、メインキューが回らずに返事が来ないまま、アプリが終わらなくなりました(実測)。
+  その後しばらくはアプリ側の送り切り(`StackNestQuitFlush`)で避け、部品へ PR を出して 0.2.0 に入ったものに替えました(2026-10-19)。
+  ビューアの書き戻しの役は、作るときに登録簿を渡します(`ViewerViewModel(stackNestProgressRegistry:)`。アプリは `shared`、試験は
+  `ViewerHarness` が自分の登録簿を渡し、プロセスで 1 つの登録簿に試験の役を残さない)。
+- **書き戻し**: StackNest の本はどの窓でも記録を残しませんが、StackNest へ位置を返すのは保存データではないので続けます。シークレット
+  ウインドウでは送りません(`ViewerViewModel.recordingRule` → `writesBackToStackNest`)。
+- **ほかの機能の外**: コレクション(`CollectionStore.makePendingItem` が実ファイルの参照ファイルを断る)・お気に入り・本の書き出し・
+  メタデータ(`MetadataGenerator` の母体)・サムネイルのディスクキャッシュ(鍵を掛けられるライブラリの絵を、施錠や期限と関係なく
+  残さない)には入れません。起動時の掃除(`ExternalMoveSweeper`・`NonBookFolderSweeper`)は参照ファイルの本を見ません。
+- **シークレットフォルダ**: 参照ファイルの場所からは StackNest の本の実際の置き場が分からないので、効きません(StackNest の本はもともと記録を残さない)。
+- **名乗り**: `X-StackNest-Viewer: <バンドル ID>/<版>; format=<参照ファイルの版>; kit=<部品の版>`(部品の `StackNestViewerIdentification`)。
+- **対応の宣言**: `Info.plist` の `StackNestViewerSupport.referenceFormatVersions`(今は `[1]`)。StackNest はこの鍵をファイルとして読みます。
+  部品が読める版の中だけを宣言します(`StackNestViewerDeclarationTests`)。
+- **文言**: 知らせの文言は部品の既定の英日の文言を、qooViewer の表示言語とアプリの名前で出します(`StackNestText`)。
+- **テスト**: 実物の StackNest は使いません。部品の見立て `StackNestStubServer`(`URLProtocol`)を、作業フォルダの下の参照ファイルにだけ
+  `StackNestSessions.useConfigurationForTesting` で使わせます(`StackNestTestBook`)。XPC の道は、形の判定(`StackNestConnectorPolicyTests`)と、
+  見立ての運び手を差し込んだ `StackNestConnectorURLProtocol` の試験で確かめ、サービスそのものとの往復は `TEST_RUNNER_QOO_STACKNEST_CONNECTOR_PROBE_URL`
+  を付けたときだけ走る試験で確かめます(手元で、この Mac の見立てのサーバへ)。

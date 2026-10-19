@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 import Combine
+import StackNestViewerKit
 
 /// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
 /// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
@@ -307,19 +308,24 @@ struct QooViewerApp: App {
 
         Divider()
 
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
+        let hasAdjacentBooks = hasBook && menuCheckmarkState?.isCurrentBookStackNestReference != true
+
+        // 相手は淡色と同じ「画面に出ている本」(menuShownBook。レビュー R5-3 と同じ決まり ―― 以前は currentBook で、本の受け渡しの間は
+        // 画面に出ていない次の本から進もうとした)。
         Button("Go to Previous Book") {
-            if let url = focusedAppState?.currentBook?.sourceURL {
+            if let url = focusedAppState?.menuShownBook.sourceURL {
                 focusedAppState?.openSibling(before: url)
             }
         }
-        .disabled(!hasBook)
+        .disabled(!hasAdjacentBooks)
 
         Button("Go to Next Book") {
-            if let url = focusedAppState?.currentBook?.sourceURL {
+            if let url = focusedAppState?.menuShownBook.sourceURL {
                 focusedAppState?.openSibling(after: url)
             }
         }
-        .disabled(!hasBook)
+        .disabled(!hasAdjacentBooks)
     }
 
     /// ファイルメニューの「EPUB/PDF/CBZとして書き出す…」。ファイルブラウザで本を1冊選んでいればその本を書き出し
@@ -925,7 +931,12 @@ struct QooViewerApp: App {
                 // 中身はフォーカス中の AppState から読むので、変わった印(siblingBooksRevision)を `.id` に渡して組み直させる
                 // (2026-10-04 の監査 M-1。参照の値の変化ではメニューは作り直されず、サブメニューの中身は入力が変わらなければ使い回される ――
                 // docs/09「メニューバーのホーム画面の項目」の件数の実測)。
-                Menu("Open File in Same Folder") {
+                // 本を開いていないとき・置き場所の無い本(StackNest の本。MangaBook.hasBrowsableLocation)では、サブメニューごと淡色
+                // (MenuBarSubmenu ―― `Menu` に `.disabled` は効かない。以前は本が無くても開けて、淡色の 1 項目だけが出た)。
+                MenuBarSubmenu(
+                    "Open File in Same Folder",
+                    isEnabled: menuCheckmarkState?.hasBook == true && menuCheckmarkState?.isCurrentBookStackNestReference != true
+                ) {
                     Group {
                         if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
                             ForEach(focusedAppState.siblingBooks, id: \.self) { url in
@@ -992,10 +1003,12 @@ struct QooViewerApp: App {
                         appState.welcomeLibrary?.request(.showSmartBookInFinder(path))
                     }
                 }
+                // 置き場所の無い本(StackNest の本)を読んでいる間は淡色(MangaBook.hasBrowsableLocation)。
                 .disabled(
-                    menuCheckmarkState?.hasBook != true
-                        && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
-                        && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true
+                    menuCheckmarkState?.isCurrentBookStackNestReference == true
+                        || (menuCheckmarkState?.hasBook != true
+                            && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
+                            && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
                 )
                 // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからは、行き先は常に
                 // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。コレクションの中で選んだ本は、
@@ -1012,7 +1025,10 @@ struct QooViewerApp: App {
                             appState.welcomeLibrary?.request(.showSmartBookInFileBrowser(path))
                         }
                     }
-                    .disabled(menuCheckmarkState?.hasBook != true && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                    .disabled(
+                        menuCheckmarkState?.isCurrentBookStackNestReference == true
+                            || (menuCheckmarkState?.hasBook != true && menuCheckmarkState?.homeMenu.hasSingleBookTarget != true)
+                    )
                 }
                 // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本を相手にする(ビューアの右クリックと同じ)。
                 // ライブラリ機能が OFF の間は出さない。シークレットウインドウ・その場限りの本・本を開いていないときは淡色
@@ -2486,6 +2502,9 @@ struct QooViewerApp: App {
         if !request.bundlesMultipleImages, let url = request.primaryURL,
            let existingAppState = launchCoordinator.openAppState(forBookAt: url, isPrivate: opensPrivately),
            let existingWindow = existingAppState.hostWindow {
+            // StackNest の参照ファイルを StackNest が書き直していたら(新しい鍵)、前へ出すだけでなく、そのウインドウで読み込み直す
+            // (AppState.reloadIfStackNestReferenceChanged)。
+            existingAppState.reloadIfStackNestReferenceChanged(request)
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -2974,6 +2993,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        // StackNest の参照ファイルは、ほかのものとまとめず 1 冊ずつ開く(openStackNestReferences のコメント)。
+        let references = urls.filter { isStackNestReferenceFile($0.lastPathComponent) && !$0.hasDirectoryPath }
+        if !references.isEmpty { openStackNestReferences(references) }
+        let urls = urls.filter { !references.contains($0) }
+        guard !urls.isEmpty else { return }
         // ■ 1 回の「開く」が何回かに分かれて届く(2026-09-27、実測)
         // Finder で複数を選んで開く・`open -a` で複数を渡すと、LaunchServices は**書類の種類ごとに別々の呼び出し**で届ける
         // (例: 書庫 3 冊とテキスト 1 つ → `[テキスト]` と `[書庫 3 冊]` の 2 回。間隔はコールド起動で約 50ms、起動済みで約 320ms)。
@@ -3102,6 +3126,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var externalOpenGroup: ExternalOpenGroup?
     private var externalOpenTask: Task<Void, Never>?
+
+    /// StackNest が続けて渡している参照ファイルのうち直前に届いた本と、その時刻(openStackNestReferences)。
+    private var stackNestHandoffBurst: (previousURL: URL, lastAt: Date)?
+
+    /// StackNest から届いた参照ファイルを開く(2026-10-19、利用者の決定「案 B」)。
+    ///
+    /// ■ なぜほかの「開く」とまとめないか
+    /// StackNest は書庫の窓で選んだ本を 1 冊ずつ外部ビューアへ渡す(`NSWorkspace.open` を 1 冊に 1 回。StackNest の AppState の
+    /// `openInExternalViewerSyncing`)。ほかの「開く」と同じく 1 秒の間に届いた回をまとめると、先頭の 1 冊だけを開き、残りは
+    /// 「次の本へ」の並びに入るだけになる。StackNest は渡してから 15 秒後に参照ファイルの鍵が使われたかを確かめ、使われていなければ
+    /// 「qooViewer が本を読み込んでいません」と知らせるので(`viewerUseCheckDelay`)、並びの 2 冊目以降はその知らせが出ていた。
+    /// StackNest の本には置き場所が無く、前後の本へは進めない(MangaBook.hasBrowsableLocation)ので、並びに入れても辿れない。
+    /// そこで、届いた参照ファイルはどれもすぐ開く: 続けて届いたものの最初の 1 冊は、ほかの本と同じく環境設定「Finder から開いたとき」に
+    /// 従い、その後 `externalOpenMergeWindow` の間に届いた 2 冊目以降は、直前の本のタブのすぐ右に新しいタブで開く(渡された順に並ぶ。
+    /// 2026-10-19 の実機: 最初の本の右に入れると、新しいタブが毎回そのすぐ右に割り込み、1・3・2 の順になった)。同じ本がもう開いていれば、
+    /// その窓を前へ出す(StackNest が新しい鍵で書き直していれば読み込み直す ―― reloadIfStackNestReferenceChanged)。
+    private func openStackNestReferences(_ references: [URL]) {
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        for url in references {
+            let now = Date()
+            if let burst = stackNestHandoffBurst, now.timeIntervalSince(burst.lastAt) < Self.externalOpenMergeWindow {
+                stackNestHandoffBurst = (url, now)
+                openStackNestReferenceInNewTab(url, nextTo: burst.previousURL)
+            } else {
+                stackNestHandoffBurst = (url, now)
+                runExternalOpen(BookOpenRequest(url), skipped: 0, locale: locale, intent: nil)
+            }
+        }
+    }
+
+    /// 2 冊目以降の参照ファイルを、直前の本のタブの右に新しいタブで開く。直前の本の窓は、その本が読み込まれるまで分からない(新しい窓・
+    /// タブで開いたときは SwiftUI が後から作る)ので、少し待って探す(application(_:open:) の `openedInNewWindowBookURL` と同じ)。見つからなければ
+    /// 手前の窓の隣、それも無ければ新しい窓。
+    private func openStackNestReferenceInNewTab(_ url: URL, nextTo previousURL: URL) {
+        let request = BookOpenRequest(url)
+        let isPrivate = AppPreferences.isPrivateModeDefault
+        Task { @MainActor [weak self] in
+            var parent: NSWindow?
+            for _ in 0..<30 {
+                guard let self else { return }
+                if let window = self.launchCoordinator?.openAppState(forBookAt: previousURL, isPrivate: isPrivate)?.hostWindow {
+                    parent = window
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            let fallback = self?.launchCoordinator?.frontmostContentAppState(matchingPrivacy: isPrivate)?.hostWindow
+            MenuBarMenuGate.shared.run("AppDelegate.open-\(UUID().uuidString)") { [weak self] in
+                self?.openInNewWindowOrTab?(request, true, parent ?? fallback, false)
+            }
+        }
+    }
 
     /// 知らせを出す先(主ウインドウ、無ければ手前のウインドウ)。
     private var noticeTarget: AppState? {
@@ -3351,13 +3427,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences?.quitWhenLastWindowClosed ?? false
     }
 
+    /// 終了の確認のアラートを出している間か。
+    private var isAskingToQuit = false
+
     /// 走っている作業(ファイルブラウザの操作・書き出し・保存データの読み込み。`RunningWorkRegistry`)があれば、終了する前に
     /// 尋ねる(2026-09-26。macOSの標準)。以前は⌘Qで確認なしに終わり、コピー・圧縮・書き出しが途中で切れた。
     ///
     /// 既定のボタン(Return)とEscは**終了しない**(取り返しのつかない側を既定にしない。起動時の保存データの警告と同じ)。
     /// ウインドウが1枚も無いこともある(最後のウインドウを閉じて終了する設定)ので、シートではなくアプリモーダルで出す。
+    ///
+    /// 終える前に、StackNest へ送っていない読書位置を最長 2 秒だけ待って送る(部品の `flushAllBlocking`。⌘Q は SwiftUI の
+    /// onDisappear を通らないので、ここで送る)。`.terminateLater` は使わない: 終了がメインキューの仕事の中から頼まれると、返事を
+    /// 待つ間にメインキューが回らず、アプリが止まったまま終わらなかった(terminateAfterFlushingStackNestProgress のコメント)。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard RunningWorkRegistry.shared.hasRunningWork else { return .terminateNow }
+        // 確認のアラートが開いている間の再入は取り消す(先のアラートの答えで決まる)。
+        if isAskingToQuit { return .terminateCancel }
+        guard RunningWorkRegistry.shared.hasRunningWork else { return terminateAfterFlushingStackNestProgress() }
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -3369,7 +3454,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: String(localized: "Cancel", language: locale))
         let quitButton = alert.addButton(withTitle: String(localized: "Quit", language: locale))
         quitButton.hasDestructiveAction = true
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        isAskingToQuit = true
+        defer { isAskingToQuit = false }
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        return terminateAfterFlushingStackNestProgress()
+    }
+
+    /// StackNest へ送っていない読書位置を送り(最長 2 秒。無ければ待たない)、終了する。
+    ///
+    /// 部品の `StackNestProgressRegistry.flushAllBlocking` を使う(部品 0.2.0。送信はメインスレッドの外で走り、ここはメインで待つ)。
+    /// 2026-10-18 の最初の案は部品 0.1.0 の `flushAll` と `.terminateLater` で、`flushAll` は書き戻しの役(MainActor)とメインキューの
+    /// 時計で進むので、終了がメインキューの仕事の中から頼まれる(`Task { @MainActor }`・`DispatchQueue.main.async` の中の
+    /// `NSApp.terminate`。スライドショーの末尾・マウスの割り当ての「終了」・保存データの削除の後の終了・Debug の制御口の quit)と、
+    /// AppKit の終了待ちの入れ子のループの間はメインキューが回らず、返事が来ないまま**アプリが永久に止まった**(実測)。その後は
+    /// アプリ側の送り切り(StackNestQuitFlush)で避け、部品へ PR を出して 0.2.0 に入った。部品の形は、飛んでいる送信を送り直さずに
+    /// 終わりを待ってから止まっているページを送る(古い位置が新しい位置の後に届かない)、閉じた直後の本の送信も役が生きている間は待つ。
+    private func terminateAfterFlushingStackNestProgress() -> NSApplication.TerminateReply {
+        StackNestProgressRegistry.shared.flushAllBlocking(timeout: .seconds(2))
+        return .terminateNow
     }
 
     /// 正常終了時に、この起動が作った一時ファイル(入れ子の書庫の展開物)を消す。

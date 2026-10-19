@@ -65,6 +65,12 @@ PACKAGES = [
         "files": ["LICENSE"],
         "notes": [],
     },
+    {
+        "identity": "stacknestviewerkit",
+        "name": "StackNestViewerKit",
+        "files": ["LICENSE"],
+        "notes": [],
+    },
 ]
 
 
@@ -78,8 +84,10 @@ def label(package, pin):
     state = pin["state"]
     if "version" in state:
         version = state["version"]
-    else:
+    elif "branch" in state:
         version = "%s branch, revision %s" % (state["branch"], state["revision"][:12])
+    else:
+        version = "revision %s" % state["revision"][:12]
     return "%s %s (%s)" % (package["name"], version, pin["location"])
 
 

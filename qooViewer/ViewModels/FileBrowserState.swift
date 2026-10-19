@@ -691,9 +691,6 @@ final class FileBrowserState: ObservableObject {
     let changeCenter: FileSystemChangeCenter
     private var changeObservation: AnyCancellable?
 
-    /// 知らせを出しておく時間(ビューアのトーストと同じ 2 秒。ViewerView.showToast)。
-    static let toastDuration: Duration = .seconds(2)
-
     /// - Parameter changeCenter: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの。`FileSystemChangeCenter` の型コメント)。
     /// - Parameter cutClipboard: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの)。
     init(defaults: UserDefaults = .standard, changeCenter: FileSystemChangeCenter? = nil, cutClipboard: FileCutClipboard? = nil) {
@@ -866,13 +863,13 @@ final class FileBrowserState: ObservableObject {
 
     // MARK: - 知らせ
 
-    /// 操作の結果を右ペインの下に `toastDuration` だけ出す(ユーザー要望 2026-09-14: 右クリックから
+    /// 操作の結果を右ペインの下に、文の長さに応じた時間(`ToastDuration`)だけ出す(ユーザー要望 2026-09-14: 右クリックから
     /// コレクションに登録したとき)。出している間に次が来たら差し替えて数え直す(ViewerView.showToast と同じ)。
     func showToast(_ message: String) {
         toastDismissTask?.cancel()
         toastMessage = message
         toastDismissTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.toastDuration)
+            try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             self?.toastMessage = nil
         }

@@ -53,6 +53,10 @@ macOS 15 (Sequoia) 以降
 - 画像ファイルをそのまま開く
   - Finderで複数選択した画像はまとめて1冊として開く(ファイル名順)
   - この場合はアプリ側の記録(読書位置・レイアウト・ブックマーク・メタデータ・履歴)を一切残さない
+- StackNest から渡された本(`.stacknestbook`)を開く
+  - ページは StackNest から1枚ずつ読み込み、StackNest で最後に読んでいたページから開く。読み進めたページは StackNest へ戻す
+  - qooViewer には履歴と保存データ(読書位置・レイアウト・ブックマーク・メタデータ)を残さない
+  - StackNest との通信はアプリに入れた補助プロセスだけが行い、接続先はこの Mac の StackNest だけ。アプリ本体はネットワークへ接続しない
 - zip/cbz 内ファイル名の文字コード自動判定(古い日本語zipの文字化け対策)
 
 ### 表示
@@ -257,6 +261,7 @@ macOS 15 (Sequoia) 以降
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
 - [Sparkle](https://github.com/sparkle-project/Sparkle)(MIT License)―― アップデートの機能
 - [qooMeta](https://github.com/qoo-oji/qooMeta)(MIT License)―― ファイル名からメタデータを読み取るライブラリ(作者自身のもの)。規則の本体と同梱のプリセットを、そのまま取り込んで使っています
+- [StackNestViewerKit](https://github.com/shelfsmith/StackNestViewerKit)(MIT License)―― StackNest から渡された本の参照ファイルの読み取り、ページの取り寄せ、読書位置の書き戻し。版は 0.2.0 に固定しています
 - [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出し(辞書の範囲での戻り読み、ファイル単位の CRC 検証を含む)と、メモリ上の書庫を開く機能を追加してあります
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)―― [qoo-oji/Unrar.swift](https://github.com/qoo-oji/Unrar.swift) の `memory-archive` ブランチ(フォーク)を使用。メモリ上の書庫を開く機能を追加してあります
 
@@ -383,6 +388,6 @@ GBK/Big5(中国語)や、UTF-8 の目印が付いていない書庫を読み分�
 ## ライセンス
 
 - qooViewer自体のソースコードはMITライセンスです(同梱の `LICENSE` 参照)。
-- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift`(のフォーク)に、ファイル名からのメタデータの読み取りは `qooMeta` に、アップデートの機能は `Sparkle` に依存しています。いずれもMITライセンスです(`SevenZip.swift` は 7-Zip / LZMA SDK のパブリックドメインのコードを、`Sparkle` は BSD・zlib などのライセンスの部品を含みます)。
+- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift`(のフォーク)に、ファイル名からのメタデータの読み取りは `qooMeta` に、StackNest の本の読み込みは `StackNestViewerKit` に、アップデートの機能は `Sparkle` に依存しています。いずれもMITライセンスです(`SevenZip.swift` は 7-Zip / LZMA SDK のパブリックドメインのコードを、`Sparkle` は BSD・zlib などのライセンスの部品を含みます)。
 - rar/cbr 対応は `Unrar.swift`(のフォーク。内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/qoo-oji/Unrar.swift/blob/memory-archive/Sources/Cunrar/readme.txt)を参照してください。unrar のコードを、RAR(WinRAR)互換の圧縮ソフトの開発や RAR の圧縮方式の再現に使うことはできません。
 - これらのライセンス文(含まれる部品のものも)はすべて、アプリのメニュー「qooViewer」→「qooViewer について」に表示されます。

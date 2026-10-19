@@ -13,7 +13,10 @@
 		0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F102301500000C0C5261 /* ZIPFoundation */; };
 		0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F202301600000C0C5261 /* QooMetaKit */; };
 		0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F203301600000C0C5261 /* QooMetaRules */; };
+		0AD1F404301800000C0C5261 /* StackNestViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F402301800000C0C5261 /* StackNestViewerKit */; };
+		0AD1F405301800000C0C5261 /* StackNestViewerKitTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */; };
 		0AD1F303301700000C0C5261 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F302301700000C0C5261 /* Sparkle */; };
+		0AD1F502301900000C0C5261 /* StackNestConnector.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = 0AD1F501301900000C0C5261 /* StackNestConnector.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,13 +27,35 @@
 			remoteGlobalIDString = 0AD11FDF3014A38C00C0C526;
 			remoteInfo = qooViewer;
 		};
+		0AD1F50D301900000C0C5261 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0AD11FD83014A38C00C0C526 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0AD1F507301900000C0C5261;
+			remoteInfo = StackNestConnector;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0AD1F503301900000C0C5261 /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				0AD1F502301900000C0C5261 /* StackNestConnector.xpc in Embed XPC Services */,
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0AD11FE03014A38C00C0C526 /* qooViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = qooViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		0AD1F304301700000C0C5261 /* qooViewer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = qooViewer.entitlements; sourceTree = "<group>"; };
 		0AD120613014AB0000C0C526 /* qooViewerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = qooViewerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0AD1F501301900000C0C5261 /* StackNestConnector.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = StackNestConnector.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -40,6 +65,22 @@
 				Info.plist,
 			);
 			target = 0AD11FDF3014A38C00C0C526 /* qooViewer */;
+		};
+		0AD1F505301900000C0C5261 /* Exceptions for "StackNestConnector" folder in "qooViewer" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				main.swift,
+				StackNestConnectorService.swift,
+			);
+			target = 0AD11FDF3014A38C00C0C526 /* qooViewer */;
+		};
+		0AD1F506301900000C0C5261 /* Exceptions for "StackNestConnector" folder in "StackNestConnector" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0AD1F507301900000C0C5261 /* StackNestConnector */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -60,6 +101,15 @@
 			path = qooViewerTests;
 			sourceTree = "<group>";
 		};
+		0AD1F504301900000C0C5261 /* StackNestConnector */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0AD1F505301900000C0C5261 /* Exceptions for "StackNestConnector" folder in "qooViewer" target */,
+				0AD1F506301900000C0C5261 /* Exceptions for "StackNestConnector" folder in "StackNestConnector" target */,
+			);
+			path = StackNestConnector;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +122,7 @@
 				0AD11FF03014A59700C0C526 /* ZIPFoundation in Frameworks */,
 				0AD1F204301600000C0C5261 /* QooMetaKit in Frameworks */,
 				0AD1F205301600000C0C5261 /* QooMetaRules in Frameworks */,
+				0AD1F404301800000C0C5261 /* StackNestViewerKit in Frameworks */,
 				0AD1F303301700000C0C5261 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -81,6 +132,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */,
+				0AD1F405301800000C0C5261 /* StackNestViewerKitTesting in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0AD1F50A301900000C0C5261 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -93,6 +152,7 @@
 				0AD120513014AA0000C0C526 /* Configurations */,
 				0AD11FE23014A38C00C0C526 /* qooViewer */,
 				0AD120623014AB0000C0C526 /* qooViewerTests */,
+				0AD1F504301900000C0C5261 /* StackNestConnector */,
 				0AD11FE13014A38C00C0C526 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -102,6 +162,7 @@
 			children = (
 				0AD11FE03014A38C00C0C526 /* qooViewer.app */,
 				0AD120613014AB0000C0C526 /* qooViewerTests.xctest */,
+				0AD1F501301900000C0C5261 /* StackNestConnector.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -125,13 +186,16 @@
 				0AD11FDC3014A38C00C0C526 /* Sources */,
 				0AD11FDD3014A38C00C0C526 /* Frameworks */,
 				0AD11FDE3014A38C00C0C526 /* Resources */,
+				0AD1F503301900000C0C5261 /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				0AD1F50C301900000C0C5261 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0AD11FE23014A38C00C0C526 /* qooViewer */,
+				0AD1F504301900000C0C5261 /* StackNestConnector */,
 			);
 			name = qooViewer;
 			packageProductDependencies = (
@@ -140,6 +204,7 @@
 				0AD11FF53014A5E800C0C526 /* Unrar */,
 				0AD1F202301600000C0C5261 /* QooMetaKit */,
 				0AD1F203301600000C0C5261 /* QooMetaRules */,
+				0AD1F402301800000C0C5261 /* StackNestViewerKit */,
 				0AD1F302301700000C0C5261 /* Sparkle */,
 			);
 			productName = qooViewer;
@@ -165,10 +230,33 @@
 			name = qooViewerTests;
 			packageProductDependencies = (
 				0AD1F102301500000C0C5261 /* ZIPFoundation */,
+				0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */,
 			);
 			productName = qooViewerTests;
 			productReference = 0AD120613014AB0000C0C526 /* qooViewerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		0AD1F507301900000C0C5261 /* StackNestConnector */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0AD1F508301900000C0C5261 /* Build configuration list for PBXNativeTarget "StackNestConnector" */;
+			buildPhases = (
+				0AD1F509301900000C0C5261 /* Sources */,
+				0AD1F50A301900000C0C5261 /* Frameworks */,
+				0AD1F50B301900000C0C5261 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0AD1F504301900000C0C5261 /* StackNestConnector */,
+			);
+			name = StackNestConnector;
+			packageProductDependencies = (
+			);
+			productName = StackNestConnector;
+			productReference = 0AD1F501301900000C0C5261 /* StackNestConnector.xpc */;
+			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
 
@@ -187,6 +275,9 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 0AD11FDF3014A38C00C0C526;
 					};
+					0AD1F507301900000C0C5261 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 				};
 			};
 			buildConfigurationList = 0AD11FDB3014A38C00C0C526 /* Build configuration list for PBXProject "qooViewer" */;
@@ -204,6 +295,7 @@
 				0AD11FF13014A5C900C0C526 /* XCRemoteSwiftPackageReference "SevenZip" */,
 				0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */,
 				0AD1F201301600000C0C5261 /* XCRemoteSwiftPackageReference "qooMeta" */,
+				0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */,
 				0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -213,6 +305,7 @@
 			targets = (
 				0AD11FDF3014A38C00C0C526 /* qooViewer */,
 				0AD120603014AB0000C0C526 /* qooViewerTests */,
+				0AD1F507301900000C0C5261 /* StackNestConnector */,
 			);
 		};
 /* End PBXProject section */
@@ -226,6 +319,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		0AD120653014AB0000C0C526 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0AD1F50B301900000C0C5261 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -249,6 +349,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0AD1F509301900000C0C5261 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -256,6 +363,11 @@
 			isa = PBXTargetDependency;
 			target = 0AD11FDF3014A38C00C0C526 /* qooViewer */;
 			targetProxy = 0AD120673014AB0000C0C526 /* PBXContainerItemProxy */;
+		};
+		0AD1F50C301900000C0C5261 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0AD1F507301900000C0C5261 /* StackNestConnector */;
+			targetProxy = 0AD1F50D301900000C0C5261 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -528,6 +640,56 @@
 			};
 			name = Release;
 		};
+		0AD1F50E301900000C0C5261 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StackNestConnector/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StackNestConnector;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.84;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.debug.StackNestConnector;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0AD1F50F301900000C0C5261 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StackNestConnector/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StackNestConnector;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.84;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.StackNestConnector;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -554,6 +716,15 @@
 			buildConfigurations = (
 				0AD120693014AB0000C0C526 /* Debug */,
 				0AD1206A3014AB0000C0C526 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0AD1F508301900000C0C5261 /* Build configuration list for PBXNativeTarget "StackNestConnector" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0AD1F50E301900000C0C5261 /* Debug */,
+				0AD1F50F301900000C0C5261 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -601,6 +772,14 @@
 				version = 2.10.0;
 			};
 		};
+		0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/shelfsmith/StackNestViewerKit";
+			requirement = {
+				kind = exactVersion;
+				version = 0.2.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -638,6 +817,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		0AD1F402301800000C0C5261 /* StackNestViewerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			productName = StackNestViewerKit;
+		};
+		0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			productName = StackNestViewerKitTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

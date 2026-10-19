@@ -3,6 +3,7 @@ import CoreGraphics
 import SwiftData
 import Combine
 import os
+import StackNestViewerKit
 
 /// 見開き表示の1コマ分の表示内容(実画像 or 空白)。ViewerView.pageAreaが、EPUB Reading
 /// Systems 3.3 6.1.4節の「page-spread-left/rightの指定は、相方が見つからない場合でも
@@ -161,6 +162,19 @@ final class ViewerViewModel: ObservableObject {
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
     @Published private(set) var needsResumeConfirmation: Bool
+    /// StackNest の参照ファイルの本で、StackNest とのやり取りが失敗したときの知らせ(位置の書き戻しの失敗と、ページが読めず、
+    /// この本に恒久的な失敗が記録されているとき。showStackNestFailure)。ViewerView がトーストに出す。
+    @Published private(set) var stackNestNotice: ViewerNotice?
+    /// StackNest の参照ファイルの本で、読み進めたページを書き戻す役(StackNestViewerKit)。参照ファイルの本でないとき・
+    /// 書き戻さないとき(init の `writesBackToStackNest`。シークレットウインドウ)では nil。作ると部品の登録簿(init の
+    /// `stackNestProgressRegistry`。アプリでは StackNestProgressRegistry.shared)に載り、⌘Q で送り切られる(AppDelegate)。
+    private(set) var stackNestProgress: StackNestProgressReporter?
+    /// 最後に知らせた StackNest の失敗の種類(同じ恒久的な失敗の知らせを、ページを送るたびに・書き戻しの道からもう一度、
+    /// 重ねないため。showStackNestFailure)。
+    private var lastStackNestNoticeKind: StackNestViewerError.NoticeKind?
+    /// StackNest の参照ファイルの本のセッション(StackNestSessions)。この本を開いている間は持っておく: PageLoader の reader と
+    /// 書き戻しの役が同じセッション(ページの短期キャッシュ)を使い回すため。参照ファイルの本でなければ nil。
+    private(set) var stackNestBook: StackNestSessions.Book?
 
     /// 最初/最後のページを超えてページ送りしようとしたときの処理のうち、このViewModelでは
     /// 行えないもの(隣の本を開く・本を閉じる・ウェルカム画面へ戻る)をViewerViewへ依頼する。
@@ -217,10 +231,11 @@ final class ViewerViewModel: ObservableObject {
     /// trueのとき、このクラスの永続化経路(読書状態・ブックマーク追加・レイアウト書き込み・
     /// EPUB/PDF/ComicInfoからの自動取り込み・ディスクサムネイルキャッシュ)はすべて何もしない。
     ///
-    /// 成立する条件は2つあり、ViewerView.initが両者をORして渡す:
+    /// 成立する条件は2つあり、ContentView.makeViewerModelが両者をORして渡す(recordingRule):
     /// - シークレットウインドウ(AppState.isPrivateWindow)で開いた本
-    /// - その場限りの本(MangaBook.isTransient。ユーザーが直接渡した画像ファイルから作った本。
-    ///   1枚でも複数枚でも記録を残さない。理由はBookOriginのコメント参照)
+    /// - 記録を残さない本(MangaBook.leavesNoRecord): その場限りの本(MangaBook.isTransient。ユーザーが直接渡した画像
+    ///   ファイルから作った本。1枚でも複数枚でも記録を残さない。理由はBookOriginのコメント参照)・一時フォルダの写し・
+    ///   シークレットフォルダの本・StackNest の本
     ///
     /// 何を書かないかの全体像はAppState.isPrivateWindowのコメントが正典。
     /// なお、このクラスにある`ephemeralBookmarks`/`ephemeralMetadata`は名前が似ているが**別概念**で、
@@ -437,9 +452,18 @@ final class ViewerViewModel: ObservableObject {
     ///   `skipsPersistence` 1 つに束ねられていて、それが表せなかった。
     /// - Parameter diskCaches: そのディスクキャッシュの置き場所(BookDiskCaches)。テストは一時フォルダのものを渡し、
     ///   `usesDiskCaches: true` と組にしてキャッシュの経路を通す。
+    /// - Parameter writesBackToStackNest: StackNest の参照ファイルの本で、読み進めたページを StackNest へ書き戻すか。
+    ///   呼び出し側(ContentView)が `!isPrivateWindow` を渡す。`skipsPersistence` とは別の引数なのは、StackNest の本は
+    ///   どの窓でも qooViewer に記録を残さない(`skipsPersistence` が真になる。MangaBook.leavesNoRecord)が、StackNest へ
+    ///   位置を返すのは普通の窓では続けるため(2026-10-18、利用者の決定)。既定は書き戻さない(試験・ほかの呼び出し側が
+    ///   黙って StackNest へ書かないように)。
+    /// - Parameter stackNestProgressRegistry: 書き戻しの役を載せる部品の登録簿。終了のときに送り切るのは
+    ///   `StackNestProgressRegistry.shared`(AppDelegate)なので、アプリは既定(nil = `shared`)のまま。試験は自分の登録簿を渡す(ViewerHarness。
+    ///   プロセスで 1 つの登録簿に試験の役を残さない ―― 部品 0.2.0 で渡せるようになった)。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
+        writesBackToStackNest: Bool = false, stackNestProgressRegistry: StackNestProgressRegistry? = nil,
         usesDiskCaches: Bool? = nil, diskCaches: BookDiskCaches = .shared,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
@@ -644,6 +668,13 @@ final class ViewerViewModel: ObservableObject {
         // ブックマークを削除し、初めて開く本として扱う(以下のisReturningToKnownBook参照)。
         let existingState: BookReadingState? = (fetchedState != nil && !contentLooksReplaced) ? fetchedState : nil
         let isReturningToKnownBook = existingState != nil
+        // StackNest の参照ファイルの本は、StackNest で読んでいたページ(参照ファイルの startPage)から開く(形式の文書「What we ask
+        // of viewers」)。initialPageID と同じく再開の確認は出さない。呼び出し側の指定(「同じフォルダの画像をすべて開く」)・隣の本の
+        // 端(initialEdge)があればそちらが先。
+        // この本は qooViewer に読書位置を残さない(MangaBook.leavesNoRecord)ので、開く位置は常に StackNest が渡した位置になる
+        // (2026-10-18、利用者の決定。以前は qooViewer の読書位置の記録と参照ファイルの更新日時を比べて、新しい方から開いていた)。
+        let initialPageID = initialPageID
+            ?? (initialEdge == nil ? Self.stackNestStartPageID(for: incomingBook) : nil)
 
         let state: BookReadingState
         /// 読書状態を新しく作った(件数が増えた)ので、保持冊数の上限による整理が要るか(下の else のコメント)。
@@ -855,6 +886,27 @@ final class ViewerViewModel: ObservableObject {
         // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
         currentIndex = normalizedAnchorIndex(initialIndex)
 
+        // StackNest の参照ファイルの本: この本のセッションを持ち、読み進めたページを StackNest へ書き戻す役を用意する。
+        // シークレットウインドウでは書き戻さない(writesBackToStackNest が偽。何も記録しない窓で、読んだ位置を StackNest へ書くのも
+        // 記録に当たる)。StackNest の本はどの窓でも skipsPersistence なので、そちらでは決めない。開いたページ
+        // (startPage)は送らない(StackNest が知っている位置)。送信は部品の async の道で、スレッドを塞がない。
+        // セッションは BookLoader が宛先を確かめた参照から作るので、ここで失敗するのは宛先の制限に掛かったときだけ(その本は
+        // 開く時点で失敗している)。
+        if let reference = incomingBook.stackNestReference {
+            stackNestBook = try? StackNestSessions.shared.book(for: reference, at: incomingBook.sourceURL)
+            if let session = stackNestBook?.session, writesBackToStackNest {
+                stackNestProgress = StackNestProgressReporter(
+                    session: session, startPage: reference.startPage, registry: stackNestProgressRegistry ?? .shared
+                ) { [weak self] failure in
+                    // 書き戻しだけが見た恒久的な失敗(キャッシュにあるページを読んでいる間に施錠が変わった など)も本に記録する。
+                    // 記録しないと、ページの要求がもう 1 度失敗して記録するまで問い合わせが続く(Book.record は恒久的な失敗の
+                    // 最初の 1 つだけを覚える)。
+                    self?.stackNestBook?.record(failure)
+                    self?.showStackNestFailure(failure)
+                }
+            }
+        }
+
         // 最初の 1 枚のデコードを、ここで PageLoader へ先に頼んでおく(表示の切り替えの監査の 13、2026-09-27)。
         // 下の firstSpread はメインアクターの Task なので、動き出すのは init が返り、呼び出し側(ContentView は最初の見開きが
         // 揃うのを待ってから画面を差し替える)の残りの仕事が済んだ後になる。PageLoader は同じページの読み込みを 1 つにまとめる
@@ -914,7 +966,8 @@ final class ViewerViewModel: ObservableObject {
         // メタデータ生成だけ(MetadataGenerator)で、ここは「この本を開いた」を知らせるだけ(以前はここで 1 冊だけ読んで
         // 行を作っていた ―― ほかの本と見比べないので、メタデータ生成の読みと食い違った)。
         // シークレットウインドウの本は知らせない。除外フォルダの本はメタデータ生成が外す。
-        if !skipsPersistence {
+        // StackNest の参照ファイルの本も知らせない(registersMetadata のコメント)。
+        if Self.registersMetadata(for: book, skipsPersistence: skipsPersistence) {
             MetadataGenerator.appWide?.noteBookOpened(book.id, anchors: book.recordAnchors)
         }
         let sourceFileName = book.sourceURL.lastPathComponent
@@ -1216,6 +1269,14 @@ final class ViewerViewModel: ObservableObject {
         highResolutionSourceKeys = []
         loupeCombinedSourceImage = nil
         zoomMemoryRegistration.end()
+        // StackNest の本のセッションと書き戻しの役も手放す(2026-10-18 のレビュー: 手放していなかったので、SwiftUI が旧世代の
+        // ビューモデルを抱えている間、部品のページのキャッシュ(最大 64 MiB)と URLSession が残った)。書き戻しの役は上の
+        // flushPendingSave で閉じてあり、飛んでいる送信は役自身が送り切るまで自分を保つ(部品)。セッションは close() しない ――
+        // 同じ参照の本を別のウインドウが同じセッションで読んでいることがある(StackNestSessions)。
+        stackNestProgress = nil
+        stackNestBook = nil
+        stackNestPrimeTask?.cancel()
+        stackNestPrimeTask = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
 
@@ -1579,8 +1640,17 @@ final class ViewerViewModel: ObservableObject {
                     // おくことでその待ち時間が表示中の時間と重なり、回し始めと回し終わりで
                     // 更新間隔がばらつくのを防ぐ。
                     let lookaheadIndex = currentIndex + direction
-                    if book.pages.indices.contains(lookaheadIndex) {
-                        let loader = pageLoader
+                    let loader = pageLoader
+                    if book.isStackNestReference {
+                        // StackNest の本の通過コマは手元に届いている絵だけを出す(loadTransitFrame)ので、次のコマではなく
+                        // **着地する先**を先に取り寄せておく(2026-10-19 の実測、1 ページの往復 300 ms: 次のコマを頼んでいたころは、
+                        // 着地のページを頼むのが通過の終わり近くになり、最後のキーから着地まで 560 ms。着地する先を頼むと 480 ms)。
+                        let destination = pageFlipQueue.last ?? target
+                        let shownPageCount = displayMode == .spread ? 2 : 1
+                        Task {
+                            await loader.prefetch(around: destination, radius: 1, displayedPageCount: shownPageCount)
+                        }
+                    } else if book.pages.indices.contains(lookaheadIndex) {
                         Task {
                             await loader.prefetch(around: lookaheadIndex, radius: 1)
                         }
@@ -1606,14 +1676,26 @@ final class ViewerViewModel: ObservableObject {
             !Task.isCancelled && flipGeneration == pageFlipGeneration
                 && spreadGeneration == loadGeneration && currentIndex == index
         }
-        guard let firstImage = await pageLoader.pageImage(at: index), isStillCurrent() else { return }
+        // StackNest の本では、通過コマのページを取り寄せて待たない: 手元に届いている絵だけを出し、無ければこのコマは何も出さずに
+        // 次へ進む(着地のページだけを loadCurrentSpread が取り寄せる。drainPageFlipQueue はその先を先に頼んでおく)。2026-10-19 の
+        // 実測: 1 ページの往復に 300 ms かかる StackNest でキーを 30 回続けて押すと、通過する 60 ページを 1 枚ずつ待ったので、着地まで
+        // 最後のキーから 12.6 秒(60 回で 33 秒)かかった。相方が届いていないコマも出さない ―― 1 枚だけの見開きがちらつくうえ、出ている
+        // 枚数は次の歩幅の手がかりにもなる(SpreadPairing.forwardStepSize の fallback)。
+        let remote = book.isStackNestReference
+        let loadedFirst = remote ? await pageLoader.cachedPageImage(at: index) : await pageLoader.pageImage(at: index)
+        guard let firstImage = loadedFirst, isStillCurrent() else { return }
         var images = [firstImage]
-        if shouldPairWithNextPage(at: index, firstImage: firstImage),
-           let secondImage = await pageLoader.pageImage(at: index + 1) {
-            guard isStillCurrent() else { return }
-            images.append(secondImage)
-            // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
-            _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
+        if shouldPairWithNextPage(at: index, firstImage: firstImage) {
+            if let secondImage = remote
+                ? await pageLoader.cachedPageImage(at: index + 1) : await pageLoader.pageImage(at: index + 1) {
+                guard isStillCurrent() else { return }
+                images.append(secondImage)
+                // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
+                _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
+            } else if remote {
+                // 相方がまだ届いていない。1 枚だけの見開きは出さない(上のコメント)。
+                return
+            }
         }
         showImages(images, forIndex: index)
     }
@@ -1871,10 +1953,13 @@ final class ViewerViewModel: ObservableObject {
     /// 枠に合わせた解像度(AppPreferences.thumbnailHoverPreviewPixelSize)でデコードする。
     /// 以前は原寸のpageImage(at:)を使っていた(同プロパティのコメント参照)。
     /// ディスクキャッシュには載せない(PageLoader.gridThumbnailのusesDiskCache参照)。
-    func loadPreviewImage(at index: Int) async -> CGImage? {
+    /// - Parameter isHovered: 利用者がいまホバーしているプレビューか(StackNest の本では表示の列で取り寄せる ――
+    ///   PageLoader.gridThumbnail の asksAsDisplay)。環境設定「表示中のサムネイルの拡大画像を先読み」の先読みは false。
+    func loadPreviewImage(at index: Int, isHovered: Bool = true) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         return await pageLoader.gridThumbnail(
-            at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
+            at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false,
+            asksAsDisplay: isHovered
         )
     }
 
@@ -2755,6 +2840,13 @@ final class ViewerViewModel: ObservableObject {
     // MARK: - 内部処理
 
     private func persistState() {
+        // StackNest へ書き戻すページ。番号は今の並び(除外・並べ替えの後)の位置ではなく、ページの名前が持つ StackNest の
+        // ページ番号(StackNestPageNaming)。読書位置の行を消した後(readingStateDiscarded)でも StackNest の位置は進めてよいので、
+        // その判定より前に置く。
+        if let stackNestProgress, book.pages.indices.contains(currentIndex),
+           let page = StackNestPageNaming.pageIndex(fromEntryName: book.pages[currentIndex].sortKey) {
+            stackNestProgress.note(page: page)
+        }
         // 削除済みの行へは何も書かない(readingStateDiscardedのコメント参照)。
         guard !readingStateDiscarded else { return }
         // メモリ上のreadingStateは即座に更新する(他のコードから参照されても常に最新の状態になるように)。
@@ -2813,6 +2905,10 @@ final class ViewerViewModel: ObservableObject {
     /// 読書位置が失われないよう、保留中の保存があれば即座に確定させる。
     /// ViewerViewのonDisappearから呼ばれる。
     func flushPendingSave() {
+        // StackNest への書き戻しは、読書位置の保存が無くても送り切る(下の guard より前)。releaseResources もここを通る。
+        // ここへ来るのは本を閉じるとき(onDisappear・ホームへ戻る・releaseResources)だけなので、閉じる扱いで送る: 飛んでいた
+        // 送信が失敗したら止まっていた新しいページを 1 度だけ試し、以後のページの合図は受け付けない(部品の close())。
+        stackNestProgress?.close()
         guard !skipsPersistence, !readingStateDiscarded, saveDebounceTask != nil else { return }
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
@@ -2852,13 +2948,33 @@ final class ViewerViewModel: ObservableObject {
         // すぐに「前のページへ戻る」を行うケースに備える。
         primeWideImageCache(around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 2))
 
+        // StackNest の本は、表示するページを頼む**前に**先読みを始める(2026-10-19 の実測: 1 ページの往復に 300 ms かかる StackNest で、
+        // 先読みの外へ飛ぶと 660 ms かかった ―― 見開きの 2 枚目を 1 枚目が届いてから頼むので、往復 2 回ぶん待っていた)。先読みは
+        // 表示中のページの直後から並べるので、相方のページも 1 枚目と並行して取り寄せ始め、下の 2 枚目の表示要求はそこへ合流する
+        // (PageLoader.pixels の合流と、門の表示の列への格上げ)。手元の本では取り出しが速いので、これまでどおり表示の後に始める。
+        if book.isStackNestReference, prefetch {
+            await pageLoader.prefetch(
+                around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 0),
+                displayedPageCount: displayMode == .spread ? 2 : 1
+            )
+        }
+
+        // StackNest の本の見開きでは、相方のページも 1 枚目と同時に**表示として**頼む(2026-10-19 の実測: 先読みに任せると、相方は
+        // 背景の列で前の位置の先読みの後ろに並び、1 枚目が届いて表示の要求が合流するまで動かなかった ―― 往復 2 回ぶん、670 ms)。
+        // 組まないと分かったら(1 枚目が横長など)取り消す。先読みの範囲に入っていれば、取り寄せは先読みとして続く。
+        let partnerIndex = targetIndex + 1
+        let partnerTask: Task<CGImage?, Never>? =
+            book.isStackNestReference && displayMode == .spread && book.pages.indices.contains(partnerIndex)
+            ? Task { [pageLoader] in await pageLoader.pageImage(at: partnerIndex) } : nil
+        defer { partnerTask?.cancel() }
+
         var images: [CGImage] = []
         if let firstImage = await pageLoader.pageImage(at: targetIndex) {
             guard !Task.isCancelled else { return }
             images.append(firstImage)
 
             if shouldPairWithNextPage(at: targetIndex, firstImage: firstImage, previousDisplayedRange: previousRange),
-               let secondImage = await pageLoader.pageImage(at: targetIndex + 1) {
+               let secondImage = await partnerImage(partnerTask, at: partnerIndex) {
                 images.append(secondImage)
                 // ペアの相方(targetIndex + 1)自身の横長判定はこの組み合わせの成立可否には
                 // 使っていない(shouldPairWithNextPageはfirstImage側だけを見る)が、実際に
@@ -2871,7 +2987,10 @@ final class ViewerViewModel: ObservableObject {
 
         // 読み込み中にさらに新しいページ送りが起きていたら、この結果は古いので捨てる
         guard generation == loadGeneration, !Task.isCancelled else { return }
+        // StackNest の参照ファイルの本で、表示するページが読めず、この本に恒久的な失敗(施錠が変わった・期限切れ など)が
+        // 記録されていたら、理由を知らせる(以前は真っ黒のまま案内が無かった)。同じ種類は 1 度だけ。
         showImages(images, forIndex: targetIndex)
+        if images.isEmpty { showStackNestPageFailureIfNeeded(at: targetIndex) }
         // 直前の表示範囲との比較で、ユーザーがどちらへ読み進めているかを決める(先読みの向き。
         // PageLoader.prefetchのdirection参照)。同じ位置の再表示や開いた直後は「不明」。
         let direction: PageLoader.PrefetchDirection
@@ -2910,6 +3029,17 @@ final class ViewerViewModel: ObservableObject {
         await pageLoader.prefetch(
             around: targetIndex, radius: radius, displayedPageCount: images.count, direction: direction
         )
+    }
+
+    /// 見開きの相方の絵。先に頼んでおいた分(`partnerTask`。StackNest の本)があればそれを待ち、待つ側が取り消されたら頼んだ分も
+    /// 取り消す(切り離した Task には呼び出し側の取り消しが届かない)。無ければ、ここで頼む。
+    private func partnerImage(_ partnerTask: Task<CGImage?, Never>?, at index: Int) async -> CGImage? {
+        guard let partnerTask else { return await pageLoader.pageImage(at: index) }
+        return await withTaskCancellationHandler {
+            await partnerTask.value
+        } onCancel: {
+            partnerTask.cancel()
+        }
     }
 
     /// 見開き表示中でも単ページとして扱うべき横長画像かどうかを判定する。
@@ -3002,14 +3132,85 @@ final class ViewerViewModel: ObservableObject {
         let missingIndices = (lower...upper).filter { cachedIsWideImage(at: $0) == nil }
         guard !missingIndices.isEmpty else { return }
 
-        Task { [weak self] in
+        let isRemote = book.isStackNestReference
+        let task = Task { [weak self] in
             guard let self else { return }
             for pageIndex in missingIndices {
                 guard !Task.isCancelled else { return }
-                guard let size = await self.pageLoader.pageSize(at: pageIndex) else { continue }
+                guard let size = await self.pageLoader.pageSize(at: pageIndex) else {
+                    // StackNest の本で寸法を取れなかったら(つながらない・応答しない)、残りも取れないとみなして止める
+                    // (2026-10-18 の実測: 応答しない StackNest へ、近傍の 20 枚を 25 秒ずつ順に問い合わせ続けた)。
+                    if isRemote { return }
+                    continue
+                }
                 _ = self.isWideImage(width: size.width, height: size.height, pageIndex: pageIndex)
             }
         }
+        // StackNest の本では、前のページで始めた下調べを止める(2026-10-18 のレビュー): 寸法は 1 枚ずつ取り寄せるほかなく、
+        // ページを速く送ると、送るたびに始まる直列の下調べが積み重なって、もう見ていないページを何分も取り寄せ続けた。
+        // ほかの本は今までどおり(手元の読み取りは速く、積み重なっても待たない)。
+        if book.isStackNestReference {
+            stackNestPrimeTask?.cancel()
+            stackNestPrimeTask = task
+        }
+    }
+
+    /// StackNest の本の、いちばん新しい近傍の下調べ(`primeWideImageCache`)。
+    private var stackNestPrimeTask: Task<Void, Never>?
+
+    /// StackNest の失敗を知らせる。読書は止めない。文言は部品の既定の文言を、表示言語とアプリの名前で(StackNestText)。
+    ///
+    /// 恒久的な失敗は、同じ種類なら 1 度だけ(ページが読めなかった道でも、位置の書き戻しの道でも。どちらが先に見ても、
+    /// 同じ理由を 3 秒後にもう一度出さない)。一時的な失敗は毎回出す。
+    private func showStackNestFailure(_ failure: StackNestViewerError) {
+        if failure.isPermanent, failure.noticeKind == lastStackNestNoticeKind { return }
+        lastStackNestNoticeKind = failure.noticeKind
+        stackNestNotice = ViewerNotice(message: StackNestText.message(for: failure, locale: preferences.effectiveLocale))
+    }
+
+    /// ページが読めなかったときに、理由を知らせる(StackNestSessions.Book.pageFailureToShow: 恒久的な失敗、無ければその
+    /// ページの一時的な失敗)。ページを送るたびに呼ばれる。恒久的な失敗は、直前に知らせたのと同じ種類なら showStackNestFailure が
+    /// 出さない。一時的な失敗は読めなかったページのたびに出す(直ったかどうかは、次に読めるかで分かる)。
+    private func showStackNestPageFailureIfNeeded(at index: Int) {
+        let page = book.pages.indices.contains(index)
+            ? StackNestPageNaming.pageIndex(fromEntryName: book.pages[index].sortKey) : nil
+        guard let failure = stackNestBook?.pageFailureToShow(page: page) else { return }
+        showStackNestFailure(failure)
+    }
+
+    /// ウインドウで本を開くときの、記録の決まり(ContentView.makeViewerModel と試験の ViewerHarness が同じ式を使う)。
+    /// シークレットウインドウか、記録を残さない本(MangaBook.leavesNoRecord)なら DB へは書かない。StackNest の本の位置を
+    /// StackNest へ返すのは、シークレットウインドウでないときだけ(init の writesBackToStackNest)。
+    nonisolated static func recordingRule(
+        bookLeavesNoRecord: Bool, isPrivateWindow: Bool
+    ) -> (skipsPersistence: Bool, writesBackToStackNest: Bool) {
+        (isPrivateWindow || bookLeavesNoRecord, !isPrivateWindow)
+    }
+
+    /// 参照ファイルの本で、開くページ(参照ファイルの startPage)の `PageRef.id`。番号は除外・並べ替えの前の本で数える
+    /// (startPage は StackNest のページ番号)。範囲外なら最後のページ。参照ファイルの本でなければ nil。
+    /// そのページを利用者が除外していると、並びを組み直した本に ID が無いので init は通常の判定へ落ちる(環境設定が「尋ねる」
+    /// なら再開の確認が出る。まれなので受け入れる)。
+    static func stackNestStartPageID(for book: MangaBook) -> String? {
+        guard let reference = book.stackNestReference, !book.pages.isEmpty else { return nil }
+        let name = StackNestPageNaming.entryName(
+            forPage: StackNestBookReference.clampedStartPage(reference.startPage, pageCount: book.pages.count)
+        )
+        return book.pages.first { $0.sortKey == name }?.id
+    }
+
+    /// 開いた本の全体を走査してよいか(横長の判定の下調べ)。参照ファイルの本はしない: 1 ページごとに
+    /// StackNest への往復(ページ全体の取得)になり、開くたびにページ数ぶんの要求が走る。横長の判定は表示したページの近傍
+    /// (primeWideImageCache)だけで行う(レイアウトの自動計算は、記録を残さない本なのでそもそも走らない ―― skipsPersistence)。
+    static func scansWholeBook(_ book: MangaBook) -> Bool {
+        book.stackNestReference == nil
+    }
+
+    /// 開いた本をメタデータ(メタデータ生成の母体)に登録するか。シークレットウインドウの本は登録しない(従来どおり)。
+    /// StackNest の参照ファイルの本も登録しない: 行が StackNest の Application Support の中のパスを指し、
+    /// 参照ファイルが消えると「見つからない」本として残る。書誌は StackNest の側で持つ。
+    static func registersMetadata(for book: MangaBook, skipsPersistence: Bool) -> Bool {
+        !skipsPersistence && !book.isStackNestReference
     }
 
     /// 本全体の下調べが、最初の先読みの終わりを待つ上限(秒)。
@@ -3052,6 +3253,7 @@ final class ViewerViewModel: ObservableObject {
     /// 高速スクロールの保険としての役目は変わらない。先読みはページを送るたびに始め直されるので、待つのは上限
     /// (`warmUpPrefetchWaitLimit`)まで。
     private func warmUpWideImageCacheForEntireBook(after firstSpread: Task<Void, Never>) {
+        guard Self.scansWholeBook(book) else { return }
         let total = book.pages.count
         guard total > 0 else { return }
         let start = min(max(currentIndex, 0), total - 1)
@@ -3348,6 +3550,8 @@ final class ViewerViewModel: ObservableObject {
             // ファイルが黙って出来上がる**(sourceURLが渡された画像の1枚目でしかないため。
             // ViewerViewの.disabled(...)のコメント参照)。
             origin: rawBook.origin,
+            // これも引き継ぎ必須。落とすと、ページは読めても書き戻し・ディスクキャッシュの除外・下調べの省略が効かなくなる。
+            stackNestReference: rawBook.stackNestReference,
             // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
             isInSecretFolder: rawBook.isInSecretFolder,
             // これも引き継ぎ必須(落とすと、レイアウト・ブックマークの行を作るたびにメインで元ファイルへ問い合わせる ――

@@ -29,7 +29,9 @@ nonisolated enum DroppedBooks {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .open }
         guard isDirectory.boolValue else {
             let name = url.lastPathComponent
-            return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) || isImageFile(name) ? .open : .nothing
+            // StackNest の本の参照ファイルも本として開く(書庫の拡張子の一覧には入れていない。isStackNestReferenceFile)。
+            return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) || isImageFile(name)
+                || isStackNestReferenceFile(name) ? .open : .nothing
         }
         // 画像が直下にあれば(開くフォルダの本はほとんどこれ)、名前だけの列挙で最初の画像を見つけた時点で答える。以前はどの
         // フォルダも、属性付きの一覧を「読めるか」「立ち位置」「奥の本」のために 2〜3 回作っていて、棚を落とすと何も出ないまま
@@ -71,7 +73,7 @@ nonisolated enum DroppedBooks {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return [] }
         guard isDirectory.boolValue else {
             let name = url.lastPathComponent
-            return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) ? [url] : []
+            return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) || isStackNestReferenceFile(name) ? [url] : []
         }
         if DirectoryBrowser.directlyContainsImageFile(url) { return [url] }
         // 読めないフォルダはそのまま入れる(開いたときにアクセスを求める)。一覧は 1 回だけ作る(`single` と同じ)。

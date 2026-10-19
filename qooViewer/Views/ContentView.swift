@@ -243,9 +243,23 @@ struct ContentView: View {
                 baseName: $0.displayName(locale: preferences.effectiveLocale), bookID: $0.id
             )
         } ?? welcomeTitle
-        // シークレットフォルダの本を開いている間も同じ表記(SecretFolderStore。窓はシークレットウインドウの見た目になる)。
-        guard isPrivateWindow || appState.currentBook?.isInSecretFolder == true else { return base }
-        return preferences.privateWindowTitle(for: base)
+        return Self.bookWindowTitle(
+            base: base, book: appState.currentBook, isPrivateWindow: isPrivateWindow, preferences: preferences)
+    }
+
+    /// タイトルの飾り(`windowTitle`。試験が直に呼ぶ)。
+    /// - StackNest の本は「(StackNest) 題名」(2026-10-18、利用者の決定。窓はシークレットウインドウの見た目になるが、StackNest へ
+    ///   読書位置を返すのは続けるので「シークレット」とは書かない)。シークレットウインドウでは「(シークレット) (StackNest) 題名」。
+    /// - シークレットフォルダの本を開いている間も、シークレットウインドウと同じ表記(SecretFolderStore。窓はシークレットウインドウの
+    ///   見た目になる)。
+    static func bookWindowTitle(
+        base: String, book: MangaBook?, isPrivateWindow: Bool, preferences: AppPreferences
+    ) -> String {
+        let titled = book?.isStackNestReference == true
+            ? String(localized: "(StackNest) \(base)", language: preferences.effectiveLocale)
+            : base
+        guard isPrivateWindow || book?.isInSecretFolder == true else { return titled }
+        return preferences.privateWindowTitle(for: titled)
     }
 
     /// 本を開いていないときのタイトル。名前の変更では `homeMenuDirectory`(名前・並び・所属の写し)が知らせるので作り直される
@@ -368,8 +382,10 @@ struct ContentView: View {
     /// (applyPreferenceChangeHandlersのコメント参照)。
     private func applySidePanelVisibilityHandler<Content: View>(to content: Content) -> some View {
         content
-            .onChange(of: isSidePanelBrowserModeOnScreen, initial: true) { _, isOnScreen in
+            .onChange(of: isSidePanelFolderBrowserOnScreen, initial: true) { _, isOnScreen in
                 sidePanelBrowser.setVisible(isOnScreen)
+            }
+            .onChange(of: isSidePanelBrowserModeOnScreen, initial: true) { _, isOnScreen in
                 if isOnScreen { syncBookContentsBrowserWithScreen() }
             }
     }
@@ -593,8 +609,10 @@ struct ContentView: View {
     /// (SecretFolderStore。2026-10-03、利用者の決定: 外観もすべてシークレット用にしないと切り替わったのか分からない)。
     /// `currentBook` ではなく出ている本で見る ―― 次の本の最初の見開きが揃うまでは前の本を出しておくので(ViewerHandoff)、
     /// `currentBook` で替えると前の本が一瞬新しい外観で見える。ホームへ戻れば元の見た目。
+    /// StackNest の本も同じ(2026-10-18、利用者の決定「動作を制限する以上、表示は切り替えるべき」。記録を残さない本で、
+    /// シークレットフォルダの本と同じ扱い ―― MangaBook.leavesNoRecord)。
     private var showsAsPrivate: Bool {
-        isPrivateWindow || viewerHandoff.shown?.book.isInSecretFolder == true
+        isPrivateWindow || viewerHandoff.shown.map { $0.book.isInSecretFolder || $0.book.isStackNestReference } == true
     }
 
     var body: some View {
@@ -1023,6 +1041,7 @@ struct ContentView: View {
         MenuCheckmarkState(
             // 本についての値は**ビューアに出ている本**から(AppState.menuShownBook。監査 M-6)。
             hasBook: appState.menuShownBook.hasBook,
+            isCurrentBookStackNestReference: appState.menuShownBook.isStackNestReference,
             isPrivateWindow: appState.isPrivateWindow,
             isTransientBook: appState.menuShownBook.isTransient,
             currentBookLeavesNoRecord: appState.menuShownBook.leavesNoRecord,
@@ -1431,6 +1450,7 @@ struct ContentView: View {
             if isShown { awaitsInitialBook = false }
         }
         // ビューアに出す本の受け渡し(ViewerHandoff)。本が替わったら、先にビューモデルを作って最初の見開きを読ませる。
+        // StackNest から開き直した参照ファイルの本は、同じパスでも新しい鍵の本として受け渡し直す(MangaBook.viewerIdentity)。
         .onChange(of: appState.currentBook.map(ViewerHandoff.viewIdentity(of:)), initial: true) { _, _ in
             viewerHandoff.update(to: appState.currentBook, makeModel: makeViewerModel)
         }
@@ -1455,24 +1475,34 @@ struct ContentView: View {
                 window.close()
             }))
         .modifier(WindowValueSync(windowValue: windowValue, state: windowValueState))
-        .modifier(SecretFolderNotice(
-            isSecretBookShown: viewerHandoff.shown?.book.isInSecretFolder == true, isPrivateWindow: isPrivateWindow,
-            post: { [appState, preferences] in
-                appState.postViewerNotice(String(
-                    localized: "This book is in a secret folder, so it leaves no history or saved data. The window looks like a private window while it is shown.",
-                    language: preferences.effectiveLocale))
+        .modifier(NoRecordNotice(
+            reason: NoRecordReason(shown: viewerHandoff.shown?.book), isPrivateWindow: isPrivateWindow,
+            post: { [appState, preferences] reason in
+                switch reason {
+                case .secretFolder:
+                    appState.postViewerNotice(String(
+                        localized: "Books in secret folders leave no history or saved data.",
+                        language: preferences.effectiveLocale))
+                case .stackNest:
+                    appState.postViewerNotice(String(
+                        localized: "Books from StackNest leave no history or saved data.",
+                        language: preferences.effectiveLocale))
+                }
             }))
     }
 
     /// ViewerHandoff が先に作る、本のビューモデル(以前は ViewerView の init が作っていた。引数はそのとき渡していたもの)。
     private func makeViewerModel(for book: MangaBook) -> ViewerViewModel {
-        ViewerViewModel(
+        // シークレットウインドウか、記録を残さない本(直接渡された画像から組み立てた本・シークレットフォルダの本・
+        // StackNest の本など。MangaBook.leavesNoRecord)なら、DBへは一切書かない。StackNest の本の読書位置を StackNest へ
+        // 返すのは、シークレットウインドウでなければ。
+        // 詳細はViewerViewModel.skipsPersistence / recordingRule / MangaBook.BookOrigin参照。
+        let rule = ViewerViewModel.recordingRule(bookLeavesNoRecord: book.leavesNoRecord, isPrivateWindow: isPrivateWindow)
+        return ViewerViewModel(
             book: book, modelContext: modelContext, preferences: preferences,
             layoutStore: layoutStore, metadataStore: metadataStore,
-            // シークレットウインドウか、その場限りの本(直接渡された画像から
-            // 組み立てた本)のどちらかなら、DBへは一切書かない。
-            // 詳細はViewerViewModel.skipsPersistence / MangaBook.BookOrigin参照。
-            skipsPersistence: isPrivateWindow || book.leavesNoRecord,
+            skipsPersistence: rule.skipsPersistence,
+            writesBackToStackNest: rule.writesBackToStackNest,
             // 「同じフォルダの画像をすべて開く」で着地したいページ。
             // この本向けの指定でなければ渡さない(AppState.pendingInitialPage参照)。
             // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
@@ -1599,6 +1629,12 @@ struct ContentView: View {
         guard preferences.sidePanelFeatureEnabled, !isSidePanelSuppressedForWelcome,
               preferences.sidePanelMode == .browser else { return false }
         return !appState.hideSidePanel || appState.isSidePanelRevealed
+    }
+
+    /// フォルダブラウザ(ブラウザモードの上段)の一覧が今画面に出ているか。置き場所の無い本(StackNest の本)を開いている間は、
+    /// 一覧の代わりに理由を出すので読まない(SidePanelView.folderSection)。
+    private var isSidePanelFolderBrowserOnScreen: Bool {
+        isSidePanelBrowserModeOnScreen && appState.currentBook?.hasBrowsableLocation != false
     }
 
     /// 本の中身ブラウザ(ブラウザモードの下段)が今画面に出ているか(`isSidePanelBrowserModeOnScreen` のコメント)。
@@ -1733,6 +1769,7 @@ struct ContentView: View {
             // その場限りの本でも無効にする必要があるが、履歴そのものは通常どおり見せる
             // (SidePanelViewのallowsLibraryEditingのコメント参照)。
             allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.leavesNoRecord != true,
+            bookLacksBrowsableLocation: appState.currentBook?.hasBrowsableLocation == false,
             loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
             // モード切替の左の「ウェルカム画面へ戻る」(改善要望5)。本を開いていなければnil
@@ -2448,24 +2485,42 @@ extension ContentView {
     }
 }
 
-/// シークレットフォルダの本がビューアに出たら知らせる(ノーマルの窓で、シークレットの見た目へ切り替わったとき。
-/// SecretFolderStore)。シークレットフォルダの中で次の本へ進んだときは出さない。
+/// シークレットフォルダの本・StackNest の本がビューアに出たら知らせる(ノーマルの窓で、シークレットの見た目へ切り替わったとき。
+/// SecretFolderStore・MangaBook.leavesNoRecord)。シークレットフォルダの中で次の本へ進んだときは出さない。
 /// ContentView.bookOrHome の式を短くするため切り出してある(そこのコメント: CI の Xcode 26.6 が型を決めきれずに止まる)。
-private struct SecretFolderNotice: ViewModifier {
-    let isSecretBookShown: Bool
+private struct NoRecordNotice: ViewModifier {
+    let reason: NoRecordReason?
     let isPrivateWindow: Bool
-    let post: () -> Void
+    let post: (NoRecordReason) -> Void
 
     func body(content: Content) -> some View {
-        content.onChange(of: isSecretBookShown) { wasSecret, isSecret in
-            guard isSecret, !wasSecret, !isPrivateWindow else { return }
-            post()
+        // そうでない本から替わったとき(理由が替わったときも)だけ知らせる。同じ理由の本が続くあいだは繰り返さない。
+        content.onChange(of: reason) { previous, reason in
+            guard let reason, reason != previous, !isPrivateWindow else { return }
+            post(reason)
+        }
+    }
+}
+
+/// 出ている本が記録を残さない理由のうち、ノーマルの窓で知らせるもの(NoRecordNotice)。StackNest の本はシークレットフォルダの中に
+/// あっても StackNest の本として知らせる(参照ファイルの場所は本の置き場所ではない)。
+enum NoRecordReason: Equatable {
+    case secretFolder, stackNest
+
+    init?(shown book: MangaBook?) {
+        guard let book else { return nil }
+        if book.isStackNestReference {
+            self = .stackNest
+        } else if book.isInSecretFolder {
+            self = .secretFolder
+        } else {
+            return nil
         }
     }
 }
 
 /// シークレットフォルダの本をシークレットウインドウで開く頼みを受ける(AppState.privateRedirect。ContentView.bookOrHome の式を
-/// 短くするため切り出してある ―― SecretFolderNotice と同じ理由)。
+/// 短くするため切り出してある ―― NoRecordNotice と同じ理由)。
 private struct SecretFolderPrivateRedirect: ViewModifier {
     let redirect: AppState.PrivateRedirect?
     let perform: (AppState.PrivateRedirect) -> Void

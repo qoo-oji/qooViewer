@@ -184,7 +184,7 @@ final class BookContentsBrowserState: ObservableObject {
         }
     }
 
-    /// 本がフォルダ、対応アーカイブ形式(zip/cbz/rar/cbr/7z/cb7)、または直接渡された画像ファイル
+    /// 本がフォルダ、対応アーカイブ形式(zip/cbz/rar/cbr/7z/cb7)、直接渡された画像ファイル、StackNest の本
     /// のいずれでもなければnilを返す(呼び出し元はnilならこの状態オブジェクト自体を保持せず、
     /// 下段セクションを表示しない)。
     /// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
@@ -200,6 +200,16 @@ final class BookContentsBrowserState: ObservableObject {
             }))
             return
         }
+        // StackNest の本(2026-10-18、利用者の指示「本の中身ブラウザは出す」): 参照ファイルは書庫ではなく、ページは StackNest から
+        // 1 枚ずつ取り寄せるので、書庫として開いて一覧を取らない(開けば manifest の問い合わせが増え、同期の読み手で待つことになる)。
+        // 本のページ(名前は StackNest の番号)をそのまま平坦な 1 階層として見せる。行の鍵はページの sortKey(押すとそのページへ)。
+        // ファイルに触らないので、メインで作ってよい。
+        if book.isStackNestReference {
+            self.init(book: book, root: .pages(fileName: book.title, book.pages.map {
+                BookDocumentPage(displayName: $0.displayName, matchKey: $0.sortKey)
+            }))
+            return
+        }
         guard let root = Self.prepareRoot(of: book) else { return nil }
         self.init(book: book, root: root)
     }
@@ -212,7 +222,7 @@ final class BookContentsBrowserState: ObservableObject {
     /// 遅れた。docs/plans/network-volume-study.md §2.1)。一覧までを裏で済ませ、状態オブジェクトはメインで組み立てる。
     /// 階層を 1 段ずつ辿る以後の操作は、型コメントのとおりメインのまま(最上位の一覧に比べて軽い)。
     static func make(book: MangaBook) async -> BookContentsBrowserState? {
-        if book.origin == .imageFiles { return BookContentsBrowserState(book: book) }
+        if book.origin == .imageFiles || book.isStackNestReference { return BookContentsBrowserState(book: book) }
         // FileIO で(DirectoryBrowser.listingAsync のコメント。書庫を開いて一覧を取るのはブロッキングする I/O)。
         let prepared = await FileIO.perform {
             prepareRoot(of: book).map(PreparedRootHandoff.init)
@@ -239,6 +249,9 @@ final class BookContentsBrowserState: ObservableObject {
         switch root {
         case .imageFiles(let urls):
             currentLevel = .imageFileList(urls)
+            currentLocator = nil
+        case .pages(let fileName, let pages):
+            currentLevel = .documentPages(fileName: fileName, pages: pages)
             currentLocator = nil
         case .folder(let url):
             currentLevel = .folder(url)
@@ -923,6 +936,8 @@ final class BookContentsBrowserState: ObservableObject {
 /// 本の中身ブラウザの最上位の階層の下ごしらえ(`BookContentsBrowserState.prepareRoot`)。
 private nonisolated enum PreparedRoot {
     case imageFiles([URL])
+    /// StackNest の本のページ(`make(book:)` のコメント)。
+    case pages(fileName: String, [BookDocumentPage])
     case folder(URL)
     /// 本そのものの書庫(開いた状態)と、その一覧。
     case archive(URL, OpenArchive, [String])

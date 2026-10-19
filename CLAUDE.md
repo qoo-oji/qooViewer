@@ -34,7 +34,11 @@ host triggers a macOS removable-volume permission dialog on every launch). Fixtu
 disk caches are injected as `BookDiskCaches` (`BookLoader.load(caches:)`, `PageLoader(diskCaches:)`, `ViewerViewModel(diskCaches:)` …; the
 `cachesPageList`/`usesThumbnailDiskCache` flags keep their privacy meaning), never read `BookPageListCache.shared`/`ThumbnailDiskCache.shared`
 directly in new loading code; `AppStores(dependencies:)` builds the composition root (`Dependencies.live()` in the app, `AppStoresHarness` in
-tests) — new wiring goes through `Dependencies`, not `isRunningTests`; **beep only through `UserFeedback.beep()`** (tests count it with
+tests) — new wiring goes through `Dependencies`, not `isRunningTests`. Two accepted exceptions (2026-10-18, PR #1 review): a table that
+must be one per process because windows share it (`StackNestSessions`, `NetworkVolumeReading`) may stay static if tests isolate themselves by
+registering only their own temporary folder (`useConfigurationForTesting(under:)`, `treatAsRemoteForTesting`) — never by swapping the whole
+object; and a process-wide registry that tests must not join may expose `forCurrentProcess` (nil under tests: `MemoryUsageRegistry`,
+the kit's `StackNestProgressRegistry` is passed instead — `ViewerViewModel(stackNestProgressRegistry:)`, `ViewerHarness` gives its own). Anything else new still goes through `Dependencies` or an injected parameter; **beep only through `UserFeedback.beep()`** (tests count it with
 `UserFeedback.$recorder`); sheets/panels go through `WindowSheet` and **chosen URLs are read from `beginChoosing`/`chooseURLs`**, never
 `panel.url(s)` (tests answer with `SheetScripting.$responder`); viewer input decisions live in `ViewerInputRouter`/`ViewerWheelInput`/
 `ViewerScrollPlanner` (the view only executes). Debug builds carry `DebugControlPort` (`scripts/dev/qoo-debug-control.py`: state, menu tree,
@@ -111,6 +115,26 @@ fetches, Installer.xpc installs (Release-only `Configurations/qooViewer.entitlem
 never starts it (`QOO_UPDATER_ENABLED = NO`), nor do tests. `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)` because Sparkle compares
 `CFBundleVersion`. The private key never enters the repo (login keychain, account `qooProject`); the trust model and the 2026-10-10 on-device
 results are in docs/10「自動アップデート」, the on-device test procedure in docs/12.
+**StackNest books** (`.stacknestbook` reference files, PR #1 + the 2026-10-18 review; docs/10「StackNest の本と通信」): pages come from
+StackNest's book API on 127.0.0.1 through **StackNestViewerKit** (`exactVersion` 0.2.0 — a one-author package running inside the app;
+move it only after reading the new version). **The app process never opens a socket**: the kit's sessions get `StackNestConnectorURLProtocol`
+(`StackNestSessions.productionConfiguration`), which hands each request to the embedded XPC service `StackNestConnector.xpc` — the only
+part with `network.client` (sandbox + client only, ATS `NSAllowsLocalNetworking` only) — and both sides accept only the fixed request
+shapes in `StackNestConnectorPolicy`. Pages are awaited on the kit's async API behind the per-origin `StackNestRequestGate`, never by
+blocking `FileIO` threads; every waiter of a remote page (display included) goes through `PageLoader.awaitRemote`, so a fetch nobody
+waits for any more is cancelled, and a page turn through a StackNest book shows only pages already downloaded while flipping and fetches the
+landing spread first (both pages at display priority) — measured against a 300 ms-per-page fake StackNest, docs/10「ページ送りの待ち」; never
+add `?maxw=` to page requests (StackNest's relay serves remote pages from its own disk cache only for the default width, so a smaller
+thumbnail width goes to the remote library every time);
+`check-release-app.sh` checks the service's entitlements and ATS. **A StackNest book records nothing**
+(`MangaBook.leavesNoRecord`, same treatment as secret-folder books — the reference is rewritten on every open and qooViewer cannot tell
+it is the same book): it always opens at the reference's `startPage`, looks like a private window, is titled "(StackNest) …", and still
+writes the position back to StackNest except in private windows (`ViewerViewModel.recordingRule` → `writesBackToStackNest`). It has no
+folder (`MangaBook.hasBrowsableLocation` = false): previous/next book, same-folder files, Show in Finder/File Browser, folder access and
+"Return to Last Book" are dimmed, and the side panel's folder browser keeps its layout but shows the reason in its list area — new
+folder-based UI must check it. StackNest hands over a multi-selection one `NSWorkspace.open` per book and checks 15 s later that each token
+was used, so reference files are never merged into a "next book" sequence: each opens at once, the 2nd and later as tabs
+(`AppDelegate.openStackNestReferences`). Saved-data import drops StackNest books in every category (`removingStackNestBooks`).
 **Releases may be delegated to Claude Code** ("vX.YY をリリースして"): follow docs/02「リリース」steps 1–6 exactly — `xcodebuild archive`
 (= the author's Xcode Archive + Finder compress), `scripts/release/make-appcast.sh`, then **stop and show the author the version, notes,
 zip SHA-256 and check results, and publish only after their go-ahead** (an update reaches users automatically), `gh release create … --latest`

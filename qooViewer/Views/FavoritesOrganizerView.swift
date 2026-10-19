@@ -499,7 +499,9 @@ struct FavoritesOrganizerView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
-                .disabled(launchCoordinator.activeRecordableBookAppState?.currentBook == nil)
+                // StackNest の参照ファイルの本も登録できない。
+                .disabled(launchCoordinator.activeRecordableBookAppState?.currentBook == nil
+                    || launchCoordinator.activeRecordableBookAppState?.currentBook?.isStackNestReference == true)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.bar)

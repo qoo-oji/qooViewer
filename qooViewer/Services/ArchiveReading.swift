@@ -131,6 +131,26 @@ protocol ArchiveReading {
     nonisolated func readEntriesInArchiveOrder(_ visit: (String) throws -> ((Data) throws -> Void)?) throws
 }
 
+/// 網越しに読む reader(StackNest の参照ファイルの本)。
+///
+/// ページは `pageData(at:priority:)` / `pageDataHoldingPermit(at:priority:)` で **async に**待つ(スレッドを塞がない)。
+/// 要求の同時数は `requestGate` が絞る(StackNestRequestGate の型コメント。以前はページごとに `FileIO` のスレッドを塞いで待ち、
+/// 頼まれた数だけスレッドが増えた)。`ArchiveReading` の同期の口は応答が返るまでその場で待つので、PageLoader(actor)からは呼ばない。
+/// `Sendable`(どのスレッドから呼んでもよい作り)であることを印の条件にする ―― ほかの reader は
+/// スレッドセーフでなく actor の中から出せない。
+///
+/// `nonisolated` を付ける: 既定の分離が MainActor なので、付けないと準拠が MainActor に分離されたものと推論されうる。そうなると
+/// PageLoader(actor)の上での `as? any RemoteArchiveReading` が実行時に失敗し(分離された準拠への動的なキャストは、その
+/// actor の外では成り立たない)、網越しの reader が actor の上で読まれる。
+nonisolated protocol RemoteArchiveReading: ArchiveReading, Sendable {
+    /// この本の要求の同時数の門。
+    var requestGate: StackNestRequestGate { get }
+    /// 1 ページのバイト列(門の許可を取ってから待つ)。
+    func pageData(at path: String, priority: RemotePageReadPriority) async throws -> Data
+    /// 呼び出し側が門の許可を持っているときの `pageData(at:priority:)`。
+    func pageDataHoldingPermit(at path: String, priority: RemotePageReadPriority) async throws -> Data
+}
+
 extension ArchiveReading {
     /// dataPrefix(at:maxByteCount:)の既定実装(プロトコルのコメント参照)。
     /// rarは使用しているライブラリが「エントリの先頭だけを伸長する」形の読み出しに
@@ -283,6 +303,13 @@ nonisolated func archiveKind(forFileName fileName: String) -> ArchiveKind? {
 ///   PageLoader だけが true。一覧の絵・表紙・ComicInfo のように最初の数ページしか読まない読みでは、フォルダを表示した
 ///   だけで中の本を丸ごと取り寄せないよう false。NetworkVolumeReading 参照)。
 nonisolated func makeArchiveReader(for url: URL, stagesWholeFile: Bool = false) throws -> ArchiveReading {
+    // StackNest の本の参照ファイル。書庫の分類(ArchiveKind・archiveExtensions)には入れず、ディスク上のファイルから
+    // reader を作るこの入口だけで分ける ―― 分類に入れると、書庫の中の参照ファイルが入れ子の書庫として開かれ(中の鍵で知らない
+    // 宛先へ要求を出す)、ファイルブラウザの「展開」にも出てしまう。ページは StackNest の API から読むので、ネットワーク
+    // ボリュームの読み込み層(StagedFileSource)も通さない(参照ファイルそのものは数百バイトで、読むのは作るときの 1 回だけ)。
+    if isStackNestReferenceFile(url.lastPathComponent) {
+        return try StackNestReferenceReader(referenceFileURL: url)
+    }
     guard let kind = archiveKind(forFileName: url.lastPathComponent) else {
         throw ArchiveReaderError.cannotOpen
     }

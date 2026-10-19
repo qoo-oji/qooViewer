@@ -1,4 +1,5 @@
 import Foundation
+import StackNestViewerKit
 
 /// 本のソースファイル自身が持つ、本全体に関わる表示上のヒント。
 /// EPUB(package documentのspine)、およびPDF(Document Catalogの`/ViewerPreferences/Direction`・
@@ -123,6 +124,29 @@ struct MangaBook: Identifiable, Hashable {
     /// この本がどこから来たか。既定値付きなので、従来のBookLoaderの生成箇所は変更不要。
     /// 詳細はBookOrigin参照。
     var origin: BookOrigin = .fileSystem
+
+    /// StackNest の本の参照ファイル(`.stacknestbook`)から開いた本なら、その中身(StackNestViewerKit の型。`pageCount` は
+    /// 参照ファイルに書かれた値で、ページ数の正は開いたときの manifest ―― `pages` の数)。ページは StackNest の API から読み
+    /// (StackNestReferenceReader)、読み進めたページを書き戻す(部品の StackNestProgressReporter)。
+    /// **鍵を含むのでメモリの中だけに置く** ―― MangaBook は保存されない(DB・ページ一覧のキャッシュ・保存データの書き出しは
+    /// この値を読まない)。並びを組み直す所(ViewerViewModel.prepareBook)は必ず引き継ぐこと。
+    var stackNestReference: StackNestBookReference? = nil
+
+    /// StackNest の参照ファイルの本か。
+    var isStackNestReference: Bool { stackNestReference != nil }
+
+    /// qooViewer から辿れる「本の置き場所」(親フォルダ)があるか。StackNest の本には無い(2026-10-18、利用者の決定「本が置かれて
+    /// いるフォルダという大前提が崩れる。前の表示を残さず、理由を示して隠す」): 参照ファイルは StackNest が本を渡すために自分の
+    /// Application Support の中へ書いた受け渡し用のファイルで、そのフォルダは本の置き場所ではない(並ぶのはほかの本の参照ファイル。
+    /// 本の実体は StackNest の書庫の中か、別の Mac にある)。前の本・次の本、同じフォルダのファイルを開く、Finder・ファイル
+    /// ブラウザで表示、フォルダへのアクセスの許可は、この本では淡色にし、キーなどで届いたら理由を知らせる
+    /// (`AppState.noteNoBrowsableLocation`)。サイドパネルのフォルダブラウザは一覧の代わりに理由を出す。
+    var hasBrowsableLocation: Bool { !isStackNestReference }
+
+    /// 「本の書き出し」ができる本か(ビューアの右クリック)。画像を直接開いたその場限りの本は、sourceURL が 1 枚目の画像でしか
+    /// ないので書き出せない(ViewerView の注記)。StackNest の参照ファイルの本は、書き出しが全ページを
+    /// StackNest から取り直し、鍵の付いた要求を書き出しの待ち行列から出すことになるので書き出さない。
+    var canBeExported: Bool { !isTransient && !isStackNestReference }
     /// この本を閉じた後にアプリ側の記録が一切残ってはいけないかどうか。
     /// シークレットウインドウ(AppState.isPrivateWindow)と並ぶ、もう一方の「書かない」条件。
     /// 実際のガードは、この値とisPrivateWindowをORした
@@ -152,11 +176,17 @@ struct MangaBook: Identifiable, Hashable {
     /// nil の本(テストが直接組んだ本)では、書き込み側がその場で求める。`==` / `hash` には入らない(下)。
     var sourceFacts: BookSourceFacts? = nil
 
-    /// 保存データに何も残さない本(その場限りの本と、一時フォルダに書き出した入れ子の書庫と、シークレットフォルダの中の本)。
+    /// 保存データに何も残さない本(その場限りの本と、一時フォルダに書き出した入れ子の書庫と、シークレットフォルダの中の本と、
+    /// StackNest の参照ファイルの本)。
     /// シークレットウインドウとORして使う(`isTransient` は「画像を直接開いた本」の意味でメニューの可否にも使うので、そちらは広げない)。
     /// シークレットウインドウと違い、窓そのものの性質(履歴の表示・サイドパネル・ほかの本への操作)は変えない ―― 止めるのは
     /// **この本への書き込みだけ**(シークレットフォルダについての利用者の決定 2026-10-03)。
-    var leavesNoRecord: Bool { isTransient || isTemporaryCopy || isInSecretFolder }
+    ///
+    /// StackNest の本(2026-10-18、利用者の決定「シークレットフォルダの本と同じ扱い」): 参照ファイルは開くたびに同じパスへ書き直され、
+    /// 中身が前回と同じ本かを qooViewer から確かめる手段が無い(本の場所も中身の指紋も届かない)。そのため履歴・読書位置・
+    /// ブックマーク・レイアウト・メタデータのどれも残さず、読む位置は StackNest が渡す開始ページに任せる。読書位置を StackNest へ
+    /// 書き戻すのは保存データではないので続ける(シークレットウインドウでは止める ―― `ViewerViewModel.init(writesBackToStackNest:)`)。
+    var leavesNoRecord: Bool { isTransient || isTemporaryCopy || isInSecretFolder || isStackNestReference }
 
     /// `sourceURL`がこの本そのものを指しているかどうか。
     ///
@@ -169,6 +199,29 @@ struct MangaBook: Identifiable, Hashable {
 
     static func == (lhs: MangaBook, rhs: MangaBook) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// ウインドウのビューア(ViewerViewModel)を作り直す単位としての本の同一性。ContentView がビューアの受け渡しを
+    /// やり直すきっかけ(onChange の鍵)・ViewerView の `.id`・ViewerHandoff の「同じ本」の判定がこれを使う。
+    ///
+    /// ふつうはパス(`id`)だけで決まる(`==` と同じ)。StackNest の参照ファイルの本は、同じパスでも接続先か鍵
+    /// (`StackNestReferenceIdentity`)が替わったら別の本として扱う: StackNest は開き直すたびに同じパスへ新しい鍵で参照ファイルを
+    /// 書き直す。開くページ(`startPage`)・題名だけが違う書き直しでは作り直さない(2026-10-18 のレビュー: 以前は参照の全項目で
+    /// 比べていて、開く位置だけ違うファイルでも読み込み直していた)。パスだけで比べていたときは、
+    /// 施錠が変わった後に部品の案内どおり「StackNest から開き直し」ても、本を表示していたウインドウのビューアが古いセッション
+    /// (恒久的な失敗の記録・止まった書き戻しの役・知らせを 1 度に絞る控え)のまま残り、ページは黒いまま案内も出なかった。
+    /// ページの並べ替え・除外で中身だけ変わった本は参照を引き継ぐ(ViewerViewModel.prepareBook)ので、同じ本のまま。
+    /// シークレットフォルダかが変わった開き直しも別の本(ビューモデルの `skipsPersistence` は作るときに決まる)。
+    var viewerIdentity: ViewerIdentity {
+        ViewerIdentity(
+            id: id, isInSecretFolder: isInSecretFolder, stackNestReference: stackNestReference.map(StackNestReferenceIdentity.init))
+    }
+
+    /// `viewerIdentity` の値。参照の同一性(鍵を含む)はメモリの中で比べるだけで、どこにも書かない。
+    nonisolated struct ViewerIdentity: Hashable, Sendable {
+        let id: String
+        let isInSecretFolder: Bool
+        let stackNestReference: StackNestReferenceIdentity?
+    }
 }
 
 extension MangaBook {

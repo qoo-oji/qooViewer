@@ -16,8 +16,9 @@ import Sparkle
 ///   に並べてあるので、メニューの作り直しは MenuBarMenuGate を通る)。
 ///
 /// ■ 通信はアプリ本体ではしない
-/// このアプリはもともと一切通信しない(ネットワークの entitlement が無い)。Sparkle の Downloader.xpc に
-/// 取りに行かせる(Info.plist の `SUEnableDownloaderService`)ので、本体のサンドボックスは今まで通り閉じたまま。
+/// このアプリの本体は一切通信しない(ネットワークの entitlement が無い)。Sparkle の Downloader.xpc に
+/// 取りに行かせる(Info.plist の `SUEnableDownloaderService`)ので、本体のサンドボックスは今まで通り閉じたまま
+/// (StackNest の本の API への要求も、アプリに入れた XPC サービス StackNestConnector.xpc が出す。docs/10)。
 /// インストールも Installer.xpc 経由(`SUEnableInstallerLauncherService` + Configurations/qooViewer.entitlements)。
 ///
 /// ■ テストの中では起動しない

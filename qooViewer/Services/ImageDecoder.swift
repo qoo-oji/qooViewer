@@ -193,6 +193,9 @@ nonisolated enum ImageDecoder {
         /// ICCカラープロファイル名(例: "sRGB IEC61966-2.1")。
         let colorProfileName: String?
         let hasAlpha: Bool
+        /// 中身から見た形式の拡張子(`fileExtension(sniffing:)` と同じ。JPEGは"jpg")。名前が中身の形式を表さないページ
+        /// (StackNestの本の仮の名前)の「情報を見る」が使う。分からなければnil。
+        var sniffedFileExtension: String? = nil
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけを読み取る(CGImageSourceCopyPropertiesAtIndexは
@@ -201,6 +204,19 @@ nonisolated enum ImageDecoder {
     static func headerInfo(of data: Data) -> HeaderInfo? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         return headerInfo(from: source)
+    }
+
+    /// バイト列の中身から見た画像の形式の拡張子(小文字。JPEGはほかの書き出しと同じく"jpg")。形式が分からなければnil。
+    /// 名前が中身の形式を表さないページ(StackNestの本の仮の名前`000001.jpg`。PageLoader.exportableImage参照)に使う。
+    static func fileExtension(sniffing data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        return fileExtension(of: source)
+    }
+
+    private static func fileExtension(of source: CGImageSource) -> String? {
+        guard let typeID = CGImageSourceGetType(source) as String?, let type = UTType(typeID) else { return nil }
+        if type.conforms(to: .jpeg) { return "jpg" }
+        return type.preferredFilenameExtension
     }
 
     /// headerInfo(of:)のファイルURL版。
@@ -242,7 +258,8 @@ nonisolated enum ImageDecoder {
             pixelHeight: height,
             colorModel: properties[kCGImagePropertyColorModel] as? String,
             colorProfileName: properties[kCGImagePropertyProfileName] as? String,
-            hasAlpha: properties[kCGImagePropertyHasAlpha] as? Bool ?? false
+            hasAlpha: properties[kCGImagePropertyHasAlpha] as? Bool ?? false,
+            sniffedFileExtension: fileExtension(of: source)
         )
     }
 

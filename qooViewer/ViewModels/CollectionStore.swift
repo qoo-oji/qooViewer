@@ -989,11 +989,16 @@ final class CollectionStore: ObservableObject {
         // いないとブックマークを作れない。落とされた URL・対象フォルダの中の本では何もしない。
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        var isDirectory: ObjCBool = false
+        _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        // StackNest の参照ファイルの本は、どの入口から来ても入れない(2026-10-18 のレビュー。守りを入口ごとに足すと漏れるので
+        // ここで): 参照ファイルは StackNest が開くたびに書き直し期限が切れると消すファイルで、行が消えるパスを指し、表紙を作る
+        // 待ち行列が鍵の付いた要求を StackNest へ出し続ける。名前だけでなく実ファイルかも見る(同じ名前のフォルダは、BookLoader と
+        // 同じくフォルダの本)。
+        if !isDirectory.boolValue, isStackNestReferenceFile(url.lastPathComponent) { return nil }
         guard let bookmarkData = try? url.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return nil }
-        var isDirectory: ObjCBool = false
-        _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         let title = itemTitle(for: url, isDirectory: isDirectory.boolValue)
         return PendingItem(
             url: url, bookmarkData: bookmarkData, title: title,

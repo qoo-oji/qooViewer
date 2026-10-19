@@ -29,6 +29,10 @@ enum ExternalMoveSweeper {
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext))
         if skipsCollectionBooks { known.subtract(collectionStore.allRegisteredBookIDs()) }
+        // StackNest の参照ファイルの本は見ない(2026-10-18 のレビュー): StackNest が開くたびに書き直し、期限が切れると消すファイルで、
+        // 動いた本を探す意味が無い(書き直しは新しいファイルになるので、ブックマークはパスへ落ちて同じ場所を指す)。起動のたびに
+        // その数だけブックマークを解いていた。
+        known = known.filter { !isStackNestReferenceFile($0) }
         let probes = known.sorted().map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,

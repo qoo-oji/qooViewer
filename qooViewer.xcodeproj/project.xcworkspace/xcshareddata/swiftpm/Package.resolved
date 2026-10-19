@@ -1,5 +1,5 @@
 {
-  "originHash" : "ea0d4f4eb78b01f511fe67331a792dc97ef8b850f287aadca95386884c037acf",
+  "originHash" : "7cc4f3994849a5ca255fbe684bac10e9e1f2ba5a962396d36b58ebf6830bb89e",
   "pins" : [
     {
       "identity" : "qoometa",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
         "version" : "2.10.0"
+      }
+    },
+    {
+      "identity" : "stacknestviewerkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/shelfsmith/StackNestViewerKit",
+      "state" : {
+        "revision" : "95eacd949870af67959671fec0e18adfa6873578",
+        "version" : "0.2.0"
       }
     },
     {

@@ -10,7 +10,8 @@ import SwiftUI
 /// 控えは開けた時点の写しなので、その後に本が移っても消えても残る。戻れるかどうかは `AppState.lastBookAvailability` が
 /// 持ち、淡色にするのは「開き直そうとして失敗した」と「開いたときの場所に無い」の 2 つ。後者は押す前に分かるよう、
 /// **このボタンが画面に出ている間だけ**確かめ直しを頼む(`recheckTriggers`)。本が元の場所へ戻れば、また押せる。
-/// ツールチップは、押せない理由を題名つきで言う。
+/// ツールチップは、押せない理由を題名つきで言う。StackNest から受け取った本も淡色(`AppState.LastOpenedBook.comesFromStackNest`。
+/// 開き直すのは StackNest から)。
 ///
 /// ■ 置き場所
 /// - 帯があるホーム(ライブラリかスマートライブラリが ON) → 帯のいちばん左。すぐ右に「履歴から開く」(時計に矢印の記号)が組になって並び
@@ -80,6 +81,10 @@ struct HomeLastBookButton: View {
     /// ツールチップ。戻る先が分かるよう題名を添える(無ければボタンの名前だけ)。戻れないときは、その理由を言う。
     private func helpText(for last: AppState.LastOpenedBook?, availability: AppState.LastBookAvailability) -> String {
         guard let last else { return String(localized: "Return to Last Book", language: locale) }
+        if last.comesFromStackNest {
+            return String(
+                format: String(localized: "“%@” came from StackNest. Open it again from StackNest.", language: locale), last.title)
+        }
         let format = switch availability {
         case .available: String(localized: "Return to “%@”", language: locale)
         case .missing: String(localized: "“%@” can’t be found", language: locale)

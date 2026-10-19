@@ -1736,7 +1736,7 @@ struct SmartLibraryContent: View {
         toastDismissTask?.cancel()
         toastMessage = message
         toastDismissTask = Task { @MainActor in
-            try? await Task.sleep(for: FileBrowserState.toastDuration)
+            try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             toastMessage = nil
         }

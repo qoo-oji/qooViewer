@@ -848,6 +848,14 @@ final class FavoritesStore: ObservableObject {
         reload()
     }
 
+    /// 登録を断る本か(StackNest の参照ファイル)。本の属性だけでなく**パス(id)も**見る: 保存データの取り込みが作る本は、
+    /// 参照ファイルから読み込んだものではなく、パスだけを持つ(`stackNestReference` が無い)。登録だけを断り、すでにある
+    /// 登録の削除は止めない。ビューアからは、StackNest の本は記録を残さない本なので、お気に入りの項目そのものが淡色
+    /// (skipsPersistence。ここは多重の守り)。
+    private static func isReferenceBook(_ book: MangaBook) -> Bool {
+        book.isStackNestReference || isStackNestReferenceFile(book.id)
+    }
+
     /// お気に入りへの登録を試みる。
     /// - 登録先フォルダに既に同じ本がある場合は、確認なしで内容を上書きする。
     /// - 別のフォルダに既に同じ本がある場合は`.needsDuplicateConfirmation`を返すので、
@@ -855,6 +863,8 @@ final class FavoritesStore: ObservableObject {
     /// - どこにも登録されていない場合は、件数上限を確認した上で新規登録する。
     @discardableResult
     func addFavorite(book: MangaBook, to folder: FavoriteFolder?) -> FavoriteAddOutcome {
+        // StackNest の参照ファイルの本は登録しない(行が期限切れで消える StackNest 内のパスを指す)。
+        guard !Self.isReferenceBook(book) else { return .failed }
         let existing = existingFavorites(forBookID: book.id)
 
         if let sameFolderEntry = existing.first(where: { $0.folder?.id == folder?.id }) {
@@ -879,6 +889,7 @@ final class FavoritesStore: ObservableObject {
     /// 「登録する」を選んだときに呼び出す)
     @discardableResult
     func forceAddFavorite(book: MangaBook, to folder: FavoriteFolder?) -> FavoriteAddOutcome {
+        guard !Self.isReferenceBook(book) else { return .failed }
         guard totalFavoritesCount() < FavoritesLimits.maxFavoritesCount else {
             return .limitReached
         }
@@ -940,6 +951,10 @@ final class FavoritesStore: ObservableObject {
         let now = Date()
 
         for request in requests {
+            guard !Self.isReferenceBook(request.book) else {
+                results.append(.failed)
+                continue
+            }
             guard currentCount < FavoritesLimits.maxFavoritesCount else {
                 results.append(.limitReached)
                 continue

@@ -199,6 +199,14 @@ final class DebugControlPort {
             return try setPreference(arguments)
         case "performMenuItem":
             return try performMenuItem(arguments)
+        case "setSidePanel":
+            // サイドパネルのモード(アプリ全体で 1 つ)と、前面の窓の「サイドパネルを隠す」(実機の検証で、全モードを順に見るため)。
+            if let raw = arguments["mode"] as? String {
+                guard let mode = SidePanelMode(rawValue: raw) else { throw Failure("unknown side panel mode: \(raw)") }
+                stores.preferences.sidePanelMode = mode
+            }
+            if let hidden = arguments["hidden"] as? Bool { try frontmost().hideSidePanel = hidden }
+            return ["mode": stores.preferences.sidePanelMode.rawValue]
         case "newWindow":
             guard let opener = appDelegate?.openNewWindowFromDock else { throw Failure("the app delegate is not ready") }
             opener(arguments["private"] as? Bool ?? false)
@@ -211,6 +219,22 @@ final class DebugControlPort {
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
             return ["isKey": window.isKeyWindow]
+        case "contextClick":
+            // 窓の中の点(内容の左上を原点とする pt)を右クリックした形にして、右クリックメニューを開く(実機の検証で、メニューの中身を
+            // AX で読むため。2026-10-19: プロセスを名指しした CGEvent の右クリックは窓へ届かず、HID の段から流すとポインタが動く)。
+            // メニューは開いている間メインで回り続けるので、返事を先に返してから開く。閉じるのは頼む側(AX の AXCancel)。
+            guard let number = arguments["windowNumber"] as? Int,
+                  let window = NSApp.windows.first(where: { $0.windowNumber == number }),
+                  let x = arguments["x"] as? Double, let y = arguments["y"] as? Double,
+                  let contentHeight = window.contentView?.bounds.height
+            else { throw Failure("contextClick needs windowNumber, x and y") }
+            let location = NSPoint(x: x, y: contentHeight - y)
+            guard let event = NSEvent.mouseEvent(
+                with: .rightMouseDown, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: number, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ) else { throw Failure("could not make the event") }
+            DispatchQueue.main.async { [weak window] in window?.sendEvent(event) }
+            return ["windowNumber": number]
         case "closeWindow":
             guard let number = arguments["windowNumber"] as? Int,
                   let window = NSApp.windows.first(where: { $0.windowNumber == number })

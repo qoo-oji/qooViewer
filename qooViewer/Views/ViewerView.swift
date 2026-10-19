@@ -258,6 +258,8 @@ struct ViewerView: View {
     /// 「このページをエクスポート」の保存パネルを、いま出そうとしている最中かどうか。
     /// 同じパネルが入れ子で開くのを防ぐためだけの目印(exportImage(_:)参照)。
     @State private var isExportingImage = false
+    /// StackNest の本の 1 ページの書き出しで、保存パネルの前にページを取り寄せている間(待ちの回転表示を出す)。
+    @State private var isPreparingImageExport = false
 
     /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
     /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
@@ -915,6 +917,35 @@ struct ViewerView: View {
         case mergedSpread(leftIndex: Int, rightIndex: Int)
     }
 
+    /// StackNest の本の 1 ページの書き出し(`exportImage(.singlePage)` から。`isExportingImage` は立ててある)。
+    ///
+    /// ページの名前は仮のもの(`000041.jpg`)で、形式は中身からでないと決まらないので、保存パネルの**前に**ページを取り寄せ、
+    /// そのバイト列をそのまま書く(2026-10-18 のレビュー: 以前は形式を決めるための取り寄せとパネルの後の取り寄せで 2 回取り、
+    /// パネルが出るまで最長で数十秒、何も出さずに待った)。取り寄せている間は待ちの回転表示を出す。
+    private func exportStackNestPage(_ page: PageRef, at index: Int) {
+        isPreparingImageExport = true
+        Task {
+            defer { isExportingImage = false }
+            do {
+                let exportable = try await viewModel.exportableImage(at: index)
+                isPreparingImageExport = false
+                guard let exportable else {
+                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
+                    return
+                }
+                guard let url = await presentImageExportSavePanel(
+                    defaultFileName: ImageExporter.defaultFileName(for: page, fileExtension: exportable.fileExtension),
+                    contentType: ImageExporter.contentType(forExtension: exportable.fileExtension)
+                ) else { return }
+                let data = exportable.data
+                try await FileIO.perform { try ImageExporter.writeSinglePage(data: data, to: url) }
+            } catch {
+                isPreparingImageExport = false
+                imageExportErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     /// 画像のエクスポート本体。NSSavePanelで保存先を選んでもらってから、実際の画像の読み込み・
     /// (結合が必要な場合は)合成・書き込みを非同期に行う
     /// (パネルはこのウインドウのシート。WindowSheet)。パネルをキャンセルした場合は何もしない。
@@ -927,13 +958,18 @@ struct ViewerView: View {
             // 保存パネルを二重に開かない。すぐ下の理由でパネルが出るまでに`await`を1回挟むため、
             // その隙にもう一度この操作を起動できてしまう(パネルが出た後は WindowSheet が 2 つ目を断るが、
             // 出る前の隙はこの判定で塞ぐ)。ここから`isExportingImage`の代入までに中断点が無い。
-            guard !isExportingImage else { return }
+            guard !isExportingImage else { return UserFeedback.beep() }
             isExportingImage = true
             let page = viewModel.book.pages[index]
+            if viewModel.book.isStackNestReference {
+                exportStackNestPage(page, at: index)
+                return
+            }
             // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
             // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
             // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
-            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。
+            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い(StackNest の本は上の
+            // exportStackNestPage。形式を中身から決めるため、パネルの前にページを取り寄せる)。
             Task {
                 defer { isExportingImage = false }
                 do {
@@ -971,15 +1007,31 @@ struct ViewerView: View {
             let trailingIndex = max(leftIndex, rightIndex)
             let leadingPage = viewModel.book.pages[leadingIndex]
             let trailingPage = viewModel.book.pages[trailingIndex]
-            let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
             let leftKey = viewModel.book.pages[leftIndex].sortKey
             let rightKey = viewModel.book.pages[rightIndex].sortKey
-            guard !isExportingImage else { return }
+            guard !isExportingImage else { return UserFeedback.beep() }
             isExportingImage = true
+            let isStackNestBook = viewModel.book.isStackNestReference
             Task {
                 defer { isExportingImage = false }
+                // StackNest の本のページの名前は仮のもの(`000041.jpg`)なので、前の画像の形式は中身から決める(パネルの前に 1 枚
+                // 取り寄せる。待つ間は回転表示。2026-10-18 のレビュー: 以前は名前の jpg のまま、PNG のページも JPEG で書き出していた)。
+                let ext: String
+                if isStackNestBook {
+                    isPreparingImageExport = true
+                    let source = try? await viewModel.exportableImageFileExtension(at: leadingIndex)
+                    isPreparingImageExport = false
+                    guard let source else {
+                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
+                        return
+                    }
+                    ext = ImageExporter.mergedFileExtension(leadingSourceExtension: source)
+                } else {
+                    ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
+                }
                 guard let url = await presentImageExportSavePanel(
-                    defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
+                    defaultFileName: ImageExporter.defaultMergedFileName(
+                        leadingPage: leadingPage, trailingPage: trailingPage, fileExtension: ext),
                     contentType: ImageExporter.contentType(forExtension: ext)
                 ) else { return }
                 // パネルの後で鍵から番号を引き直す(1 ページの書き出しと同じ。監査 V-12)。
@@ -1442,9 +1494,16 @@ struct ViewerView: View {
         .onChange(of: appState.viewerNotice) { _, notice in
             if let notice { showToast(notice.message) }
         }
+        // StackNest の参照ファイルの本で、書き戻しが失敗したときの知らせ(期限切れ・解錠が要る・StackNest に繋がらない)。
+        .onChange(of: viewModel.stackNestNotice) { _, notice in
+            if let notice { showToast(notice.message) }
+        }
         // 本を開く前に出した知らせ(複数を落として開いたときの「開かなかったもの」。AppState.open(urls:))を、開いてから出す。
+        // StackNest の知らせも同じ: ビューモデルはこのビューより先に作られ、最初の見開きを読む間(ViewerHandoff が前の中身を
+        // 出している間)に出した知らせは、上の onChange には届かない。
         .onAppear {
             if let notice = appState.viewerNotice, notice.isFresh { showToast(notice.message) }
+            if let notice = viewModel.stackNestNotice, notice.isFresh { showToast(notice.message) }
         }
         // 拡大率そのものが変わるたびにアニメーションさせると、ピンチ操作中ずっと数字が
         // ふわふわして読みにくいため、出す/消すの切り替わりだけをアニメーションさせる。
@@ -1637,11 +1696,15 @@ struct ViewerView: View {
             .sheet(item: $viewModel.pendingBoundaryPrompt) { direction in
                 switch direction {
                 case .backward:
-                    PageBoundaryChoiceSheet<FirstPageBehavior>(titleKey: "This is the first page.") {
+                    PageBoundaryChoiceSheet<FirstPageBehavior>(
+                        titleKey: "This is the first page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                    ) {
                         viewModel.performFirstPageBehavior($0)
                     }
                 case .forward:
-                    PageBoundaryChoiceSheet<LastPageBehavior>(titleKey: "This is the last page.") {
+                    PageBoundaryChoiceSheet<LastPageBehavior>(
+                        titleKey: "This is the last page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
+                    ) {
                         viewModel.performLastPageBehavior($0)
                     }
                 }
@@ -2049,6 +2112,8 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Previous Book")
+                // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。
+                .disabled(!viewModel.book.hasBrowsableLocation)
 
                 Button {
                     relay.send { view in
@@ -2060,6 +2125,7 @@ struct ViewerView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Next Book")
+                .disabled(!viewModel.book.hasBrowsableLocation)
             }
 
             Spacer()
@@ -2249,17 +2315,24 @@ struct ViewerView: View {
             }
         }
 
-        Menu("Book Navigation") {
-            Button("Go to Previous Book") {
-                relay.send { view in
-                    view.perform(.previousBook)
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。`.contextMenu` の中の `Menu` には
+        // `.disabled` が効かない(親が押せる見た目のまま残る)ので、「レイアウト」と同じく押せない Button で描く。
+        if viewModel.book.hasBrowsableLocation {
+            Menu("Book Navigation") {
+                Button("Go to Previous Book") {
+                    relay.send { view in
+                        view.perform(.previousBook)
+                    }
+                }
+                Button("Go to Next Book") {
+                    relay.send { view in
+                        view.perform(.nextBook)
+                    }
                 }
             }
-            Button("Go to Next Book") {
-                relay.send { view in
-                    view.perform(.nextBook)
-                }
-            }
+        } else {
+            Button("Book Navigation") {}
+                .disabled(true)
         }
 
         Divider()
@@ -2465,7 +2538,8 @@ struct ViewerView: View {
         // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は保存データを書かないため(カバーの選択は淡色、
         // ページ一覧のディスクキャッシュも読み書きしない。BookExportViewModel.usesPageListCache)。
         // `.contextMenu` の中の `Menu` に `.disabled` は効かないので、押せない Button で描く(上の「レイアウト」と同じ)。
-        if openBookExport != nil || viewModel.book.isTransient {
+        // StackNest の参照ファイルの本も書き出さない(MangaBook.canBeExported)。
+        if openBookExport != nil || !viewModel.book.canBeExported {
             Button("Export Book") {}
                 .disabled(true)
         } else {
@@ -2506,6 +2580,8 @@ struct ViewerView: View {
                 view.appState.revealCurrentBookInFinder()
             }
         }
+        // 置き場所の無い本(StackNest の本)は示さない(MangaBook.hasBrowsableLocation)。
+        .disabled(!viewModel.book.hasBrowsableLocation)
         // 「ファイルブラウザで開く」(改善要望7 段階 8)。行き先は環境設定「ファイルブラウザ」(FileBrowserReveal)。
         // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない。
         if preferences.fileBrowserFeatureEnabled {
@@ -2514,6 +2590,7 @@ struct ViewerView: View {
                     view.appState.revealCurrentBookInFileBrowser(openWindow: view.openWindow)
                 }
             }
+            .disabled(!viewModel.book.hasBrowsableLocation)
         }
         // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本をそのままコレクションへ。ライブラリ機能が OFF なら出さない。
         // シークレットウインドウ・その場限りの本(画像を直接開いた本・一時的な写し)は淡色(保存データへの書き込み。項目ごと消すのは
@@ -2521,6 +2598,7 @@ struct ViewerView: View {
         // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
         if preferences.libraryFeatureEnabled {
             // シークレットフォルダかどうかは淡色と同じく開いた時点の値で決める(skipsPersistence ⊇ isInSecretFolder。監査 X-8・決定 10)。
+            // StackNest の参照ファイルの本も記録を残さない本なので淡色(skipsPersistence。AppState.canAddCurrentBookToCollection と同じ条件)。
             AddToCollectionMenu(
                 books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence,
                 booksAreDecidedNotSecret: true,
@@ -2740,7 +2818,7 @@ struct ViewerView: View {
     @ViewBuilder
     private var pageImageStatusOverlay: some View {
         Group {
-            if viewModel.isWaitingForPageImage {
+            if viewModel.isWaitingForPageImage || isPreparingImageExport {
                 ProgressView()
                     .controlSize(.large)
                     .padding(18)
@@ -2756,7 +2834,7 @@ struct ViewerView: View {
             }
         }
         .allowsHitTesting(false)
-        .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage)
+        .animation(.easeInOut(duration: 0.15), value: viewModel.isWaitingForPageImage || isPreparingImageExport)
     }
 
     private var pageArea: some View {
@@ -4383,14 +4461,19 @@ struct ViewerView: View {
         if book.isInSecretFolder {
             return String(localized: "Nothing is saved for books in secret folders.", language: locale)
         }
+        // StackNest の本(MangaBook.leavesNoRecord。2026-10-18、利用者の決定)。
+        if book.isStackNestReference {
+            return String(localized: "Nothing is saved for books from StackNest.", language: locale)
+        }
         return String(localized: "Nothing is saved for this book.", language: locale)
     }
 
     private func showToast(_ message: String) {
         toastDismissTask?.cancel()
         toastMessage = message
+        // 文の長さに応じた時間だけ出す(ToastDuration。以前は一律 2 秒)。
         toastDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             toastMessage = nil
         }

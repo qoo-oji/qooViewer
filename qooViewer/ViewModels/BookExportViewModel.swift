@@ -160,7 +160,7 @@ class BookExportViewModel: ObservableObject {
     /// 照合が実際に食い違うことは無い。それでも残してあるのは、結果を反映してよいかどうかの
     /// 判断をapplyEligibleBookIDs自身の中で完結させておくためで、将来この経路が増えたときに
     /// 古い結果が紛れ込むのを防ぐ。
-    private var reloadGeneration = 0
+    private(set) var reloadGeneration = 0
     /// 絞り込みが実行中かどうか。実行中に来たreload()の要求は、走らせ直さずに
     /// needsAnotherReloadへ畳む(reload()参照)。
     private var isReloading = false
@@ -507,6 +507,10 @@ class BookExportViewModel: ObservableObject {
         // 全部数えるとスマートライブラリの全冊が並び、メタデータの知らせのたびに全冊のブックマークを解決し直した)。
         bookIDs.formUnion(metadataStore.registeredBookIDs.filter { metadataStore.metadata(forBookID: $0).map { !$0.isParsedOnly } ?? false })
 
+        // StackNest の参照ファイルの本は書き出さない: 全ページを鍵付きで取り直すことになる。StackNest の本は記録を残さない
+        // (MangaBook.leavesNoRecord)ので行は作られないが、以前のビルドや手で作った保存データに行が残っていても、一覧に並べない。
+        bookIDs = bookIDs.filter { !isStackNestReferenceFile($0) }
+
         let candidates = bookIDs.map { bookID in
             BookURLResolver.Candidates(
                 bookID: bookID,
@@ -530,8 +534,10 @@ class BookExportViewModel: ObservableObject {
     }
 
     /// reload()の絞り込み結果を反映して、一覧を組み立てる。
-    private func applyEligibleBookIDs(_ eligibleIDs: Set<String>, generation: Int) {
+    func applyEligibleBookIDs(_ eligibleIDs: Set<String>, generation: Int) {
         isReloading = false
+        // 二重の守り(reload() で落とした上で、ここでも一覧に載せない)。
+        let eligibleIDs = eligibleIDs.filter { !isStackNestReferenceFile($0) }
         defer {
             // 絞り込み中に来ていたreload()の要求があれば、ここでやり直す。
             if needsAnotherReload {
@@ -997,6 +1003,10 @@ class BookExportViewModel: ObservableObject {
         // Task へ移る間に届いた付け替えを当ててから引く(以前はここで数え始めたので、それらを当てずに古い bookID で引き、「見つからない」
         // と数えた。A5-2)。
         let row = followingRelocations(target, since: noticesApplied)
+        // StackNest の参照ファイルの本は、どの経路から来ても書き出さない(鍵付きの全ページ取得になる)。
+        guard !isStackNestReferenceFile(row.bookID) else {
+            throw SimpleError(message: String(localized: "A StackNest book can’t be exported.", language: preferences.effectiveLocale))
+        }
         let noticesBeforeLoading = relocationsDuringExport.count
         guard let sourceURL = await resolveSourceURL(forBookID: row.bookID) else {
             throw SimpleError(message: String(localized: "The original file/folder couldn't be found.", language: preferences.effectiveLocale))
