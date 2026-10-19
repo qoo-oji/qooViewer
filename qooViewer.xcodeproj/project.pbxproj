@@ -295,7 +295,7 @@
 				0AD11FF13014A5C900C0C526 /* XCRemoteSwiftPackageReference "SevenZip" */,
 				0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */,
 				0AD1F201301600000C0C5261 /* XCRemoteSwiftPackageReference "qooMeta" */,
-				0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */,
+				0AD1F401301800000C0C5261 /* XCLocalSwiftPackageReference "StackNestViewerKit" */,
 				0AD1F301301700000C0C5261 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -731,6 +731,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		0AD1F401301800000C0C5261 /* XCLocalSwiftPackageReference "StackNestViewerKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = /private/tmp/claude-501/-Volumes-PRO-G40-My-Repository-qooViewer/7122a51e-8d04-48e0-98a9-8e53d5520432/scratchpad/src/StackNestViewerKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		0AD11FEE3014A59700C0C526 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -770,14 +777,6 @@
 			requirement = {
 				kind = exactVersion;
 				version = 2.10.0;
-			};
-		};
-		0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/shelfsmith/StackNestViewerKit";
-			requirement = {
-				kind = exactVersion;
-				version = 0.2.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -820,12 +819,12 @@
 		};
 		0AD1F402301800000C0C5261 /* StackNestViewerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			package = 0AD1F401301800000C0C5261 /* XCLocalSwiftPackageReference "StackNestViewerKit" */;
 			productName = StackNestViewerKit;
 		};
 		0AD1F403301800000C0C5261 /* StackNestViewerKitTesting */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 0AD1F401301800000C0C5261 /* XCRemoteSwiftPackageReference "StackNestViewerKit" */;
+			package = 0AD1F401301800000C0C5261 /* XCLocalSwiftPackageReference "StackNestViewerKit" */;
 			productName = StackNestViewerKitTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
