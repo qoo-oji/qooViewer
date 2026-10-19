@@ -71,6 +71,14 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// 「次の本へ」「前の本へ」がこの並びをたどる。nil なら同じフォルダの本をたどる(従来どおり)。
     var sequence: BookSequence?
 
+    /// この本がもうほかのウインドウで開いていて、そのウインドウを前へ出すとき、そのウインドウの並びを `sequence` に替えるか
+    /// (AppState.reloadIfStackNestReferenceChanged)。StackNest でいっしょに渡された本の組だけが立てる(2026-10-19 のレビュー M1):
+    /// 組の先頭がもう開いていると、前へ出すだけでは 2 冊目以降がどこにも出ない(StackNest には受け取ったと伝えてあるので、
+    /// 知らせも出ない)。ふつうの一覧(コレクションなど)の並びは、よそのウインドウへ持ち込まない(そちらのコメント)。
+    /// 立っていて並びの先頭なら、開くときも並びをたどる最初の一歩として開く(先頭が開けなければ組の次の本を試す ――
+    /// AppState.firstStepOfHandoffGroup)。
+    var adoptsSequenceInOpenWindow = false
+
     /// 従来どおり、1つのURLをそのまま開く。
     init(_ url: URL, recordsInHistory: Bool = true, sequence: BookSequence? = nil) {
         self.urls = [url]

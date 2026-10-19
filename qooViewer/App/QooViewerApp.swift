@@ -308,7 +308,7 @@ struct QooViewerApp: App {
 
         Divider()
 
-        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。本を開いた並びがあれば有る。
+        // 置き場所の無い本(StackNest の本)には前後の本が無い(MangaBook.hasBrowsableLocation)。いっしょに渡された本の並びがあれば有る。
         let hasAdjacentBooks = hasBook
             && (menuCheckmarkState?.isCurrentBookStackNestReference != true || menuCheckmarkState?.hasBookSequence == true)
 
@@ -3143,17 +3143,121 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 従い、その後 `externalOpenMergeWindow` の間に届いた 2 冊目以降は、直前の本のタブのすぐ右に新しいタブで開く(渡された順に並ぶ。
     /// 2026-10-19 の実機: 最初の本の右に入れると、新しいタブが毎回そのすぐ右に割り込み、1・3・2 の順になった)。同じ本がもう開いていれば、
     /// その窓を前へ出す(StackNest が新しい鍵で書き直していれば読み込み直す ―― reloadIfStackNestReferenceChanged)。
+    ///
+    /// ■ いっしょに渡された本(2026-10-19。参照ファイルの `handoff` ―― StackNestViewerKit の `StackNestHandoffGroup`)
+    /// StackNest で複数の本を選んで開くと、どの参照ファイルにも同じ組の印(`id`・選んだ並びの `index`・冊数 `count`)が入る(印を
+    /// 書く StackNest)。組の参照ファイルは、Finder で複数の本を選んで開いたときと同じく、**先頭の本を開き、残りを「次の本・前の本」の
+    /// 並び(`BookSequence`)にする**。届き方(1 回の「開く」か何回かか・届く順)には頼らず、同じ `id` を `count` 冊そろうまで集める
+    /// (そろわなければ最初の 1 冊から `stackNestHandoffWait` 秒で、届いた分で開く ―― 形式の文書の約束)。すぐに開かない本も、
+    /// 受け取った時点で manifest を読む(StackNest は 15 秒後に参照ファイルごとに鍵が使われたかを確かめる。上の段落)。
+    /// 組の印の無い参照ファイル(古い StackNest・1 冊だけ)は、これまでどおり上の段落の形で開く。
     private func openStackNestReferences(_ references: [URL]) {
-        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
-        for url in references {
-            let now = Date()
-            if let burst = stackNestHandoffBurst, now.timeIntervalSince(burst.lastAt) < Self.externalOpenMergeWindow {
-                stackNestHandoffBurst = (url, now)
-                openStackNestReferenceInNewTab(url, nextTo: burst.previousURL)
-            } else {
-                stackNestHandoffBurst = (url, now)
-                runExternalOpen(BookOpenRequest(url), skipped: 0, locale: locale, intent: nil)
+        // 届いた順に処理する(前の回の読みが終わってから): 印の無い参照ファイル(古い StackNest)は届いた順にタブへ並べる約束で、
+        // 回ごとに FileIO で読むと終わる順が届いた順と限らない(2026-10-19 のレビュー L1)。
+        let previous = stackNestReferenceChain
+        stackNestReferenceChain = Task { @MainActor [weak self] in
+            await previous?.value
+            // 組の印を読む(参照ファイルは数百バイト。ファイルを読むので FileIO の上で)。読めないファイルは印の無いものとして、
+            // これまでどおり開く(開く側が理由を出す)。
+            let groups = await FileIO.perform {
+                references.map { ($0, (try? StackNestBookReference.load(contentsOf: $0))?.handoff) }
             }
+            guard let self else { return }
+            for (url, group) in groups {
+                if let group, group.count > 1 {
+                    self.collectStackNestHandoff(url, group: group)
+                } else {
+                    self.openStackNestReferenceAlone(url)
+                }
+            }
+        }
+    }
+
+    /// 前に届いた参照ファイルの処理(`openStackNestReferences` が届いた順につなぐ)。
+    private var stackNestReferenceChain: Task<Void, Never>?
+
+    /// 組の印の無い参照ファイルを開く(上の「なぜほかの開くとまとめないか」の段落)。
+    private func openStackNestReferenceAlone(_ url: URL) {
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        let now = Date()
+        if let burst = stackNestHandoffBurst, now.timeIntervalSince(burst.lastAt) < Self.externalOpenMergeWindow {
+            stackNestHandoffBurst = (url, now)
+            openStackNestReferenceInNewTab(url, nextTo: burst.previousURL)
+        } else {
+            stackNestHandoffBurst = (url, now)
+            runExternalOpen(BookOpenRequest(url), skipped: 0, locale: locale, intent: nil)
+        }
+    }
+
+    /// 集めている最中の組(`handoff.id` → 届いた参照ファイル)。
+    private struct StackNestHandoffCollection {
+        var urlsByIndex: [Int: URL] = [:]
+        let count: Int
+        /// 最初の 1 冊が届いたときに取った開く意図(待つ間に別の本が頼まれたら、その本が勝つ ―― CLAUDE.md の OpenIntent)。
+        let intent: AppState.OpenIntent
+    }
+    private var stackNestHandoffCollections: [String: StackNestHandoffCollection] = [:]
+    /// 組がそろうのを待つ上限(秒。最初の 1 冊が届いてから)。StackNest は組を 1 回の「開く」(多くても続けての数回)で渡すので、
+    /// ふつうは待たずにそろう。そろわないのは StackNest が一部の参照ファイルを書けなかったときで、その分は来ないので長く待たない
+    /// (`externalOpenMergeWindow` と同じ。以前の 3 秒は、本を渡されての起動で主ウインドウを戻す保険の 3 秒と重なった ――
+    /// 2026-10-19 のレビュー M3)。
+    private static let stackNestHandoffWait: TimeInterval = 1
+
+    private func collectStackNestHandoff(_ url: URL, group: StackNestHandoffGroup) {
+        var collection = stackNestHandoffCollections[group.id]
+            ?? StackNestHandoffCollection(count: group.count, intent: AppState.beginOpenIntentForAnyWindow())
+        let isFirst = collection.urlsByIndex.isEmpty
+        collection.urlsByIndex[group.index] = url
+        stackNestHandoffCollections[group.id] = collection
+        if collection.urlsByIndex.count >= collection.count {
+            finishStackNestHandoff(group.id)
+        } else if isFirst {
+            // 待ちの合図は DispatchQueue.main.asyncAfter(協調スレッドが混んでいても遅れない。CLAUDE.md の約束)。
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.stackNestHandoffWait) { [weak self] in
+                self?.finishStackNestHandoff(group.id)
+            }
+        }
+    }
+
+    /// 集めた組を開く: 先頭を開き、組の全冊を並び(選んだ順)にする。残りの本の manifest を読んで、StackNest に受け取ったことを伝える。
+    private func finishStackNestHandoff(_ id: String) {
+        guard let collection = stackNestHandoffCollections.removeValue(forKey: id) else { return }
+        let ordered = collection.urlsByIndex.sorted { $0.key < $1.key }.map(\.value)
+        guard let first = ordered.first else { return }
+        guard ordered.count > 1 else { return openStackNestReferenceAlone(first) }
+        let rest = Array(ordered.dropFirst())
+        Task.detached {
+            await Self.acknowledgeStackNestReferences(rest)
+        }
+        let sequence = BookSequence(entries: ordered.map { .file(path: $0.path) }, position: 0, title: .openedTogether)
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        stackNestHandoffBurst = (first, Date())
+        var request = BookOpenRequest(first, sequence: sequence)
+        // 組の先頭がもうほかのウインドウで開いていたら、そのウインドウの並びを組に替える(BookOpenRequest のコメント)。
+        request.adoptsSequenceInOpenWindow = true
+        runExternalOpen(request, skipped: 0, locale: locale, intent: collection.intent)
+    }
+
+    /// 同時に送る受け取りの合図の数(`acknowledgeStackNestReferences`)。
+    private nonisolated static let stackNestAcknowledgementWidth = 6
+
+    /// 開かない本の受け取りの合図(manifest の要求。StackNestViewerKit の文書「受け取ったらまず manifest を」)。StackNest は渡して
+    /// から 15 秒後に参照ファイルごとに鍵が使われたかを確かめるので、`stackNestAcknowledgementWidth` 冊ずつ同時に送る(以前は 1 冊
+    /// ずつで、中継の本のように manifest が遠くへ取り次がれる本では、後ろの本が 15 秒に間に合わなかった ―― 2026-10-19 のレビュー
+    /// M2)。どれも FileIO の上で(応答しない StackNest でも、部品の待ちの上限で必ず戻る)。応答は使わず、読めない本もここでは何も
+    /// しない(並びをたどったときに開く側が理由を出す ―― BookStep)。
+    private nonisolated static func acknowledgeStackNestReferences(_ urls: [URL]) async {
+        await withTaskGroup(of: Void.self) { group in
+            var next = urls.makeIterator()
+            func addNext() -> Bool {
+                guard let url = next.next() else { return false }
+                group.addTask {
+                    _ = await FileIO.perform { try? StackNestReferenceReader(referenceFileURL: url).manifest(refresh: true) }
+                }
+                return true
+            }
+            for _ in 0..<stackNestAcknowledgementWidth where !addNext() { break }
+            while await group.next() != nil { _ = addNext() }
         }
     }
 

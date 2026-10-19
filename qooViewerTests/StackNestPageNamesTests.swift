@@ -134,7 +134,7 @@ struct StackNestPageNamesTests {
     }
 }
 
-/// 並びを持つ StackNest の本(参照ファイルをまとめて落としたときなど)。置き場所の無い本でも、並びがあれば
+/// StackNest でいっしょに渡された本(参照ファイルの handoff → AppDelegate が並びにする)。置き場所の無い本でも、並びがあれば
 /// 前の本・次の本をたどれる(AppState.hasAdjacentBooks・openSibling)。
 @MainActor
 struct StackNestHandoffSequenceTests {
@@ -225,6 +225,32 @@ struct StackNestHandoffSequenceTests {
         withExtendedLifetime(keep) {}
     }
 
+    @Test("組の先頭が開けなければ、組の次の本を開く(先頭も並びをたどる一歩として開く)")
+    func aFailingFirstBookOfAGroupFallsThroughToTheNext() async throws {
+        let broken = try StackNestTestBook(pageCount: 2, label: "stacknest-head-1", fileName: "Broken.stacknestbook")
+        defer { broken.close() }
+        let second = try StackNestTestBook(pageCount: 2, label: "stacknest-head-2", fileName: "Second.stacknestbook")
+        defer { second.close() }
+        broken.server.respond(.manifest, with: .status(404))
+        let (state, library, keep) = try makeState(label: "stacknest-head")
+        defer { library.close() }
+        let sequence = try #require(BookSequence(
+            entries: [broken, second].map { .file(path: $0.referenceURL.path) }, position: 0, title: .openedTogether))
+        var request = BookOpenRequest(broken.referenceURL, sequence: sequence)
+        request.adoptsSequenceInOpenWindow = true
+        state.open(request: request)
+        await state.openTask?.value
+        #expect(state.currentBook?.sourceURL == second.referenceURL)
+        #expect(state.bookSequence?.position == 1)
+        // ふつうの並び(組でない)の先頭は、これまでどおり飛ばさない(開けなければ知らせて止まる)。
+        let (plainState, plainLibrary, plainKeep) = try makeState(label: "stacknest-head-plain")
+        defer { plainLibrary.close() }
+        plainState.open(request: BookOpenRequest(broken.referenceURL, sequence: sequence))
+        await plainState.openTask?.value
+        #expect(plainState.currentBook == nil)
+        withExtendedLifetime((keep, plainKeep)) {}
+    }
+
     @Test(
         "並びをたどるときに飛ばすのは、その本だけの失敗(StackNest 全体の失敗では止まる)",
         arguments: [
@@ -238,5 +264,31 @@ struct StackNestHandoffSequenceTests {
         #expect(!AppState.skipsWhileStepping(error, book: reference, inSequence: false))
         #expect(!AppState.skipsWhileStepping(CancellationError(), book: reference, inSequence: true))
         #expect(!AppState.skipsWhileStepping(error, book: URL(fileURLWithPath: "/tmp/x/Book.cbz"), inSequence: true))
+    }
+
+    @Test("組の先頭がもうこのウインドウで開いていれば、前へ出すときにこのウインドウの並びを組に替える(ふつうの一覧の並びは替えない)")
+    func anOpenWindowTakesTheGroupsSequence() async throws {
+        let first = try StackNestTestBook(pageCount: 2, label: "stacknest-adopt-1")
+        defer { first.close() }
+        let second = try StackNestTestBook(pageCount: 2, label: "stacknest-adopt-2", fileName: "Second.stacknestbook")
+        defer { second.close() }
+        let (state, library, keep) = try makeState(label: "stacknest-adopt")
+        defer { library.close() }
+        state.open(request: BookOpenRequest(first.referenceURL))
+        await state.openTask?.value
+        #expect(state.bookSequence == nil)
+        let sequence = try #require(BookSequence(
+            entries: [first, second].map { .file(path: $0.referenceURL.path) }, position: 0))
+
+        // ふつうの一覧の並び(よそのウインドウのもの)は持ち込まない。
+        await state.reloadIfStackNestReferenceChanged(BookOpenRequest(first.referenceURL, sequence: sequence))?.value
+        #expect(state.bookSequence == nil)
+        // 組の並びは持ち込む(参照ファイルは同じなので読み込み直さない)。
+        var grouped = BookOpenRequest(first.referenceURL, sequence: sequence)
+        grouped.adoptsSequenceInOpenWindow = true
+        await state.reloadIfStackNestReferenceChanged(grouped)?.value
+        #expect(state.bookSequence == sequence)
+        #expect(state.hasAdjacentBooks)
+        withExtendedLifetime(keep) {}
     }
 }

@@ -325,13 +325,23 @@ final class AppState: ObservableObject {
     /// 置き換える(一覧の外から開けば消える)。本を閉じても消える。
     private(set) var bookSequence: BookSequence?
 
+    /// 表示中の本に並びを付ける(StackNest の組の先頭がこのウインドウで開いていたとき ―― reloadIfStackNestReferenceChanged)。
+    /// 並びの今の本が表示中の本でなければ何もしない。
+    func adoptBookSequence(_ sequence: BookSequence) {
+        guard let shown = currentBook, sequence.entries[sequence.position].path == shown.sourceURL.path else { return }
+        bookSequence = sequence
+        commitShownBookSequence(sequence, of: shown)
+        objectWillChange.send()
+    }
+
     /// **画面に出ている本**の並び(2026-10-19。サイドパネルのフォルダブラウザが仮想のフォルダとして出す ―― `SidePanelBrowserState.showSequence`
     /// ―― のと、メニューの写しの `MenuCheckmarkState.hasBookSequence`)。
     ///
     /// `bookSequence` は読み込みを**始めた**ときに要求の並びへ替わり(失敗したら戻る)、本が画面に出るのは読み込みが済んで、さらに
     /// 最初の見開きが揃ってから(`ViewerHandoff`、最長 300ms)。パネルがそちらを見ると、読み込み中・受け渡し中に、まだ出ていない本の
     /// 並び(と位置)を出してしまう(以前メニューの写しが `bookSequence` から作られていた食い違い ―― 2026-10-19 のレビュー L3)。
-    /// こちらは**本が画面に出たとき**(ContentView が `noteShownBook` で知らせる)だけ変わる。読み込みの失敗・中止では変わらない。次の本・前の本がたどるのは今までどおり `bookSequence`。
+    /// こちらは**本が画面に出たとき**(ContentView が `noteShownBook` で知らせる)と、画面に出ている本の並びを `adoptBookSequence` が
+    /// 替えたときだけ変わる。読み込みの失敗・中止では変わらない。次の本・前の本がたどるのは今までどおり `bookSequence`。
     ///
     /// 書き換えはメニューバーのメニューが開いている間は保留する(メニューの写しが読む値。`menuShownBook` と同じ)。
     @Published private(set) var shownBookSequence: BookSequence?
@@ -355,8 +365,8 @@ final class AppState: ObservableObject {
         setShownBookSequence(committedBookSequence)
     }
 
-    /// 読み込みを終えた本の並びを控える(`open(request:)` の成功)。その本がもう画面に出ているなら(同じ本の開き直し ―― 受け渡しは
-    /// 起きない)、画面の並びもその場で替える。
+    /// 読み込みを終えた本の並びを控える(`open(request:)` の成功・`adoptBookSequence`)。その本がもう画面に出ているなら(同じ本の
+    /// 開き直し ―― 受け渡しは起きない ―― ・表示中の本へ並びを付けた)、画面の並びもその場で替える。
     private func commitShownBookSequence(_ sequence: BookSequence?, of book: MangaBook?) {
         committedBookSequence = sequence
         guard let book, shownBookIdentity == book.viewerIdentity else { return }
@@ -1420,6 +1430,8 @@ final class AppState: ObservableObject {
         // 待ってから開く入口の結果が、もう要らなくなっていれば開かない(呼ぶ側も確かめるが、ここでも必ず見る ―― 確かめ忘れた入口が
         // 後から頼んだ本を置き換えないように。R6-1)。
         if let intent, !isStillWanted(intent) { return }
+        // StackNest の組の先頭は、並びをたどる最初の一歩として開く(`firstStepOfHandoffGroup`)。
+        let step = step ?? Self.firstStepOfHandoffGroup(request)
         // この要求を「開く意図」として数える(後から終わった、先に頼まれていた入口の結果を捨てさせる)。窓を作った要求そのものは、
         // 窓を作ると頼んだ時点の番号だけを引き取る(`noteInitialRequest`。開いた回数は数えない)。
         // 2026-10-04 のレビューの RC-2: 以前は窓を作った要求を何も数えず、新しい窓の番号が 0 のままだったので、窓を作る**前**に
@@ -1960,8 +1972,9 @@ final class AppState: ObservableObject {
         after currentURL: URL, landsOnFirstPage: Bool = false, startsSlideshow: Bool = false, claimsOpenIntent: Bool = true
     ) {
         let claims = claimsOpenIntent && !startsSlideshow
-        // 置き場所の無い本(StackNest の本)には同じフォルダの「次の本」が無い(MangaBook.hasBrowsableLocation)。ただし本を開いた
-        // 並び(`bookSequence`。参照ファイルをまとめて落としたときなど)があれば、それをたどる(コレクションの本と同じ)。並びも無ければ、利用者が頼んだ一歩なら理由を知らせ、スライドショーの末尾・書き出しの
+        // 置き場所の無い本(StackNest の本)には同じフォルダの「次の本」が無い(MangaBook.hasBrowsableLocation)。ただし StackNest で
+        // いっしょに渡された本の並び(`bookSequence`。参照ファイルの handoff ―― AppDelegate.openStackNestReferences)があれば、
+        // それをたどる(コレクションの本と同じ)。並びも無ければ、利用者が頼んだ一歩なら理由を知らせ、スライドショーの末尾・書き出しの
         // 後の動作なら黙る(兄弟が見つからなかったときと同じ使い分け ―― stepToSibling)。
         if bookSequence == nil, lacksBrowsableLocation(currentURL) {
             if claims { noteNoBrowsableLocation() }
@@ -2102,6 +2115,14 @@ final class AppState: ObservableObject {
         case .cannotConnect, .libraryLocked, .hostNotAllowed, .insecureConnectionBlocked, .remoteUnavailable: return false
         default: return true
         }
+    }
+
+    /// StackNest でいっしょに渡された本の組の先頭を開く要求(`BookOpenRequest.adoptsSequenceInOpenWindow` で、並びの先頭)なら、並びを
+    /// たどる最初の一歩(先頭が開けなければ組の次の本を試す ―― `skipsWhileStepping`)。2 回目のレビュー M1: 以前は先頭を一歩として
+    /// 開かなかったので、先頭が開けないと残りの本にたどり着けなかった(StackNest には受け取ったと伝えてあるので知らせも出ない)。
+    static func firstStepOfHandoffGroup(_ request: BookOpenRequest) -> BookStep? {
+        guard request.adoptsSequenceInOpenWindow, let sequence = request.sequence, sequence.position == 0 else { return nil }
+        return BookStep(forward: true, sequence: SequenceSteps(sequence: sequence, remaining: sequence.candidatePositions(forward: true)))
     }
 
     /// 次の本・前の本(一覧の並びを含む)として開くときの向きと、一覧の並びならその残り(`open(request:step:)`)。
@@ -2964,7 +2985,8 @@ struct MenuCheckmarkState: Equatable {
     /// 許可を淡色にする(MangaBook.hasBrowsableLocation)。
     var isCurrentBookStackNestReference = false
     /// フォーカス中のウインドウの画面に出ている本が、本を開いた一覧の並び(`AppState.shownBookSequence`。`hasBook` と同じく画面の本の
-    /// 値 ―― 2026-10-19 のレビュー L3)を持つか。置き場所の無い本(StackNest の本)でも、並びがあれば前の本・次の本は淡色にしない。
+    /// 値 ―― 2026-10-19 のレビュー L3)を持つか。置き場所の無い本(StackNest の本)でも、並びがあれば前の本・次の本は淡色にしない
+    /// (StackNest でいっしょに渡された本)。
     var hasBookSequence = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
     /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの

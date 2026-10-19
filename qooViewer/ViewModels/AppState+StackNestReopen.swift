@@ -32,6 +32,8 @@ extension AppState {
     /// 要求は別のウインドウ(またはタブを作る入口)からのもの。その一覧の並び(`sequence`)・隣の本の端・スライドショーの指定を
     /// このウインドウの読み込み直しへ渡すと、このウインドウでスライドショーが始まったり、「次の本」がよその一覧をたどったりする。
     /// 読み込み直すのはこのウインドウの本なので、このウインドウの並び(`bookSequence`)を引き継ぐ。
+    /// 例外は StackNest でいっしょに渡された本の組(`BookOpenRequest.adoptsSequenceInOpenWindow`): 組の先頭がこのウインドウで
+    /// 開いているなら、このウインドウの並びを組に替える(読み込み直さないときも)。そうしないと 2 冊目以降がどこにも出ない。
     ///
     /// ■ 閉じかけのウインドウには読み込まない
     /// 読んでいる間にウインドウが閉じられたら(`hostWindow` が無い)何もしない。
@@ -54,15 +56,20 @@ extension AppState {
             }
             // 読んでいる間に、このウインドウで別の本が頼まれた・開いた・別の本へ替わった・閉じられたら何もしない(同じ本かは
             // openAppState(forBookAt:) と同じくパスで)。
-            guard self.isStillWanted(noted), !hadWindow || self.hostWindow != nil, let reference,
+            guard self.isStillWanted(noted), !hadWindow || self.hostWindow != nil,
                   let shown = self.currentBook,
-                  shown.sourceURL.path == url.path,
-                  Self.reloadsForStackNestReference(showing: shown, read: reference)
+                  shown.sourceURL.path == url.path
             else { return }
+            let sequence = request.adoptsSequenceInOpenWindow ? request.sequence : self.bookSequence
+            guard let reference, Self.reloadsForStackNestReference(showing: shown, read: reference) else {
+                // 読み込み直さない(中身が同じ・読めない)ときも、組の並びはこのウインドウへ移す。
+                if request.adoptsSequenceInOpenWindow, let sequence { self.adoptBookSequence(sequence) }
+                return
+            }
             let intent = self.beginOpenIntent()
             // このウインドウへ開く(ほかのウインドウを探さない)。
             self.open(
-                request: BookOpenRequest(url, recordsInHistory: request.recordsInHistory, sequence: self.bookSequence),
+                request: BookOpenRequest(url, recordsInHistory: request.recordsInHistory, sequence: sequence),
                 reusesExistingWindow: false, intent: intent
             )
         }

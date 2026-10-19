@@ -356,7 +356,7 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   着脱・本を開くたびに全ウインドウで一覧を読み直した(直下のフォルダごとに中を覗くので、共有では秒単位)。
   **画面に出ている本が並び(`BookSequence`)を持つ間は、フォルダの代わりにその並びを仮想のフォルダとして出す**(2026-10-19、
   利用者の指示。`SidePanelBrowserState.sequenceFolder`、並びは `AppState.shownBookSequence` を ContentView が `showSequence` で渡す ――
-  読み込み中の本の並びではない。並びの決まりは [04](04-book-loading.md) の「隣の本」)。Finder でまとめて開いた本、
+  読み込み中の本の並びではない。並びの決まりは [04](04-book-loading.md) の「隣の本」)。Finder・StackNest でまとめて開いた本、
   コレクション・スマートライブラリから開いた本が対象。行は並びの順のまま(並べ替えの設定は効かない)で、名前は記録してあるパスの
   最後の成分(StackNest の参照ファイルは `.stacknestbook` を外す ―― `BookSequence.displayName(of:)`)。**ファイルシステムには触らない**
   (並びの本は分かっている。行ごとの確かめもサムネイルも無く、アイコンは名前の拡張子だけで決める ―― 書庫・PDF・EPUB はその印、

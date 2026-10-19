@@ -435,16 +435,16 @@ cooViewer のスライドショーは手でページを送るのと同じ処理�
 消える。たどって開いた本では並びを持ったまま位置だけが進む。
 
 **並びはサイドパネルのフォルダブラウザに仮想のフォルダとして出る**(2026-10-19、利用者の指示。[09](09-ui-and-windows.md) の
-「サイドパネル」): 並びは出どころ(`BookSequence.Title`)を持つ ―― Finder・Dock の複数選択・ウインドウへの複数のドロップは
-「まとめて開いた本」(`.openedTogether`)、コレクションはその名前(`.collection`)、スマート
+「サイドパネル」): 並びは出どころ(`BookSequence.Title`)を持つ ―― Finder・Dock の複数選択・ウインドウへの複数のドロップ・
+StackNest でいっしょに渡された本は「まとめて開いた本」(`.openedTogether`)、コレクションはその名前(`.collection`)、スマート
 ライブラリは開いていた束かスマートコレクションの名前、無ければ「スマートライブラリ」(`.smartLibrary`)。文ではなく出どころで持ち、
 見出しの文は出すときに組む(表示言語はその場で切り替わる)。`BookOpenRequest`(WindowGroup の値)に載るので、同じ選択からは同じ値に
 なるものだけを入れる(名前。UUID・時刻は入れない)。
 - パネルが見るのは**画面に出ている本の並び**(`AppState.shownBookSequence`)。`bookSequence` は読み込みを始めたときに要求の並びへ
   替わり(失敗したら戻る)、本が画面に出るのは読み込みが済み、さらに最初の見開きが揃ってから(`ViewerHandoff`、最長 300ms)なので、
   そちらを見るとまだ出ていない本の並び・位置を出してしまう。`shownBookSequence` は本が画面に出たとき(ContentView が
-  `ViewerHandoff.shown` の出版ごとに `noteShownBook` で知らせる)、同じ本の開き直し(受け渡しが起きない)のときだけ
-  変わり、読み込みの失敗・中止では変わらない。メニューの写しの `MenuCheckmarkState.hasBookSequence` もこちらから作る
+  `ViewerHandoff.shown` の出版ごとに `noteShownBook` で知らせる)、同じ本の開き直し(受け渡しが起きない)、`adoptBookSequence` の
+  ときだけ変わり、読み込みの失敗・中止では変わらない。メニューの写しの `MenuCheckmarkState.hasBookSequence` もこちらから作る
   (2026-10-19 のレビュー L3 ―― 以前は `bookSequence`)。次の本・前の本がたどるのは今までどおり `bookSequence`。
 - 行を押すと `AppState.openSequenceEntry(at:)`: 並びを持ったまま位置だけ動かす(`sequence.moved(to:)`)。確かめは次の本・前の本と
   同じ道具(`sequenceProbe` → FileIO の上で `sequenceProbeLimit` の期限つき、待ち始めに開く意図を取り札を出す、別のウインドウへは
