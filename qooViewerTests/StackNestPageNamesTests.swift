@@ -5,6 +5,21 @@ import Testing
 
 @testable import qooViewer
 
+/// StackNest が manifest に付ける本の同一性(`bookIdentity`)。付けない StackNest(古い版)では nil。
+@MainActor
+struct StackNestBookIdentityTests {
+    @Test("manifest の同一性を本が持つ(付けない StackNest では nil)")
+    func bookCarriesTheIdentity() async throws {
+        let fixture = try StackNestTestBook(pageCount: 3, bookIdentity: "sn1-fixture")
+        defer { fixture.close() }
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        #expect(book.stackNestBookIdentity == "sn1-fixture")
+        let older = try StackNestTestBook(pageCount: 3, label: "stacknest-older")
+        defer { older.close() }
+        #expect(try await FixtureBook.load(older.referenceURL).stackNestBookIdentity == nil)
+    }
+}
+
 /// 並びを持つ StackNest の本(参照ファイルをまとめて落としたときなど)。置き場所の無い本でも、並びがあれば
 /// 前の本・次の本をたどれる(AppState.hasAdjacentBooks・openSibling)。
 @MainActor

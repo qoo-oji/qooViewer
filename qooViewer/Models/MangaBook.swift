@@ -132,6 +132,12 @@ struct MangaBook: Identifiable, Hashable {
     /// この値を読まない)。並びを組み直す所(ViewerViewModel.prepareBook)は必ず引き継ぐこと。
     var stackNestReference: StackNestBookReference? = nil
 
+    /// StackNest が manifest に付けた本の同一性(`StackNestBookManifest.bookIdentity`。同じライブラリの同じ本なら、改題・移動・
+    /// StackNest の再起動・リモートの本の中継を通しても同じ値)。付けない StackNest では nil。**今は保存データの鍵には使っていない**
+    /// (StackNest の本は記録を残さない ―― `leavesNoRecord`)。ブックマーク・レイアウトを残すときの鍵の候補として持つ。
+    /// 並びを組み直す所(ViewerViewModel.prepareBook)は引き継ぐこと。
+    var stackNestBookIdentity: String? = nil
+
     /// StackNest の参照ファイルの本か。
     var isStackNestReference: Bool { stackNestReference != nil }
 

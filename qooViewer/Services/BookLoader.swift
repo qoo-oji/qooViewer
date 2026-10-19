@@ -154,9 +154,11 @@ nonisolated enum BookLoader {
             // manifest がページ数と読み方向の正(参照ファイルの値は開いた時点のもの)。開くたびに問い合わせる: 覚えた manifest を
             // 使うと要求が出ず、StackNest が「読み込まれた」と知る合図にならない。
             let manifest = try reader.manifest(refresh: true)
-            return try stackNestReferenceBook(
+            var book = try stackNestReferenceBook(
                 reference: reader.reference, pageCount: manifest.pageCount,
                 direction: manifest.direction ?? reader.reference.direction, at: url)
+            book.stackNestBookIdentity = manifest.bookIdentity
+            return book
         } catch let error as StackNestViewerError {
             // アラートは errorDescription を出す。部品のエラーのままだと qooViewer の表示言語にならない(StackNestOpenError)。
             throw StackNestOpenError(error: error)

@@ -3552,6 +3552,7 @@ final class ViewerViewModel: ObservableObject {
             origin: rawBook.origin,
             // これも引き継ぎ必須。落とすと、ページは読めても書き戻し・ディスクキャッシュの除外・下調べの省略が効かなくなる。
             stackNestReference: rawBook.stackNestReference,
+            stackNestBookIdentity: rawBook.stackNestBookIdentity,
             // これも引き継ぎ必須(落とすと、シークレットフォルダの本が並べ替えの後から記録の残る本に変わる)。
             isInSecretFolder: rawBook.isInSecretFolder,
             // これも引き継ぎ必須(落とすと、レイアウト・ブックマークの行を作るたびにメインで元ファイルへ問い合わせる ――
