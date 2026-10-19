@@ -964,6 +964,9 @@ final class AppState: ObservableObject {
     /// 追加されてしまう不具合があった。本を開いているAppStateそのものが持つウインドウ参照を
     /// 直接使うことで、常に正しいウインドウへタブを追加できるようにしている。
     weak var hostWindow: NSWindow?
+    /// このウインドウが閉じたときのウインドウ(ContentView の閉じた知らせが控える)。WindowAccessor は閉じた後のウインドウでも
+    /// 呼ばれることがあり、アプリが隠れている間は見えるかどうかで閉じたかを見分けられないので、これと比べる。
+    weak var closedHostWindow: NSWindow?
 
     /// このウインドウのファイルブラウザ(改善要望7 段階4)。編集メニューの「取り消す」「やり直す」が
     /// ここから操作の積み場所へ届く。持ち主はContentView(`@StateObject`)なので weak。

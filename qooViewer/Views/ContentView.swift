@@ -790,7 +790,13 @@ struct ContentView: View {
             // 「まだ開いている」と誤認し、外部から同じ本を開こうとしたときに、閉じたウインドウを
             // makeKeyAndOrderFrontしようとするだけで新しいウインドウが作られず、本が表示されない
             // (ように見える)不具合があった。既に閉じられたウインドウの参照は無視する。
-            guard window == nil || window!.isVisible else { return }
+            //
+            // ただし、**アプリが隠れているだけ**で見えないウインドウは閉じたウインドウではないので受け取る(2026-10-19 の実測:
+            // 隠して起動(`open -j` など)すると、主ウインドウ(ホーム)は作られるが見えないまま、ここで捨てられて hostWindow が
+            // 決まらなかった。その後 Finder から本を開くと、application(_:open:) が主ウインドウを使い回せないと判断して新しい本の
+            // ウインドウを作り、アプリが前に出るとホームのウインドウが 1 枚余って残った)。閉じたウインドウとは、閉じた知らせで
+            // 控えたウインドウ(appState.closedHostWindow)かで見分ける(アプリが隠れている間に閉じたウインドウを取り違えない)。
+            guard window == nil || window!.isVisible || (NSApp.isHidden && window !== appState.closedHostWindow) else { return }
             guard appState.hostWindow !== window else { return }
             appState.hostWindow = window
             // バグ修正(ユーザー報告): ツールバーを隠す設定で、「横幅に合わせる」などページを
@@ -1369,6 +1375,8 @@ struct ContentView: View {
                 if appState.hostWindow === window {
                     appState.hostWindow = nil
                 }
+                // 閉じた後に WindowAccessor がこのウインドウで呼ばれても受け取らない(アプリが隠れているときの判定に使う)。
+                appState.closedHostWindow = window
                 if launchCoordinator.primaryAppState === appState {
                     launchCoordinator.primaryAppState = nil
                 }
