@@ -132,7 +132,9 @@
   **落ちたときに退避を戻す記録(qooLibrary の `ReplaceBackupJournal`)は段階 4 へ**(UI から `.replace` に届くのが段階 4)。
 - 完全削除はロックされた項目のロックを外さず、失敗として返す(確認の UI が無いので消さない側)。段階 4 で確認を付けるなら足す。
 - `FileNameValidation` の UTF-8 255 バイトの規則は**入口では見ない**(APFS では日本語 86 文字以上の名前も作れるため)。
-  宛先が `smbfs` のときだけ事前検査で見る(`FileOperationPreflight.nameByteLimit`)。
+  宛先が `smbfs` のときだけ事前検査で見る(`FileOperationPreflight.nameByteLimit`)。数えるのは **NFC に直した形**
+  (`nameBytesAtDestination`。macOS の SMB クライアントは NFC に直して送る。分解済みの名前をそのまま数えて、Finder では入る
+  名前を断っていた ―― 2026-10-24、NFC 248 / NFD 263 バイト)。
 - `untitledFolderName` の 2 つ目以降(`名称未設定フォルダ 2`)は**まだ実機の Finder と突き合わせていない**(段階 4 で新規フォルダの
   ボタンを置くときに確かめる)。
 - 一括の移動・コピーは**最初の失敗で止まり**、`TransferOutcome` に動いた分の受領書・止まった項目・手つかずの項目を入れて返す

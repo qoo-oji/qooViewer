@@ -257,6 +257,27 @@ struct FileOperationServiceTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: deep.path).isEmpty)
     }
 
+    @Test("SMB の名前の上限は NFC に直したバイト数で比べる(分解済みの名前でも、Finder が入れる名前は断らない)")
+    func smbNameLimitCountsTheComposedForm() throws {
+        let mounts = MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "/dev/x", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/Share", mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        let share = URL(filePath: "/Volumes/Share", directoryHint: .isDirectory)
+        // 濁点付きのカナは NFC で 3 バイト、NFD で 6 バイト。
+        let fits = (String(repeating: "ガ", count: 80) + ".cbz").decomposedStringWithCanonicalMapping
+        #expect(fits.utf8.count > 255)
+        #expect(FileOperationPreflight.nameBytesAtDestination(fits) == 244)
+        try FileOperationPreflight.checkNameFits(fits, at: share, mounts: mounts)
+
+        let tooLong = (String(repeating: "ガ", count: 85) + ".cbz").decomposedStringWithCanonicalMapping
+        #expect(throws: FileOperationError.nameTooLongForDestination(name: tooLong, lengthBytes: 259, limitBytes: 255)) {
+            try FileOperationPreflight.checkNameFits(tooLong, at: share, mounts: mounts)
+        }
+        // 上限を持たない宛先では見ない。
+        try FileOperationPreflight.checkNameFits(tooLong, at: URL(filePath: "/Users", directoryHint: .isDirectory), mounts: mounts)
+    }
+
     // MARK: - 衝突
 
     @Test("尋ねる相手がいないまま衝突したら、何も書かずに失敗する")

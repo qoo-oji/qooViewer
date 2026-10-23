@@ -33,7 +33,7 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
     let deepestRelativePath: (path: String, item: URL)?
     /// いちばん大きいファイル(宛先のファイルサイズ上限の検査用)。
     let largestFile: (size: Int64, item: URL)?
-    /// いちばん長い名前(UTF-8 のバイト数。SMB の名前長の検査用)。
+    /// いちばん長い名前(NFC に直した UTF-8 のバイト数 ―― `FileOperationPreflight.nameBytesAtDestination`。SMB の名前長の検査用)。
     let longestName: (name: String, item: URL)?
 
     /// - Parameter mayClone: false ならクローンできる宛先でも数える(FileOperationService の `allowsCloning` ―― テスト用)。
@@ -139,10 +139,12 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
         var deepest: (path: String, item: URL)?
         var largest: (size: Int64, item: URL)?
         var longestName: (name: String, item: URL)?
+        var longestNameBytes = -1
         func note(relativePath: String, item: URL) {
             if relativePath.utf8.count > (deepest?.path.utf8.count ?? -1) { deepest = (relativePath, item) }
             let name = item.lastPathComponent
-            if name.utf8.count > (longestName?.name.utf8.count ?? -1) { longestName = (name, item) }
+            let bytes = FileOperationPreflight.nameBytesAtDestination(name)
+            if bytes > longestNameBytes { longestName = (name, item); longestNameBytes = bytes }
         }
         func note(size: Int64, item: URL) {
             total += size
@@ -227,6 +229,24 @@ nonisolated enum FileOperationPreflight {
     /// APFS/HFS+/exFAT は FileNameValidation の入口の規則と同じかそれより緩い。
     static func nameByteLimit(at url: URL, mounts: MountTable) -> Int? {
         mounts.entry(containing: url)?.fileSystemType == "smbfs" ? 255 : nil
+    }
+
+    /// 名前を上限と比べるときのバイト数。**合成済み(NFC)に直してから数える**: macOS の SMB クライアントは名前を
+    /// NFC に直してから送るので、サーバーに書かれるのはその形。手元の名前が分解済み(NFD。HFS+ 由来や書庫の展開物)だと
+    /// 濁点付きのカナが 1 文字 3 → 6 バイトに膨らみ、Finder では入る名前を「長すぎる」と断っていた(2026-10-24、
+    /// NFC 248 / NFD 263 バイトの名前)。Apple の合成は厳密な NFC と一部の範囲(CJK 互換漢字など)で違うが、
+    /// ずれても少なく数える側にしか倒れず、そのときは書き込みの errno が理由付きで捕まる(この型の「判断できないときは
+    /// 検査しない」と同じ向き)。
+    static func nameBytesAtDestination(_ name: String) -> Int {
+        name.precomposedStringWithCanonicalMapping.utf8.count
+    }
+
+    /// 名前が宛先の上限に収まるか。上限を持たない宛先では何もしない。見せるバイト数も比べた値(NFC)。
+    static func checkNameFits(_ name: String, at folder: URL, mounts: MountTable) throws {
+        guard let limit = nameByteLimit(at: folder, mounts: mounts) else { return }
+        let bytes = nameBytesAtDestination(name)
+        guard bytes > limit else { return }
+        throw FileOperationError.nameTooLongForDestination(name: name, lengthBytes: bytes, limitBytes: limit)
     }
 
     /// 書き込み先に実際に書けるか。`volumeIsReadOnly` を見たうえで `access(W_OK)`。SMB ではモードビットも

@@ -259,9 +259,7 @@ actor FileOperationService {
             guard Self.itemExists(at: item) else { throw FileOperationError.itemMissing(item) }
             let parent = item.deletingLastPathComponent()
             try FileOperationPreflight.checkWritable(parent)
-            if let limit = FileOperationPreflight.nameByteLimit(at: parent, mounts: .current()), validName.utf8.count > limit {
-                throw FileOperationError.nameTooLongForDestination(name: validName, lengthBytes: validName.utf8.count, limitBytes: limit)
-            }
+            try FileOperationPreflight.checkNameFits(validName, at: parent, mounts: .current())
             let wasLocked = Self.isLocked(item)
             if wasLocked {
                 guard unlockingLocked, Self.setLocked(item, false) else { throw FileOperationError.itemLocked(item) }
@@ -608,9 +606,8 @@ actor FileOperationService {
         if let largest = tracker.largestFile, let limit = FileOperationPreflight.maximumFileSize(at: destination), largest.size > limit {
             throw FileOperationError.fileTooLargeForDestination(item: largest.item, size: largest.size, limit: limit)
         }
-        if let longest = tracker.longestName, let limit = FileOperationPreflight.nameByteLimit(at: destination, mounts: mounts),
-           longest.name.utf8.count > limit {
-            throw FileOperationError.nameTooLongForDestination(name: longest.name, lengthBytes: longest.name.utf8.count, limitBytes: limit)
+        if let longest = tracker.longestName {
+            try FileOperationPreflight.checkNameFits(longest.name, at: destination, mounts: mounts)
         }
         // 足りないと分かっているなら書かずに断る(4GB を空き 2.8GB へ運んで 2.91GB 書いてから失敗していた。qooLibrary)。
         // 見せる「必要な量」は余裕を足した値(比べた値と同じ)。足さずに見せると「1.5 GB 必要ですが、空きは 1.5 GB です」と

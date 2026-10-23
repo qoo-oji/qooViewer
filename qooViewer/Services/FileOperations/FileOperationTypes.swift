@@ -300,7 +300,7 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case sourceChangedDuringOperation(URL)
     /// 取り消しで戻そうとした項目が、操作の後で別の項目に置き換わっていた(`FileOperationOptions.expectedIdentities`)。運んでいない。
     case itemReplacedSinceOperation(URL)
-    /// 名前が宛先の上限を超える(SMB は UTF-8 で 255 バイト)。
+    /// 名前が宛先の上限を超える(SMB は UTF-8 で 255 バイト。数えるのは NFC に直した形 ―― `FileOperationPreflight.nameBytesAtDestination`)。
     case nameTooLongForDestination(name: String, lengthBytes: Int, limitBytes: Int)
     /// 1 ファイルが宛先の上限を超える(FAT32 は 4GB 弱)。
     case fileTooLargeForDestination(item: URL, size: Int64, limit: Int64)
