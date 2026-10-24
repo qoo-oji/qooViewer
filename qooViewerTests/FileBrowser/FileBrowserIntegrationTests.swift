@@ -1189,14 +1189,14 @@ struct FileBrowserIntegrationTests {
         ) == nil)
     }
 
-    @Test("「本ではありません」の説明は、コレクションのときだけ棚のフォルダの一文を添える")
-    func noBooksMessageDependsOnTheOperation() {
+    @Test("「本ではありません」の説明は 1 文だけ(ダイアログの作法。2026-10-24 にコレクションのときの 2 文目を外した)")
+    func noBooksMessageIsOneSentence() {
         let english = Locale(identifier: "en")
         let collection = FileBrowserActions.noBooksProblem(names: ["Folder"], forCollection: true, locale: english)
         let single = FileBrowserActions.noBooksProblem(names: ["Folder"], forCollection: false, locale: english)
         #expect(collection.title == "“Folder” isn’t a book.")
-        #expect(collection.message.contains("A folder of books"))
-        #expect(!single.message.contains("A folder of books"))
+        #expect(collection.message == "Archives, PDF and EPUB files, and folders of images can be books.")
+        #expect(single.message == collection.message)
         #expect(FileBrowserActions.noBooksProblem(names: ["a", "b"], forCollection: false, locale: english).title
                 == "The selected items aren’t books.")
     }

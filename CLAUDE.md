@@ -688,6 +688,12 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   `Views/FileBrowser/FileOperationPromptWindow.swift` — pixel-matched against Finder on macOS 27, no default button, Finder's own
   strings; a row is answered "Stop" when its owner window closes); only pre-start refusals and "Delete Immediately" stay `NSAlert`
   sheets (docs/15「操作の問い合わせ」).
+  **Every dialog follows docs/09「ダイアログとシートの作法」** (2026-10-24, user decision): one-sentence titles that name the item in
+  “…” (Japanese too — Finder's quotes; menus/toasts keep 「」), at most one explanatory sentence, Finder's own strings where Finder has the
+  same dialog, Cancel left/Esc, irreversible actions red with **no default button**, OK-only alerts get an explicit display-language "OK",
+  4+ choices use `ChoiceListSheet` (never `.confirmationDialog`, which drops the 4th button). Dialogs Finder also has (delete
+  immediately, the three rename checks, paste into itself, protected folder, Home book not found, …) are Finder-style free dialogs
+  via `WindowSheet.runAsFinderDialog` (`.critical` icon, app-modal like Finder) — pixel-matched against Finder except the badge.
   **Save/open panels and confirmation alerts that belong to a window go through `WindowSheet`** (2026-09-27): a sheet on that window
   (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in

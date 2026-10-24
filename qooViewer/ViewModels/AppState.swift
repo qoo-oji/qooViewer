@@ -1231,7 +1231,7 @@ final class AppState: ObservableObject {
         panel.message = String(
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
+            localized: "Choose a book to open. Selecting several images opens them as one book.",
             // `locale:` は書式だけを替え、訳文は OS の言語のものになる(CLAUDE.md「Localization」)。表示言語で引くのは `language:`
             // (2026-10-11 の規約監査で直した)。
             language: locale
@@ -1429,8 +1429,8 @@ final class AppState: ObservableObject {
         // (BookOpenRequest.exceedsImageSelectionLimitのコメント参照)。
         guard !request.exceedsImageSelectionLimit else {
             errorMessage = String(
-                localized: "Too many images were selected. You can open up to \(BookOpenRequest.maxImageSelectionCount) images at once.",
-                language: locale
+                format: String(localized: "You can open up to %lld images at once.", language: locale),
+                BookOpenRequest.maxImageSelectionCount
             )
             return
         }
@@ -2022,7 +2022,7 @@ final class AppState: ObservableObject {
             case nil:
                 guard claims else { return }
                 self.postViewerNotice(String(format: String(
-                    localized: "The location of “%@” didn’t respond. Try again later.", language: locale
+                    localized: "The location of “%@” isn’t responding.", language: locale
                 ), folderName))
             }
         }
@@ -2448,7 +2448,7 @@ final class AppState: ObservableObject {
         let folderURL = pageURL.deletingLastPathComponent()
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let accessMessage = String(
-            localized: "To open all images in this folder, please select and grant access to this folder.",
+            localized: "Grant access to this folder.",
             language: locale
         )
         let bookID = currentBook?.id
@@ -2537,7 +2537,7 @@ final class AppState: ObservableObject {
         // 念のため一覧を取り直しておく(保険)。
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let accessMessage = String(
-            localized: "To show files in the same folder, please select and grant access to this folder.",
+            localized: "Grant access to this folder.",
             language: locale
         )
         Task { @MainActor [weak self] in

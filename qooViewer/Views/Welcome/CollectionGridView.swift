@@ -175,11 +175,7 @@ struct CollectionGridView: View {
             Button("Cancel", role: .cancel) { deletingCollectionIDs = [] }
             Button("Delete", role: .destructive) { confirmDeletion() }
         } message: {
-            if deletingCollectionIDs.count == 1 {
-                Text("The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo.")
-            } else {
-                Text("The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo.")
-            }
+            Text("Book files aren’t deleted.")
         }
         .onChange(of: renamingCollectionID != nil && renamingCollection == nil) { _, isStale in
             if isStale { renamingCollectionID = nil }
@@ -216,10 +212,13 @@ struct CollectionGridView: View {
 
     /// 1件のときは従来どおりの文言、まとめて消すときは冊数入りの文言。英語では
     /// 「1 collections」になってしまうので、単数・複数で鍵を分けている。
+    /// 題は消す相手を名指しする(Finder の「タグ“…”を削除しますか?」と同じ形。ダイアログの作法 ―― docs/09)。
     private var deletionTitle: Text {
-        deletingCollectionIDs.count == 1
-            ? Text("Delete Collection?")
-            : Text("Delete \(deletingCollectionIDs.count) collections?")
+        if deletingCollectionIDs.count == 1 {
+            let name = deletingCollectionIDs.first.flatMap { collectionStore.collection(withID: $0)?.name } ?? ""
+            return Text("Delete the collection “\(name)”?")
+        }
+        return Text("Delete \(deletingCollectionIDs.count) collections?")
     }
 
     /// ゴミ箱の相手 = いま出ているもののうち選んでいるもの(表示順。WelcomeLibraryState.targetCollectionIDs と同じ交わり)。

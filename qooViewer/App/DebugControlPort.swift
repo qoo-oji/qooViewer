@@ -247,6 +247,33 @@ final class DebugControlPort {
                 isMove: arguments["move"] as? Bool ?? false
             )
             return [:] as [String: Any]
+        case "fileBrowserRename":
+            // 前面の窓のファイルブラウザで、インラインの名前の変更を確定したのと同じ入口を呼ぶ(Finder と同じ確認 ―― ドット・拡張子・
+            // 同じ名前 ―― を実機で出して撮るため。2026-10-24)。
+            guard let path = arguments["path"] as? String, let name = arguments["name"] as? String else {
+                throw Failure("fileBrowserRename needs path and name")
+            }
+            guard let browser = try frontmost().fileBrowser else { throw Failure("the file browser is not shown") }
+            var kinds: [String: String] = [:]
+            let entry = FileBrowserListing.makeEntry(URL(filePath: path), kindCache: &kinds)
+            browser.operations.rename(entry, to: name)
+            return [:] as [String: Any]
+        case "fileBrowserDelete":
+            // ゴミ箱に入れる・すぐに削除(Finder と同じ確認を実機で出して撮るため。2026-10-24)。
+            guard let paths = arguments["paths"] as? [String] else { throw Failure("fileBrowserDelete needs paths") }
+            guard let browser = try frontmost().fileBrowser else { throw Failure("the file browser is not shown") }
+            var kinds: [String: String] = [:]
+            let entries = paths.map { FileBrowserListing.makeEntry(URL(filePath: $0), kindCache: &kinds) }
+            if arguments["immediately"] as? Bool ?? false {
+                browser.operations.deleteImmediately(entries)
+            } else {
+                browser.operations.moveToTrash(entries)
+            }
+            return [:] as [String: Any]
+        case "showGoToFolder":
+            guard let browser = try frontmost().fileBrowser else { throw Failure("the file browser is not shown") }
+            browser.isShowingGoToFolder = true
+            return [:] as [String: Any]
         case "promptRows":
             // 出ている問い合わせ・報告の行の数(Finder と同じ形の操作ウインドウ ―― FileOperationPromptCenter)。
             return ["count": FileOperationPromptCenter.shared.pendingCount]

@@ -860,12 +860,10 @@ enum BookLoaderError: LocalizedError {
         case .notFound:
             return String(localized: "The file or folder could not be found.", language: AppLanguage.currentLocale)
         case .noPages:
-            return String(
-                localized: "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)", language: AppLanguage.currentLocale
-            )
+            return String(localized: "No supported images were found.", language: AppLanguage.currentLocale)
         case .epubNotPictureBook:
             return String(
-                localized: "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported.", language: AppLanguage.currentLocale
+                localized: "This EPUB can’t be opened because it isn’t an image-based (fixed-layout) book.", language: AppLanguage.currentLocale
             )
         }
     }

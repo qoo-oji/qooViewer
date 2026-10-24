@@ -121,6 +121,13 @@ struct AddBooksPanel: View {
         }
         .padding(20)
         .frame(width: 480, height: 420)
+        // ボタンが「完了」1 つのシートも Esc で閉じる(ダイアログの作法 ―― docs/09。完了と同じく、足した本はもう入っている)。
+        .background {
+            Button("") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .hidden()
+                .accessibilityHidden(true)
+        }
     }
 
     private var bookList: some View {
@@ -193,7 +200,7 @@ struct AddBooksPanel: View {
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(
-            localized: "Choose manga folders, or zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB files to add to this collection.",
+            localized: "Choose books to add to this collection.",
             language: locale
         )
         // このウインドウのシート(2026-09-27。WindowSheet)。その間にライブラリ機能が切られていたら足さない。

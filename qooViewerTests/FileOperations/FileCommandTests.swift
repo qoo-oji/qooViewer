@@ -481,7 +481,7 @@ struct FileCommandsTests {
             Issue.record("試し直せる扱いになった")
             return
         }
-        #expect(stack.undoTitle == String(localized: "New Folder", language: AppLanguage.currentLocale), "下の操作が一番上に出る")
+        #expect(stack.undoTitle == String(localized: "New Folder (operation name)", language: AppLanguage.currentLocale), "下の操作が一番上に出る")
         #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("a.txt").path), "黙って完全に削除しない")
     }
 

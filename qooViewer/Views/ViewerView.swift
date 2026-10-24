@@ -1748,7 +1748,7 @@ struct ViewerView: View {
             // 毎回確認と同じ部品・同じ見た目で、選択肢だけが違う。
             .sheet(isPresented: $isShowingExportCompletionPrompt) {
                 PageBoundaryChoiceSheet<BookExportCompletionBehavior>(
-                    titleKey: "The book has been exported."
+                    titleKey: "The book has been exported.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
                 ) { choice in
                     isShowingExportCompletionPrompt = false
                     performExportCompletionBehavior(choice, chosenByUser: true)
@@ -1787,8 +1787,9 @@ struct ViewerView: View {
         // 環境設定「本を開く」の「開始ページ」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
         content
+        // 「再開」が Return、「最初から」が Esc(ダイアログの作法: 左が取り消し側、右が進める側。docs/09)。
         .alert(
-            "Resume from where you left off?",
+            "Resume where you left off?",
             isPresented: Binding(
                 get: { [weak viewModel] in viewModel?.needsResumeConfirmation ?? false },
                 set: { isPresented in
@@ -1798,7 +1799,7 @@ struct ViewerView: View {
                 }
             )
         ) {
-            Button("Start from Beginning") {
+            Button("Start from Beginning", role: .cancel) {
                 relay.send { $0.viewModel.confirmResumeFromLastPage(false) }
             }
             Button("Resume") {
@@ -1806,42 +1807,41 @@ struct ViewerView: View {
             }
         }
         // レイアウト操作(3.2節。「レイアウト情報を削除する」を除く)の後に表示する、
-        // 伝播範囲選択ダイアログ(3.3節)。ツールバー・コンテキストメニュー・メニューバーの
+        // 伝播範囲選択(3.3節)。ツールバー・コンテキストメニュー・メニューバーの
         // どの経路から操作しても、いったんpendingLayoutStateChangeへ「対象ページ・新しい状態」を
-        // 詰めるだけの共通の仕組みにしているため、ダイアログ自体はここ1箇所だけで済む。
-        .confirmationDialog(
-            "Apply Layout Change To…",
+        // 詰めるだけの共通の仕組みにしているため、ここ1箇所だけで済む。
+        // **`.confirmationDialog`ではなく縦に並べたシート**(ChoiceListSheet): 選択肢が 4 つ + キャンセルになると
+        // `.confirmationDialog`は 4 つ目を捨て、キャンセルを「OK」に変えた(2026-10-24 に実測)。
+        .sheet(
             isPresented: Binding(
                 get: { hasPendingLayoutStateChange },
                 set: { isPresented in
                     if !isPresented { relay.send { $0.pendingLayoutStateChange = nil } }
                 }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             if let pending = pendingLayoutStateChange, let pageIndex = pendingLayoutPageIndex {
-                ForEach(availableScopes(forPageIndex: pageIndex)) { scope in
-                    Button(scope.titleKey) {
-                        relay.send { view in
-                            view.pendingLayoutStateChange = nil
-                            // 押した時点の並びで鍵から番号を引き直す(V-12)。並びから消えていれば書かずに鳴らす。
-                            guard let index = view.viewModel.pageIndex(forPageKey: pending.pageKey) else {
-                                UserFeedback.beep()
-                                return
-                            }
-                            Task {
-                                await view.viewModel.setPageLayout(atIndex: index, to: pending.state, scope: scope)
-                                view.syncMenuCheckmarkState()
-                            }
+                ChoiceListSheet<LayoutPropagationScope?>(
+                    titleKey: "Apply Layout Change To…",
+                    choices: availableScopes(forPageIndex: pageIndex).map { .init(id: $0, titleKey: $0.titleKey) }
+                        + [.init(id: nil, titleKey: "Cancel")],
+                    cancelID: nil
+                ) { chosen in
+                    relay.send { view in
+                        view.pendingLayoutStateChange = nil
+                        guard let scope = chosen else { return }
+                        // 押した時点の並びで鍵から番号を引き直す(V-12)。並びから消えていれば書かずに鳴らす。
+                        guard let index = view.viewModel.pageIndex(forPageKey: pending.pageKey) else {
+                            UserFeedback.beep()
+                            return
+                        }
+                        Task {
+                            await view.viewModel.setPageLayout(atIndex: index, to: pending.state, scope: scope)
+                            view.syncMenuCheckmarkState()
                         }
                     }
                 }
             }
-            Button("Cancel", role: .cancel) {
-                relay.send { $0.pendingLayoutStateChange = nil }
-            }
-        } message: {
-            Text("Choose how far this layout change should apply.")
         }
         // 見開き表示中、ツールバー/お気に入りメニュー/キーボードショートカットからブックマークを
         // 追加しようとしたとき、環境設定「Adding Bookmarks in Spread View」が「実行するたびに
@@ -1867,7 +1867,7 @@ struct ViewerView: View {
         // (BookLayoutSettings/PageLayoutOverride)を維持するか破棄するかだけを尋ね、
         // 「エクスポートしてから破棄する」の3択目はJSON入出力(6節)実装後のPhase4で追加する。
         .alert(
-            "This Book's Contents May Have Changed",
+            "The contents of this book may have changed.",
             isPresented: Binding(
                 get: { [weak viewModel] in viewModel?.pendingLayoutReplacementStatus != nil },
                 set: { _ in }
@@ -1877,7 +1877,7 @@ struct ViewerView: View {
             // SwiftUIが自動で「キャンセル」を足していた(AppKit単体で実測)。それを押すとisPresentedへfalseが
             // 来るが、上のBindingは捨てるので何も決まらず、Escでは閉じられなかった。そのまま使うは何も
             // 失わない側なので、Escで選ばれてよい。破棄のほうはReturnの既定にしない(破壊的な操作のため)。
-            Button("Keep Existing Settings", role: .cancel) {
+            Button("Keep Settings", role: .cancel) {
                 relay.send { view in
                     view.viewModel.resolveLayoutReplacement(applyExisting: true)
                     view.syncMenuCheckmarkState()
@@ -1890,20 +1890,19 @@ struct ViewerView: View {
                 }
             }
         } message: {
-            Text(
-                "qooViewer detected that this book's files may have changed since its saved layout settings (reading direction, page order, single/spread page settings) were recorded. Keep the existing settings, or discard them and start fresh?"
-            )
+            Text("Do you want to keep the saved layout settings?")
         }
         // 「現在の表示を基準に自動でレイアウトする」(3.1節)の実行前確認。本全体を上書きする
         // 操作のため必ず確認を挟む。既存の「除外」ページの扱い(保持/解除)の追加確認は、
         // 3.3節の伝播範囲選択ダイアログ側と同じくPhase2では簡略化し、常に「保持」として扱う
         // (LayoutAutoCalculator.recalculateが除外ページを計算対象に含めないことで実現している)。
+        // 本全体を上書きして取り消せないので、取り消せない操作の作法(赤いボタン・既定なし。docs/09)。
         .alert(
-            "Auto-Layout the Whole Book?",
+            "Auto-layout the whole book?",
             isPresented: $isShowingAutoLayoutConfirmation
         ) {
             Button("Cancel", role: .cancel) {}
-            Button("Auto-Layout") {
+            Button("Auto-Layout", role: .destructive) {
                 relay.send { view in
                     Task {
                         await view.viewModel.autoLayoutFromCurrentView()
@@ -1912,14 +1911,12 @@ struct ViewerView: View {
                 }
             }
         } message: {
-            Text(
-                "This recalculates the layout of the entire book, based on the page (or spread) currently displayed. This cannot be undone."
-            )
+            Text("The layout is rebuilt from the page shown now. You can’t undo this action.")
         }
         // 画像のエクスポート機能(要望)。読み込み・結合・書き込みのいずれかで失敗した場合のみ表示する
         // (NSSavePanelをキャンセルした場合はexportImage自体が早期リターンするため、ここには来ない)。
         .alert(
-            "Couldn't Export Image",
+            "The image couldn’t be exported.",
             isPresented: Binding(
                 get: { hasImageExportError },
                 set: { isPresented in

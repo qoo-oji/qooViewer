@@ -53,10 +53,8 @@ enum ReplaceBackupRecovery {
         if !restored.isEmpty {
             notices.append(Notice(
                 title: String(localized: "Items that were being replaced were put back.", language: locale),
-                message: String(
-                    localized: "qooViewer quit while replacing these items, so the original items were put back where they were:",
-                    language: locale
-                ) + "\n" + listing(restored.map(\.path), locale: locale),
+                // 本文は戻した場所の一覧だけ(ダイアログの作法 ―― 題が何をしたかを言っている。docs/09)。
+                message: listing(restored.map(\.path), locale: locale),
                 isWarning: false
             ))
         }
@@ -64,8 +62,7 @@ enum ReplaceBackupRecovery {
             notices.append(Notice(
                 title: String(localized: "Some items that were being replaced couldn’t be put back.", language: locale),
                 message: String(
-                    localized: "qooViewer quit while replacing these items. The original items are kept as hidden items in the same folder. qooViewer will try to put them back the next time it opens (if an item with the same name is in the way, move it somewhere else first):",
-                    language: locale
+                    localized: "The originals are kept as hidden items in the same folder.", language: locale
                 ) + "\n" + listing(orphaned.map { "\($0.backup.path): \($0.reason)" }, locale: locale),
                 isWarning: true
             ))

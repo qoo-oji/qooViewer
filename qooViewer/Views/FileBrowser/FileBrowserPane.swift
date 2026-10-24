@@ -376,7 +376,7 @@ struct FileBrowserPane: View {
             VStack(spacing: 12) {
                 FileBrowserMessage(
                     systemImage: "lock",
-                    textKey: "qooViewer doesn't have permission to show the files in this folder."
+                    textKey: "You don’t have permission to see the contents of this folder."
                 )
                 .fixedSize()
                 Button("Grant Access…") { actions.requestAccessToCurrentFolder() }

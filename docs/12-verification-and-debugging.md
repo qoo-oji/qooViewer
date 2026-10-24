@@ -68,6 +68,8 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     `nudge`(空のイベントと描き直し。解放を数える前に)、`quit`、
     `fileBrowserTransfer '{"paths":[…],"to":"…","move":false}'`(前面の窓のファイルブラウザでコピー・移動。問い合わせの行を出すため)/
     `promptRows`(出ている問い合わせ・報告の行の数。docs/15「操作の問い合わせ」)、
+    `fileBrowserRename '{"path":…,"name":…}'` / `fileBrowserDelete '{"paths":[…],"immediately":true}'` / `showGoToFolder`
+    (Finder と同じ確認のダイアログ・「フォルダへ移動」を出す。docs/09「ダイアログとシートの作法」)、
     `send closeBook` / `perform '{"action":"moveNext"}'`(ViewerAction の rawValue)/ `jumpToPage '{"index":3}'` /
     `selectHomeMode '{"mode":"browser"}'` / `setPreference '{"key":"libraryFeatureEnabled","value":false}'`(機能の ON/OFF と
     読み取り専用だけ)/ `performMenuItem '{"path":["ファイル","…"]}'`(表示言語の題。淡色なら押さずに断る)/ `newWindow` /

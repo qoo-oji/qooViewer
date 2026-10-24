@@ -225,6 +225,21 @@ enum WindowSheet {
         }
     }
 
+    /// **Finder と同じ働きの確認・知らせ**を、Finder と同じウインドウから切り離したダイアログ(注意のアイコン付き)で出す
+    /// (2026-10-24、ユーザー決定)。macOS 27 のシートのアラートはアイコンを描かず低いので、Finder の画面と揃わなかった。
+    /// 代わりに出ている間はアプリ全体が止まる(Finder と同じ)。対象は docs/09「ダイアログとシートの作法」の一覧だけ ―― それ以外は
+    /// これまでどおりシート(`run(_:for:)`)。テストでは答える役(SheetScripting)が答え、無ければ出さずにキャンセル扱い。
+    static func runAsFinderDialog(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        // Finder の確認・知らせは注意の三角にアプリのアイコンを重ねた絵(`.critical` の絵 ―― `.warning` はアプリのアイコンだけを
+        // 描いた。2026-10-24 に実機で撮り比べた)。
+        alert.alertStyle = .critical
+        if let responder = SheetScripting.responder {
+            return responder.reply(to: .init(alert: alert)).modalResponse
+        }
+        guard !RuntimeEnvironment.isRunningTests else { return .cancel }
+        return alert.runModal()
+    }
+
     // MARK: 自前のシートのウインドウ
 
     /// 自前で組んだシートのウインドウ(一括リネームの`BulkRenamePanel`)を出し、閉じたら応答を返す

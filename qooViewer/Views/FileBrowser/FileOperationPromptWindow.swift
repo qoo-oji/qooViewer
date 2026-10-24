@@ -50,10 +50,22 @@ final class FileOperationPromptCenter {
     private var window: FileOperationPromptWindow?
     private var ownerObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
 
-    /// 行を出して、ボタンが押されるまで待つ。
+    /// 行を出して、ボタンが押されるまで待つ。待っている仕事が取り消されたら、持ち主が閉じたときと同じ答え
+    /// (`answerWhenOwnerCloses`、無ければ左端)で行を片付けて返る(書き出しの中止で行が残らないように)。
     func ask(_ prompt: FileOperationPrompt, owner: NSWindow?) async -> FileOperationPromptAnswer {
-        await withCheckedContinuation { continuation in
-            add(PromptRowView(prompt: prompt, owner: owner) { answer in continuation.resume(returning: answer) })
+        let row = PromptRowView(prompt: prompt, owner: owner) { _ in }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // 待ち始める前に取り消されていたら、行を出さずにその答えで返る。
+                if let answered = row.answerGiven {
+                    continuation.resume(returning: answered)
+                    return
+                }
+                row.resumeHandler = { answer in continuation.resume(returning: answer) }
+                add(row)
+            }
+        } onCancel: {
+            Task { @MainActor in row.answer(prompt.answerWhenOwnerCloses ?? 0) }
         }
     }
 
@@ -210,7 +222,10 @@ final class PromptRowView: NSView {
     weak var owner: NSWindow?
     var onAnswer: (() -> Void)?
     private let resume: (FileOperationPromptAnswer) -> Void
-    private var answered = false
+    /// `ask` が待ち始めてから入れる答えの渡し先(取り消しに備えて行を先に作るため)。
+    var resumeHandler: ((FileOperationPromptAnswer) -> Void)?
+    /// 答え(答える前は nil)。
+    private(set) var answerGiven: FileOperationPromptAnswer?
 
     private let iconView = NSImageView()
     private let badgeView = NSImageView()
@@ -305,9 +320,11 @@ final class PromptRowView: NSView {
     }
 
     func answer(_ index: Int) {
-        guard !answered else { return }
-        answered = true
-        resume(FileOperationPromptAnswer(button: index, checkboxIsOn: checkbox?.state == .on))
+        guard answerGiven == nil else { return }
+        let answer = FileOperationPromptAnswer(button: index, checkboxIsOn: checkbox?.state == .on)
+        answerGiven = answer
+        resume(answer)
+        resumeHandler?(answer)
         onAnswer?()
     }
 

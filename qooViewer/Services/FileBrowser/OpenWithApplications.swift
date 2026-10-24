@@ -110,7 +110,8 @@ final class OpenWithApplications {
 
     /// 「その他…」。アプリケーションフォルダでアプリを選んでもらい、選ばれたら`then`へ渡す。LaunchServices の候補に無いアプリは
     /// サンドボックスから開けないことがある(型コメント)。パネルは右クリックされたウインドウのシート(2026-09-27。WindowSheet)。
-    static func chooseApplication(locale: Locale, then: @escaping (URL) -> Void) {
+    /// - Parameter itemNames: 開く項目の名前(パネルの文に入れる。Finder の「書類“…”を開くアプリケーションを選択します。」と同じ文)。
+    static func chooseApplication(locale: Locale, itemNames: [String] = [], then: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -118,7 +119,9 @@ final class OpenWithApplications {
         panel.allowedContentTypes = [.applicationBundle]
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         panel.prompt = String(localized: "Open", language: locale)
-        panel.message = String(localized: "Choose an application to open the selected items.", language: locale)
+        panel.message = itemNames.count == 1
+            ? String(format: String(localized: "Choose an application to open the document “%@”.", language: locale), itemNames[0])
+            : String(format: String(localized: "Choose an application to open the %lld items.", language: locale), max(itemNames.count, 1))
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
             then(url)

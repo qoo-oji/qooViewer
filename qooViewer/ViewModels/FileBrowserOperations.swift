@@ -143,7 +143,9 @@ final class FileBrowserOperations: ObservableObject {
     /// - Returns: 断ったら true(問題として見せ終えている)。
     private func refusesProtectedLocation(_ urls: [URL]) -> Bool {
         guard let protected = urls.first(where: FileOperationService.isProtectedLocation) else { return false }
-        presenter?.showProblem(FileBrowserProblem(title: FileOperationError.protectedLocation(protected).localizedDescription, message: ""))
+        presenter?.showProblem(FileBrowserProblem(
+            title: FileOperationError.protectedLocation(protected).localizedDescription, message: "", presentation: .finderDialog
+        ))
         return true
     }
 
@@ -433,7 +435,7 @@ final class FileBrowserOperations: ObservableObject {
             if let volume = mountPoints.first {
                 self.presenter?.showProblem(FileBrowserProblem(
                     title: FileOperationError.volumeCannotBeDeleted(volume).localizedDescription,
-                    message: String(localized: "To remove a volume, eject it in the Finder.", language: AppLanguage.currentLocale)
+                    message: String(localized: "To remove it, eject it in the Finder.", language: AppLanguage.currentLocale)
                 ))
                 return
             }
@@ -452,7 +454,7 @@ final class FileBrowserOperations: ObservableObject {
                 let deleting = urls
                 let refusal = await FileIO.perform { deleting.lazy.compactMap(FileOperationService.removalRefusal(for:)).first }
                 if let refusal {
-                    self.presenter?.showProblem(FileBrowserProblem(title: refusal.localizedDescription, message: ""))
+                    self.presenter?.showProblem(FileBrowserProblem(title: refusal.localizedDescription, message: "", presentation: .finderDialog))
                     return
                 }
                 let reason: ImmediateDeletionReason = immediately ? .requested : .noTrash
@@ -541,6 +543,9 @@ final class FileBrowserOperations: ObservableObject {
             guard let self else { return }
             let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed != url.lastPathComponent, !self.refusesBecauseOpenInViewer([url]), !self.refusesProtectedLocation([url]) else { return }
+            // Finder と同じ確認(2026-10-24、ユーザー決定): ドットで始まる名前・拡張子の変更・同じ名前。断ったら打った名前のまま
+            // 編集へ戻す(Finder も戻す)。
+            guard let newName = await self.confirmedRenameName(for: entry, typed: newName) else { return }
             // ロックされた項目は尋ねてから(移動と同じ。2026-09-14)。
             var unlocking = false
             if await FileIO.perform({ FileOperationService.isLocked(url) }) {
@@ -556,6 +561,49 @@ final class FileBrowserOperations: ObservableObject {
                 return command.receipt.map { [$0.renamed] } ?? []
             }
         }
+    }
+
+    /// インラインの名前の変更で Finder が出す確認を出し、変える名前を返す。やめたら nil(打った名前のまま編集へ戻してある)。
+    ///
+    /// - ドットで始まる名前(元はドットで始まらない): 隠しファイルを出していなければ「“.”(ドット)で始まる名前はシステムだけが
+    ///   使用できます。」(OK)で断り、出していれば「…使ってもよろしいですか?」(キャンセル / ドットを使用)で尋ねる(Finder と同じ ――
+    ///   隠しファイルを出していない Finder は断った。2026-10-24 に実測)。
+    /// - 拡張子を変える・消す(フォルダは除く): 「拡張子を“.zip”から“.cbz”に変更してもよろしいですか?」(“.zip”を保持 / “.cbz”を使用)。
+    ///   保持なら、打った名前の後ろに元の拡張子を足す(Finder と同じ)。
+    /// - 同じ名前の項目がある: 「名前“…”はすでに使用されています。別の名前を選んでください。」(OK)のあと編集へ戻す。以前は名前の変更を
+    ///   走らせてから操作ウインドウの行で「同じ名前の項目がすでにあります」と知らせ、編集には戻らなかった。
+    private func confirmedRenameName(for entry: FileBrowserEntry, typed: String) async -> String? {
+        let url = entry.url
+        let original = url.lastPathComponent
+        var name = typed
+        func backToEditing() -> String? {
+            state?.requestRename(entry.id, text: typed)
+            return nil
+        }
+        if name.hasPrefix("."), !original.hasPrefix(".") {
+            let allowsUse = state?.showsHiddenFiles ?? false
+            guard await asking({ await $0.confirmLeadingDot(allowsUse: allowsUse) }) == true else { return backToEditing() }
+        }
+        if !entry.isNavigableFolder, state?.preferences?.fileBrowserWarnsBeforeChangingExtension ?? true {
+            let oldExtension = (original as NSString).pathExtension
+            let newExtension = (name as NSString).pathExtension
+            if !oldExtension.isEmpty, oldExtension != newExtension {
+                switch await asking({ await $0.confirmExtensionChange(from: oldExtension, to: newExtension) }) {
+                case .use?: break
+                case .keep?: name += "." + oldExtension
+                case nil: return nil
+                }
+            }
+        }
+        let target = url.deletingLastPathComponent().appendingPathComponent(name)
+        let taken = await FileIO.perform {
+            FileOperationService.itemExists(at: target) && !FileOperationService.isSameEntry(url, target)
+        }
+        if taken {
+            await presenter?.reportNameTaken(name)
+            return backToEditing()
+        }
+        return name
     }
 
     // MARK: - 一括リネーム(段階 5)
@@ -1100,6 +1148,8 @@ struct FileBrowserProblem: Equatable {
     /// 走らせた操作の結果は Finder の操作ウインドウと同じ行(`FileOperationPromptCenter`)。
     enum Presentation: Equatable {
         case alert
+        /// Finder と同じ働きの断り。Finder と同じ、ウインドウから切り離したダイアログで出す(docs/09「ダイアログとシートの作法」)。
+        case finderDialog
         /// `item` は行のアイコンにする項目(nil なら書類のアイコン)。
         case row(item: URL?)
     }
@@ -1115,8 +1165,8 @@ struct FileBrowserProblem: Equatable {
         let locale = AppLanguage.currentLocale
         return FileBrowserProblem(
             title: String(
-                format: String(localized: "%@: Some items couldn’t be processed.", language: locale),
-                operationName
+                // 操作の名前は入れない(「エイリアスを作成で処理できなかった…」のように文が崩れた ―― 2026-10-24。どの項目か・なぜかは一覧が言う)。
+                localized: "Some items couldn’t be processed.", language: locale
             ),
             message: listing(failures, locale: locale),
             presentation: .row(item: failures.count == 1 ? failures[0].url : nil)
@@ -1136,7 +1186,7 @@ struct FileBrowserProblem: Equatable {
                 message: "", presentation: .row(item: item)
             )
         case .destinationInsideSource?:
-            return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .alert)
+            return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .finderDialog)
         case let .pathTooLong(failed, _, _)?:
             return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .row(item: failed))
         case let .fileTooLargeForDestination(failed, _, _)?:
@@ -1266,6 +1316,13 @@ protocol FileBrowserOperationPresenting: AnyObject {
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision
     /// 運ぶ項目のうち `urls` は名前が宛先の上限を超える。飛ばして残りを運ぶなら true(Finder の「スキップ」)、「中止」なら false。
     func confirmSkippingLongNames(_ urls: [URL]) async -> Bool
+    /// 名前の変更で、ドットで始まる名前を使うか(Finder の「ドットを使用」)。`allowsUse` が false(隠しファイルを出していない)なら
+    /// 尋ねずに断る知らせを出して false。
+    func confirmLeadingDot(allowsUse: Bool) async -> Bool
+    /// 名前の変更で拡張子を変える・消すか(`to` が空なら消す)。
+    func confirmExtensionChange(from oldExtension: String, to newExtension: String) async -> ExtensionChangeDecision
+    /// 名前の変更で、同じ名前の項目がある(Finder の「名前“…”はすでに使用されています。」)。閉じられるまで待つ。
+    func reportNameTaken(_ name: String) async
     /// 一括リネームのシート。「名称変更」なら入力を、「キャンセル」なら nil を返す。
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings?
     /// 「保存先を選んで圧縮…」「展開先を選んで展開…」のフォルダ選択。キャンセルなら nil。
@@ -1295,12 +1352,21 @@ final class DetachedFileBrowserOperationPresenter: FileBrowserOperationPresentin
     }
 
     func confirmSkippingLongNames(_ urls: [URL]) async -> Bool { false }
+    func confirmLeadingDot(allowsUse: Bool) async -> Bool { false }
+    func confirmExtensionChange(from oldExtension: String, to newExtension: String) async -> ExtensionChangeDecision { .keep }
+    func reportNameTaken(_ name: String) async {}
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? { nil }
     func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL? { nil }
 
     func showProblem(_ problem: FileBrowserProblem) {
         reporter.showProblem(problem)
     }
+}
+
+/// 拡張子の変更の確認への答え(Finder の「“.zip”を保持」「“.cbz”を使用」)。
+enum ExtensionChangeDecision: Equatable {
+    case keep
+    case use
 }
 
 /// フォルダを選ぶ理由(パネルの文言が変わる)。

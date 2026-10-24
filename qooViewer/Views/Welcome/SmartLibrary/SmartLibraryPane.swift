@@ -138,8 +138,9 @@ struct SmartLibrarySidebar: View {
                 state.selectedShelfID = saved.id
             }
         }
+        // 取り消せない削除(DataUndoStack に積まない)なので、Finder の削除の確認と同じく「この操作は取り消せません。」だけを添える。
         .alert(
-            "Delete Smart Collection?",
+            "Delete the smart collection “\(deleting?.name ?? "")”?",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
         ) {
             Button("Cancel", role: .cancel) { deleting = nil }
@@ -148,7 +149,7 @@ struct SmartLibrarySidebar: View {
                 deleting = nil
             }
         } message: {
-            Text("Only the conditions are deleted. The books themselves and their saved data are not affected.")
+            Text("You can’t undo this action.")
         }
     }
 
@@ -319,7 +320,7 @@ struct SmartLibrarySidebar: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add", language: locale)
-        panel.message = String(localized: "Choose folders whose books appear in the smart library.", language: locale)
+        panel.message = String(localized: "Choose folders to show in the smart library.", language: locale)
         // このウインドウのシート(2026-09-27。WindowSheet)。その間にスマートライブラリ機能が切られていたら足さない(上のドロップと同じ)。
         let locale = locale
         WindowSheet.beginChoosing(panel) { [weak appState] urls in
@@ -897,18 +898,15 @@ struct SmartLibraryContent: View {
         let presence: SmartBookOpenProbe.Presence
     }
 
-    /// 「本が見つかりません」の本文。理由ごとに書き分ける(コレクションの同じアラートと同じ考え ―― 外しているだけなら
-    /// 「消えた」と読ませない)。最後にパスを添える。
-    private func missingBookMessage(_ missing: MissingBook) -> String {
-        let reason = switch missing.presence {
-        case .volumeNotConnected:
-            String(localized: "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost.", language: locale)
-        case .unreadable:
-            String(localized: "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now.", language: locale)
-        case .missing, .present:
-            String(localized: "The file or folder could not be found. It may have been moved or deleted.", language: locale)
+    /// 「本が見つかりません」の題(コレクションの同じアラートと同じ文 ―― BookNotFoundText。外しているだけなら「消えた」と読ませない)。
+    private func missingBookTitle(_ missing: MissingBook) -> String {
+        let name = (missing.path as NSString).lastPathComponent
+        let reason: BookNotFoundText.Reason = switch missing.presence {
+        case .volumeNotConnected: .volumeNotConnected
+        case .unreadable: .unreadable
+        case .missing, .present: .missing
         }
-        return reason + "\n\n" + missing.path
+        return BookNotFoundText.title(name: name, reason: reason, locale: locale)
     }
     /// グリッドのスクロール位置。選んだ枠を見える位置へ動かすときは、行の位置を実測から割り出して pt で渡す
     /// (`PanelListScrollTracker` の型コメント: Lazy コンテナの `scrollTo(id:anchor:)` は遠い行へ届かない)。
@@ -970,13 +968,15 @@ struct SmartLibraryContent: View {
                 isSearchFocused = true
             }
         }
-        .alert(
-            "Book Not Found",
-            isPresented: Binding(get: { missingBook != nil }, set: { if !$0 { missingBook = nil } })
-        ) {
-            Button("OK", role: .cancel) { missingBook = nil }
-        } message: {
-            Text(verbatim: missingBook.map(missingBookMessage) ?? "")
+        // Finder のエイリアスの元が見つからないときと同じ、ウインドウから切り離したダイアログ(docs/09「ダイアログとシートの作法」)。
+        .task(id: missingBook?.path) {
+            guard let missing = missingBook else { return }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = missingBookTitle(missing)
+            alert.addButton(withTitle: String(localized: "OK", language: locale))
+            _ = WindowSheet.runAsFinderDialog(alert)
+            missingBook = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
@@ -1546,7 +1546,7 @@ struct SmartLibraryContent: View {
             for: HomeBookOpenWith.applications(forBookAt: book.id), locale: locale,
             open: { application in openWith(book, application: application) },
             chooseOther: {
-                OpenWithApplications.chooseApplication(locale: locale) { application in
+                OpenWithApplications.chooseApplication(locale: locale, itemNames: [(book.id as NSString).lastPathComponent]) { application in
                     openWith(book, application: application)
                 }
             }

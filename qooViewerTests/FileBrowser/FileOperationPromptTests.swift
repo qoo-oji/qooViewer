@@ -71,7 +71,7 @@ struct FileOperationPromptTests {
         let inside = FileBrowserProblem.failure(
             FileOperationError.destinationInsideSource(source: folder, destination: folder.appendingPathComponent("x")), operationName: "op", items: [folder]
         )
-        #expect(inside.presentation == .alert)
+        #expect(inside.presentation == .finderDialog, "Finder と同じ独立したダイアログ")
         let path = FileBrowserProblem.failure(
             FileOperationError.pathTooLong(item: item, resultingBytes: 1100, limitBytes: 1023), operationName: "op", items: [item, folder]
         )

@@ -264,6 +264,8 @@ final class FileBrowserState: ObservableObject {
     /// 名前の編集を始めてほしい項目(新規フォルダの直後・右クリックの「名前を変更」)。
     /// 一覧はこの項目が見えるようになった時点で編集を始める。
     @Published private(set) var renameRequest: ScrollRequest?
+    /// 名前の編集へ戻すときに欄へ入れる文字(`requestRename(_:text:)`)。
+    private var renameRetryText: [String: String] = [:]
     /// 名前の編集を取りやめてほしい(読み取り専用モードを ON にした・ファイルブラウザ機能を OFF にした)。値は増えるだけの通し番号で、
     /// リストとアイコン表示が変化を拾って、編集中なら打った名前を捨てて終える(2026-09-23、利用者の決定。以前は編集の欄が残り、Return で
     /// 確定すると入口が黙って断って元の名前に戻った)。
@@ -1300,6 +1302,17 @@ final class FileBrowserState: ObservableObject {
         selectionAnchor = id
         scrollSerial += 1
         scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
+    }
+
+    /// 名前の変更を断ったあと、打った名前のまま編集へ戻す(Finder の「名前“…”はすでに使用されています。」の後と同じ。2026-10-24)。
+    func requestRename(_ id: String, text: String) {
+        renameRetryText[id] = text
+        requestRename(id)
+    }
+
+    /// 編集へ戻すときの文字(一度だけ渡す)。
+    func takeRenameRetryText(for id: String) -> String? {
+        renameRetryText.removeValue(forKey: id)
     }
 
     /// 一覧が名前の編集を始めたら返してもらう。**残しておくと、表示形式を切り替えて作り直された一覧が

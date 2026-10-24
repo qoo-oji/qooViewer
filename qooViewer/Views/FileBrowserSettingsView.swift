@@ -28,6 +28,12 @@ struct FileBrowserSettingsView: View {
                         ? "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
                         : "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, edit metadata and export books. Turn this off to change files in the file browser."
                 )
+                // Finder の「拡張子を変更する前に警告を表示」と同じ(2026-10-24)。名前の変更の確認なので、読み取り専用の次。
+                SettingsToggle(
+                    "Show Warning Before Changing an Extension",
+                    isOn: $preferences.fileBrowserWarnsBeforeChangingExtension,
+                    help: "When you rename a file and change its extension, qooViewer asks first, as the Finder does."
+                )
                 // 自動リネーム(2026-09-15)。ファイルを変える機能なので、読み取り専用の隣に置く(読み取り専用の間は止まる)。
                 // ファイルブラウザ機能が OFF の間は自動リネームも止まっている(AppStores.applyFileBrowserFeature)ので、押せない。
                 // 「ホーム」メニューの同じ項目は OFF の間は消える ―― ここだけ設定を見ずに開けていた(2026-09-21 の監査の F1)。

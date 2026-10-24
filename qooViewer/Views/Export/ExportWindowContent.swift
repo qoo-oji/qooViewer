@@ -217,12 +217,7 @@ struct ExportWindowContent<Options: View>: View {
             ExportProgressSheet(
                 viewModel: viewModel,
                 progressTitle: configuration.progressTitle,
-                overwriteMessage: { displayName in
-                    String(
-                        format: String(localized: "“%1$@.%2$@” already exists in the destination folder.", language: preferences.effectiveLocale),
-                        displayName, configuration.fileExtension
-                    )
-                }
+                fileExtension: configuration.fileExtension
             )
         }
         .sheet(isPresented: Binding(get: { viewModel.didFinish }, set: { if !$0 { viewModel.acknowledgeFinish() } })) {
@@ -1003,7 +998,8 @@ struct ExportCoverPickerContent: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
-        panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
+        panel.message = String(localized: "Choose an image to use as the cover.", language: preferences.effectiveLocale)
+        panel.prompt = String(localized: "Choose", language: preferences.effectiveLocale)
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }

@@ -92,6 +92,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserRevealDestination = otherCase(p.fileBrowserRevealDestination)
     p.fileBrowserVideoThumbnailsEnabled.toggle()
     p.fileBrowserReadOnly.toggle()
+    p.fileBrowserWarnsBeforeChangingExtension.toggle()
     p.fileBrowserImageFolderOpenAction = otherCase(p.fileBrowserImageFolderOpenAction)
 
     // MARK: 外観(揃いごとの設定は mutateEveryAppearanceSetting。シークレットの揃いは AppearanceSettingsTests が見る)

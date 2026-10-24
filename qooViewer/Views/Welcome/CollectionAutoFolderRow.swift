@@ -187,7 +187,7 @@ struct CollectionAutoFolderRow: View {
         panel.directoryURL = panelStartDirectory()
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = String(
-            localized: "Choose a folder. Books added to it are added to this collection automatically.",
+            localized: "Choose a folder whose new books are added to this collection.",
             language: locale
         )
         WindowSheet.beginChoosing(panel) { urls in
@@ -241,7 +241,7 @@ struct CollectionAutoFolderRow: View {
         panel.directoryURL = folder
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(
-            localized: "Grant access to this folder so books added to it can be added to the collection automatically.",
+            localized: "Grant access to this folder.",
             language: locale
         )
         WindowSheet.beginChoosing(panel) { urls in

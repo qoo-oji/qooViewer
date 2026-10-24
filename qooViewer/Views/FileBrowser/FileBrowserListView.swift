@@ -444,6 +444,7 @@ struct FileBrowserListView: NSViewRepresentable {
             guard let cell = table.view(atColumn: column, row: row, makeIfNecessary: true) as? FileBrowserCellView else { return }
             cell.nameField.editingName = entry.url.lastPathComponent
             cell.nameField.selectsWholeName = entry.isNavigableFolder
+            cell.nameField.retryText = state.takeRenameRetryText(for: entry.id)
             table.editColumn(column, row: row, with: nil, select: true)
             // 始められなかった(ウインドウが無い・焦点を移せない)なら、編集できる欄のまま残さない。
             if editingNameField !== cell.nameField { cell.nameField.editingName = nil }

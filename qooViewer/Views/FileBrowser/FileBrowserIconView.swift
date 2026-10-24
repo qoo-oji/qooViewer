@@ -761,6 +761,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             state.selection = [entry.id]
             applySelection(from: state)
             collection.editingField = item.cell.nameField
+            item.cell.nameField.retryText = state.takeRenameRetryText(for: entry.id)
             // 始められなかった(ウインドウが無い・焦点を移せない)なら、編集中の印を残さない(残ると一覧の取り込みが止まったままになる)。
             guard item.cell.beginEditing(name: entry.url.lastPathComponent, selectsWholeName: entry.isNavigableFolder, delegate: self) else {
                 editing = nil

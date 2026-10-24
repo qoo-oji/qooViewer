@@ -1987,9 +1987,6 @@ private struct SidePanelHistorySectionView: View {
     var onOpenFailure: (String) -> Void
 
     @State private var filterText = ""
-    /// 「履歴をすべて消去」の確認アラートの表示状態。取り消せない操作なので必ず1枚挟む
-    /// (環境設定「リセット」画面と同じ考え方)。
-    @State private var isShowingClearConfirmation = false
 
     private var filteredEntries: [RecentFilesStore.Entry] {
         let trimmed = filterText.trimmingCharacters(in: .whitespaces)
@@ -2008,7 +2005,9 @@ private struct SidePanelHistorySectionView: View {
                     isDisabled: recentFiles.entries.isEmpty,
                     help: "Clear History"
                 ) {
-                    isShowingClearConfirmation = true
+                    // 確かめずに消す(Finder の「最近使った項目」の「メニューを消去」・メニューバーの同じ項目と同じ。2026-10-24)。
+                    // ⌘Z で戻せる(DataUndoStack)。
+                    DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: dataUndo)
                 }
                 Spacer(minLength: 0)
             }
@@ -2053,15 +2052,6 @@ private struct SidePanelHistorySectionView: View {
                 // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
                 .focusable(false)
             }
-        }
-        .alert("Clear History?", isPresented: $isShowingClearConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            // 確定ボタンは題の動作と同じ語(2026-09-27、監査 37。英語では "Clear History?" に "Delete" だった。日本語は「履歴をすべて削除」)。
-            Button("Clear History", role: .destructive) {
-                DataUndoStack.removeAllHistory(in: recentFiles, recordingOn: dataUndo)
-            }
-        } message: {
-            Text("This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo.")
         }
     }
 

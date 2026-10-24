@@ -16,10 +16,10 @@ enum LayoutPropagationScope: String, CaseIterable, Identifiable {
 
     var titleKey: LocalizedStringKey {
         switch self {
-        case .thisPageOnly: return "Update This Page Only"
-        case .wholeBook: return "Update the Whole Book, Based on This Page"
-        case .beforeThisPage: return "Update All Pages Before This One"
-        case .afterThisPage: return "Update All Pages After This One"
+        case .thisPageOnly: return "This Page Only"
+        case .wholeBook: return "Whole Book, Based on This Page"
+        case .beforeThisPage: return "Pages Before This One"
+        case .afterThisPage: return "Pages After This One"
         }
     }
 

@@ -63,6 +63,27 @@ struct FileBrowserOperationsTests {
             return skipsLongNames
         }
 
+        /// インラインの名前の変更の確認(Finder と同じ 3 つ)の答えと記録。
+        var usesLeadingDot = true
+        var extensionDecision = ExtensionChangeDecision.use
+        private(set) var leadingDotPrompts = 0
+        private(set) var extensionPrompts: [(old: String, new: String)] = []
+        private(set) var takenNames: [String] = []
+
+        func confirmLeadingDot(allowsUse: Bool) async -> Bool {
+            leadingDotPrompts += 1
+            return usesLeadingDot
+        }
+
+        func confirmExtensionChange(from oldExtension: String, to newExtension: String) async -> ExtensionChangeDecision {
+            extensionPrompts.append((oldExtension, newExtension))
+            return extensionDecision
+        }
+
+        func reportNameTaken(_ name: String) async {
+            takenNames.append(name)
+        }
+
         /// 一括リネームのシートの答え(nil は「キャンセル」)。
         var bulkRenameAnswer: BulkRenameSettings?
         private(set) var bulkRenameRequests: [BulkRenameRequest] = []
@@ -625,6 +646,36 @@ struct FileBrowserOperationsTests {
         #expect(fixture.exists(file))
         #expect(fixture.names(in: fixture.other) == ["b.txt"])
         FileOperationService.setLocked(file, false)
+    }
+
+    @Test("名前の変更は Finder と同じ 3 つの確認を出す: ドットで始まる名前・拡張子の変更・同じ名前(断れば変えずに編集へ戻す)")
+    func renamingAsksLikeTheFinder() async throws {
+        let fixture = try Fixture("fbops-rename-finder")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        try Data("other".utf8).write(to: fixture.root.appendingPathComponent("taken.txt"))
+
+        // ドット: やめれば変えない。
+        fixture.presenter.usesLeadingDot = false
+        fixture.state.operations.rename(fixture.entry(file), to: ".a.txt")
+        await fixture.finish()
+        #expect(fixture.presenter.leadingDotPrompts == 1)
+        #expect(fixture.exists(file))
+        #expect(fixture.state.takeRenameRetryText(for: fixture.entry(file).id) == ".a.txt", "打った名前のまま編集へ戻す")
+
+        // 拡張子: 保持なら打った名前の後ろに元の拡張子を足す。
+        fixture.presenter.extensionDecision = .keep
+        fixture.state.operations.rename(fixture.entry(file), to: "a.cbz")
+        await fixture.finish()
+        #expect(fixture.presenter.extensionPrompts.map(\.old) == ["txt"] && fixture.presenter.extensionPrompts.map(\.new) == ["cbz"])
+        let kept = fixture.root.appendingPathComponent("a.cbz.txt")
+        #expect(fixture.exists(kept))
+
+        // 同じ名前: 知らせて変えない(行の報告にはしない)。
+        fixture.state.operations.rename(fixture.entry(kept), to: "taken.txt")
+        await fixture.finish()
+        #expect(fixture.presenter.takenNames == ["taken.txt"])
+        #expect(fixture.exists(kept))
+        #expect(fixture.presenter.problems.isEmpty)
     }
 
     @Test("ロックされた項目の名前の変更は尋ね、続ければ新しい名前でもロックされている")
@@ -1676,7 +1727,7 @@ struct FileBrowserOperationsTests {
         let ja = Locale(identifier: "ja")
         let name = String(format: String(localized: "Extraction of “%@”", language: ja), "slip.zip")
         let titles: [String.LocalizationValue] = [
-            "%@: Some items couldn’t be processed.", "%@ couldn’t be completed.", "%@ was stopped, but some items couldn’t be put back.",
+            "%@ couldn’t be completed.", "%@ was stopped, but some items couldn’t be put back.",
             "%@ could only be partly undone.", "%@ could only be partly redone.", "%@ couldn’t be undone.", "%@ couldn’t be redone.",
         ]
         for title in titles {

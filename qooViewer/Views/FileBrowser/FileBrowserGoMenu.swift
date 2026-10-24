@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// ファイルブラウザを表示している間の「移動」メニューの中身(改善要望7 段階4 の追加要望、2026-09-13)。
 ///
@@ -102,10 +103,15 @@ nonisolated enum FileBrowserStandardLocation: CaseIterable {
 
 /// 「フォルダへ移動…」(⇧⌘G)。パスを打って移動する。
 ///
+/// **形は Finder の「フォルダへ移動」と同じ**(2026-10-24、ユーザー決定。実測: 幅 460pt・高さ 183pt、題もボタンも無く、上に入力欄と
+/// 消去のボタン、下に打った名前で始まるフォルダの候補)。Return で移動、Esc で閉じる。以前は題・「キャンセル」「移動」のボタンの
+/// 付いたシートで、「移動」がファイルの移動と同じ語だった。
+///
 /// 存在しない・フォルダでないときは**シートを閉じずにその場で知らせる**(移動してから右ペインで失敗するより
 /// 打ち直しやすい ―― qooLibrary と同じ判断)。読む権限の有無は確かめない(移動した先で「アクセスを許可…」が出る。
 /// 開く前に触ると TCC の確認の引き金になりうる)。`~` は**実際のホーム**に読み替える(`expandingTildeInPath` は
-/// サンドボックスではコンテナを返す)。
+/// サンドボックスではコンテナを返す)。候補を読むのは、TCC で守られた場所とネットワークのボリュームの外だけ
+/// (docs/15「サンドボックスと TCC の約束」 ―― 入っていないフォルダを読むことになるため)。
 struct FileBrowserGoToFolderSheet: View {
     @ObservedObject var state: FileBrowserState
     @Environment(\.dismiss) private var dismiss
@@ -113,60 +119,121 @@ struct FileBrowserGoToFolderSheet: View {
     @State private var path = ""
     @State private var errorKey: LocalizedStringKey?
     @State private var isChecking = false
-    /// 確かめている Task。「キャンセル」とシートが消えたときに取り消す(2026-10-04 の監査 FBU-6)。
+    /// 確かめている Task。閉じたときとシートが消えたときに取り消す(2026-10-04 の監査 FBU-6)。
     @State private var checkTask: Task<Void, Never>?
+    /// 打った名前で始まるフォルダ(Finder と同じく、欄の下に並べる)。
+    @State private var suggestions: [URL] = []
+
+    static let width: CGFloat = 460
+    static let height: CGFloat = 183
 
     var body: some View {
-        // **ボタンの幅は揃える**(「キャンセル」と「移動」で大きさが違うのは美しくない ―― ユーザー指摘 2026-09-13)。
-        // 幅はボタンではなくラベルに与える(CollectionNameSheet と同じ。`Button.frame(width:)` はベゼルに効かない)。
-        let labelWidth = MetadataButtonWidthEstimator.equalWidth(
-            for: [String(localized: "Cancel", language: locale), String(localized: "Go", language: locale)],
-            minWidth: 60,
-            chrome: 0
-        )
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Go to Folder")
-                .font(.headline)
-            // 欄と知らせは 1 つの塊にし、知らせの高さを予約する(出たときにシートの高さが跳ねない)。
-            VStack(alignment: .leading, spacing: 4) {
-                // **欄は面の幅いっぱいに伸ばし、面の幅はシート側で決める。** 以前は欄だけを 380pt に固定していたので、
-                // シートがそれより広くなると欄の右にだけ余白が残り、左右の余白が揃わなかった(ユーザー指摘 2026-09-13)。
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
                 TextField("Path", text: $path)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 17))
                     .onSubmit(go)
-                Group {
-                    if let errorKey {
-                        Text(errorKey).foregroundStyle(.red)
-                    } else {
-                        Text(verbatim: " ")
+                    .onChange(of: path) { _, _ in errorKey = nil }
+                if !path.isEmpty {
+                    Button {
+                        path = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear")
+                    .accessibilityLabel(Text("Clear"))
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            Divider()
+            Group {
+                if let errorKey {
+                    Text(errorKey)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(suggestions, id: \.self) { folder in
+                                Button {
+                                    path = folder.path
+                                    go()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(nsImage: NSWorkspace.shared.icon(for: .folder))
+                                            .resizable()
+                                            .frame(width: 16, height: 16)
+                                        Text(verbatim: folder.lastPathComponent)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 24)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help(folder.path)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
-                .font(.caption)
             }
-            HStack(spacing: 12) {
-                Spacer(minLength: 0)
-                Button {
-                    checkTask?.cancel()
-                    dismiss()
-                } label: {
-                    Text("Cancel").frame(width: labelWidth)
-                }
-                .keyboardShortcut(.cancelAction)
-                Button(action: go) {
-                    Text("Go").frame(width: labelWidth)
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(path.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
-            }
+            .frame(maxHeight: .infinity)
         }
-        .padding(20)
-        .frame(width: 440)
+        .frame(width: Self.width, height: Self.height)
+        // ボタンは無いが、Esc で閉じる(Finder と同じ)。
+        .background {
+            Button("") {
+                checkTask?.cancel()
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+            .hidden()
+            // 読み上げの木に名前の無いボタンとして出さない(Esc のためだけのボタン)。
+            .accessibilityHidden(true)
+        }
         .onAppear {
             path = state.currentFolder?.path ?? ""
         }
+        .task(id: path) { await updateSuggestions() }
         // ウインドウごと閉じた・シートが下りたら、確かめ終わっても移動しない(FBU-6)。
         .onDisappear { checkTask?.cancel() }
+    }
+
+    /// 打った名前で始まる、親のフォルダの中のフォルダ(最大 50)。打ち終えるまで少し待つ(1 文字ごとに読まない)。
+    private func updateSuggestions() async {
+        try? await Task.sleep(for: .milliseconds(150))
+        guard !Task.isCancelled else { return }
+        let typed = path
+        guard let target = Self.resolve(typed) else {
+            suggestions = []
+            return
+        }
+        let endsWithSlash = typed.hasSuffix("/")
+        let parent = endsWithSlash ? target : target.deletingLastPathComponent()
+        let prefix = endsWithSlash ? "" : target.lastPathComponent
+        let found = await FileIO.perform { () -> [URL] in
+            guard !DirectoryProbe.isPrivacyProtected(parent), !MountTable.current().isRemote(parent) else { return [] }
+            guard let names = try? FileManager.default.contentsOfDirectory(
+                at: parent, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey], options: [.skipsHiddenFiles]
+            ) else { return [] }
+            return names.filter { url in
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                return values?.isDirectory == true && values?.isPackage != true
+                    && (prefix.isEmpty || url.lastPathComponent.lowercased().hasPrefix(prefix.lowercased()))
+            }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .prefix(50).map { $0 }
+        }
+        guard !Task.isCancelled, typed == path else { return }
+        suggestions = found
     }
 
     private func go() {

@@ -1616,32 +1616,30 @@ private struct BookmarkDetailPane: View {
             Text(RecentFilesStore.OpenFailure.timedOut.message(name: openTimedOutBookName ?? "", locale: preferences.effectiveLocale))
         }
         .pendingBookOpenIndicator(pendingOpen)
-        // 3.3節の伝播範囲選択ダイアログ。ViewerView.swiftと全く同じ文言・選択肢を使う。
-        .confirmationDialog(
-            "Apply Layout Change To…",
+        // 3.3節の伝播範囲選択。ViewerView.swiftと全く同じ文言・選択肢・部品(ChoiceListSheet)を使う。
+        // `.confirmationDialog`は選択肢 4 つ + キャンセルで 4 つ目を捨て、キャンセルを「OK」に変えた(2026-10-24 に実測)。
+        .sheet(
             isPresented: Binding(
                 get: { pendingLayoutChange != nil },
                 set: { isPresented in
                     if !isPresented { pendingLayoutChange = nil }
                 }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             if let pending = pendingLayoutChange {
-                ForEach(availableScopes(forPageKey: pending.pageKey)) { scope in
-                    Button(scope.titleKey) {
-                        pendingLayoutChange = nil
-                        Task {
-                            await viewModel.setPageLayout(pageKey: pending.pageKey, to: pending.state, scope: scope)
-                        }
+                ChoiceListSheet<LayoutPropagationScope?>(
+                    titleKey: "Apply Layout Change To…",
+                    choices: availableScopes(forPageKey: pending.pageKey).map { .init(id: $0, titleKey: $0.titleKey) }
+                        + [.init(id: nil, titleKey: "Cancel")],
+                    cancelID: nil
+                ) { chosen in
+                    pendingLayoutChange = nil
+                    guard let scope = chosen else { return }
+                    Task {
+                        await viewModel.setPageLayout(pageKey: pending.pageKey, to: pending.state, scope: scope)
                     }
                 }
             }
-            Button("Cancel", role: .cancel) {
-                pendingLayoutChange = nil
-            }
-        } message: {
-            Text("Choose how far this layout change should apply.")
         }
     }
 

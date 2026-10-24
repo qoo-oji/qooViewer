@@ -627,14 +627,18 @@ final class FileBrowserNameField: NSTextField {
 
     /// フォルダなら名前全体を選ぶ(`.` 以降も名前の一部)。
     var selectsWholeName = false
+    /// 編集を始めるときに入れる文字(断った名前の変更から編集へ戻すとき。nil なら実際の名前)。一度使ったら捨てる。
+    var retryText: String?
 
     override func becomeFirstResponder() -> Bool {
-        if let editingName, isEditable { stringValue = editingName }
+        let text = retryText ?? editingName
+        retryText = nil
+        if let text, isEditable { stringValue = text }
         let accepted = super.becomeFirstResponder()
-        if accepted, let editingName, let editor = currentEditor() {
+        if accepted, let text, let editor = currentEditor() {
             editor.selectedRange = selectsWholeName
-                ? NSRange(location: 0, length: (editingName as NSString).length)
-                : Self.baseNameRange(of: editingName)
+                ? NSRange(location: 0, length: (text as NSString).length)
+                : Self.baseNameRange(of: text)
         }
         return accepted
     }

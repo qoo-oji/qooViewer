@@ -205,22 +205,22 @@ struct QooViewerApp: App {
 
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = String(localized: "qooViewer Can't Open Your Saved Data", language: AppLanguage.currentLocale)
+            // 文は短く(ダイアログの作法 ―― docs/09。2026-10-24 に 197 字から縮めた)。何が起きるかだけを書く。
+            alert.messageText = String(localized: "Your saved data can’t be opened.", language: AppLanguage.currentLocale)
             alert.informativeText = String(
-                localized: """
-                Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.
-
-                If you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help).
-                """, language: AppLanguage.currentLocale
+                localized: "It may not work with this version of qooViewer. If you continue, all of your saved data is deleted.",
+                language: AppLanguage.currentLocale
             )
-            // 既定のボタン(Return)は**削除せずに終了**(2026-09-26)。以前は「削除して続ける」が1番目=既定で、
-            // Return 1回で保存データがすべて消えた。取り返しのつかない操作を既定にしない(HIG。下の
-            // confirmOpeningNewerStoreIfNeededも既定は終了)。削除のボタンは赤く示す。
-            alert.addButton(withTitle: String(localized: "Quit Without Deleting", language: AppLanguage.currentLocale))
+            // 取り返しのつかない操作の作法(docs/09「ダイアログとシートの作法」): 右に赤い「削除して続行」、**既定のボタンは無い**
+            // (2026-09-26 に Return 1 回で保存データが消えないよう既定を「削除せずに終了」へ移し、2026-10-24 に Finder の「すぐに削除」と
+            // 同じく既定なしへ揃えた)。左の「削除せずに終了」は Esc。
             let deleteButton = alert.addButton(withTitle: String(localized: "Delete and Continue", language: AppLanguage.currentLocale))
             deleteButton.hasDestructiveAction = true
+            deleteButton.keyEquivalent = ""
+            let quitButton = alert.addButton(withTitle: String(localized: "Quit Without Deleting", language: AppLanguage.currentLocale))
+            quitButton.keyEquivalent = "\u{1b}"
             let response = alert.runModal()
-            guard response == .alertSecondButtonReturn else {
+            guard response == .alertFirstButtonReturn else {
                 // この時点ではSwiftUIのRunLoop/NSApplicationのイベントループがまだ本格的に
                 // 始まっていないため、NSApplication.terminate(_:)に頼らずexit(0)で確実に
                 // その場でプロセスを終了させる。
@@ -235,10 +235,11 @@ struct QooViewerApp: App {
             } catch {
                 let failureAlert = NSAlert()
                 failureAlert.alertStyle = .critical
-                failureAlert.messageText = String(localized: "qooViewer Could Not Start", language: AppLanguage.currentLocale)
+                failureAlert.messageText = String(localized: "qooViewer couldn’t start.", language: AppLanguage.currentLocale)
                 failureAlert.informativeText = String(
-                    localized: "qooViewer couldn't start even after resetting its saved data. Please contact support.", language: AppLanguage.currentLocale
+                    localized: "It couldn’t start even after deleting the saved data.", language: AppLanguage.currentLocale
                 )
+                failureAlert.addButton(withTitle: String(localized: "OK", language: AppLanguage.currentLocale))
                 failureAlert.runModal()
                 fatalError("Failed to create ModelContainer even after resetting the store: \(error)")
             }
@@ -416,19 +417,17 @@ struct QooViewerApp: App {
         let locale = AppLanguage.currentLocale
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = String(
-            localized: "Your Saved Data Is From a Newer qooViewer", language: locale
-        )
+        alert.messageText = String(localized: "Your saved data was used by a newer qooViewer.", language: locale)
         alert.informativeText = String(
-            localized: """
-            A newer version of qooViewer has already used this saved data. If this older version opens it, anything only the newer version knows about (for example, the collection covers you chose) is permanently deleted.
-
-            To keep that data, quit and open the newer version of qooViewer instead.
-            """, language: locale
+            localized: "If you open it with this version, data only the newer version uses is deleted.", language: locale
         )
-        alert.addButton(withTitle: String(localized: "Quit", language: locale))
-        alert.addButton(withTitle: String(localized: "Open Anyway", language: locale))
-        guard alert.runModal() == .alertSecondButtonReturn else { exit(0) }
+        // 取り返しのつかない操作の作法: 右に赤い「それでも開く」(既定なし)、左の「終了」が Esc(docs/09)。
+        let openButton = alert.addButton(withTitle: String(localized: "Open Anyway", language: locale))
+        openButton.hasDestructiveAction = true
+        openButton.keyEquivalent = ""
+        let quitButton = alert.addButton(withTitle: String(localized: "Quit", language: locale))
+        quitButton.keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { exit(0) }
     }
 
     /// SwiftDataのストア本体、および付随するWAL/SHMファイル(SQLiteの補助ファイル)を削除する。
@@ -2190,7 +2189,7 @@ struct QooViewerApp: App {
         panel.message = String(
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
+            localized: "Choose a book to open. Selecting several images opens them as one book.",
             // `locale:` は書式だけを替え、訳文は OS の言語のものになる(CLAUDE.md「Localization」)。表示言語で引くのは `language:`
             // (2026-10-11 の規約監査で直した)。
             language: locale
@@ -2216,8 +2215,9 @@ struct QooViewerApp: App {
                 } else {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
-                    alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+                    alert.messageText = String(localized: "The book couldn’t be opened.", language: locale)
                     alert.informativeText = message
+                    alert.addButton(withTitle: String(localized: "OK", language: locale))
                     _ = await WindowSheet.run(alert)
                 }
             }
@@ -3446,17 +3446,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "Quit While Work Is in Progress?", language: locale)
-        alert.informativeText = String(
-            localized: "qooViewer is still copying, moving, compressing, exporting, or importing. If you quit now, it stops partway.",
-            language: locale
-        )
-        alert.addButton(withTitle: String(localized: "Cancel", language: locale))
+        alert.messageText = String(localized: "Quit while work is in progress?", language: locale)
+        alert.informativeText = String(localized: "Copying or exporting stops partway.", language: locale)
+        // 途中で止める操作の作法: 右に赤い「終了」(既定なし)、左の「キャンセル」が Esc(docs/09)。
         let quitButton = alert.addButton(withTitle: String(localized: "Quit", language: locale))
         quitButton.hasDestructiveAction = true
+        quitButton.keyEquivalent = ""
+        let cancelButton = alert.addButton(withTitle: String(localized: "Cancel", language: locale))
+        cancelButton.keyEquivalent = "\u{1b}"
         isAskingToQuit = true
         defer { isAskingToQuit = false }
-        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
         return terminateAfterFlushingStackNestProgress()
     }
 
@@ -3772,11 +3772,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "Multiple Tabs Are Open", language: locale)
-        alert.informativeText = String(
-            localized: "This window has multiple tabs open. Are you sure you want to close it?",
-            language: locale
-        )
+        alert.messageText = String(localized: "Close this window and all of its tabs?", language: locale)
         alert.addButton(withTitle: String(localized: "Close Window", language: locale))
         alert.addButton(withTitle: String(localized: "Cancel", language: locale))
         WindowSheet.begin(alert, for: window) { response in

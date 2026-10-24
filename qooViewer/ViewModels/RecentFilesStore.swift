@@ -364,20 +364,19 @@ final class RecentFilesStore: ObservableObject {
             switch self {
             case .volumeNotConnected:
                 String(format: String(
-                    localized: "The volume that holds “%@” isn’t connected. Connect it and try again.", language: locale
+                    localized: "The volume for “%@” can’t be found.", language: locale
                 ), name)
             case .inTrash:
                 String(format: String(
-                    localized: "“%@” is in the Trash. It was removed from the history.", language: locale
+                    localized: "“%@” can’t be opened because it’s in the Trash.", language: locale
                 ), name)
             case .missing:
                 String(format: String(
-                    localized: "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history.",
-                    language: locale
+                    localized: "“%@” can’t be found.", language: locale
                 ), name)
             case .timedOut:
                 String(format: String(
-                    localized: "The location of “%@” didn’t respond. Try again later.", language: locale
+                    localized: "The location of “%@” isn’t responding.", language: locale
                 ), name)
             }
         }
@@ -413,8 +412,9 @@ final class RecentFilesStore: ObservableObject {
                 } else {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
-                    alert.messageText = String(localized: "The Book Couldn’t Be Opened", language: locale)
+                    alert.messageText = String(localized: "The book couldn’t be opened.", language: locale)
                     alert.informativeText = message
+                    alert.addButton(withTitle: String(localized: "OK", language: locale))
                     _ = await WindowSheet.run(alert)
                 }
             }

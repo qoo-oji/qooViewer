@@ -395,7 +395,7 @@ final class FileBrowserActions {
         panel.directoryURL = folder
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(
-            localized: "To show files in this folder, please select and grant access to it.",
+            localized: "Grant access to this folder.",
             language: locale
         )
         // 操作されたウインドウのシート(2026-09-27。WindowSheet)。
@@ -418,7 +418,7 @@ final class FileBrowserActions {
         panel.directoryURL = favoriteLocationPanelStartDirectory()
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(
-            localized: "Choose a folder to add to Favorite Locations. qooViewer can then show the files in it.",
+            localized: "Choose a folder to add to Favorite Locations.",
             language: locale
         )
         // 操作されたウインドウのシート(2026-09-27。WindowSheet)。その間にファイルブラウザ機能が切られていたら足さない。

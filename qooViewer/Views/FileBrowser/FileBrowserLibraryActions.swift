@@ -216,7 +216,7 @@ extension FileBrowserActions {
         let title = names.count == 1
             ? String(format: String(localized: "“%@” is a book, so it can’t be a target folder.", language: locale), names[0])
             : String(localized: "The selected folders are books, so they can’t be target folders.", language: locale)
-        var message = String(localized: "Add the folder that holds the books. Every book in it appears in the smart library.",
+        var message = String(localized: "Add the folder that holds the books.",
                              language: locale)
         if !secretRefused.isEmpty {
             message += "\n\n" + SmartLibraryTargetAdding.secretRefusedMessage(secretRefused, locale: locale)
@@ -255,7 +255,9 @@ extension FileBrowserActions {
     /// サンドボックスから開けないことがある(OpenWithApplications の型コメント)。失敗は報告する。
     func chooseApplicationAndOpen(_ entries: [FileBrowserEntry]) {
         guard !entries.isEmpty else { return }
-        OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent) { [weak self] application in
+        OpenWithApplications.chooseApplication(
+            locale: preferences?.effectiveLocale ?? .autoupdatingCurrent, itemNames: entries.map(\.url.lastPathComponent)
+        ) { [weak self] application in
             self?.open(entries, withApplicationAt: application)
         }
     }
@@ -287,24 +289,26 @@ extension FileBrowserActions {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         return Task { [weak self] in
             var updated: [FileBrowserEntry] = []
-            var firstFailure: String?
+            var firstFailure: (name: String, reason: String)?
             for entry in entries {
                 do {
                     // 記号リンク・エイリアスは先に書く(開くときも先を渡すので、拡張属性は先に無いと効かない)。
                     try await setDefault(application, self?.effective(entry).url ?? entry.url)
                     updated.append(entry)
                 } catch {
-                    if firstFailure == nil { firstFailure = error.localizedDescription }
+                    if firstFailure == nil { firstFailure = (entry.url.lastPathComponent, error.localizedDescription) }
                 }
             }
             guard let self else { return }
             if let firstFailure {
+                // Finder の文(項目を名指しする。2026-10-24)。
                 self.state?.operations.presenter?.showProblem(FileBrowserProblem(
                     title: String(
-                        format: String(localized: "“%@” couldn’t be set as the application that always opens the items.", language: locale),
-                        FileManager.default.displayName(atPath: application.path)
+                        format: String(localized: "You can’t change the item “%@” to always open in the selected application.", language: locale),
+                        firstFailure.name
                     ),
-                    message: firstFailure
+                    message: firstFailure.reason,
+                    presentation: .finderDialog
                 ))
             }
             guard !updated.isEmpty else { return }
@@ -314,7 +318,9 @@ extension FileBrowserActions {
 
     func chooseApplicationAndAlwaysOpen(_ entries: [FileBrowserEntry]) {
         guard canAlwaysOpenWith(entries) else { return }
-        OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent) { [weak self] application in
+        OpenWithApplications.chooseApplication(
+            locale: preferences?.effectiveLocale ?? .autoupdatingCurrent, itemNames: entries.map(\.url.lastPathComponent)
+        ) { [weak self] application in
             // パネルはシートなので、選んでいる間に読み取り専用へ切り替わりうる。
             guard let self, canAlwaysOpenWith(entries) else { return }
             alwaysOpen(entries, withApplicationAt: application)
@@ -409,12 +415,8 @@ extension FileBrowserActions {
         let title = names.count == 1
             ? String(format: String(localized: "“%@” isn’t a book.", language: locale), names[0])
             : String(localized: "The selected items aren’t books.", language: locale)
-        let message = forCollection
-            ? String(
-                localized: "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it.",
-                language: locale
-            )
-            : String(localized: "Archives, PDF and EPUB files, and folders of images can be used as books.", language: locale)
+        // 説明は 1 文だけ(ダイアログの作法 ―― docs/09)。
+        let message = String(localized: "Archives, PDF and EPUB files, and folders of images can be books.", language: locale)
         return FileBrowserProblem(title: title, message: message)
     }
 

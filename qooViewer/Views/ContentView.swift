@@ -987,8 +987,10 @@ struct ContentView: View {
                 )
             }
         }
+        // 題は何ができなかったか(Finder の「“…”を開けません。」と同じく、汎用の「エラー」にしない ―― ダイアログの作法、docs/09)。
+        // 本文は理由。理由が題と同じ(理由の分からない失敗)なら本文は付けない。
         .alert(
-            "Error",
+            "The book couldn’t be opened.",
             isPresented: Binding(
                 get: { appState.errorMessage != nil },
                 set: { isPresented in
@@ -998,7 +1000,8 @@ struct ContentView: View {
         ) {
             Button("OK") { appState.errorMessage = nil }
         } message: {
-            Text(appState.errorMessage ?? "")
+            let message = appState.errorMessage ?? ""
+            Text(message == String(localized: "The book could not be opened.", language: preferences.effectiveLocale) ? "" : message)
         }
         // お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかった場合の
         // アラート(要望5)。「お気に入りから削除」を選ぶと、favoritesStoreからそのお気に入りを
@@ -2342,7 +2345,8 @@ private struct SidePanelEditingDialogs: ViewModifier {
             )
         ) {
             TextField("Name", text: $renameText)
-            Button("Save") {
+            // 名前を入れる面の確定ボタンはどこも「名前を変更」(ダイアログの作法 ―― docs/09)。
+            Button("Rename") {
                 // 保存の時点で id から引き直す。アラートを出している間に別のウインドウで消されていれば、書かずに知らせる
                 // (2026-10-04 の監査 BE-10 = SP-14。BookmarkStore.rename(bookmarkID:to:))。
                 if let bookmark = renamingBookmark, !bookmarkStore.rename(bookmarkID: bookmark.id, to: renameText) {
@@ -2476,10 +2480,8 @@ extension ContentView {
             Self.isPresentingSecretFolderMigrationNotice = true
             defer { Self.isPresentingSecretFolderMigrationNotice = false }
             let alert = NSAlert()
-            alert.messageText = String(localized: "Excluded folders are now secret folders", language: locale)
-            alert.informativeText = String(
-                localized: "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders.",
-                language: locale)
+            alert.messageText = String(localized: "Excluded folders are now secret folders.", language: locale)
+            alert.informativeText = String(localized: "Books in them leave no history or saved data.", language: locale)
             alert.addButton(withTitle: String(localized: "OK", language: locale))
             alert.addButton(withTitle: String(localized: "Open Settings…", language: locale))
             let response = await WindowSheet.run(alert, for: window)

@@ -115,23 +115,38 @@ struct CollectionDetailView: View {
         let reason: BookLocation
     }
 
-    /// 「本が見つかりません」の本文。理由ごとに書き分ける(MissingBook.reason参照)。
-    @ViewBuilder
-    private var missingBookMessage: some View {
-        let name = Text(missingBook?.title ?? "")
-        switch missingBook?.reason {
-        case .volumeUnavailable:
-            Text("The volume that holds “") + name
-                + Text("” is not connected. Connect it and try again — nothing has been lost.")
-        case .unreachable:
-            Text("qooViewer could not work out where “") + name
-                + Text("” is. The file may still be there: open it once from its current location and the collection will catch up.")
-        default:
-            // .missing(ボリュームは付いているのに実体に届かない)と、確認が間に合って
-            // いない場合。移動と削除は区別できないので、どちらとも言わない。
-            Text("The file or folder for “") + name
-                + Text("” could not be found. It may have been moved or deleted.")
+    /// 「本が見つかりません」の題。理由ごとに書き分ける(MissingBook.reason参照)。Finder のエイリアスの元が見つからないときの
+    /// アラートと同じく、**題 1 文で本の名前と理由を言い、本文は付けない**(ダイアログの作法 ―― docs/09。スマートライブラリと同じ文)。
+    private var missingBookTitle: String {
+        BookNotFoundText.title(name: missingBook?.title ?? "", reason: {
+            switch missingBook?.reason {
+            case .volumeUnavailable: .volumeNotConnected
+            case .unreachable: .unreadable
+            // .missing(ボリュームは付いているのに実体に届かない)と、確認が間に合っていない場合。
+            default: .missing
+            }
+        }(), locale: locale)
+    }
+
+    private func presentMissingBook() {
+        guard let missing = missingBook else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = missingBookTitle
+        alert.addButton(withTitle: String(localized: "OK", language: locale))
+        // 削除はDBへの書き込みなので、シークレットウインドウでは出さない
+        // (ContentViewの「お気に入りが見つかりません」と同じ判断)。
+        if allowsEditing {
+            let remove = alert.addButton(withTitle: String(localized: "Remove from Collection", language: locale))
+            remove.hasDestructiveAction = true
         }
+        let response = WindowSheet.runAsFinderDialog(alert)
+        if response == .alertSecondButtonReturn, allowsEditing,
+           let item = collectionStore.item(withID: missing.id) {
+            // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
+            DataUndoStack.removeItems([item], in: collectionStore, recordingOn: dataUndo)
+        }
+        missingBook = nil
     }
 
     /// 検索欄の文字列を照合できる形にしたもの。空欄ならnil(絞り込まない)。
@@ -196,28 +211,9 @@ struct CollectionDetailView: View {
                 )
             }
         }
-        .alert(
-            "Book Not Found",
-            isPresented: Binding(
-                get: { missingBook != nil },
-                set: { if !$0 { missingBook = nil } }
-            )
-        ) {
-            Button("OK") { missingBook = nil }
-            // 削除はDBへの書き込みなので、シークレットウインドウでは出さない
-            // (ContentViewの「お気に入りが見つかりません」と同じ判断)。
-            if allowsEditing {
-                Button("Remove from Collection", role: .destructive) {
-                    // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
-                    if let item = missingBook.flatMap({ collectionStore.item(withID: $0.id) }) {
-                        DataUndoStack.removeItems([item], in: collectionStore, recordingOn: dataUndo)
-                    }
-                    missingBook = nil
-                }
-            }
-        } message: {
-            missingBookMessage
-        }
+        // Finder のエイリアスの元が見つからないときと同じ、ウインドウから切り離したダイアログ(右の「OK」が既定、左に赤い
+        // 「コレクションから削除」。docs/09「ダイアログとシートの作法」)。
+        .task(id: missingBook?.id) { presentMissingBook() }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
         }
@@ -398,7 +394,7 @@ struct CollectionDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // 「本が見つかりません」(body)・本の削除(header)とは別の階層に付ける ―― 同じビューに`.alert`を2つ
         // 重ねると片方しか出ないことがある。文言は一覧の右クリックの「削除…」と同じ(CollectionGridView)。
-        .alert("Delete Collection?", isPresented: $isDeletingCollection) {
+        .alert("Delete the collection “\(collection.name)”?", isPresented: $isDeletingCollection) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 // 先に一覧へ戻す(WelcomeLibraryPaneは消えたコレクションなら黙って一覧を出すが、消した行を
@@ -411,7 +407,7 @@ struct CollectionDetailView: View {
                 }
             }
         } message: {
-            Text("The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo.")
+            Text("Book files aren’t deleted.")
         }
     }
 
@@ -754,7 +750,7 @@ struct CollectionDetailView: View {
                     for: applications, locale: locale,
                     open: { application in openItem(itemID, withApplicationAt: application) },
                     chooseOther: {
-                        OpenWithApplications.chooseApplication(locale: locale) { application in
+                        OpenWithApplications.chooseApplication(locale: locale, itemNames: [name]) { application in
                             openItem(itemID, withApplicationAt: application)
                         }
                     }

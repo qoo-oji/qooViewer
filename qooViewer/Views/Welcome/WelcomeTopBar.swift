@@ -161,7 +161,7 @@ struct WelcomeTopBar: View {
             deletingLibraryID = nil
         }
         .alert(
-            "Delete Library?",
+            "Delete the library “\(deletingLibraryID.flatMap { collectionStore.library(withID: $0)?.displayName(language: locale) } ?? "")”?",
             isPresented: Binding(
                 get: { deletingLibraryID != nil && state.isLibraryFeatureEnabled },
                 set: { if !$0 { deletingLibraryID = nil } }
@@ -177,7 +177,7 @@ struct WelcomeTopBar: View {
                 deletingLibraryID = nil
             }
         } message: {
-            Text("Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo.")
+            Text("Its collections are deleted too. Book files aren’t deleted.")
         }
         // メニューバーの「ホーム」メニューから(WelcomeLibraryState.menuRequestのコメント)。右クリックと同じ状態を立てる。
         .onChange(of: state.menuRequest) { _, _ in

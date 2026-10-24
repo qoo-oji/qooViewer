@@ -73,12 +73,7 @@ struct OpenBookExportSheet: View {
                 ExportProgressSheet(
                     viewModel: viewModel,
                     progressTitle: "Exporting Book…",
-                    overwriteMessage: { displayName in
-                        String(
-                            format: String(localized: "“%1$@.%2$@” already exists in the destination folder.", language: preferences.effectiveLocale),
-                            displayName, format.fileExtension
-                        )
-                    }
+                    fileExtension: format.fileExtension
                 )
             } else if let failureMessage {
                 failureView(failureMessage)

@@ -1,5 +1,6 @@
-import SwiftUI
 import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
 
 /// EPUB / PDF / CBZ の各出力ウインドウが共有する部品。
 ///
@@ -47,17 +48,16 @@ enum ExportColumnWidthEstimator {
 
 /// 書き出し中の進捗シート。
 ///
-/// 同名ファイルの確認は、書き出し中(このシートの表示中)にだけ起こりうる操作のため、あえて
-/// この進捗シート自身にalertを付ける(親ビュー側に付けると、進捗シートの上に正しく重なって
-/// 表示されない可能性があるため)。
+/// 同名ファイルの確認は、ファイルブラウザのコピーと同じく **Finder の操作ウインドウの行**で尋ねる(2026-10-24、ユーザー決定。
+/// 以前はこのシートの上のアラートで「スキップ / 以降すべてスキップ / 上書き / 以降すべて上書き」の 4 つを並べ、本が 1 冊でも
+/// 「以降すべて」が出ていた)。ボタンは「スキップ / 中止 / 置き換える」、後に本が残っているときだけ「すべてに適用」。
 struct ExportProgressSheet: View {
     @Environment(\.locale) private var locale
     @ObservedObject var viewModel: BookExportViewModel
     /// 「EPUBファイルをエクスポート中…」など、形式ごとの見出し。
     let progressTitle: LocalizedStringKey
-    /// 「“<名前>.epub” はすでに出力先フォルダにあります。」の本文。拡張子が形式ごとに
-    /// 異なるため、文言そのものは呼び出し側が組み立てる。
-    let overwriteMessage: (String) -> String
+    /// 書き出すファイルの拡張子(同名の確認の文と行のアイコンに使う)。
+    let fileExtension: String
 
     var body: some View {
         VStack(spacing: 16) {
@@ -89,32 +89,43 @@ struct ExportProgressSheet: View {
             Button("Cancel") {
                 viewModel.cancel()
             }
+            .keyboardShortcut(.cancelAction)
             .disabled(viewModel.wasCancelled)
         }
         .padding(32)
         .frame(minWidth: 380, minHeight: 220)
-        .alert(
-            "Overwrite Existing File?",
-            isPresented: Binding(
-                get: { viewModel.pendingOverwriteBookDisplayName != nil },
-                set: { _ in }
+        // 待ちが変わったら(答えた・中止した)前の行は片付く(`FileOperationPromptCenter.ask` は取り消されると「中止」で答える)。
+        .task(id: viewModel.pendingOverwriteBookDisplayName) {
+            guard let displayName = viewModel.pendingOverwriteBookDisplayName else { return }
+            await askOverwrite(displayName)
+        }
+    }
+
+    private func askOverwrite(_ displayName: String) async {
+        let fileName = displayName + "." + fileExtension
+        let skip = String(localized: "Skip", language: locale)
+        let stop = String(localized: "Stop", language: locale)
+        let replace = String(localized: "Replace", language: locale)
+        let hasMore = viewModel.totalCount - viewModel.completedCount > 1
+        let icon = UTType(filenameExtension: fileExtension).map { NSWorkspace.shared.icon(for: $0) } ?? NSWorkspace.shared.icon(for: .data)
+        // 持ち主は書き出しのシートを出しているウインドウ(シートそのものではない ―― シートは書き終えると閉じる)。
+        let owner = NSApp.keyWindow.map { $0.sheetParent ?? $0 }
+        let answer = await FileOperationPromptCenter.shared.ask(FileOperationPrompt(
+            icon: icon,
+            message: String(
+                format: String(localized: "An item named “%@” already exists in this location. Do you want to replace it with the one you’re exporting?", language: locale),
+                fileName
             ),
-            presenting: viewModel.pendingOverwriteBookDisplayName
-        ) { _ in
-            Button("Skip", role: .cancel) {
-                viewModel.resolveOverwrite(.skip, applyToRemaining: false)
-            }
-            Button("Skip All Remaining") {
-                viewModel.resolveOverwrite(.skip, applyToRemaining: true)
-            }
-            Button("Overwrite") {
-                viewModel.resolveOverwrite(.overwrite, applyToRemaining: false)
-            }
-            Button("Overwrite All Remaining") {
-                viewModel.resolveOverwrite(.overwrite, applyToRemaining: true)
-            }
-        } message: { displayName in
-            Text(overwriteMessage(displayName))
+            buttons: [skip, stop, replace],
+            checkboxTitle: hasMore ? String(localized: "Apply to All", language: locale) : nil,
+            answerWhenOwnerCloses: 1,
+            windowTitle: String(localized: "Export", language: locale)
+        ), owner: owner)
+        guard viewModel.pendingOverwriteBookDisplayName == displayName else { return }
+        switch answer.button {
+        case 0: viewModel.resolveOverwrite(.skip, applyToRemaining: answer.checkboxIsOn)
+        case 2: viewModel.resolveOverwrite(.overwrite, applyToRemaining: answer.checkboxIsOn)
+        default: viewModel.cancel()
         }
     }
 }

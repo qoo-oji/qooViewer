@@ -521,6 +521,8 @@ final class CoverOverrideController: ObservableObject {
             format: String(localized: "“%@” couldn’t be used as the cover.", language: locale), fileURL.lastPathComponent
         )
         alert.informativeText = error.localizedDescription
+        // ボタンを足さないと AppKit が OS の言語の「OK」を付ける(表示言語の設定に従わない)。
+        alert.addButton(withTitle: String(localized: "OK", language: locale))
         WindowSheet.begin(alert) { _ in }
     }
 

@@ -120,8 +120,9 @@ struct CollectionCoverEditArea: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
         panel.message = String(
-            localized: "Choose an image file to use as the cover.", language: locale
+            localized: "Choose an image to use as the cover.", language: locale
         )
+        panel.prompt = String(localized: "Choose", language: locale)
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
@@ -356,7 +357,8 @@ struct FileBrowserCoverArea: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
-        panel.message = String(localized: "Choose an image file to use as the cover.", language: locale)
+        panel.message = String(localized: "Choose an image to use as the cover.", language: locale)
+        panel.prompt = String(localized: "Choose", language: locale)
         WindowSheet.beginChoosing(panel) { urls in
             guard let url = urls?.first else { return }
             Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }

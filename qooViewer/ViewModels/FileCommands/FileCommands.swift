@@ -793,7 +793,9 @@ final class MakeAliasesCommand: FileCommand {
     }
 
     var displayName: String {
-        String(localized: "Make Alias", language: AppLanguage.currentLocale)
+        // 「取り消す」の後ろ・報告の文に入る名前なので名詞の形(日本語で「エイリアスを作成を取り消す」にならないように。
+        // メニュー項目の「エイリアスを作成」とは別のキー ―― 2026-10-24)。
+        String(localized: "Make Alias (operation name)", language: AppLanguage.currentLocale)
     }
 
     let isUndoable = true
@@ -825,7 +827,8 @@ final class CreateFolderCommand: FileCommand {
     }
 
     var displayName: String {
-        String(localized: "New Folder", language: AppLanguage.currentLocale)
+        // 名詞の形(「新規フォルダの作成を取り消す」。メニュー項目の「新規フォルダ」とは別のキー ―― 2026-10-24)。
+        String(localized: "New Folder (operation name)", language: AppLanguage.currentLocale)
     }
 
     let isUndoable = true

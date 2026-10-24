@@ -29,9 +29,11 @@ struct MissingBooksCleanupSheet: View {
             chrome: 0
         )
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Books That Are No Longer There")
+            // 題は問い 1 文、説明は 1 文だけ(ダイアログの作法 ―― docs/09。設定の場所や仕組みの説明は書かない)。
+            Text("Remove books that are no longer there from their collections?")
                 .font(.headline)
-            Text("The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything.")
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Their files can’t be found on the connected volumes.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -41,7 +43,7 @@ struct MissingBooksCleanupSheet: View {
                 // 「コレクションごと消える」は取り消せない副作用なので、一覧とは別に名指しで出す
                 // (自動登録フォルダを設定していたコレクションなら、その指定も一緒に失われる)。
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Every book in these collections is gone, so the collections are removed too:")
+                    Text("These collections become empty and are removed too:")
                         .font(.caption)
                     // 区切りは表示言語に従う(日本語なら「、」、英語なら "A and B")。
                     // ここを文字リテラルで繋ぐと、言語を切り替えたときだけ不自然になる。
@@ -51,10 +53,6 @@ struct MissingBooksCleanupSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Text("You can turn this off in Settings ▸ General ▸ Home.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 Spacer(minLength: 0)

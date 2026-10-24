@@ -328,6 +328,7 @@ struct AppPreferencesTests {
             "fileBrowserExternalDropAction", "fileBrowserExpandsTreeToCurrentFolder", "fileBrowserTreeFollowsListSort", "fileBrowserShowsRecents",
             "fileBrowserCompressionFormat",
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
+            "fileBrowserWarnsBeforeChangingExtension",
             "fileBrowserImageFolderOpenAction",
         ],
         .library: ["homeOpensWithSingleClick", "offersRemovingMissingCollectionBooks"],

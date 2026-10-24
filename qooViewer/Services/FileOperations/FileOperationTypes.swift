@@ -425,18 +425,20 @@ extension FileOperationError: LocalizedError {
             return String(format: String(localized: "“%@” is a volume, so it can’t be moved.", language: locale), url.lastPathComponent)
         case let .volumeCannotBeDeleted(url):
             return String(
-                format: String(localized: "“%@” is a volume or contains one, so it can’t be deleted.", language: locale), url.lastPathComponent
+                format: String(localized: "“%@” can’t be deleted because it’s a volume.", language: locale), url.lastPathComponent
             )
         case let .replacingOpenBook(url):
             return String(format: String(localized: "“%@” is open in qooViewer, so it wasn’t replaced.", language: locale), url.lastPathComponent)
-        case let .removalNotPermitted(item, folder):
+        case let .removalNotPermitted(_, folder):
             return String(
-                format: String(localized: "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted.", language: locale),
-                folder.lastPathComponent, item.lastPathComponent
+                // Finder の文(親のフォルダを名指しする。2026-10-24)。
+                format: String(localized: "The operation can’t be completed because you don’t have permission to modify “%@”.", language: locale),
+                folder.lastPathComponent
             )
         case let .protectedLocation(url):
             return String(
-                format: String(localized: "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted.", language: locale),
+                // Finder の文(2026-10-24)。
+                format: String(localized: "“%@” can’t be modified or deleted because it’s required by macOS.", language: locale),
                 url.lastPathComponent
             )
         case let .duplicateArchiveEntryName(name, _):

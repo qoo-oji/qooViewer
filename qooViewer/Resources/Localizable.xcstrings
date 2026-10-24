@@ -1713,38 +1713,6 @@
         }
       }
     },
-    "” is not connected. Connect it and try again — nothing has been lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "” is not connected. Connect it and try again — nothing has been lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "」があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
-          }
-        }
-      }
-    },
-    "” is. The file may still be there: open it once from its current location and the collection will catch up." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "” is. The file may still be there: open it once from its current location and the collection will catch up."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "」の場所を特定できませんでした。実体はまだあるかもしれません。いまある場所から一度開くと、コレクションの登録もそこへ追従します。"
-          }
-        }
-      }
-    },
     "”." : {
       "localizations" : {
         "en" : {
@@ -1868,7 +1836,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」の名前を変更できません。「.」(ドット)で始まる名前はシステムだけが使用できます。"
+            "value" : "“%@”の名前を変更できません。“.”(ドット)で始まる名前はシステムだけが使用できます。"
           }
         }
       }
@@ -1884,7 +1852,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」がコピーの途中で変更されたため、操作を中止しました。"
+            "value" : "“%@”がコピーの途中で変更されたため、操作を中止しました。"
           }
         }
       }
@@ -1900,23 +1868,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」が見つかりませんでした。"
-          }
-        }
-      }
-    },
-    "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” couldn’t be found. It may have been moved or deleted, so it was removed from the history."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」が見つかりませんでした。移動または削除された可能性があるため、履歴から削除しました。"
+            "value" : "“%@”が見つかりませんでした。"
           }
         }
       }
@@ -1948,7 +1900,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を読めませんでした。壊れているか、暗号化されているか、qooViewer が対応していない方式で圧縮されている可能性があります。"
+            "value" : "“%@”を読めませんでした。壊れているか、暗号化されているか、qooViewer が対応していない方式で圧縮されている可能性があります。"
           }
         }
       }
@@ -1969,22 +1921,6 @@
         }
       }
     },
-    "“%@” couldn’t be set as the application that always opens the items." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” couldn’t be set as the application that always opens the items."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」を、常にこの項目を開くアプリケーションに設定できませんでした。"
-          }
-        }
-      }
-    },
     "“%@” couldn’t be used as the cover." : {
       "localizations" : {
         "en" : {
@@ -1996,7 +1932,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」をカバーにできませんでした。"
+            "value" : "“%@”をカバーにできませんでした。"
           }
         }
       }
@@ -2012,7 +1948,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は展開すると元の大きさをはるかに超えます。壊れた書庫や悪意のある書庫に見られる特徴のため、展開しませんでした。"
+            "value" : "“%@”は展開すると元の大きさをはるかに超えます。壊れた書庫や悪意のある書庫に見られる特徴のため、展開しませんでした。"
           }
         }
       }
@@ -2045,39 +1981,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は本なので、対象フォルダにはできません。"
-          }
-        }
-      }
-    },
-    "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is a folder macOS requires, so it can’t be moved, renamed or deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はmacOSが必要とするフォルダなので、移動・名前の変更・削除はできません。"
-          }
-        }
-      }
-    },
-    "“%@” is a volume or contains one, so it can’t be deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is a volume or contains one, so it can’t be deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はボリュームか、ボリュームを含んでいるので削除できません。"
+            "value" : "“%@”は本なので、対象フォルダにはできません。"
           }
         }
       }
@@ -2093,7 +1997,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はボリュームなので移動できません。"
+            "value" : "“%@”はボリュームなので移動できません。"
           }
         }
       }
@@ -2109,23 +2013,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
-          }
-        }
-      }
-    },
-    "“%@” is in the Trash. It was removed from the history." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is in the Trash. It was removed from the history."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はゴミ箱の中にあります。履歴から削除しました。"
+            "value" : "“%@”はシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
           }
         }
       }
@@ -2141,7 +2029,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はロックされています。"
+            "value" : "“%@”はロックされています。"
           }
         }
       }
@@ -2157,7 +2045,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はロックされています。削除してもよろしいですか?"
+            "value" : "“%@”はロックされています。削除してもよろしいですか?"
           }
         }
       }
@@ -2173,7 +2061,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はロックされています。移動してもよろしいですか?"
+            "value" : "“%@”はロックされています。移動してもよろしいですか?"
           }
         }
       }
@@ -2189,7 +2077,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はロックされています。名前を変更してもよろしいですか?"
+            "value" : "“%@”はロックされています。名前を変更してもよろしいですか?"
           }
         }
       }
@@ -2205,7 +2093,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はロックされています。置き換えてもよろしいですか?"
+            "value" : "“%@”はロックされています。置き換えてもよろしいですか?"
           }
         }
       }
@@ -2221,7 +2109,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は読み出し専用のボリュームにあります。"
+            "value" : "“%@”は読み出し専用のボリュームにあります。"
           }
         }
       }
@@ -2237,7 +2125,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はqooViewerで開いているため、置き換えませんでした。"
+            "value" : "“%@”はqooViewerで開いているため、置き換えませんでした。"
           }
         }
       }
@@ -2269,7 +2157,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はqooViewerで開いています。"
+            "value" : "“%@”はqooViewerで開いています。"
           }
         }
       }
@@ -2285,7 +2173,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」はパスワードで保護されています。qooViewer は暗号化された書庫を展開できません。"
+            "value" : "“%@”はパスワードで保護されています。qooViewer は暗号化された書庫を展開できません。"
           }
         }
       }
@@ -2301,7 +2189,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は複数のファイルに分割されています。qooViewer は分割された書庫を展開できません。"
+            "value" : "“%@”は複数のファイルに分割されています。qooViewer は分割された書庫を展開できません。"
           }
         }
       }
@@ -2317,23 +2205,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は本ではありません。"
-          }
-        }
-      }
-    },
-    "“%1$@.%2$@” already exists in the destination folder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%1$@.%2$@” already exists in the destination folder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%1$@.%2$@」は保存先フォルダにすでに存在します。"
+            "value" : "“%@”は本ではありません。"
           }
         }
       }
@@ -2365,7 +2237,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」の名前を変更できません。%2$@"
+            "value" : "“%1$@”の名前を変更できません。%2$@"
           }
         }
       }
@@ -2381,7 +2253,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」には %2$lld 個のファイルが入っていて、qooViewer が一度に展開できる数(%3$lld)を超えています。"
+            "value" : "“%1$@”には %2$lld個のファイルが入っていて、qooViewer が一度に展開できる数(%3$lld)を超えています。"
           }
         }
       }
@@ -2413,7 +2285,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」は移動先へコピーしましたが、元の項目を削除できなかったため、両方を残しました。%2$@"
+            "value" : "“%1$@”は移動先へコピーしましたが、元の項目を削除できなかったため、両方を残しました。%2$@"
           }
         }
       }
@@ -2429,7 +2301,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」を置き換えましたが、元の項目をゴミ箱に入れられませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+            "value" : "“%1$@”を置き換えましたが、元の項目をゴミ箱に入れられませんでした。同じフォルダの中に、隠し項目“%2$@”として残っています。"
           }
         }
       }
@@ -2445,7 +2317,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」は展開すると %2$@ を超えるため、展開しませんでした。"
+            "value" : "“%1$@”は展開すると %2$@ を超えるため、展開しませんでした。"
           }
         }
       }
@@ -2957,22 +2829,6 @@
         }
       }
     },
-    "%@: Some items couldn’t be processed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@: Some items couldn’t be processed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@で処理できなかった項目があります。"
-          }
-        }
-      }
-    },
     "%1$@ · %2$lld formats" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3407,7 +3263,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 個のフォルダはシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
+            "value" : "%lld個のフォルダはシークレットフォルダの中にあるため、スマートライブラリに追加しませんでした。"
           }
         }
       }
@@ -3440,7 +3296,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 項目がロックされています。削除してもよろしいですか?"
+            "value" : "%lld項目がロックされています。削除してもよろしいですか?"
           }
         }
       }
@@ -3456,7 +3312,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 項目がロックされています。移動してもよろしいですか?"
+            "value" : "%lld項目がロックされています。移動してもよろしいですか?"
           }
         }
       }
@@ -3472,7 +3328,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 項目がロックされています。ゴミ箱に入れてもよろしいですか?"
+            "value" : "%lld項目がロックされています。ゴミ箱に入れてもよろしいですか?"
           }
         }
       }
@@ -3488,7 +3344,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 項目がロックされています。名前を変更してもよろしいですか?"
+            "value" : "%lld項目がロックされています。名前を変更してもよろしいですか?"
           }
         }
       }
@@ -4547,7 +4403,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "名前に「%@」は使えません。"
+            "value" : "名前に“%@”は使えません。"
           }
         }
       }
@@ -4630,16 +4486,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%@”という名前の新しい項目がすでにこの場所にあります。現在移動中の古い項目で置き換えますか?"
-          }
-        }
-      }
-    },
-    "A newer version of qooViewer has already used this saved data. If this older version opens it, anything only the newer version knows about (for example, the collection covers you chose) is permanently deleted.\n\nTo keep that data, quit and open the newer version of qooViewer instead." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しいバージョンのqooViewerが、この保存データを既に使っています。この古いバージョンで開くと、新しいバージョンだけが扱える情報(例: 自分で選んだコレクション表紙)が削除されます。この操作は取り消せません。\n\n削除したくない場合は、終了して新しいバージョンのqooViewerで開いてください。"
           }
         }
       }
@@ -5248,22 +5094,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "テキストを追加"
-          }
-        }
-      }
-    },
-    "Add the folder that holds the books. Every book in it appears in the smart library." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add the folder that holds the books. Every book in it appears in the smart library."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本が入っているフォルダを追加してください。その中の本がすべてスマートライブラリに並びます。"
           }
         }
       }
@@ -6042,7 +5872,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この場所には「%@」という名前の項目がすでにあります。"
+            "value" : "この場所には“%@”という名前の項目がすでにあります。"
           }
         }
       }
@@ -6122,7 +5952,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "元の場所に同じ名前の項目があったため、「%@」という名前で戻しました。"
+            "value" : "元の場所に同じ名前の項目があったため、“%@”という名前で戻しました。"
           }
         }
       }
@@ -6662,38 +6492,6 @@
         }
       }
     },
-    "Archives, PDF and EPUB files, and folders of images can be used as books." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives, PDF and EPUB files, and folders of images can be used as books."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書庫・PDF・EPUB のファイルと、画像の入ったフォルダが本になります。"
-          }
-        }
-      }
-    },
-    "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書庫・PDF・EPUB のファイルと、画像の入ったフォルダが本になります。本が並んだフォルダを選ぶと、その中の本が入ります。"
-          }
-        }
-      }
-    },
     "Are you sure you want to delete the %lld selected items?" : {
       "localizations" : {
         "en" : {
@@ -7050,22 +6848,6 @@
         }
       }
     },
-    "Auto-Layout the Whole Book?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-Layout the Whole Book?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本全体を自動でレイアウトしますか?"
-          }
-        }
-      }
-    },
     "Automatic" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7402,22 +7184,6 @@
         }
       }
     },
-    "Book Not Found" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Book Not Found"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本が見つかりません"
-          }
-        }
-      }
-    },
     "Bookmark" : {
       "localizations" : {
         "en" : {
@@ -7736,22 +7502,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "まだ番号の無い本 → 巻数"
-          }
-        }
-      }
-    },
-    "Books That Are No Longer There" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books That Are No Longer There"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "見つからなくなった本"
           }
         }
       }
@@ -8813,38 +8563,6 @@
         }
       }
     },
-    "Choose a folder to add to Favorite Locations. qooViewer can then show the files in it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a folder to add to Favorite Locations. qooViewer can then show the files in it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "よく使う項目に追加するフォルダを選んでください。qooViewerがそのフォルダの中身を表示できるようになります。"
-          }
-        }
-      }
-    },
-    "Choose a folder. Books added to it are added to this collection automatically." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a folder. Books added to it are added to this collection automatically."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダを選んでください。そのフォルダに本が増えると、このコレクションへ自動的に追加されます。"
-          }
-        }
-      }
-    },
     "Choose a JSON file exported from qooViewer." : {
       "localizations" : {
         "en" : {
@@ -8857,22 +8575,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "qooViewerから書き出したJSONファイルを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUB・画像ファイルを選んでください。画像は複数選択すると、まとめて1冊として開きます。"
           }
         }
       }
@@ -8909,38 +8611,6 @@
         }
       }
     },
-    "Choose an application to open the selected items." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose an application to open the selected items."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択した項目を開くアプリケーションを選択してください。"
-          }
-        }
-      }
-    },
-    "Choose an image file to use as the cover." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose an image file to use as the cover."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カバーに使う画像ファイルを選択してください。"
-          }
-        }
-      }
-    },
     "Choose File…" : {
       "localizations" : {
         "en" : {
@@ -8957,23 +8627,6 @@
         }
       }
     },
-    "Choose folders whose books appear in the smart library." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose folders whose books appear in the smart library."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリに並べる本の入ったフォルダを選んでください。"
-          }
-        }
-      }
-    },
     "Choose folders whose books should leave no history, saved data or metadata." : {
       "localizations" : {
         "en" : {
@@ -8986,38 +8639,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴・保存データ・メタデータを残さない本のフォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose how far this layout change should apply." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose how far this layout change should apply."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このレイアウトの変更をどの範囲まで適用するかを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose manga folders, or zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB files to add to this collection." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose manga folders, or zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB files to add to this collection."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このコレクションに追加する漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを選んでください。"
           }
         }
       }
@@ -9072,23 +8693,6 @@
         }
       }
     },
-    "Choose what to do next." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose what to do next."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この先どうするかを選んでください。"
-          }
-        }
-      }
-    },
     "Choose where to extract the %lld archives." : {
       "localizations" : {
         "en" : {
@@ -9100,7 +8704,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 個の書庫を展開する場所を選んでください。"
+            "value" : "%lld個の書庫を展開する場所を選んでください。"
           }
         }
       }
@@ -9117,38 +8721,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "書庫を展開する場所を選んでください。"
-          }
-        }
-      }
-    },
-    "Choose where to save the %lld compressed items." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose where to save the %lld compressed items."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 項目を圧縮したファイルの保存先を選んでください。"
-          }
-        }
-      }
-    },
-    "Choose where to save the compressed item." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose where to save the compressed item."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "圧縮したファイルの保存先を選んでください。"
           }
         }
       }
@@ -9296,22 +8868,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴をすべて削除"
-          }
-        }
-      }
-    },
-    "Clear History?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear History?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴をすべて削除しますか?"
           }
         }
       }
@@ -10484,22 +10040,6 @@
         }
       }
     },
-    "Couldn't Export Image" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't Export Image"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "画像を書き出せませんでした"
-          }
-        }
-      }
-    },
     "Couldn’t Export the Book" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11603,22 +11143,6 @@
         }
       }
     },
-    "Delete Collection?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Collection?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションを削除しますか?"
-          }
-        }
-      }
-    },
     "Delete Collection…" : {
       "localizations" : {
         "en" : {
@@ -11744,22 +11268,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "レイアウト情報を削除する"
-          }
-        }
-      }
-    },
-    "Delete Library?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Library?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブラリを削除しますか?"
           }
         }
       }
@@ -11921,22 +11429,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した項目を削除…"
-          }
-        }
-      }
-    },
-    "Delete Smart Collection?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Smart Collection?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートコレクションを削除しますか?"
           }
         }
       }
@@ -13788,22 +13280,6 @@
         }
       }
     },
-    "Every book in these collections is gone, so the collections are removed too:" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every book in these collections is gone, so the collections are removed too:"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次のコレクションは中の本が全部なくなるため、コレクションごと削除されます:"
-          }
-        }
-      }
-    },
     "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
       "localizations" : {
         "en" : {
@@ -13884,39 +13360,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「分類の設定」「タイトル内の探索」「語の一覧」に加えた変更が、すべて消えます。"
-          }
-        }
-      }
-    },
-    "Every collection in this library is removed too. The books themselves are not deleted." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every collection in this library is removed too. The books themselves are not deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。"
-          }
-        }
-      }
-    },
-    "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every collection in this library is removed too. The books themselves are not deleted. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このライブラリの中のコレクションもすべて削除されます。本の実体は削除されません。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -14048,22 +13491,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "除外(非表示)"
-          }
-        }
-      }
-    },
-    "Excluded folders are now secret folders" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluded folders are now secret folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "除外フォルダはシークレットフォルダになりました"
           }
         }
       }
@@ -16343,22 +15770,6 @@
         }
       }
     },
-    "Grant access to this folder so books added to it can be added to the collection automatically." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Grant access to this folder so books added to it can be added to the collection automatically."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダへのアクセスを許可すると、増えた本がこのコレクションへ自動的に追加されます。"
-          }
-        }
-      }
-    },
     "Grant Access to This Folder…" : {
       "localizations" : {
         "en" : {
@@ -18028,7 +17439,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この操作は取り消せません。"
+            "value" : "すぐに削除した項目は戻せません。"
           }
         }
       }
@@ -18389,22 +17800,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "特定の本を、シリーズに入れたくない"
-          }
-        }
-      }
-    },
-    "Keep Existing Settings" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep Existing Settings"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "既存の設定を維持する"
           }
         }
       }
@@ -19301,70 +18696,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ロック中"
-          }
-        }
-      }
-    },
-    "Locked items are unlocked while they’re moved and locked again at the new location." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked items are unlocked while they’re moved and locked again at the new location."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移動するあいだだけロックを外し、移動先でロックし直します。"
-          }
-        }
-      }
-    },
-    "Locked items are unlocked while they’re renamed and locked again afterward." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked items are unlocked while they’re renamed and locked again afterward."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前を変更するあいだだけロックを外し、変更後にロックし直します。"
-          }
-        }
-      }
-    },
-    "Locked items stay locked in the Trash." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked items stay locked in the Trash."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ゴミ箱の中でもロックされたままです。"
-          }
-        }
-      }
-    },
-    "Locked items, or folders that contain locked items, are unlocked and then deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked items, or folders that contain locked items, are unlocked and then deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ロックされた項目と、ロックされた項目を含むフォルダは、ロックを外してから削除されます。"
           }
         }
       }
@@ -20617,7 +19948,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」の移動は取り消せません。"
+            "value" : "“%@”の移動は取り消せません。"
           }
         }
       }
@@ -20697,23 +20028,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この %lld 項目の移動は取り消せません。"
-          }
-        }
-      }
-    },
-    "Multiple Tabs Are Open" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Multiple Tabs Are Open"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "複数のタブが開いています"
+            "value" : "この%lld項目の移動は取り消せません。"
           }
         }
       }
@@ -21865,22 +21180,6 @@
         }
       }
     },
-    "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "対応する画像が見つかりませんでした(画像フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDF / EPUBに対応しています)。"
-          }
-        }
-      }
-    },
     "No target folders yet." : {
       "localizations" : {
         "en" : {
@@ -22796,23 +22095,6 @@
         }
       }
     },
-    "Only the conditions are deleted. The books themselves and their saved data are not affected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only the conditions are deleted. The books themselves and their saved data are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "削除するのは条件だけです。本そのものと保存データは変わりません。"
-          }
-        }
-      }
-    },
     "Only the settings on this screen go back. Everything else you changed stays." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23480,38 +22762,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上書き"
-          }
-        }
-      }
-    },
-    "Overwrite All Remaining" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Overwrite All Remaining"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以降すべて上書き"
-          }
-        }
-      }
-    },
-    "Overwrite Existing File?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Overwrite Existing File?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "既存のファイルを上書きしますか?"
           }
         }
       }
@@ -24835,22 +24085,6 @@
         }
       }
     },
-    "qooViewer Can't Open Your Saved Data" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer Can't Open Your Saved Data"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存されたデータを開けません"
-          }
-        }
-      }
-    },
     "qooViewer Collection Covers.zip" : {
       "localizations" : {
         "en" : {
@@ -24867,86 +24101,6 @@
         }
       }
     },
-    "qooViewer Could Not Start" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer Could Not Start"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewerを起動できませんでした"
-          }
-        }
-      }
-    },
-    "qooViewer could not work out where “" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer could not work out where “"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「"
-          }
-        }
-      }
-    },
-    "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer couldn’t read this book’s location. Access to its folder may have been removed (Settings ▸ Folder Access), or the location can’t be read right now."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本の場所を読めませんでした。フォルダへのアクセス権が外れている(環境設定 ▸ フォルダのアクセス権)か、今はその場所を読めない状態です。"
-          }
-        }
-      }
-    },
-    "qooViewer couldn't start even after resetting its saved data. Please contact support." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer couldn't start even after resetting its saved data. Please contact support."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存データをリセットしても起動できませんでした。サポートにお問い合わせください。"
-          }
-        }
-      }
-    },
-    "qooViewer detected that this book's files may have changed since its saved layout settings (reading direction, page order, single/spread page settings) were recorded. Keep the existing settings, or discard them and start fresh?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer detected that this book's files may have changed since its saved layout settings (reading direction, page order, single/spread page settings) were recorded. Keep the existing settings, or discard them and start fresh?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のファイルが、レイアウト設定(読み方向・ページ順・単独/見開きページの設定)を記録した時点から変わっている可能性があります。既存の設定を維持しますか、それとも破棄してやり直しますか?"
-          }
-        }
-      }
-    },
     "qooViewer doesn't have permission to check this location, so it can't tell whether the file still exists. Granting access to the folder in Settings › Access, or connecting the volume, will let it check." : {
       "localizations" : {
         "en" : {
@@ -24959,54 +24113,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この場所を確認する権限が無いため、ファイルが残っているかどうかを判定できません。環境設定の「アクセス権」でフォルダを許可するか、ボリュームを接続すると判定できるようになります。"
-          }
-        }
-      }
-    },
-    "qooViewer doesn't have permission to show the files in this folder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer doesn't have permission to show the files in this folder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewerには、このフォルダの中身を表示する権限がありません。"
-          }
-        }
-      }
-    },
-    "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このうち %lld 項目は、元のフォルダへ書き込むアクセス権が qooViewer に無いため、元の場所へ戻せません。「コピー」を選ぶと、それらの項目だけをコピーし、残りは移動します。"
-          }
-        }
-      }
-    },
-    "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "元のフォルダへ書き込むアクセス権が qooViewer に無いため、移動した項目を元の場所へ戻せません。代わりにコピーすると、元の項目はそのまま残ります。"
           }
         }
       }
@@ -25059,16 +24165,6 @@
         }
       }
     },
-    "qooViewer is still copying, moving, compressing, exporting, or importing. If you quit now, it stops partway." : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コピー・移動・圧縮・書き出し・読み込みがまだ終わっていません。いま終了すると途中で止まります。"
-          }
-        }
-      }
-    },
     "qooViewer isn't storing data for any book yet." : {
       "localizations" : {
         "en" : {
@@ -25113,38 +24209,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダを読む権限がありません。"
-          }
-        }
-      }
-    },
-    "qooViewer quit while replacing these items, so the original items were put back where they were:" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer quit while replacing these items, so the original items were put back where they were:"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前回、次の項目を置き換えている途中で qooViewer が終了したため、元の項目を元の場所に戻しました:"
-          }
-        }
-      }
-    },
-    "qooViewer quit while replacing these items. The original items are kept as hidden items in the same folder. qooViewer will try to put them back the next time it opens (if an item with the same name is in the way, move it somewhere else first):" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer quit while replacing these items. The original items are kept as hidden items in the same folder. qooViewer will try to put them back the next time it opens (if an item with the same name is in the way, move it somewhere else first):"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前回、次の項目を置き換えている途中で qooViewer が終了しました。元の項目は同じフォルダの中に隠し項目として残っています。次に qooViewer を開いたときにもう一度戻します(同じ名前の項目があるときは、先にそれを別の場所へ移してください):"
           }
         }
       }
@@ -25220,16 +24284,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最後のウインドウを閉じたら終了"
-          }
-        }
-      }
-    },
-    "Quit While Work Is in Progress?" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "作業の途中で終了しますか?"
           }
         }
       }
@@ -27406,22 +26460,6 @@
         }
       }
     },
-    "Resume from where you left off?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resume from where you left off?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前回表示したページから再開しますか?"
-          }
-        }
-      }
-    },
     "Return to “%@”" : {
       "localizations" : {
         "en" : {
@@ -29557,22 +28595,6 @@
         }
       }
     },
-    "Skip All Remaining" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skip All Remaining"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以降すべてスキップ"
-          }
-        }
-      }
-    },
     "Skip Locked Items" : {
       "localizations" : {
         "en" : {
@@ -30858,22 +29880,6 @@
         }
       }
     },
-    "The Book Couldn’t Be Opened" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The Book Couldn’t Be Opened"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を開けませんでした"
-          }
-        }
-      }
-    },
     "The book has been exported." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30920,89 +29926,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前を保存する前に、そのブックマークは削除されていました。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only their entries in this collection and their cover images are removed." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only their entries in this collection and their cover images are removed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。このコレクションの登録とカバー画像だけを削除します。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only these collections and their cover images are removed." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only this collection and its cover images are removed." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only this collection and its cover images are removed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。"
-          }
-        }
-      }
-    },
-    "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The books themselves are not deleted. Only this collection and its cover images are removed. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の実体は削除されません。このコレクションとカバー画像だけを削除します。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -31353,22 +30276,6 @@
         }
       }
     },
-    "The file or folder could not be found. It may have been moved or deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The file or folder could not be found. It may have been moved or deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
-          }
-        }
-      }
-    },
     "The file or folder for “" : {
       "localizations" : {
         "en" : {
@@ -31419,7 +30326,15 @@
     },
     "The folder isn’t empty, so it was left in place." : {
       "comment" : "Reason why a folder can’t be deleted because it’s not empty.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダが空ではないため、そのままにしました。"
+          }
+        }
+      }
     },
     "The folder the file browser shows the first time you switch to it in a window. After that, each window keeps showing the folder you were in." : {
       "localizations" : {
@@ -31433,22 +30348,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウインドウで初めてファイルブラウザに切り替えたときに表示するフォルダです。そのあとは、ウインドウごとに最後にいたフォルダを表示します。"
-          }
-        }
-      }
-    },
-    "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The folders that were excluded from metadata registration are now secret folders. Books in them leave no history, saved data or metadata, and while one is shown its window looks like a private window. You can change the folders in Settings ▸ Secret Folders."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メタデータの登録から除外していたフォルダは、シークレットフォルダになりました。中の本は履歴・保存データ・メタデータを残さず、表示している間はウインドウがシークレットウインドウと同じ見た目になります。フォルダは 環境設定 ▸ シークレットフォルダ で変えられます。"
           }
         }
       }
@@ -31549,22 +30448,6 @@
         }
       }
     },
-    "The item is unlocked while it’s renamed and locked again afterward." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The item is unlocked while it’s renamed and locked again afterward."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前を変更するあいだだけロックを外し、変更後にロックし直します。"
-          }
-        }
-      }
-    },
     "The item “%@” can’t be copied because it is too large for the volume’s format." : {
       "localizations" : {
         "en" : {
@@ -31624,7 +30507,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」で開けませんでした。"
+            "value" : "“%@”で開けませんでした。"
           }
         }
       }
@@ -31657,22 +30540,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最後の拡張子が入力と完全に一致したときだけ置き換えます(例: zip → cbz)。この規則でフォルダは変更されません。"
-          }
-        }
-      }
-    },
-    "The location of “%@” didn’t respond. Try again later." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The location of “%@” didn’t respond. Try again later."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」のある場所が応答しませんでした。しばらくしてからもう一度お試しください。"
           }
         }
       }
@@ -31789,7 +30656,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "名前「%1$@」は移動先には長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
+            "value" : "名前“%1$@”は移動先には長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
           }
         }
       }
@@ -31837,7 +30704,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「.」と「..」はシステムが使う名前のため使えません。"
+            "value" : "“.”と“..”はシステムが使う名前のため使えません。"
           }
         }
       }
@@ -31886,7 +30753,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」の操作を完了できませんでした。%2$@"
+            "value" : "“%1$@”の操作を完了できませんでした。%2$@"
           }
         }
       }
@@ -31918,7 +30785,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "元の「%1$@」を戻せませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+            "value" : "元の“%1$@”を戻せませんでした。同じフォルダの中に、隠し項目“%2$@”として残っています。"
           }
         }
       }
@@ -32031,7 +30898,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」を置くと、移動先でのパスが長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
+            "value" : "“%1$@”を置くと、移動先でのパスが長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
           }
         }
       }
@@ -32444,7 +31311,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」があるボリュームにはゴミ箱がありません。"
+            "value" : "“%@”があるボリュームにはゴミ箱がありません。"
           }
         }
       }
@@ -32509,70 +31376,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ボリュームが接続されていません。接続すると、ふたたび使えます。"
-          }
-        }
-      }
-    },
-    "The volume that holds “" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume that holds “"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「"
-          }
-        }
-      }
-    },
-    "The volume that holds “%@” isn’t connected. Connect it and try again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume that holds “%@” isn’t connected. Connect it and try again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」があるボリュームが接続されていません。接続してからもう一度お試しください。"
-          }
-        }
-      }
-    },
-    "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume that holds this book isn’t connected. Connect it and try again — nothing has been lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
-          }
-        }
-      }
-    },
-    "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "これらの本があったボリュームは接続されていますが、実体が見つかりません。コレクションから削除できます。実体は既に無いので、削除してもファイルが消えることはありません。"
           }
         }
       }
@@ -32690,7 +31493,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」の空き容量が足りません。%2$@ 必要ですが、空きは %3$@ です。"
+            "value" : "“%1$@”の空き容量が足りません。%2$@ 必要ですが、空きは %3$@ です。"
           }
         }
       }
@@ -32972,22 +31775,6 @@
         }
       }
     },
-    "This Book's Contents May Have Changed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This Book's Contents May Have Changed"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本の内容が変わっている可能性があります"
-          }
-        }
-      }
-    },
     "This cannot be undone. qooViewer will quit immediately afterward." : {
       "localizations" : {
         "en" : {
@@ -33032,22 +31819,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本のブックマークをすべて削除します。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
-    "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このEPUBは画像ベースの固定レイアウトコミックではないため開けませんでした。文章主体のリフロー型EPUB、およびDRM付きEPUBには対応していません。"
           }
         }
       }
@@ -33379,55 +32150,6 @@
         }
       }
     },
-    "This recalculates the layout of the entire book, based on the page (or spread) currently displayed. This cannot be undone." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This recalculates the layout of the entire book, based on the page (or spread) currently displayed. This cannot be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在表示しているページ(または見開き)を基準に、本全体のレイアウトを再計算します。この操作は取り消せません。"
-          }
-        }
-      }
-    },
-    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の一覧と、ファイルメニューの「最近使った項目を開く」から、すべての項目を削除します。ファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
-    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の一覧と、ファイルメニューの「最近使った項目を開く」から、すべての項目を削除します。ファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
-          }
-        }
-      }
-    },
     "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -33490,22 +32212,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この規則に変更できる値はありません(有効・無効の切り替えのみ)。"
-          }
-        }
-      }
-    },
-    "This window has multiple tabs open. Are you sure you want to close it?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This window has multiple tabs open. Are you sure you want to close it?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "複数のタブが開いていますが、本当に閉じてもよろしいですか?"
           }
         }
       }
@@ -33787,38 +32493,6 @@
         }
       }
     },
-    "To open all images in this folder, please select and grant access to this folder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To open all images in this folder, please select and grant access to this folder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダの画像をすべて開くには、このフォルダを選んでアクセスを許可してください。"
-          }
-        }
-      }
-    },
-    "To remove a volume, eject it in the Finder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To remove a volume, eject it in the Finder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ボリュームを取り外すには、Finder で取り出してください。"
-          }
-        }
-      }
-    },
     "To rename items in this folder automatically, please select and grant access to it." : {
       "localizations" : {
         "en" : {
@@ -33831,38 +32505,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダの項目の名前を自動で変更するには、フォルダを選択してアクセスを許可してください。"
-          }
-        }
-      }
-    },
-    "To show files in the same folder, please select and grant access to this folder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To show files in the same folder, please select and grant access to this folder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "同じフォルダのファイルを表示するには、このフォルダを選んでアクセスを許可してください。"
-          }
-        }
-      }
-    },
-    "To show files in this folder, please select and grant access to it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "To show files in this folder, please select and grant access to it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このフォルダの中身を表示するには、アクセスを許可してください。"
           }
         }
       }
@@ -33960,22 +32602,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "見開き/単ページ切替"
-          }
-        }
-      }
-    },
-    "Too many images were selected. You can open up to %lld images at once." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Too many images were selected. You can open up to %lld images at once."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択された画像が多すぎます。一度に開けるのは%lld枚までです。"
           }
         }
       }
@@ -34237,7 +32863,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選んだ項目のうち 2 つが同じ名前「%@」で入ることになるため、1 つの書庫にまとめられません。"
+            "value" : "選んだ項目のうち 2 つが同じ名前“%@”で入ることになるため、1 つの書庫にまとめられません。"
           }
         }
       }
@@ -34534,70 +33160,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新"
-          }
-        }
-      }
-    },
-    "Update All Pages After This One" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update All Pages After This One"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このページより後のページ全体を更新する"
-          }
-        }
-      }
-    },
-    "Update All Pages Before This One" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update All Pages Before This One"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このページより前のページ全体を更新する"
-          }
-        }
-      }
-    },
-    "Update the Whole Book, Based on This Page" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update the Whole Book, Based on This Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このページを基準に本全体のレイアウトを更新する"
-          }
-        }
-      }
-    },
-    "Update This Page Only" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update This Page Only"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このページだけ更新する"
           }
         }
       }
@@ -36497,22 +35059,6 @@
         }
       }
     },
-    "You can turn this off in Settings ▸ General ▸ Home." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can turn this off in Settings ▸ General ▸ Home."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この確認は環境設定「一般」→「ホーム」で止められます。"
-          }
-        }
-      }
-    },
     "You can’t copy some of these items because their names are too long for the destination volume. Do you want to skip these items and continue copying the other items?" : {
       "localizations" : {
         "en" : {
@@ -36545,22 +35091,6 @@
         }
       }
     },
-    "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You don’t have permission to change “%1$@”, so “%2$@” can’t be moved or deleted. Nothing was deleted."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%1$@」を変更するアクセス権がないため、「%2$@」は移動も削除もできません。何も削除していません。"
-          }
-        }
-      }
-    },
     "You don’t have permission to write to “%@”." : {
       "localizations" : {
         "en" : {
@@ -36572,7 +35102,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」に書き込むアクセス権がありません。"
+            "value" : "“%@”に書き込むアクセス権がありません。"
           }
         }
       }
@@ -36627,22 +35157,6 @@
         }
       }
     },
-    "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り・ブックマーク・読書位置を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
     "Your rule sets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -36656,16 +35170,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自分のルールセット"
-          }
-        }
-      }
-    },
-    "Your Saved Data Is From a Newer qooViewer" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存データは新しいqooViewerで使われています"
           }
         }
       }
@@ -36832,6 +35336,1270 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "巻・話・号 …"
+          }
+        }
+      }
+    },
+    "Resume where you left off?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume where you left off?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回のページから再開しますか?"
+          }
+        }
+      }
+    },
+    "This Page Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Page Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このページだけ"
+          }
+        }
+      }
+    },
+    "Whole Book, Based on This Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whole Book, Based on This Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本全体(このページを基準に)"
+          }
+        }
+      }
+    },
+    "Pages Before This One" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages Before This One"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このページより前のページ"
+          }
+        }
+      }
+    },
+    "Pages After This One" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages After This One"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このページより後のページ"
+          }
+        }
+      }
+    },
+    "The contents of this book may have changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The contents of this book may have changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本の内容が変わっている可能性があります。"
+          }
+        }
+      }
+    },
+    "Keep Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定を残す"
+          }
+        }
+      }
+    },
+    "Do you want to keep the saved layout settings?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do you want to keep the saved layout settings?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存しているレイアウト設定を残しますか?"
+          }
+        }
+      }
+    },
+    "Auto-layout the whole book?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-layout the whole book?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本全体を自動でレイアウトしますか?"
+          }
+        }
+      }
+    },
+    "The layout is rebuilt from the page shown now. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The layout is rebuilt from the page shown now. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示中のページを基準に、レイアウトを作り直します。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "The image couldn’t be exported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The image couldn’t be exported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像を書き出せませんでした。"
+          }
+        }
+      }
+    },
+    "The book couldn’t be opened." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book couldn’t be opened."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開けませんでした。"
+          }
+        }
+      }
+    },
+    "No supported images were found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No supported images were found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対応する画像が見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "This EPUB can’t be opened because it isn’t an image-based (fixed-layout) book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This EPUB can’t be opened because it isn’t an image-based (fixed-layout) book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このEPUBは画像の本(固定レイアウト)ではないため、開けません。"
+          }
+        }
+      }
+    },
+    "You can open up to %lld images at once." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can open up to %lld images at once."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一度に開ける画像は%lld枚までです。"
+          }
+        }
+      }
+    },
+    "Grant access to this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant access to this folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダへのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "Choose a book to open. Selecting several images opens them as one book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a book to open. Selecting several images opens them as one book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く本を選んでください。画像を複数選ぶと、1冊として開きます。"
+          }
+        }
+      }
+    },
+    "Choose an image to use as the cover." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an image to use as the cover."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カバーに使う画像を選んでください。"
+          }
+        }
+      }
+    },
+    "The volume for “%@” can’t be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume for “%@” can’t be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”のボリュームが見つかりません。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be opened because it’s in the Trash." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be opened because it’s in the Trash."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”はゴミ箱の中にあるため開けません。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”が見つかりません。"
+          }
+        }
+      }
+    },
+    "The location of “%@” isn’t responding." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The location of “%@” isn’t responding."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”のある場所が応答しません。"
+          }
+        }
+      }
+    },
+    "Your saved data can’t be opened." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your saved data can’t be opened."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データを開けません。"
+          }
+        }
+      }
+    },
+    "It may not work with this version of qooViewer. If you continue, all of your saved data is deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It may not work with this version of qooViewer. If you continue, all of your saved data is deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このバージョンのqooViewerでは使えない可能性があります。続行すると、保存データはすべて削除されます。"
+          }
+        }
+      }
+    },
+    "qooViewer couldn’t start." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer couldn’t start."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewerを起動できませんでした。"
+          }
+        }
+      }
+    },
+    "It couldn’t start even after deleting the saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It couldn’t start even after deleting the saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データを削除しても起動できませんでした。"
+          }
+        }
+      }
+    },
+    "Your saved data was used by a newer qooViewer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your saved data was used by a newer qooViewer."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データは新しいqooViewerで使われています。"
+          }
+        }
+      }
+    },
+    "If you open it with this version, data only the newer version uses is deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you open it with this version, data only the newer version uses is deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このバージョンで開くと、新しいバージョンだけが使うデータが削除されます。"
+          }
+        }
+      }
+    },
+    "Quit while work is in progress?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit while work is in progress?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業の途中で終了しますか?"
+          }
+        }
+      }
+    },
+    "Copying or exporting stops partway." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copying or exporting stops partway."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピーや書き出しが途中で止まります。"
+          }
+        }
+      }
+    },
+    "Close this window and all of its tabs?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close this window and all of its tabs?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このウインドウとすべてのタブを閉じますか?"
+          }
+        }
+      }
+    },
+    "The originals are kept as hidden items in the same folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The originals are kept as hidden items in the same folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の項目は、同じフォルダに隠し項目として残っています。"
+          }
+        }
+      }
+    },
+    "Remove books that are no longer there from their collections?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove books that are no longer there from their collections?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからなくなった本をコレクションから削除しますか?"
+          }
+        }
+      }
+    },
+    "Their files can’t be found on the connected volumes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Their files can’t be found on the connected volumes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続されているボリュームに、本のファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "These collections become empty and are removed too:" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These collections become empty and are removed too:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のコレクションは空になるため、一緒に削除されます:"
+          }
+        }
+      }
+    },
+    "Excluded folders are now secret folders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excluded folders are now secret folders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除外フォルダはシークレットフォルダになりました。"
+          }
+        }
+      }
+    },
+    "Books in them leave no history or saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in them leave no history or saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中の本は履歴や保存データを残しません。"
+          }
+        }
+      }
+    },
+    "An item named “%@” already exists in this location. Do you want to replace it with the one you’re exporting?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item named “%@” already exists in this location. Do you want to replace it with the one you’re exporting?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という項目がすでにこの場所にあります。現在書き出し中の項目で置き換えますか?"
+          }
+        }
+      }
+    },
+    "Delete the library “%@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the library “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリ“%@”を削除しますか?"
+          }
+        }
+      }
+    },
+    "Its collections are deleted too. Book files aren’t deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its collections are deleted too. Book files aren’t deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中のコレクションも削除されます。本のファイルは削除されません。"
+          }
+        }
+      }
+    },
+    "Delete the collection “%@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the collection “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション“%@”を削除しますか?"
+          }
+        }
+      }
+    },
+    "Book files aren’t deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book files aren’t deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本のファイルは削除されません。"
+          }
+        }
+      }
+    },
+    "Delete the smart collection “%@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the smart collection “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートコレクション“%@”を削除しますか?"
+          }
+        }
+      }
+    },
+    "You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Choose folders to show in the smart library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose folders to show in the smart library."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリに表示するフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose books to add to this collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose books to add to this collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このコレクションに追加する本を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a folder whose new books are added to this collection." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a folder whose new books are added to this collection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "増えた本をこのコレクションへ自動で追加するフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be opened because its location can’t be read." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be opened because its location can’t be read."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”は、場所を読めないため開けません。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be opened because the original item can’t be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be opened because the original item can’t be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”は、オリジナルの項目が見つからなかったため開けません。"
+          }
+        }
+      }
+    },
+    "Choose an application to open the document “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an application to open the document “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書類“%@”を開くアプリケーションを選択します。"
+          }
+        }
+      }
+    },
+    "Choose an application to open the %lld items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an application to open the %lld items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld個の書類を開くアプリケーションを選択します。"
+          }
+        }
+      }
+    },
+    "You can’t change the item “%@” to always open in the selected application." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can’t change the item “%@” to always open in the selected application."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目“%@”を選択したアプリケーションで常に開くように変更できません。"
+          }
+        }
+      }
+    },
+    "Add the folder that holds the books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add the folder that holds the books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本が入っているフォルダを追加してください。"
+          }
+        }
+      }
+    },
+    "Archives, PDF and EPUB files, and folders of images can be books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives, PDF and EPUB files, and folders of images can be books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書庫・PDF・EPUBのファイルと、画像の入ったフォルダが本になります。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be deleted because it’s a volume." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be deleted because it’s a volume."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”はボリュームのため、削除できません。"
+          }
+        }
+      }
+    },
+    "The operation can’t be completed because you don’t have permission to modify “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The operation can’t be completed because you don’t have permission to modify “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”を変更するアクセス権がないため、操作を完了できません。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be modified or deleted because it’s required by macOS." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be modified or deleted because it’s required by macOS."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”はmacOSで必要なため、変更または削除できません。"
+          }
+        }
+      }
+    },
+    "To remove it, eject it in the Finder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To remove it, eject it in the Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り外すには、Finderで取り出してください。"
+          }
+        }
+      }
+    },
+    "Some items couldn’t be processed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some items couldn’t be processed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "処理できなかった項目があります。"
+          }
+        }
+      }
+    },
+    "Choose where to save the compressed file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to save the compressed file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圧縮ファイルの保存先を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a folder to add to Favorite Locations." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a folder to add to Favorite Locations."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う項目に追加するフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "You don’t have permission to see the contents of this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You don’t have permission to see the contents of this folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの内容を表示するためのアクセス権がありません。"
+          }
+        }
+      }
+    },
+    "The original folder can’t be written to. If you copy instead, the originals stay where they are." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original folder can’t be written to. If you copy instead, the originals stay where they are."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のフォルダに書き込めないため、元に戻せません。コピーすると、元の項目はそのまま残ります。"
+          }
+        }
+      }
+    },
+    "%lld of them can’t be put back. If you choose Copy, only those are copied." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld of them can’t be put back. If you choose Copy, only those are copied."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このうち%lld項目は元に戻せません。“コピー”を選ぶと、それらだけをコピーします。"
+          }
+        }
+      }
+    },
+    "Make Alias (operation name)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make Alias"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エイリアスの作成"
+          }
+        }
+      }
+    },
+    "New Folder (operation name)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダの作成"
+          }
+        }
+      }
+    },
+    "Are you sure you want to use a name that begins with a dot “.”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are you sure you want to use a name that begins with a dot “.”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“.”（ドット）で始まる名前を使ってもよろしいですか?"
+          }
+        }
+      }
+    },
+    "The system treats items with these names as invisible files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The system treats items with these names as invisible files."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この名前の付いた項目は不可視ファイルとして取り扱われ、表示されなくなってしまいます。"
+          }
+        }
+      }
+    },
+    "Use Dot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Dot"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ドットを使用"
+          }
+        }
+      }
+    },
+    "Are you sure you want to remove the extension “%@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are you sure you want to remove the extension “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張子“%@”を削除してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "Are you sure you want to change the extension from “%1$@” to “%2$@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are you sure you want to change the extension from “%1$@” to “%2$@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張子を“%1$@”から“%2$@”に変更してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "If you make this change, your document may open in a different application." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you make this change, your document may open in a different application."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更してしまうと、書類が別のアプリケーションで開かれてしまうことがあります。"
+          }
+        }
+      }
+    },
+    "Keep %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”を保持"
+          }
+        }
+      }
+    },
+    "Use %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”を使用"
+          }
+        }
+      }
+    },
+    "The name “%@” is already taken. Please choose a different name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name “%@” is already taken. Please choose a different name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前“%@”はすでに使用されています。別の名前を選んでください。"
+          }
+        }
+      }
+    },
+    "You can’t use a name that begins with a dot “.”, because these names are reserved for the system. Please choose another name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can’t use a name that begins with a dot “.”, because these names are reserved for the system. Please choose another name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“.”（ドット）で始まる名前はシステムだけが使用できます。別の名前を指定してください。"
+          }
+        }
+      }
+    },
+    "The name “%1$@” with extension “%2$@” is already taken. Please choose a different name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name “%1$@” with extension “%2$@” is already taken. Please choose a different name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張子“%2$@”を含む名前“%1$@”はすでに使用されています。別の名前を選んでください。"
+          }
+        }
+      }
+    },
+    "Show Warning Before Changing an Extension" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Warning Before Changing an Extension"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張子を変更する前に警告を表示"
+          }
+        }
+      }
+    },
+    "When you rename a file and change its extension, qooViewer asks first, as the Finder does." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When you rename a file and change its extension, qooViewer asks first, as the Finder does."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の変更で拡張子を変えるとき、Finder と同じく先に確認します。"
           }
         }
       }

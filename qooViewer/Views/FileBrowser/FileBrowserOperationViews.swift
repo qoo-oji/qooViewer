@@ -43,7 +43,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         delete.keyEquivalent = ""
         let cancel = alert.addButton(withTitle: String(localized: "Cancel", language: locale))
         cancel.keyEquivalent = "\u{1b}"
-        return await run(alert) == .alertFirstButtonReturn
+        return WindowSheet.runAsFinderDialog(alert) == .alertFirstButtonReturn
     }
 
     /// Finder の「項目“名前”はロックされています。ゴミ箱に入れますか?」に当たる確認(ゴミ箱へ入れる 1 件は Finder の文そのまま)。
@@ -53,8 +53,8 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         let single = urls.count == 1
         let name = urls.first?.lastPathComponent ?? ""
         let message: String
-        var information: String?
-        // 文言は 1 つずつ String(localized:) に書く(String Catalog が文字列リテラルから拾えるように)。
+        // 文言は 1 つずつ String(localized:) に書く(String Catalog が文字列リテラルから拾えるように)。問いの 1 文だけにする(以前は
+        // 「移動するあいだだけロックを外し…」などの説明を続けていたが、Finder のロックの確認も問いだけ ―― 2026-10-24、ダイアログの作法)。
         switch action {
         case .trash:
             message = single
@@ -64,25 +64,17 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
             message = single
                 ? String(format: String(localized: "“%@” is locked. Do you want to delete it anyway?", language: locale), name)
                 : String(format: String(localized: "%lld items are locked. Do you want to delete them anyway?", language: locale), urls.count)
-            information = String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
         case .move:
             message = single
                 ? String(format: String(localized: "“%@” is locked. Do you want to move it anyway?", language: locale), name)
                 : String(format: String(localized: "%lld items are locked. Do you want to move them anyway?", language: locale), urls.count)
-            information = String(localized: "Locked items are unlocked while they’re moved and locked again at the new location.", language: locale)
         case .rename:
             // 複数は一括リネーム(段階 5)。
             message = single
                 ? String(format: String(localized: "“%@” is locked. Do you want to rename it anyway?", language: locale), name)
                 : String(format: String(localized: "%lld items are locked. Do you want to rename them anyway?", language: locale), urls.count)
-            information = single
-                ? String(localized: "The item is unlocked while it’s renamed and locked again afterward.", language: locale)
-                : String(localized: "Locked items are unlocked while they’re renamed and locked again afterward.", language: locale)
-        case let .replace(deletesImmediately):
+        case .replace:
             message = String(format: String(localized: "“%@” is locked. Do you want to replace it anyway?", language: locale), name)
-            information = deletesImmediately
-                ? String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
-                : String(localized: "Locked items stay locked in the Trash.", language: locale)
         }
         let offersSkip = urls.count < totalCount
         var buttons: [String] = []
@@ -93,7 +85,7 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         // ゴミ箱へ入れる確認は Finder と同じくゴミ箱のアイコン、ほかは項目のアイコン。
         let icon = action == .trash ? Self.trashIcon : await Self.icon(for: urls.first)
         let answer = await prompts.ask(FileOperationPrompt(
-            icon: icon, message: Self.joined(message, information), buttons: buttons, checkboxTitle: nil,
+            icon: icon, message: message, buttons: buttons, checkboxTitle: nil,
             answerWhenOwnerCloses: stopIndex, windowTitle: windowTitle(for: action)
         ), owner: appState?.hostWindow)
         switch answer.button {
@@ -110,15 +102,9 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
             ? String(format: String(localized: "Moving “%@” can’t be undone.", language: locale), urls[0].lastPathComponent)
             : String(format: String(localized: "Moving these %lld items can’t be undone.", language: locale), totalCount)
         let information = urls.count == totalCount
-            ? String(
-                localized: "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are.",
-                language: locale
-            )
+            ? String(localized: "The original folder can’t be written to. If you copy instead, the originals stay where they are.", language: locale)
             : String(
-                format: String(
-                    localized: "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved.",
-                    language: locale
-                ),
+                format: String(localized: "%lld of them can’t be put back. If you choose Copy, only those are copied.", language: locale),
                 urls.count
             )
         let answer = await prompts.ask(FileOperationPrompt(
@@ -231,6 +217,63 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         return answer.button == 1
     }
 
+    // MARK: - インラインの名前の変更の確認(Finder と同じ文とボタン。2026-10-24)
+
+    /// Finder の「“.”(ドット)で始まる名前を使ってもよろしいですか?」。左「キャンセル」(Esc)、右「ドットを使用」(Return)。
+    /// 隠しファイルを出していないときは、Finder と同じく「“.”(ドット)で始まる名前はシステムだけが使用できます。…」(OK)で断る。
+    func confirmLeadingDot(allowsUse: Bool) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        guard allowsUse else {
+            alert.messageText = String(
+                localized: "You can’t use a name that begins with a dot “.”, because these names are reserved for the system. Please choose another name.",
+                language: locale
+            )
+            alert.addButton(withTitle: String(localized: "OK", language: locale))
+            _ = WindowSheet.runAsFinderDialog(alert)
+            return false
+        }
+        alert.messageText = String(localized: "Are you sure you want to use a name that begins with a dot “.”?", language: locale)
+        alert.informativeText = String(localized: "The system treats items with these names as invisible files.", language: locale)
+        alert.addButton(withTitle: String(localized: "Use Dot", language: locale))
+        let cancel = alert.addButton(withTitle: String(localized: "Cancel", language: locale))
+        cancel.keyEquivalent = "\u{1b}"
+        return WindowSheet.runAsFinderDialog(alert) == .alertFirstButtonReturn
+    }
+
+    /// Finder の「拡張子を“.zip”から“.cbz”に変更してもよろしいですか?」(消すときは「拡張子“.zip”を削除してもよろしいですか?」)。
+    /// 右の「“.zip”を保持」が既定(Return。何も変わらない側)、左が「“.cbz”を使用」/「削除」。
+    func confirmExtensionChange(from oldExtension: String, to newExtension: String) async -> ExtensionChangeDecision {
+        let old = "." + oldExtension
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = newExtension.isEmpty
+            ? String(format: String(localized: "Are you sure you want to remove the extension “%@”?", language: locale), old)
+            : String(format: String(localized: "Are you sure you want to change the extension from “%1$@” to “%2$@”?", language: locale), old, "." + newExtension)
+        alert.informativeText = String(localized: "If you make this change, your document may open in a different application.", language: locale)
+        alert.addButton(withTitle: String(format: String(localized: "Keep %@", language: locale), old))
+        alert.addButton(withTitle: newExtension.isEmpty
+            ? String(localized: "Remove", language: locale)
+            : String(format: String(localized: "Use %@", language: locale), "." + newExtension))
+        return WindowSheet.runAsFinderDialog(alert) == .alertFirstButtonReturn ? .keep : .use
+    }
+
+    /// Finder の「名前“…”はすでに使用されています。別の名前を選んでください。」(OK)。拡張子のある名前は Finder と同じく
+    /// 「拡張子“.txt”を含む名前“…”は…」(実測)。閉じたら名前の編集へ戻る(呼ぶ側)。
+    func reportNameTaken(_ name: String) async {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let pathExtension = (name as NSString).pathExtension
+        alert.messageText = pathExtension.isEmpty
+            ? String(format: String(localized: "The name “%@” is already taken. Please choose a different name.", language: locale), name)
+            : String(
+                format: String(localized: "The name “%1$@” with extension “%2$@” is already taken. Please choose a different name.", language: locale),
+                (name as NSString).deletingPathExtension, "." + pathExtension
+            )
+        alert.addButton(withTitle: String(localized: "OK", language: locale))
+        _ = WindowSheet.runAsFinderDialog(alert)
+    }
+
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? {
         await BulkRenamePanel.run(request, on: appState?.hostWindow, locale: locale)
     }
@@ -246,11 +289,10 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         panel.allowsMultipleSelection = false
         panel.directoryURL = folder
         switch purpose {
-        case let .compress(count):
+        case .compress:
             panel.prompt = String(localized: "Compress", language: locale)
-            panel.message = count == 1
-                ? String(localized: "Choose where to save the compressed item.", language: locale)
-                : String(format: String(localized: "Choose where to save the %lld compressed items.", language: locale), count)
+            // 何項目でも書庫は 1 つ(以前は複数のとき「%lld 項目を圧縮したファイル」で、書庫がいくつもできるように読めた)。
+            panel.message = String(localized: "Choose where to save the compressed file.", language: locale)
         case let .extract(count):
             panel.prompt = String(localized: "Extract", language: locale)
             panel.message = count == 1
@@ -262,6 +304,14 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
 
     func showProblem(_ problem: FileBrowserProblem) {
         switch problem.presentation {
+        case .finderDialog:
+            // Finder と同じ働きの断り(それ自身へのペースト・macOS が必要とするフォルダなど)は Finder と同じ独立したダイアログ。
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = problem.title
+            alert.informativeText = problem.message
+            alert.addButton(withTitle: String(localized: "OK", language: locale))
+            Task { @MainActor in _ = WindowSheet.runAsFinderDialog(alert) }
         case .alert:
             let alert = NSAlert()
             alert.alertStyle = .warning

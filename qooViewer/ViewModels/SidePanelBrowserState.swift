@@ -487,7 +487,7 @@ final class SidePanelBrowserState: ObservableObject {
         panel.directoryURL = directory
         panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(
-            localized: "To show files in this folder, please select and grant access to it.",
+            localized: "Grant access to this folder.",
             language: locale
         )
         // 操作されたウインドウ(キー)のシート(2026-09-27。WindowSheet)。

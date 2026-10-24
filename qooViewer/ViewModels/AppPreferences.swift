@@ -69,6 +69,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
         static let fileBrowserReadOnly = "qooViewer.pref.fileBrowser.readOnly"
+        static let fileBrowserWarnsBeforeChangingExtension = "qooViewer.pref.fileBrowser.warnsBeforeChangingExtension"
         static let fileBrowserImageFolderOpenAction = "qooViewer.pref.fileBrowser.imageFolderOpenAction"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
@@ -598,6 +599,11 @@ final class AppPreferences: ObservableObject {
     /// 途中で ON にしても走っている操作は止めない(次の操作から効く)。
     @Published var fileBrowserReadOnly: Bool {
         didSet { defaults.set(fileBrowserReadOnly, forKey: Keys.fileBrowserReadOnly) }
+    }
+    /// 名前の変更で拡張子を変えるとき、Finder と同じく確かめるか(Finder の「拡張子を変更する前に警告を表示」。既定 ON ―― Finder の既定)。
+    /// サンドボックスの中からは Finder のこの設定を読めないので、ここに同じ設定を持つ(2026-10-24、ユーザー決定)。
+    @Published var fileBrowserWarnsBeforeChangingExtension: Bool {
+        didSet { defaults.set(fileBrowserWarnsBeforeChangingExtension, forKey: Keys.fileBrowserWarnsBeforeChangingExtension) }
     }
     /// 右ペインで画像フォルダをダブルクリック / Return で開いたときにすること(既定: フォルダを開く。2026-09-14、ユーザー要望)。
     /// 右クリックの「開く」はこの反対をする(FileBrowserImageFolderOpenAction の型コメント)。
@@ -1454,6 +1460,7 @@ final class AppPreferences: ObservableObject {
             rawValue: defaults.string(forKey: Keys.fileBrowserCompressionFormat) ?? ""
         ) ?? .zip
         self.fileBrowserReadOnly = defaults.object(forKey: Keys.fileBrowserReadOnly) as? Bool ?? true
+        self.fileBrowserWarnsBeforeChangingExtension = defaults.object(forKey: Keys.fileBrowserWarnsBeforeChangingExtension) as? Bool ?? true
         self.fileBrowserRevealDestination = FileBrowserRevealDestination(
             rawValue: defaults.string(forKey: Keys.fileBrowserRevealDestination) ?? ""
         ) ?? .newTab
@@ -1728,6 +1735,7 @@ extension AppPreferences {
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
                 Keys.fileBrowserReadOnly,
+                Keys.fileBrowserWarnsBeforeChangingExtension,
                 Keys.fileBrowserImageFolderOpenAction,
             ]
         case .library:
@@ -1867,6 +1875,7 @@ extension AppPreferences {
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination
             fileBrowserReadOnly = source.fileBrowserReadOnly
+            fileBrowserWarnsBeforeChangingExtension = source.fileBrowserWarnsBeforeChangingExtension
             fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
         case .library:
             homeOpensWithSingleClick = source.homeOpensWithSingleClick

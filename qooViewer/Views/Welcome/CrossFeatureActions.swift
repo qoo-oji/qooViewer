@@ -221,6 +221,8 @@ enum HomeBookOpenWith {
                 alert.alertStyle = .warning
                 alert.messageText = OpenWithApplications.failureTitle(application: application, locale: locale)
                 alert.informativeText = error.localizedDescription
+                // ボタンを足さないと AppKit が OS の言語の「OK」を付ける(表示言語の設定に従わない)。
+                alert.addButton(withTitle: String(localized: "OK", language: locale))
                 WindowSheet.begin(alert, for: NSApp.keyWindow ?? NSApp.mainWindow) { _ in }
             }
         }
@@ -340,6 +342,33 @@ extension BookExportFormat {
                 title: String(localized: format.menuTitleResource, language: locale), image: nil, isEnabled: true,
                 action: { start(format) }
             )
+        }
+    }
+}
+
+/// ホームの本(コレクション・スマートライブラリ)が開けないときのアラートの題(2026-10-24、Finder に揃えた)。
+///
+/// Finder のエイリアスの元が見つからないときと同じく、**題 1 文で本の名前と理由を言う**(本文は付けない ―― ダイアログの作法、
+/// docs/09)。ボリュームが無いときは Finder の「“…”のボリュームが見つかりません。」、元が無いときは「“…”は、オリジナルの項目が
+/// 見つからなかったため開けません。」をそのまま使う。
+enum BookNotFoundText {
+    enum Reason {
+        /// ボリュームが付いていない(外しているだけ。消えたと読ませない)。
+        case volumeNotConnected
+        /// 場所を読めない(アクセス権が外れた・今は読めない)。実体はまだあるかもしれない。
+        case unreadable
+        /// 付いているボリュームに実体が無い。
+        case missing
+    }
+
+    static func title(name: String, reason: Reason, locale: Locale) -> String {
+        switch reason {
+        case .volumeNotConnected:
+            String(format: String(localized: "The volume for “%@” can’t be found.", language: locale), name)
+        case .unreadable:
+            String(format: String(localized: "“%@” can’t be opened because its location can’t be read.", language: locale), name)
+        case .missing:
+            String(format: String(localized: "“%@” can’t be opened because the original item can’t be found.", language: locale), name)
         }
     }
 }
