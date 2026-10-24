@@ -492,7 +492,7 @@ actor FileOperationService {
         guard !items.isEmpty else { return TransferOutcome() }
         // **名前が宛先の上限を超える項目は、事前検査の前に尋ねる**(Finder と同じく「スキップして続ける」か「中止」。2026-10-24)。
         // 尋ねる口が無ければ尋ねず、事前検査が以前どおり断る。
-        var items = items
+        var remaining = items
         var skippedForLongNames: [URL] = []
         if let resolver = options.longNameResolver {
             let candidates = items
@@ -506,15 +506,17 @@ actor FileOperationService {
                     return outcome
                 }
                 let skipping = Set(tooLong)
-                items.removeAll { skipping.contains($0) }
+                remaining.removeAll { skipping.contains($0) }
                 skippedForLongNames = tooLong
-                if items.isEmpty {
+                if remaining.isEmpty {
                     var outcome = TransferOutcome()
                     outcome.skipped = tooLong
                     return outcome
                 }
             }
         }
+        // 閉包へは変えない値で渡す(`var` を捕まえると、CI の Xcode 26.6 が Swift 6 で誤りになる警告を出す)。
+        let items = remaining
         let allowsCloning = allowsCloning
         let tracker = try await FileIO.perform(cancellation: options.cancellation) {
             try Self.preflight(items: items, destination: folder, sink: options.progress, isMove: isMove, allowsCloning: allowsCloning)
@@ -549,7 +551,7 @@ actor FileOperationService {
                     // フォルダ同士の「結合」。中身を 1 件ずつ運び、置いたもの・置き換えたものの受領書を返す(取り消しはそれらだけを
                     // ゴミ箱へ送り、置き換えた元を戻す ―― コピーの取り消しのまま)。
                     let protected = await options.protectedFromReplacing?() ?? []
-                    let merged = try await FileIO.perform(cancellation: options.cancellation) {
+                    let merged = await FileIO.perform(cancellation: options.cancellation) {
                         Self.merge(item, into: mergeTarget, protectedPaths: protected, using: perform, tracker: tracker, environment: environment)
                     }
                     outcome.receipts += merged.receipts
