@@ -151,13 +151,18 @@ nonisolated enum BookLoader {
         guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
         let started = ContinuousClock.now
         do {
-            let reader = try StackNestReferenceReader(referenceFileURL: url)
+            // 本の開く位置・題名は、**いま読んだ参照ファイル**から取る(2026-10-25)。reader の `reference` はセッションが持つ参照で、
+            // 同じ参照ファイルのセッションがまだ生きていて接続先・鍵・版が同じなら使い回される(StackNestSessions.book(for:at:))ので、
+            // 開く位置・題名だけを書き直した参照ファイルでは古い値になる。今の StackNest は渡すたびに新しい鍵を出すので本番では
+            // 起きないが、試験が同じ鍵で書き直し、閉じたビューアの解放が遅れた CI で古い開始ページから開いた(v1.85 のリリースの CI)。
+            let reference = try StackNestBookReference.load(contentsOf: url)
+            let reader = try StackNestReferenceReader(reference: reference, at: url)
             // manifest がページ数と読み方向の正(参照ファイルの値は開いた時点のもの)。開くたびに問い合わせる: 覚えた manifest を
             // 使うと要求が出ず、StackNest が「読み込まれた」と知る合図にならない。
             let manifest = try reader.manifest(refresh: true)
             return try stackNestReferenceBook(
-                reference: reader.reference, pageCount: manifest.pageCount,
-                direction: manifest.direction ?? reader.reference.direction, at: url)
+                reference: reference, pageCount: manifest.pageCount,
+                direction: manifest.direction ?? reference.direction, at: url)
         } catch let error as StackNestViewerError {
             // アラートは errorDescription を出す。部品のエラーのままだと qooViewer の表示言語にならない(StackNestOpenError)。
             // つながらないときはすぐ(拒否)に返り、応答しないときは部品の待ちの上限まで待ってから同じ `.cannotConnect` で返る。

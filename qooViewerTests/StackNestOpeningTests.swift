@@ -152,11 +152,40 @@ struct StackNestOpeningTests {
         #expect(again.book.pages[again.currentIndex].sortKey == "000000.jpg")
         #expect(!again.needsResumeConfirmation)
         harness.close()
-        // StackNest がほかで読み進めた位置(4)で参照ファイルを書き直した。
-        try fixture.writeReference(pageCount: 6, startPage: 4)
+        // StackNest がほかで読み進めた位置(4)で参照ファイルを書き直した。StackNest は渡すたびに新しい鍵を出す(ExternalViewerHandoff の
+        // openLocal / openRemote が書く直前に issue する)ので、鍵も変える ―― 同じ鍵のまま書き直すと、閉じたビューアのセッションが
+        // まだ生きているかで結果が変わった(v1.85 のリリースの CI。同じ鍵の書き直しは下の試験が見る)。
+        try fixture.writeReference(token: "renewed-token-0123456789", pageCount: 6, startPage: 4)
         let reopened = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
         #expect(reopened.book.pages[reopened.currentIndex].sortKey == "000004.jpg")
         #expect(!reopened.needsResumeConfirmation)
+    }
+
+    /// 2026-10-25。同じ参照ファイルのセッションが生きている間(開いたままのビューア・解放の遅れた閉じたビューア)に、鍵を変えずに開く位置と
+    /// 題名だけを書き直した参照ファイルを開くと、使い回したセッションの古い参照で開いていた(v1.85 のリリースの CI で opensAtStartPage が落ちた)。
+    /// 今の StackNest は必ず新しい鍵で書き直すが、そうでなくなっても、本はいま読んだ中身で開く。
+    @Test("同じ鍵のまま開く位置・題名だけを書き直した参照ファイルでも、セッションは使い回しつつ、本はいま読んだ開く位置・題名で開く")
+    func rewrittenReferenceWithTheSameTokenOpensWithItsOwnStartPage() async throws {
+        let fixture = try StackNestTestBook(pageCount: 6, startPage: 0)
+        defer { fixture.close() }
+        // 前のビューアの代わりに、セッションを掴んだままにする。
+        let keep = try StackNestReferenceReader(referenceFileURL: fixture.referenceURL)
+        #expect(keep.reference.startPage == 0)
+        try fixture.writeReference(pageCount: 6, startPage: 4, title: "Renamed Title")
+        let book = try await FixtureBook.load(fixture.referenceURL)
+        let startPage = book.stackNestReference?.startPage
+        let title = book.title
+        // 接続先・鍵・版が同じなので、セッションは使い回す(ページのキャッシュと門を分け合う)。
+        let reused = try StackNestReferenceReader(referenceFileURL: fixture.referenceURL)
+        let sharesSession = reused.book === keep.book
+        withExtendedLifetime(keep) {}
+        #expect(startPage == 4)
+        #expect(title == "Renamed Title")
+        #expect(sharesSession)
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let viewer = await harness.openInWindow(book)
+        #expect(viewer.book.pages[viewer.currentIndex].sortKey == "000004.jpg")
     }
 
     @Test("StackNest の本はどの窓でも記録を残さない(読書位置・ブックマーク・レイアウト・メタデータ)が、普通の窓では StackNest へ位置を返す")
