@@ -483,18 +483,7 @@ enum BookWindowOpener {
                     guard let window = notification.object as? NSWindow,
                           !existing.contains(ObjectIdentifier(window)) else { return }
                     tokens.removeAll()
-                    if let frame {
-                        window.styleMask.remove(.fullSizeContentView)
-                        if window.frame != frame {
-                            window.setFrame(frame, display: false)
-                        }
-                    }
-                    guard hides else { return }
-                    window.alphaValue = 0
-                    // タブへ入れる側が見つけ損ねたときに、透明のまま残さない(applyPendingPlacement と同じ保険)。
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
-                        MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
-                    }
+                    applyPlacement(frame: frame, hides: hides, to: window)
                 }
             })
         }
@@ -547,16 +536,40 @@ enum BookWindowOpener {
     /// 新しく決まったウインドウに、控えてある行き先を当てる(ContentView の WindowAccessor から、ウインドウが決まった最初の 1 回)。
     static func applyPendingPlacement(to window: NSWindow) {
         guard let placement = takePendingPlacement() else { return }
-        if let frame = placement.frame {
-            window.setFrame(frame, display: false)
-        }
-        if placement.hidesUntilTabbed {
-            window.alphaValue = 0
-            // タブへ入れる側が見つけ損ねた(newlyOpenedWindow が nil を返した)ときに、透明のまま残さない。
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
-                MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
+        applyPlacement(frame: placement.frame, hides: placement.hidesUntilTabbed, to: window)
+    }
+
+    /// 新しいウインドウに控えた行き先を当て、タブで開くなら透明にする(画面に出たその場の`prepareNextNewWindowOnceShown`と、
+    /// WindowAccessor の`applyPendingPlacement`の 2 か所から。どちらが先に来ても同じ結果になる)。
+    ///
+    /// ■ もうタブに入っているウインドウには何もしない(2026-10-25、利用者の報告)
+    /// SMB のボリュームをファイルブラウザの左ペインから「新規タブで開く」としたとき、ウインドウ全体が消え、1〜2 秒後に新しいタブ付きで
+    /// 出直した(1 回だけ。再現せず)。タブへ入れる側(`newlyOpenedWindow`)は「`NSApp.windows`に現れた」ことしか見ないので、SwiftUI が
+    /// まだ画面に出していない・キーにしていないウインドウを見つけて、透明を戻し(まだ透明でないので何もしない)タブへ入れることがある。
+    /// その後に届く SwiftUI の表示やタブへ入れた側の`makeKeyAndOrderFront`のキーウインドウの知らせ、または遅れて来た WindowAccessor が
+    /// ここで透明にすると、`addTabbedWindow`で元のタブはもう画面から外れているので、ウインドウがどこにも無くなり、下の 1.5 秒の保険で
+    /// 戻るまで消えていた。報告の 1 回は自然には再現しなかったが、WindowAccessor を 150ms 遅らせ画面に出た知らせでは透明にしない細工で
+    /// この順番を起こすと、修正前は ⌘T・「新規タブで開く」とも毎回約 1.55 秒消え、修正後は 0ms だった(CGWindowList で実測)。タブに入った後は
+    /// 元のウインドウのタブとして見えるのが正しい姿で、位置・大きさもタブのまとまりに従うので、どちらも当てない。
+    static func applyPlacement(frame: NSRect?, hides: Bool, to window: NSWindow) {
+        guard !isTabbedWithOtherWindows(window) else { return }
+        if let frame {
+            window.styleMask.remove(.fullSizeContentView)
+            if window.frame != frame {
+                window.setFrame(frame, display: false)
             }
         }
+        guard hides else { return }
+        window.alphaValue = 0
+        // タブへ入れる側が見つけ損ねた(newlyOpenedWindow が nil を返した)ときに、透明のまま残さない。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
+            MainActor.assumeIsolated { if let window { revealIfHiddenUntilTabbed(window) } }
+        }
+    }
+
+    /// ほかのウインドウと同じタブのまとまりに入っているか(見えていないウインドウでも`addTabbedWindow`の直後から真。2026-10-25 に実測)。
+    static func isTabbedWithOtherWindows(_ window: NSWindow) -> Bool {
+        (window.tabbedWindows?.count ?? 0) > 1
     }
 
     /// `applyPendingPlacement`で透明にしたウインドウを見えるように戻す。
