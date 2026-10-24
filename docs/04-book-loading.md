@@ -2,7 +2,7 @@
 
 ## BookOpenRequest ―― 何冊の本にするか
 
-ドロップ・Finder・Dock・「開く」パネル・サイドパネル・履歴・お気に入り、どの入口から来ても、
+ドロップ・Finder・Dock・「開く」パネル・サイドパネル・履歴・コレクション、どの入口から来ても、
 渡された URL の束はまず `BookOpenRequest.init(openingCandidates:)` に通します。判定はここ1箇所です。
 
 - 全部が画像ファイルなら **1冊のその場限りの本**(`MangaBook.BookOrigin.imageFiles`)。
@@ -109,8 +109,8 @@
 - 札の時限は `DispatchQueue.main.asyncAfter`(`Task.sleep` はプールが塞がると発火しない ―― 待ちが長いのはまさにその場面)。
 - 窓に属さない編集ウインドウ(ブックマーク・レイアウト、メタデータ)は `PendingBookOpens.isShowingWait` で「本を探しています…」を出し、
   期限切れは理由を出す(以前はビープだけ)。
-5. 成功したら `reconcileBookIDIfMoved(book:)` を `FavoritesStore` / `BookmarkStore` /
-   `LayoutStore` / `BookMetadataStore` / `CollectionStore` の5つで呼ぶ(同一ボリューム内の
+5. 成功したら `reconcileBookIDIfMoved(book:)` を `BookmarkStore` /
+   `LayoutStore` / `BookMetadataStore` / `CollectionStore` の4つで呼ぶ(同一ボリューム内の
    移動・リネームに inode で追従。コレクションはファイル名の表示もここで追従する。
    → [06](06-persistence.md#移動リネームへの追従))。
 6. 履歴(`RecentFilesStore.record`)と `LastActiveBookStore.record`。記録するのは

@@ -1,7 +1,7 @@
 import Foundation
 
-/// JSON入出力(設計コンセプト6節)のファイル形式。お気に入り・ブックマーク・ページレイアウト設定を
-/// 1つのファイルにまとめて書き出し/読み込みする。3つのトップレベルキーはすべてOptionalで、
+/// JSON入出力(設計コンセプト6節)のファイル形式。ブックマーク・ページレイアウト設定などを
+/// 1つのファイルにまとめて書き出し/読み込みする。トップレベルのキーはすべてOptionalで、
 /// エクスポート時にチェックを外した種類は書き出さない(キー自体が無い)。インポート側はキーが
 /// 存在する種類だけを「このファイルに含まれている」として扱い、含まれていない種類の設定は
 /// 一切変更しない。
@@ -35,13 +35,16 @@ struct QooLibraryExportFile: Codable {
     ///
     /// formatVersion 7(2026-10-03)で、シークレットフォルダ(`secretFolders`)を足した。Optional なので 6 以前のファイルはそのまま読める。
     ///
+    /// 2026-10-24 にお気に入り(`favorites`。フォルダの階層と登録した本)を機能ごと削除し、書き出しも読み込みもしなくなった。
+    /// 以前のファイルにある `favorites` は、知らないキーとして読み飛ばされる(JSONDecoder は知らないキーを無視する)。
+    /// 読める形が変わっただけで書く形は 7 のまま増えていないので、版は上げていない。
+    ///
     /// **意図して入れないもの**: フォルダのアクセス権(`FolderAccessStore` /
     /// `FolderSettingBookmarks`。セキュリティスコープ付きブックマークは書き出した端末でしか
     /// 意味を持たない)、最近開いた本の履歴(同じ理由。`RecentFilesStore.Entry.bookmark`)、
     /// 自動で作り直せるもの(コレクション表紙・サムネイル・スマートライブラリのカタログ・
     /// `MetadataCorpusStore`)。
     var formatVersion: Int = 7
-    var favorites: ExportedFavorites?
     var bookmarks: [ExportedBookmarkEntry]?
     var layouts: [ExportedBookLayoutEntry]?
     /// 本ごとに登録された書誌メタデータ(著者・タイトル・シリーズ・巻数)。
@@ -74,8 +77,7 @@ struct QooLibraryExportFile: Codable {
 
 // MARK: - コレクション
 
-/// 1つのライブラリと、その中のコレクション。お気に入り(ExportedFavorites)と違って階層が
-/// 2段で固定なので、フラットな配列 + 親idではなく素直な入れ子で持つ。
+/// 1つのライブラリと、その中のコレクション。階層が2段で固定なので、フラットな配列 + 親idではなく素直な入れ子で持つ。
 struct ExportedLibrary: Codable {
     var name: String
     /// カバーの縦横比(CoverAspectRatio.rawValue)。この2つはどちらもOptionalで、
@@ -122,9 +124,9 @@ struct ExportedCollection: Codable {
 
 /// コレクションに入っている本1冊。他のカテゴリと同じく、取り込み時の主たる照合手段は
 /// inodeNumber/volumeDeviceNumberで、bookIDは参考情報かつ最終手段
-/// (ExportedFavoriteBookのコメント参照)。
+/// (ExportedBookmarkEntry.bookIDのコメント参照)。
 ///
-/// セキュリティスコープ付きブックマーク(bookmarkData)は**含めない**。お気に入りの書き出しも
+/// セキュリティスコープ付きブックマーク(bookmarkData)は**含めない**。ほかのカテゴリの書き出しも
 /// 含めていない ―― ブックマークは書き出した端末の中でしか意味を持たないため、取り込み側で
 /// 実体を探して作り直す。
 struct ExportedCollectionBook: Codable {
@@ -153,7 +155,7 @@ struct ExportedCollectionBook: Codable {
 
 /// 1冊分の書誌メタデータ。他のカテゴリと同じく、インポート時の主たる照合手段は
 /// inodeNumber/volumeDeviceNumberで、bookIDは参考情報かつ最終手段
-/// (ExportedFavoriteBookのコメント参照)。
+/// (ExportedBookmarkEntry.bookIDのコメント参照)。
 ///
 /// ブックマーク(pageIndex→pageKey変換が要る)やレイアウトと違い、メタデータは本の中身に
 /// 依存しない情報のため、書き出し・読み込みのどちらでも実ファイルを開く必要が無い。
@@ -272,56 +274,6 @@ struct ExportedMetadataFormats: Codable {
     var exclusionPatterns: [String]
 }
 
-// MARK: - お気に入り
-
-/// お気に入りのフォルダ階層・登録した本の一覧。folders/booksどちらもフラットな配列として持ち、
-/// 親子関係はparentId/folderId(このファイル内だけで通用する一時的なID文字列)で表す
-/// (SwiftDataのUUIDをそのまま流用しているが、インポート時に新しいUUIDへ作り直すため、
-/// 「このファイル内での識別子」以上の意味は持たない)。
-struct ExportedFavorites: Codable {
-    var folders: [ExportedFavoriteFolder]
-    var books: [ExportedFavoriteBook]
-}
-
-struct ExportedFavoriteFolder: Codable {
-    var id: String
-    var name: String
-    /// ルート直下のフォルダの場合はnil。
-    var parentId: String?
-}
-
-struct ExportedFavoriteBook: Codable {
-    /// MangaBook.id(フォルダ/アーカイブファイルのパス)と同じ形式の文字列。
-    ///
-    /// ユーザー要望: iノード番号による管理に変更したい。ここのbookIDは、あくまで参考情報
-    /// (人が見て分かるように、また下のinodeNumber/volumeDeviceNumberによる照合が失敗した
-    /// 場合の最終手段として)残しているだけで、インポート時の主たる照合手段は下の
-    /// inodeNumber/volumeDeviceNumberにする(LibraryImportExportService参照)。
-    var bookID: String
-    /// FileNodeIdentifier.inodeNumber相当。エクスポート時点で取得できていた場合のみ値を持つ。
-    var inodeNumber: Int64?
-    /// FileNodeIdentifier.volumeDeviceNumber相当。エクスポート時点で取得できていた場合のみ値を持つ。
-    var volumeDeviceNumber: Int64?
-    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
-    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
-    ///
-    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
-    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
-    /// デバイス番号で照合する。
-    var volumeUUID: String?
-    var title: String
-    /// ルート直下(フォルダに属さない)の場合はnil。
-    var folderId: String?
-
-    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
-    var fileNodeIdentifier: FileNodeIdentifier? {
-        guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(
-            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
-        )
-    }
-}
-
 // MARK: - ブックマーク
 
 /// 1件のブックマーク。pageはBookmark.pageIndex(実際の読書順インデックス)ではなく、
@@ -334,10 +286,15 @@ struct ExportedBookmark: Codable {
 
 /// 1冊分のブックマーク一式。以前は`[String: [ExportedBookmark]]`(キー: bookID)だったが、
 /// ユーザー要望によりファイルノード識別子(iノード番号)も持たせられるよう、bookIDを含む
-/// 配列要素の形に変更した(ExportedFavoriteBookと同じ考え方)。
+/// 配列要素の形に変更した(当時のお気に入りの書き出しと同じ考え方)。
 struct ExportedBookmarkEntry: Codable {
-    /// 参考情報。インポート時の主たる照合手段はinodeNumber/volumeDeviceNumber
-    /// (LibraryImportExportService参照)。
+    /// MangaBook.id(フォルダ/アーカイブファイルのパス)と同じ形式の文字列。
+    ///
+    /// ユーザー要望: iノード番号による管理に変更したい。ここのbookIDは、あくまで参考情報
+    /// (人が見て分かるように、また下のinodeNumber/volumeDeviceNumberによる照合が失敗した
+    /// 場合の最終手段として)残しているだけで、インポート時の主たる照合手段は下の
+    /// inodeNumber/volumeDeviceNumber(とvolumeUUID)にする(LibraryImportExportService参照)。
+    /// ほかの本ごとのカテゴリも同じ。
     var bookID: String
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
@@ -448,7 +405,7 @@ extension DisplayMode {
 
 /// 本ごとの読書位置と表示の状態(`BookReadingState`)。他の本ごとのカテゴリと同じく、
 /// 取り込み時の主たる照合手段は inode / ボリューム UUID で、bookID(パス)は最終手段
-/// (`ExportedFavoriteBook` のコメント)。
+/// (`ExportedBookmarkEntry.bookID` のコメント)。
 ///
 /// JSON を「コレクション表紙と組で取っておけば環境が戻る」バックアップとして使う、という
 /// 利用者の運用に合わせて足した(2026-09-23)。それまでは読書位置だけがどのカテゴリにも

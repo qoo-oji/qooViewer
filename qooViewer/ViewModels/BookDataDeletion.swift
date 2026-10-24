@@ -22,7 +22,7 @@ enum BookDataDeletion {
         layoutStore.discardPageLayout(forBookID: bookID)
     }
 
-    /// 書き出した本の保存データの片付け(環境設定の書き出しの「保存データ」が「削除」のとき)。お気に入り・コレクション・
+    /// 書き出した本の保存データの片付け(環境設定の書き出しの「保存データ」が「削除」のとき)。コレクション・
     /// コレクション表紙は残す(設定の説明文のとおり)。読書位置は開いているビューアが行を握っているので、呼び出し側が
     /// `ViewerViewModel.discardReadingState()` で消す(ここで消すと、消した行へページ送りのたびに書き込もうとする)。
     static func deleteAfterExport(

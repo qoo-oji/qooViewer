@@ -15,7 +15,7 @@ import SwiftUI
 /// ■ すりガラス面の決まりごと
 /// この画面も `PanelSurface.welcome` の上。文字・アイコンには `.panelOutlinedContent()`、選択中の行(アクセントの地)には
 /// `.panelOutlinedAccent(in:)`、スライダーには `.panelControlWell()`(CLAUDE.md の表)。検索欄とメニューのボタンは
-/// 本棚と同じ部品を使う。
+/// 本棚と同じ部品を使う。絞り込みのボタンは標準の `NSPopUpButton` の後ろに不透明な地と縁を敷く(`SmartFilterRow`)。
 struct SmartLibraryPane: View {
     @ObservedObject var home: WelcomeLibraryState
     /// 表示の状態。**ウインドウに1つで、ContentView が持つ**(本を開いて戻ってきたとき、開いていた束・絞り込み・選択のまま。
@@ -593,8 +593,8 @@ private struct SmartFacetPanel: View {
         let (pinned, others) = rows(selected: selected)
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TextField("", text: $query, prompt: Text("Search"))
-                    .textFieldStyle(.roundedBorder)
+                // 標準の検索欄(虫眼鏡と消去ボタン。2026-10-24、利用者の決定: 部品を標準に寄せる)。
+                SmartFacetSearchField(text: $query, placeholder: String(localized: "Search", language: locale))
                 Button("Clear Selection") { state.clearFacet(field) }
                     .disabled(selected.isEmpty)
             }
@@ -692,8 +692,10 @@ private struct SmartFacetPanelRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            // 標準のチェックボックス(2026-10-24。それまでは SF Symbols の四角を自前で描いていた)。押すと行を押したのと同じ。
+            Toggle("", isOn: Binding(get: { isSelected }, set: { _ in onToggle() }))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
             Text(verbatim: title)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -727,20 +729,63 @@ private struct SmartFacetPanelRow: View {
     }
 }
 
-/// 絞り込みのドロップダウンのボタンの、文字の幅(5 つとも同じ幅に揃える ―― 2026-09-22、利用者の指摘)。
-private let smartFilterLabelWidth: CGFloat = 112
+/// 値の選択パネルの検索欄。標準の `NSSearchField`(虫眼鏡・消去ボタン・Esc で空にする)。打つたびに絞り込む。
+private struct SmartFacetSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
 
-/// 絞り込みの 1 行: 見出しと、ドロップダウンのボタン(押すとポップオーバーで選択肢が出る)。
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>?
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text?.wrappedValue = field.stringValue
+        }
+        @objc func searched(_ sender: NSSearchField) { text?.wrappedValue = sender.stringValue }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searched(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+        field.placeholderString = placeholder
+    }
+
+    static func dismantleNSView(_ field: NSSearchField, coordinator: Coordinator) {
+        coordinator.text = nil
+        field.delegate = nil
+        field.target = nil
+    }
+}
+
+/// 絞り込みのポップアップボタンの幅(4 つとも同じ幅に揃える ―― 2026-09-22、利用者の指摘)。
+private let smartFilterPopUpWidth: CGFloat = 140
+
+/// 絞り込みの 1 行: 見出しと、ポップアップボタン。
 ///
-/// **Menu ではなく Button + ポップオーバー**。Menu は(1)項目を 1 つ押すたびに閉じるので、形式を続けて何個も選べない
-/// (利用者の指摘)、(2)ラベルに付けた幅を OS の版によって無視する(SettingsPicker.widthProbe のコメント)ので幅が揃わない。
-/// Button はラベルの幅でベゼルが決まるので、ラベルを同じ幅にすれば 5 つとも揃う(WelcomeTopBar.openButtons と同じ)。
-/// ポップオーバーは外をクリックすると閉じる。
-private struct SmartFilterDropdown<Content: View>: View {
+/// **ボタンは標準の `NSPopUpButton`**(2026-10-24、利用者の決定: Finder の検索条件・表示オプションと同じ部品にする)。それまでは
+/// 自前の Button + ポップオーバーで、(1)SwiftUI の Menu は項目を 1 つ押すたびに閉じるので形式を続けて何個も選べない(利用者の指摘)、
+/// (2)Menu はラベルに付けた幅を OS の版によって無視する(SettingsPicker.widthProbe のコメント)、の 2 つを避けていた。
+/// `NSPopUpButton` は幅をそのまま守り、選ぶと閉じる動きは 1 つだけ選ぶ絞り込みにはそのまま合う。複数を選ぶ「本の形式」だけは、
+/// 押したときにメニューの代わりにポップオーバーを出す(`SmartFilterPopUpButton.onPress`。macOS では SwiftUI のメニューを
+/// 開いたままにする指定 `menuActionDismissBehavior(.disabled)` が使えない ―― Apple の資料の対応 OS に macOS が無い)。
+///
+/// ■ すりガラス面の決まりごと
+/// 見出しの文字には輪郭を掛ける。ボタンは**後ろに不透明な地(テキスト欄の色)と細い縁を敷く**(ホームの検索欄 WelcomeSearchField と
+/// 同じ扱い)。標準のポップアップボタンの地は半透明で、面を文字と同じ色で塗りつぶすと(ダーク表示で白・ライト表示で黒)ボタンが文字ごと
+/// 消えた(2026-10-24 の実機。最初は「不透明なベゼルを持つ部品」と判断して何も敷いていなかった)。ボタンには輪郭を掛けない。
+private struct SmartFilterRow<Control: View>: View {
     let titleKey: LocalizedStringKey
-    let currentTitle: String
-    @Binding var isOpen: Bool
-    @ViewBuilder var content: Content
+    @ViewBuilder var control: Control
 
     var body: some View {
         HStack(spacing: 6) {
@@ -749,55 +794,122 @@ private struct SmartFilterDropdown<Content: View>: View {
                 .lineLimit(1)
                 .panelOutlinedContent()
             Spacer(minLength: 4)
-            Button {
-                isOpen.toggle()
-            } label: {
-                HStack(spacing: 4) {
-                    Text(verbatim: currentTitle)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .frame(width: smartFilterLabelWidth)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help(currentTitle)
-            .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 6) { content }
-                    .padding(12)
-                    .fixedSize()
-            }
+            control
+                .background(
+                    RoundedRectangle(cornerRadius: smartFilterGroundCornerRadius, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: smartFilterGroundCornerRadius, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                        .allowsHitTesting(false)
+                )
         }
     }
 }
 
-/// 形式の絞り込み(複数選べる ―― 2026-09-22、利用者の指示)。何も選ばなければ全部。開いたまま何個でも付け外しでき、
-/// 外をクリックするか「指定なし」を押すと閉じる(「指定なし」は全部外す)。
+/// 絞り込みのボタンの後ろに敷く地の角の丸み(小さいポップアップボタンのベゼルの角に合わせる)。
+private let smartFilterGroundCornerRadius: CGFloat = 6
+
+/// 標準の `NSPopUpButton`(小さいサイズ)。`items` の nil は区切り線。
+private struct SmartFilterPopUpButton: NSViewRepresentable {
+    let items: [String?]
+    let selectedIndex: Int
+    /// 値があれば、押したときにメニューを開かずにこれを呼ぶ(複数を選ぶポップオーバーを出す「本の形式」)。
+    var onPress: (() -> Void)?
+    var onSelect: (Int) -> Void = { _ in }
+
+    final class PopUp: NSPopUpButton {
+        var onPress: (() -> Void)?
+        override func mouseDown(with event: NSEvent) {
+            if let onPress { onPress() } else { super.mouseDown(with: event) }
+        }
+        // キー操作(スペース)で押されたときも同じ。
+        override func performClick(_ sender: Any?) {
+            if let onPress { onPress() } else { super.performClick(sender) }
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var onSelect: ((Int) -> Void)?
+        var items: [String?] = []
+        @objc func selectionChanged(_ sender: NSPopUpButton) { onSelect?(sender.indexOfSelectedItem) }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> PopUp {
+        let button = PopUp(frame: .zero, pullsDown: false)
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        return button
+    }
+
+    func updateNSView(_ button: PopUp, context: Context) {
+        let coordinator = context.coordinator
+        if coordinator.items != items || button.numberOfItems != items.count {
+            button.removeAllItems()
+            for item in items {
+                if let item { button.menu?.addItem(NSMenuItem(title: item, action: nil, keyEquivalent: "")) }
+                else { button.menu?.addItem(.separator()) }
+            }
+            coordinator.items = items
+        }
+        if button.indexOfSelectedItem != selectedIndex, items.indices.contains(selectedIndex) {
+            button.selectItem(at: selectedIndex)
+        }
+        coordinator.onSelect = onSelect
+        button.onPress = onPress
+        button.toolTip = items.indices.contains(selectedIndex) ? items[selectedIndex] : nil
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PopUp, context: Context) -> CGSize? {
+        CGSize(width: smartFilterPopUpWidth, height: nsView.intrinsicContentSize.height)
+    }
+
+    // AppKit の部品が閉包を窓より長く持たないように外す(CLAUDE.md の NSViewRepresentable の決まり)。
+    static func dismantleNSView(_ button: PopUp, coordinator: Coordinator) {
+        button.onPress = nil
+        coordinator.onSelect = nil
+        button.target = nil
+    }
+}
+
+/// 形式の絞り込み(複数選べる ―― 2026-09-22、利用者の指示)。何も選ばなければ全部。見た目はほかの 3 つと同じポップアップボタンで、
+/// 押すとポップオーバーに標準のチェックボックスが並び、開いたまま何個でも付け外しできる。外をクリックするか「指定なし」を押すと閉じる
+/// (「指定なし」は全部外す)。
 private struct SmartKindPicker: View {
     @Binding var selection: Set<SmartBookKind>
     @Environment(\.locale) private var locale
     @State private var isOpen = false
 
     var body: some View {
-        SmartFilterDropdown(titleKey: "Book Format", currentTitle: currentTitle, isOpen: $isOpen) {
-            Button("Any") {
-                selection = []
-                isOpen = false
-            }
-            .buttonStyle(.link)
-            Divider()
-            ForEach(SmartBookKind.allCases, id: \.self) { kind in
-                Toggle(LocalizedStringKey(kind.titleKey), isOn: Binding(
-                    get: { selection.contains(kind) },
-                    set: { isOn in
-                        if isOn { selection.insert(kind) } else { selection.remove(kind) }
+        SmartFilterRow(titleKey: "Book Format") {
+            SmartFilterPopUpButton(items: [currentTitle], selectedIndex: 0, onPress: { isOpen.toggle() })
+                .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button("Any") {
+                            selection = []
+                            isOpen = false
+                        }
+                        .buttonStyle(.link)
+                        Divider()
+                        ForEach(SmartBookKind.allCases, id: \.self) { kind in
+                            Toggle(LocalizedStringKey(kind.titleKey), isOn: Binding(
+                                get: { selection.contains(kind) },
+                                set: { isOn in
+                                    if isOn { selection.insert(kind) } else { selection.remove(kind) }
+                                }
+                            ))
+                            .toggleStyle(.checkbox)
+                        }
                     }
-                ))
-                .toggleStyle(.checkbox)
-            }
+                    .padding(12)
+                    .fixedSize()
+                }
         }
     }
 
@@ -809,48 +921,26 @@ private struct SmartKindPicker: View {
     }
 }
 
-/// 1 つだけ選ぶ絞り込み(読書の状態・追加日・最後に読んだ日・登録の有無)。選ぶと閉じる。
+/// 1 つだけ選ぶ絞り込み(読書の状態・追加日・最後に読んだ日)。標準のポップアップボタンで、先頭が「指定なし」、区切り線の下に選択肢。
 private struct SmartFilterPicker<Value: Hashable>: View {
     let titleKey: LocalizedStringKey
     @Binding var selection: Value?
     let options: [(Value, String)]
     @Environment(\.locale) private var locale
-    @State private var isOpen = false
 
     var body: some View {
-        SmartFilterDropdown(titleKey: titleKey, currentTitle: currentTitle, isOpen: $isOpen) {
-            choice(title: String(localized: "Any", language: locale), isSelected: selection == nil) { selection = nil }
-            Divider()
-            ForEach(options, id: \.0) { option in
-                choice(title: String(localized: String.LocalizationValue(option.1), language: locale),
-                       isSelected: selection == option.0) { selection = option.0 }
-            }
+        let titles = options.map { String(localized: String.LocalizationValue($0.1), language: locale) }
+        // 並び: 「指定なし」(0)・区切り線(1)・選択肢(2…)。
+        let selectedIndex = selection.flatMap { value in options.firstIndex { $0.0 == value } }.map { $0 + 2 } ?? 0
+        SmartFilterRow(titleKey: titleKey) {
+            SmartFilterPopUpButton(
+                items: [String(localized: "Any", language: locale), nil] + titles,
+                selectedIndex: selectedIndex,
+                onSelect: { [options] index in
+                    selection = index >= 2 && options.indices.contains(index - 2) ? options[index - 2].0 : nil
+                }
+            )
         }
-    }
-
-    /// 選択肢 1 行(選んでいるものに印)。
-    private func choice(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            action()
-            isOpen = false
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.caption.weight(.semibold))
-                    .opacity(isSelected ? 1 : 0)
-                Text(verbatim: title)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var currentTitle: String {
-        guard let selection, let option = options.first(where: { $0.0 == selection }) else {
-            return String(localized: "Any", language: locale)
-        }
-        return String(localized: String.LocalizationValue(option.1), language: locale)
     }
 }
 

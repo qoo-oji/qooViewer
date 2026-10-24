@@ -135,7 +135,7 @@ struct BulkRenameBookmarksSheet: View {
 
     /// シートなので、独立ウインドウだった頃はタイトルバーの閉じるボタンが担っていた「やめる」を
     /// ボタンとして置く必要がある。並び(キャンセル→既定ボタン)とショートカットの割り当ては、
-    /// このアプリの他のダイアログ(FavoriteFolderPickerView.bottomBar等)と揃えてある。
+    /// このアプリの他のダイアログと揃えてある。
     private var bottomBar: some View {
         HStack {
             Spacer()

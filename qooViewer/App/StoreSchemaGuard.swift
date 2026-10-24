@@ -52,13 +52,21 @@ nonisolated enum StoreSchemaGuard {
     /// - 3: `BookLibrary.coverFitRaw`(ライブラリの「形の合わせ方」。切り取る/余白を付ける)を足した時点(2026-09-24)。
     ///   1.71 でリリース済み(**この行の指紋はもう書き換えない**。モデルを変えたら 4 を足す)
     /// - 4: `BookMetadata.extraValuesData`(原作・情報の 2 つ目からの値。qooMeta 0.3.0)を足した時点
-    ///   (2026-10-01)。**リリースするまでは、この行の指紋を書き換えてよい**
+    ///   (2026-10-01)。1.84 までにリリース済み(**この行の指紋はもう書き換えない**)
+    /// - 5: お気に入り(`FavoriteBook` / `FavoriteFolder`)を機能ごと削除し、エンティティを外した時点(2026-10-24)。
+    ///   **リリースするまでは、この行の指紋を書き換えてよい**
     static let generations: [Int: String] = [
         1: "82a1fb6d0d07bdc10cc4f297ac78096f48f6d101c0d8ec685ede6c0e803429d2",
         2: "507a48b2e004d8fbb926c846af2267835092ae6233def7f4da1da8917b7f3ad8",
         3: "5a187a191f25e719e0f38297ef1f72fc4cd9ee61c759b24ef0758995fdca60fa",
         4: "ce41991138ed8c0438c7609667c0344ef6a8dd173c0dbbd6cd1c2009461bac24",
+        5: "1a1ae023bf8e522820c2897dbf3d2ecacc2216132a6f0828982478e1c679b03a",
     ]
+
+    /// 削除したエンティティの名前(2026-10-24)。古いストアにはまだあるので、「いまのモデルが知らないエンティティ = 新しいアプリの
+    /// ストア」の判定から外す。**エンティティを外したら、ここへ名前を足すこと** ―― 足さないと、更新した全員のストアが「新しいアプリが
+    /// 書いたもの」に見え、起動のたびに警告が出る(お気に入りを外したとき、テストで起動した Debug 版がこの警告を出して分かった)。
+    static let retiredEntityNames: Set<String> = ["FavoriteBook", "FavoriteFolder"]
 
     /// いま動いているアプリの世代(表の最大)。
     static var currentGeneration: Int { generations.keys.max() ?? 0 }
@@ -80,15 +88,24 @@ nonisolated enum StoreSchemaGuard {
     ///   - recordedGeneration: これまでに記録された最大の世代(記録が無ければnil)。
     static func verdict(
         storeHashes: [String: Data]?, currentHashes: [String: Data],
-        recordedGeneration: Int?, currentGeneration: Int = currentGeneration
+        recordedGeneration: Int?, currentGeneration: Int = currentGeneration,
+        knownGenerations: [Int: String] = generations, retiredEntityNames: Set<String> = retiredEntityNames
     ) -> Verdict {
         guard let storeHashes else { return .proceed }
         // いまのモデルと同じなら、移行そのものが起きない。
         if storeHashes == currentHashes { return .proceed }
         // 新しいアプリが既にこのストアを使った。
         if let recordedGeneration, recordedGeneration > currentGeneration { return .newerStore }
+        // 指紋が表の古い世代のどれかと同じ = このアプリより前の版のストア(エンティティを外した世代を越える移行もここで通る)。
+        let storeFingerprint = fingerprint(of: storeHashes)
+        if let generation = knownGenerations.first(where: { $0.value == storeFingerprint })?.key,
+           generation <= currentGeneration {
+            return .proceed
+        }
         // いまのモデルが知らないエンティティがある = 新しいアプリのストア(記録が消えていても分かる)。
-        if !Set(storeHashes.keys).isSubset(of: currentHashes.keys) { return .newerStore }
+        // 削除したエンティティは古いストアの印なので数えない。
+        let unknown = Set(storeHashes.keys).subtracting(currentHashes.keys).subtracting(retiredEntityNames)
+        if !unknown.isEmpty { return .newerStore }
         // 古いストア(このアプリより前の世代、または番人を入れる前のバージョン)からの移行。
         return .proceed
     }

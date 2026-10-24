@@ -41,7 +41,7 @@
 | サムネイルのディスクキャッシュ | 黙って常時 ON | 既定 OFF、上限と使用量を表示 | 数百 MB 溜まっていた |
 | 最初/最後のページの挙動 | 共通の1設定 | 前後で別の設定 | 「最後だけ閉じたい」が表せない |
 | お気に入りの開き方 | 毎回サブメニューで選ぶ | 環境設定の1箇所 | Finder から開くときと同じ考え方 |
-| お気に入りそのもの | メニュー・ツールバー・サイドパネル・ホームに出ていた | `FavoritesFeature.isEnabled == false` で入り口を全部閉じる。コード・データ・JSON は残す | ライブラリ/コレクションに置き換えるため(改善要望5)。消すと保存済みの登録と過去の書き出しファイルを失うので、隠すだけにした |
+| お気に入りそのもの | メニュー・ツールバー・サイドパネル・ホームに出ていた | `FavoritesFeature.isEnabled == false` で入り口を全部閉じる。コード・データ・JSON は残す → **2026-10-24 に機能ごと削除**(モデル・ストア・ウインドウ・設定・JSON の節・キー割り当て) | ライブラリ/コレクションに置き換えるため(改善要望5)。消すと保存済みの登録と過去の書き出しファイルを失うので、まず隠すだけにした。使うことはなくなったと利用者が判断して削除。既存のストアからは軽量マイグレーションが表を落とし(`StoreSchemaGuard` の世代 5・`retiredEntityNames`)、過去の書き出しファイルの `favorites` は読み飛ばす |
 | ホーム | 「開く…」+ 最近開いたファイル / 最近のお気に入りの2列 | ライブラリ/コレクションの本棚。履歴は「履歴から開く」ボタンへ | 改善要望5(→ [14](14-library-collections.md)) |
 | ホームの帯 | 「本を開く…」「履歴から開く」の 2 ボタン | 撤去(⌘O とファイルメニュー・サイドパネルの履歴に残る) | 改善要望7。ファイルブラウザへの切り替えを置くため |
 | 表示順の切り替え | 環境設定「並び順を Finder に揃える」(1.37 で追加、2026-09-06 に既定 ON) | 撤去。表示順は常に正準順。OFF だった人の表紙は起動時に一度だけ作り直す | 改善要望7(設定の整理)。OFF を選ぶ理由が残っていなかった |
@@ -215,10 +215,6 @@
 - 自動レイアウト(`wideImageAspectRatios`)の進捗表示とキャンセル。ヘッダー読み取りだけになって
   十分速いが、フォーマット非対応でヘッダーが読めない場合の備えとして残っている。
 - 差し替え確認ダイアログの3択目「エクスポートしてから破棄する」(2.5 節)。
-- `FavoriteBook.sortOrder` / `FavoriteFolder.sortOrder`: 手動ドラッグの並べ替えを再実装する
-  場合に備えて値だけ保持している。
-- `FavoritesLimits`(999 件・3階層)を環境設定から変えられるようにする案(お気に入りは無効化中なので、
-  復活させるときに一緒に判断する)。
 - 補助ウインドウの純正風リスタイル(ツールバーへクロームを移す計画、2026-08-29 立案)は、
   「一覧ウインドウの共通の形」として大半が実装済み。残りは各ウインドウのコメントで確認。
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
@@ -703,7 +699,7 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
   `NSNotificationCenter post` → `MetadataEditorViewModel.reload` → SwiftData)。
   `InMemoryLibrary.close()` と同じ話で、`deinit` では間に合わない。
   **通知を購読する型をテストから作るときは、必ず購読を外す口を用意すること。**
-- **`FavoritesStore` / `BookmarkStore` の一覧の並びは `UserDefaults.standard` の並び順設定に従う。**
+- **`BookmarkStore` の一覧の並びは `UserDefaults.standard` の並び順設定に従う。**
   `sortOption` の `didSet` は `.standard` へ書き戻すので、テストから設定し直すと利用者の設定を
   書き換えてしまう。一覧の**並び**は当てにせず、顔ぶれ(`Set`)で見る。
 - **`AppPreferences.isPrivateModeDefault` も `.standard` を読む。** `AppState.actsAsRegularWindow` が
@@ -788,7 +784,7 @@ Mirror で間接的に押さえているものを除くと、**段階 5 の項�
 | `ThumbnailDiskCache.init(directory:)` / `BookPageListCache.init(directory:)` | ディスクキャッシュの保存先を作業フォルダへ |
 | `ViewerViewModel(usesDiskCaches:)` / `AppState(usesPageListCache:)` / `BookLayoutEditorViewModel.load(book:usesDiskCaches:)` | DB へは書くがディスクキャッシュには触れない、を表す |
 | `ViewerViewModel.settle()` / `AppState.openTask`(`private(set)`) | 起動時に投げた `Task` を待ち合わせる |
-| `BookmarkStore.releaseResources()` / `FavoritesStore.releaseResources()` | 張った購読を外す(下の「必ず守ること」参照) |
+| `BookmarkStore.releaseResources()` / `CollectionStore.releaseResources()` | 張った購読を外す(下の「必ず守ること」参照) |
 | `BookExportViewModel.prepare(row:book:displayState:)` / `write(_:to:)` | 材料集めと書き込みを分ける |
 | `QooViewerApp.performPendingStoreResetIfNeeded(defaults:storeURL:domainName:cacheDirectories:)` / `removeOrphanedAuxiliaryStoreFiles(at:)` | 実物のストア・キャッシュ・環境設定を消さずに確かめる |
 | `MetadataEditorViewModel.releaseResources()`(段階 6) | 張った通知の購読を deinit を待たずに外す |
@@ -840,7 +836,7 @@ SwiftData + 5 つのストア)、`PreferencesSuite`(その場限りの `UserDefa
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
 
 - `CLAUDE.md` の UniversalCharsetDetection と「SevenZip.swift は main を追跡」の記述は修正した。
-- 中身が空だった `Models/BookmarkSortOption.swift` は削除した(`FavoritesSortOption` を流用している。
+- 中身が空だった `Models/BookmarkSortOption.swift` は削除した(`ItemSortOption` を流用している。
   プロジェクトはファイルシステム同期グループなので pbxproj の変更は不要)。
 - `FavoritesNSMenuBridge` のコメントが「参考として残してある」としていた
   `FavoritesListPopoverContent.swift` は既に存在しないため、コメントを「削除済み」に改めた。

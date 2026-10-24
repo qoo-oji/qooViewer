@@ -22,7 +22,7 @@ struct BookmarkBookGroup: Identifiable, Equatable {
     /// 表示用の本の名前。Bookmarkにはタイトルが保存されておらず、bookID(パス)しか
     /// 持たないため、パスの最後の部分から生成する(RecentFilesStore.Entry.displayNameと
     /// 同じ考え方。実体のファイル/フォルダが後からリネームされていた場合、この表示名は
-    /// リネーム前のままになりうるが、お気に入りと違い「開く」機能を持たないブックマーク編集では
+    /// リネーム前のままになりうるが、「開く」機能を持たないブックマーク編集では
     /// これで十分と判断した)。
     ///
     /// 以前は計算プロパティとして参照のたびに生成していたが、この値は左ペインの並べ替え
@@ -45,15 +45,14 @@ struct BookmarkBookGroup: Identifiable, Equatable {
 /// ブックマーク(Bookmark.swift)の永続化・操作を、特定の本に限らず横断的に担当する。
 ///
 /// 以前はブックマークの一覧・編集は「今開いている本」のものだけをViewerViewModel経由で
-/// 扱っていたが、「ブックマークの編集」ウインドウをお気に入りの編集ウインドウと同じ2ペイン構成
+/// 扱っていたが、「ブックマークの編集」ウインドウを当時のお気に入りの編集ウインドウと同じ2ペイン構成
 /// (左: 本の一覧、右: 選択中の本のブックマーク一覧)にする際、すべての本を横断して編集できる
-/// 必要が生じたため、FavoritesStoreと同じ考え方でこのストアを新設した。
+/// 必要が生じたため、当時のお気に入りのストアと同じ考え方でこのストアを新設した。
 ///
 /// 開いている本のViewerViewModelも同じSwiftData ModelContext(modelContainer.mainContext。
 /// QooViewerApp.init()参照)を介して同じBookmarkを参照するため、一方の変更をもう一方にも
 /// 伝える必要がある。これは個別のクロージャではなくNotification.Name.bookmarksDidChangeの
-/// 送受信で行う(詳細はBookmark.swiftのコメント参照。「今読んでいる本」を1つに絞れる
-/// FavoritesStoreの「現在の本を追加」ボタンと違い、こちらは開いているすべての本の
+/// 送受信で行う(詳細はBookmark.swiftのコメント参照。こちらは開いているすべての本の
 /// ViewerViewModelと同期を取る必要があるため、AppState経由の個別のクロージャではなく通知の
 /// 形にしている。なお、ModelContextを単一に統一した後も、このObservableObjectが持つ
 /// キャッシュ(groups/cachedBookmarks)自体はSwiftDataが自動的に再フェッチしてくれるわけでは
@@ -67,27 +66,27 @@ final class BookmarkStore: ObservableObject {
     /// Finderと同じ)。
     @Published private(set) var groups: [BookmarkBookGroup] = []
 
-    /// 選択中の本のブックマーク一覧を並べる基準。FavoritesSortOptionをそのまま流用する
-    /// (名前・追加日時・更新日時の3種類、それぞれ昇順・降順。詳細はFavoritesSortOption.swift
-    /// のコメント参照。以前あった「ページ番号」ソートは、お気に入りの編集画面と表記・挙動を
+    /// 選択中の本のブックマーク一覧を並べる基準。ItemSortOptionをそのまま流用する
+    /// (名前・追加日時・更新日時の3種類、それぞれ昇順・降順。詳細はItemSortOption.swift
+    /// のコメント参照。以前あった「ページ番号」ソートは、当時のお気に入りの編集画面と表記・挙動を
     /// 完全に揃えるため廃止した)。
     ///
     /// 左ペイン(本一覧)の並び替え基準はbookSortOptionとして別に持つ(要望: 左ペインも右ペインと
     /// 同じルールでソートしたいが、「本を選び替えるたびにブックマークの並びまで変わる」体験は
     /// 避けたいため、2つのペインで独立に切り替えられるようにした)。
-    @Published var sortOption: FavoritesSortOption {
+    @Published var sortOption: ItemSortOption {
         didSet {
             guard sortOption != oldValue else { return }
             UserDefaults.standard.set(sortOption.rawValue, forKey: Self.sortOptionDefaultsKey)
             // groups自体の並びには関与しないためreload()は不要。bookmarks(forBookID:)は
             // 呼び出しの都度この値を見て並べ替えるだけなので、@Publishedによる再描画だけで
-            // 画面には反映される(FavoritesStore.foldersAlwaysOnTopと同じ考え方)。
+            // 画面には反映される。
         }
     }
 
-    /// 左ペイン(本一覧)を並べる基準。sortOptionと同じFavoritesSortOptionを使うが、値は独立に
+    /// 左ペイン(本一覧)を並べる基準。sortOptionと同じItemSortOptionを使うが、値は独立に
     /// 保持・永続化する(上記sortOptionのコメント参照)。
-    @Published var bookSortOption: FavoritesSortOption {
+    @Published var bookSortOption: ItemSortOption {
         didSet {
             guard bookSortOption != oldValue else { return }
             UserDefaults.standard.set(bookSortOption.rawValue, forKey: Self.bookSortOptionDefaultsKey)
@@ -127,26 +126,26 @@ final class BookmarkStore: ObservableObject {
     /// 他のウインドウ(開いている本、または別の「ブックマークの編集」ウインドウ)での変更を
     /// 都度反映するための監視トークン。
     private var changeObserver: NSObjectProtocol?
-    /// メニューが開かれる直前にも念のため再読み込みする(FavoritesStore/RecentFilesStoreと
+    /// メニューが開かれる直前にも念のため再読み込みする(RecentFilesStoreと
     /// 同じ理由の保険。通常はbookmarksDidChangeの送受信だけで同期が取れるはずだが、
     /// 万一取りこぼした場合の保険として残しておく)。
 
-    /// 並べ方を保存先から読み直す(保存データの JSON から環境設定を取り込んだ後。FavoritesStore の同名のコメント)。
+    /// 並べ方を保存先から読み直す(保存データの JSON から環境設定を取り込んだ後)。
     func reloadSortOptionsFromDefaults() {
-        let sort = FavoritesSortOption(rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? "")
+        let sort = ItemSortOption(rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? "")
             ?? .nameAscending
         if sort != sortOption { sortOption = sort }
-        let bookSort = FavoritesSortOption(rawValue: UserDefaults.standard.string(forKey: Self.bookSortOptionDefaultsKey) ?? "")
+        let bookSort = ItemSortOption(rawValue: UserDefaults.standard.string(forKey: Self.bookSortOptionDefaultsKey) ?? "")
             ?? .nameAscending
         if bookSort != bookSortOption { bookSortOption = bookSort }
     }
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
-        self.sortOption = FavoritesSortOption(
+        self.sortOption = ItemSortOption(
             rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? ""
         ) ?? .nameAscending
-        self.bookSortOption = FavoritesSortOption(
+        self.bookSortOption = ItemSortOption(
             rawValue: UserDefaults.standard.string(forKey: Self.bookSortOptionDefaultsKey) ?? ""
         ) ?? .nameAscending
         reload()
@@ -172,7 +171,7 @@ final class BookmarkStore: ObservableObject {
                 self.reload()
             }
         }
-        // メニューバーのメニューの内容(お気に入り/ブックマーク一覧)を最新に保つための再読み込み。
+        // メニューバーのメニューの内容(ブックマーク一覧)を最新に保つための再読み込み。
         // **開いた瞬間ではなく、閉じたあとに行う**。開いている最中に@Publishedを発火させると、
         // SwiftUIがトラッキング中のメインメニューを作り直し(NSMenu setItemArray:)、macOS 26では
         // 新しいメニュー実装(NSContextMenuImpl)が行高キャッシュの範囲外アクセスで
@@ -295,11 +294,11 @@ final class BookmarkStore: ObservableObject {
     /// switch文と同じ基準・同じ考え方だが、対象がBookmark個々ではなくBookmarkBookGroup
     /// (本単位に集約した日時)である点が異なる。
     private static func sortedGroups(
-        _ groups: [BookmarkBookGroup], by option: FavoritesSortOption
+        _ groups: [BookmarkBookGroup], by option: ItemSortOption
     ) -> [BookmarkBookGroup] {
         switch option {
         // 「タイトル」(書誌のタイトル)はコレクションの中でしか選べない基準で、ここには
-        // 出さない(ブックマークが持つのは自分に付けた名前だけ。FavoritesSortOptionの型コメント
+        // 出さない(ブックマークが持つのは自分に付けた名前だけ。ItemSortOptionの型コメント
         // 参照)。保存してある値が何かの拍子に回ってきても並びが崩れないよう、名前として扱う。
         case .nameAscending, .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             return groups.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
@@ -835,7 +834,7 @@ final class BookmarkStore: ObservableObject {
         (bookmarksByBookID()[bookID] ?? []).compactMap(\.bookmarkData).first
     }
 
-    /// すべてのブックマークを削除する。環境設定「リセット」タブの「すべてのお気に入り・
+    /// すべてのブックマークを削除する。環境設定「リセット」タブの「すべての
     /// ブックマーク・読書履歴を削除」から呼ばれる、緊急時向けの強力な操作
     /// (ResetDataSettingsView参照)。
     ///

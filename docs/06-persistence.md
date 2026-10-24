@@ -8,7 +8,7 @@
 | ブックマーク | SwiftData `Bookmark` | `BookmarkStore` / `ViewerViewModel` | 無制限(自動削除しない) |
 | レイアウト(本全体) | SwiftData `BookLayoutSettings` | `LayoutStore` | 無制限 |
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
-| お気に入り(**無効化中**) | SwiftData `FavoriteBook` / `FavoriteFolder` | `FavoritesStore` | 上限 999 件、フォルダ3階層(`FavoritesLimits`)。改善要望5で UI の入り口をすべて閉じた(`FavoritesFeature.isEnabled == false`)。モデル・ストア・ウインドウ・JSON は残してあり、フラグを true に戻せば以前の登録がそのまま見える。無効の間は実体の確かめ直し・メニューを閉じたときの読み直しを始めない(2026-09-25) |
+| (お気に入り) | **2026-10-24 に機能ごと削除** | ―― | 改善要望5で入り口を閉じたまま使わなくなったので、利用者の判断でモデル(`FavoriteBook` / `FavoriteFolder`)・ストア・ウインドウ・JSON の節をすべて消した。既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす(`StoreSchemaGuard` の世代 5。削除したエンティティの名前は `retiredEntityNames` に並べ、「知らない表 = 新しいアプリのストア」の判定から外す)。設定の 4 つのキーは起動時に消す(`AppPreferences.Keys.retiredFavoritesKeys`) |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
 | コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
@@ -51,21 +51,20 @@
    すると、一意制約を持つエンティティの upsert 処理が原因と思われる形で**既存の無関係な行が
    消える**不具合があった(1ページ目を設定した直後に2ページ目を設定すると1ページ目の設定が
    消える、と再現)。一意性はストア側が insert 前に既存行を確認して保証している。
-   `Bookmark.id` / `FavoriteBook.id` のように毎回 `UUID()` を新規生成するだけのものも同様。
+   `Bookmark.id` / `CollectionItem.id` のように毎回 `UUID()` を新規生成するだけのものも同様。
 3. **`#Predicate` で絞り込まない。** `#Predicate<BookReadingState> { $0.bookID == bookID }` の
    ような絞り込みが、レイアウト変更直後などに**0件を誤って返す**ことが実機で確認された
    (キャプチャしたローカル変数名がモデルのプロパティ名と同名なのが関係している可能性が高い)。
    全件フェッチして Swift 側で filter し、各ストアが辞書のキャッシュ
    (`cachedSettingsByBookID` など)を持って insert/delete のたびに差分を反映する。
-   例外は `FavoritesStore.reload()` の `parent == nil` / `folder == nil`(こちらは問題なく動いている)。
 4. **後から属性を追加するときは、宣言時のデフォルト値を必ず付ける**(`var updatedAt: Date = Date()`)。
    無いと、その属性が無かった頃のデータを開く際に「Validation error missing attribute values
-   on mandatory destination attribute」で起動できなくなる(`FavoriteBook.updatedAt` で実際に踏んだ)。
+   on mandatory destination attribute」で起動できなくなる(当時のお気に入りの `updatedAt` で実際に踏んだ)。
    スキーマの変更はライトウェイトマイグレーションで済む範囲に留める。
 5. **永続化属性の名前を変えない・消さない。** `BookLayoutSettings.hasEpubLayoutLock`(未使用)、
    `Bookmark.isEpubDerived`(PDF のアウトライン由来にも使う)は、意味が変わったが名前を変えると
    マイグレーションになるためそのまま。
-6. `FavoriteFolder` / `FavoriteBook` に `Identifiable` を付けない(付けると MainActor 自動分離の
+6. `@Model` の型(`BookLibrary` / `CollectionItem` など)に `Identifiable` を付けない(付けると MainActor 自動分離の
    影響で `PersistentModel` に適合しないというビルドエラー)。`ForEach(..., id: \.id)` で使う。
 7. `save()` の失敗を `try?` で握りつぶす箇所が多いが、ストアは `lastSaveErrorMessage` に残して
    `NSLog` する(Console.app で追える)。
@@ -183,7 +182,7 @@ bookID(パス)が同じでも中身が別物になっていることがありま
 
 ## 移動・リネームへの追従
 
-5つのモデル(`Bookmark` / `BookLayoutSettings` / `BookMetadata` / `FavoriteBook` /
+4つのモデル(`Bookmark` / `BookLayoutSettings` / `BookMetadata` /
 `CollectionItem`)は作成時の `FileNodeIdentifier` を持ち、本を開くたびに各ストアの
 `reconcileBookIDIfMoved(book:)` が「現在のパスに行が無く、同じファイルの行がある」なら bookID を
 書き換えます(同一ボリューム内の移動・リネームだけ。ボリュームをまたぐ移動は諦める)。
@@ -280,9 +279,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 `CollectionItem` だけは bookID と一緒に **`title` も新しいファイル名へ書き換えます**
 (`MangaBook.title` をそのまま入れる。棚のカバー下キャプションを「ファイル名」にしていると、
-古い名前が残ったままになるため)。`FavoriteBook.title` は触りません ―― お気に入りには表示名を
-自分で付け替える操作があり、ユーザーが付けた名前を上書きしてはいけないからです。コレクションの
-本にその操作はありません。`BookCollection.updatedAt`(棚の並び「更新順」の基準)も進めません。
+古い名前が残ったままになるため。当時のお気に入りは表示名を自分で付け替える操作があったので触らなかったが、
+コレクションの本にその操作はありません)。`BookCollection.updatedAt`(棚の並び「更新順」の基準)も進めません。
 
 ## 通知と自己エコー
 
@@ -413,7 +411,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 ### 行に添える手がかりはメインの外で(BookSourceFacts / BookRowAnchors、2026-10-11)
 
-レイアウト・ブックマーク・お気に入り・メタデータの行は、移動に付いていくための**手がかり**(ファイルノード識別子と
+レイアウト・ブックマーク・メタデータの行は、移動に付いていくための**手がかり**(ファイルノード識別子と
 セキュリティスコープ付きブックマーク)を持ちます。以前は行を作るその場(メイン)で元ファイルへ問い合わせていて、
 応答しない共有の上の本では 1 回ごとに最長約 30 秒止まりました(EPUB/PDF を初めて開くときは、レイアウトの取り込みで最初の
 見開きの前に 3 回)。いまは:
@@ -421,7 +419,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 - **本を開いた側が `FileIO` の上で 1 度だけ求め、`MangaBook.sourceFacts`(`BookSourceFacts`)で運ぶ**: 識別子・更新日時・大きさ・
   フォルダか・ブックマーク(記録する本だけ)。入れるのは `AppState.open`(反映の前)、レイアウトの編集ウインドウ、カバーを選ぶ画面、
   保存データの取り込みの読み込み。書き込み側(`LayoutStore.existingOrNewSettings(for:)`・`ViewerViewModel.addBookmark`・
-  `FavoritesStore`・`BookMetadataStore.backfillIdentifiers`・`ContentFingerprint`)はこの値だけを使う(`MangaBook.recordBookmarkData` ほか)。
+  `BookMetadataStore.backfillIdentifiers`・`ContentFingerprint`)はこの値だけを使う(`MangaBook.recordBookmarkData` ほか)。
   **本を組み直す所は `sourceFacts` を引き継ぐ**(ビューアの `prepareBook` が落として、行を作るたびにメインで問い合わせていた ――
   2026-10-11 のレビュー)。事実の無い本で書き込みが走ると Debug ビルドが `BookSourceFacts` の fault ログを出す(テストは数えない)。
 - **本を開かずに作る行**(カバーの指定・メタデータの登録・表紙の zip の読み込み)は、呼び出し側が `BookRowAnchors.gather` で
@@ -435,7 +433,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 正典は `AppState.isPrivateWindow` のコメントです。要約:
 
 - **ウインドウ単位の `let`**(Chrome のシークレットウインドウに倣った)。通常ウインドウと並行して使える。
-- true のとき書かないもの: 履歴・最後に開いていた本・読書状態・ブックマーク/お気に入り/
+- true のとき書かないもの: 履歴・最後に開いていた本・読書状態・ブックマーク/
   レイアウト/メタデータの登録と編集・コレクションへの登録と編集(ホームの編集モードに
   入れない。カバーの指定も変えられない)・EPUB/PDF/ComicInfo からの自動取り込み・サムネイルの
   ディスクキャッシュ・**構造キャッシュ(読みもしない**。同じ本でも開き方で挙動が変わるのを
@@ -444,8 +442,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   書き込みを伴う UI は消さずにグレーアウトする(これがアプリ全体の約束)。**項目ごと消すのは、相手の機能(ライブラリ・スマートライブラリ・
   ファイルブラウザ)が OFF のときだけ**(2026-09-23、利用者の決定。それまでビューア・サイドパネルの「コレクションに登録」「スマートライブラリの
   対象に追加」、コレクションとスマートライブラリの「メタデータの編集…」「コレクションを作成/登録」はシークレットウインドウで消していた)。
-  アラートの中の削除ボタン(「お気に入りから削除」「コレクションから削除」)は淡色にできないので出さないまま。
-- **どのウインドウにも属さない編集ウインドウ**(「ブックマーク・レイアウトの編集」「お気に入りの編集」)は、「今読んでいる本」を
+  アラートの中の削除ボタン(「コレクションから削除」)は淡色にできないので出さないまま。
+- **どのウインドウにも属さない編集ウインドウ**(「ブックマーク・レイアウトの編集」)は、「今読んでいる本」を
   `LaunchCoordinator.activeRecordableBookAppState`(シークレットウインドウと記録を残さない本を除く)から取る。これらは「ウインドウ」
   メニューからも開けるので、編集メニューを淡色にしても入り口は塞がらない ―― 2026-09-23 の監査まではシークレットウインドウの本を一覧に
   足して選び、ブックマーク・レイアウトを DB へ書けた(ページ一覧・サムネイルのキャッシュも)。通常のウインドウで作った保存データのある本は
@@ -454,7 +452,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   (`BookExportViewModel.usesPageListCache`。書き出し本体とカバー欄の両方。2026-09-23 まではどちらも既定のまま使っていた)。
 - メニューバーのグレーアウトは `isPrivateWindow || currentBookLeavesNoRecord`(`MenuCheckmarkState`)。実際に断る側
   (`skipsPersistence`)と同じ条件 ―― 2026-09-23 まではメニューだけ `isTransient` を見ていて、一時フォルダに書き出した入れ子の書庫では
-  押せるのに何も起きなかった。淡色にできないキー・マウスの割り当て(ブックマーク・自動レイアウト・お気に入り)は、断ったときに理由
+  押せるのに何も起きなかった。淡色にできないキー・マウスの割り当て(ブックマーク・自動レイアウト)は、断ったときに理由
   (シークレットウインドウ / シークレットフォルダの本 / この本)をトーストで出す(`ViewerView.noteNothingIsRecorded`。2026-10-04 の監査 X-10)。
 - **その場限りの本**(`MangaBook.isTransient`)は通常ウインドウでも同じものを書かない
   (`skipsPersistence = isPrivateWindow || book.isTransient`)。sourceURL が先頭1枚の画像で
@@ -580,8 +578,8 @@ StackNest の参照ファイルの本(`.stacknestbook`)も**シークレット�
 
 | 操作 | 場所 | 範囲 |
 |---|---|---|
-| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り・コレクションの登録(コレクション表紙も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
+| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・コレクションの登録(コレクション表紙も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
 | 履歴の削除 | 同「履歴の削除」ウインドウ | 選んだ履歴。ブックマークは解決しない |
 | ブックマークの全削除など | 各編集ウインドウ | 「レイアウトをすべて削除」は**狭義のレイアウト**(読み方向・見開き強制・ページ順・ページ単位の設定)だけ。コレクション表紙・切り出し位置・書き出し用のカバー・コントラスト補正は残す(`LayoutStore.discardPageLayout`。2026-10-04 の監査 BE-2 まで行ごと消していた。編集ウインドウの 2 つの確認と書き出し後の片付けは `BookDataDeletion` を通る ―― テストが呼び出し側の消し方を確かめる、レビュー R1-4) |
 | すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・キャッシュ・コレクション表紙の2つの保管庫・ファイルブラウザの「置き換える」の退避の記録・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。起動時の再確認は**どのストアよりも先**(`AppStores.init` の先頭。以前は環境設定などが読み終えた後の `modelContainer` の中だけで、書き戻されて環境設定が残っていた)、対象も予約時と同じ範囲(表紙の元画像・札のキャッシュを含む)。実行前の確認と、実行後の終了は必須 |
-| 書き出し後の後始末 | 環境設定「レイアウト」形式ごとの「保存データ/履歴: 削除」 | 書き出した本のぶんだけ。保存データはブックマーク・狭義のレイアウト・メタデータ・読書位置で、お気に入り・コレクションの登録・コレクション表紙・切り出し位置は残す(2026-10-04 の決定 7) |
+| 書き出し後の後始末 | 環境設定「レイアウト」形式ごとの「保存データ/履歴: 削除」 | 書き出した本のぶんだけ。保存データはブックマーク・狭義のレイアウト・メタデータ・読書位置で、コレクションの登録・コレクション表紙・切り出し位置は残す(2026-10-04 の決定 7) |

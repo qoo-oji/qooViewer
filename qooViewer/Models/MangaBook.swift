@@ -38,16 +38,16 @@ struct SourceLayoutHint: Equatable {
 ///
 /// ■ .fileSystem 側の前提
 /// このアプリのDB(SwiftData)は、BookReadingState / BookLayoutSettings / PageLayoutOverride /
-/// Bookmark / FavoriteBook / BookMetadata のすべてが`MangaBook.id`(=フォルダ/ファイルのフルパス)を
+/// Bookmark / BookMetadata / CollectionItem のすべてが`MangaBook.id`(=フォルダ/ファイルのフルパス)を
 /// キーにしている。さらにAppState.openは本を開くたびに、そのパスのiノード番号を手がかりに
 /// 「移動・リネームされた本」を追従させる(reconcileBookIDIfMoved)。
 /// つまり**idが実在パスであることは、単なる慣習ではなくDB全体の不変条件**になっている。
 ///
 /// ■ .imageFiles を「その場限りの本」にしている理由
 /// 1. **複数枚のとき、その「1冊」に対応する実在パスが存在しない。** 不変条件を破ったまま従来の
-///    経路へ流すと、iノードが一致してしまった**既存のお気に入り/レイアウト/ブックマークのbookIDが、
+///    経路へ流すと、iノードが一致してしまった**既存のレイアウト/ブックマークのbookIDが、
 ///    その場限りのIDへ恒久的に書き換えられる**(LayoutStoreはPageLayoutOverride.compositeKeyまで
-///    書き換えるため復旧不能)。「画像Aを単体で開いてお気に入り登録 → 後でA+Bをドロップ」だけで
+///    書き換えるため復旧不能)。「画像Aを単体で開いてブックマーク → 後でA+Bをドロップ」だけで
 ///    再現する。またBookReadingStateが際限なく増え、LibraryDataPrunerが**実在する本の読書位置を
 ///    消す**。
 /// 2. **1枚のときは実在パスをidに使えるが、それでも記録しない**(ユーザー要望)。画像を直接開く

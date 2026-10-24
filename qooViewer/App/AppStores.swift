@@ -44,10 +44,8 @@ final class AppStores: ObservableObject {
     let secretFolderStore: SecretFolderStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     let launchCoordinator: LaunchCoordinator
-    /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
-    /// modelContainerから作ったModelContextを渡して生成する(以下の3つも同じ)。
-    let favoritesStore: FavoritesStore
-    /// ブックマーク(すべての本を横断)。
+    /// ブックマーク(すべての本を横断)。RecentFilesStore等と違いSwiftDataで永続化するため、
+    /// modelContainerから作ったModelContextを渡して生成する(以下の2つも同じ)。
     let bookmarkStore: BookmarkStore
     /// ページレイアウト設定(すべての本を横断)。
     let layoutStore: LayoutStore
@@ -69,7 +67,7 @@ final class AppStores: ObservableObject {
     /// ライブラリ・コレクション・その中の本(改善要望5)。
     ///
     /// **allObjectWillChangePublishersには意図的に足していない。** 表紙の抽出や存在確認のたびに
-    /// publishするので、つなぐと名前が変わっていなくてもメニュー全体が作り直される(お気に入りの
+    /// publishするので、つなぐと名前が変わっていなくてもメニュー全体が作り直される(当時のお気に入りの
     /// publishがメニュー全体を作り直していた轍を踏まない。型コメント参照)。2026-09-15から
     /// 「ホーム」メニューに名前が出るが、それは下のhomeMenuDirectoryが値の写しで受け持つ。
     let collectionStore: CollectionStore
@@ -180,7 +178,6 @@ final class AppStores: ObservableObject {
         favoriteLocations = FavoriteLocationStore(defaults: defaults)
         let context = dependencies.modelContext
         modelContext = context
-        favoritesStore = FavoritesStore(modelContext: context)
         bookmarkStore = BookmarkStore(modelContext: context)
         layoutStore = LayoutStore(
             modelContext: context, coverSourceStore: CollectionCoverSourceStore(directory: dependencies.coverSourceDirectory)
@@ -254,16 +251,15 @@ final class AppStores: ObservableObject {
         smartLibraryStore = SmartLibraryStore(defaults: defaults)
         // テストの中では記録を保存しない(共有の状態に触らない。Dependencies.live())。
         metadataCorpusStore = MetadataCorpusStore(url: dependencies.metadataCorpusURL)
-        let probeStores = (metadataStore, layoutStore, bookmarkStore, favoritesStore, collectionStore, folderAccess, preferences)
+        let probeStores = (metadataStore, layoutStore, bookmarkStore, collectionStore, folderAccess, preferences)
         metadataGenerator = MetadataGenerator(
             metadataStore: metadataStore, rulesStore: metadataRulesStore, corpusStore: metadataCorpusStore,
             secretFolders: secretFolderStore,
-            knownBooks: { [bookmarkStore, layoutStore, favoritesStore] in
-                KnownBooks.collectWithoutFeatures(bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                                                  favoritesStore: favoritesStore, modelContext: context)
+            knownBooks: { [bookmarkStore, layoutStore] in
+                KnownBooks.collectWithoutFeatures(bookmarkStore: bookmarkStore, layoutStore: layoutStore, modelContext: context)
             },
             probe: { bookIDs in
-                let (metadata, layouts, bookmarks, favorites, collections, access, preferences) = probeStores
+                let (metadata, layouts, bookmarks, collections, access, preferences) = probeStores
                 // ライブラリ機能が OFF の間はコレクションの行を読まない(裏の仕事。CLAUDE.md)。
                 let collectionStore = preferences.libraryFeatureEnabled ? collections : nil
                 // 繋がっていないボリュームの本は確かめない(ブックマークの解決が秒単位で止まる)。付けたら確かめ直す
@@ -271,7 +267,7 @@ final class AppStores: ObservableObject {
                 let mounts = MountTable.current()
                 let probes = bookIDs.filter { !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0, isDirectory: false)) }.map {
                     BookExistenceProbe.make(bookID: $0, metadataStore: metadata, layoutStore: layouts, bookmarkStore: bookmarks,
-                                            favoritesStore: favorites, collectionStore: collectionStore, folderAccess: access)
+                                            collectionStore: collectionStore, folderAccess: access)
                 }
                 return await Self.probeExistence(probes, mounts: mounts)
             })
@@ -300,7 +296,7 @@ final class AppStores: ObservableObject {
         }
 
         bookRecordRelocator = BookRecordRelocator(
-            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             metadataStore: metadataStore, collectionStore: collectionStore, modelContext: context,
             coverExtractor: collectionCoverExtractor
         )
@@ -336,13 +332,13 @@ final class AppStores: ObservableObject {
                 // フォルダの設定が先(フォルダごと動いた本は、フォルダの付け替えでまとめて付いていく)。
                 await self.followFolderSettingsMovedOutsideTheApp()
                 let moved = await ExternalMoveSweeper.movedBooks(
-                    favoritesStore: self.favoritesStore, collectionStore: self.collectionStore,
+                    collectionStore: self.collectionStore,
                     bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
                     folderAccess: self.folderAccess, modelContext: context,
                     skipsCollectionBooks: self.preferences.libraryFeatureEnabled)
                 await self.relocateBooksMovedOutsideTheApp(moved)?.value
                 await NonBookFolderSweeper.sweep(
-                    favoritesStore: self.favoritesStore, collectionStore: self.collectionStore,
+                    collectionStore: self.collectionStore,
                     bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
                     folderAccess: self.folderAccess, modelContext: context)
             }
@@ -416,7 +412,7 @@ final class AppStores: ObservableObject {
     /// - アプリ自身が移した・名前を変えた本の付け替え(`BookRecordRelocator`)。別のボリュームへ移した本は、ここで付け替えないと
     ///   ONへ戻したときに「見つからない本」になる(同じボリュームの中ならブックマークが追うが、ボリュームをまたぐと追えない)
     /// - 本を開いたときの、Finder で移した・名前を変えた本への追従と識別子の補完(AppState.open の `reconcileBookIDIfMoved` /
-    ///   `backfillFileNodeIdentifier`)。お気に入り・ブックマーク・レイアウト・メタデータと**5つ揃えて**付け替える ―― コレクションの行だけ
+    ///   `backfillFileNodeIdentifier`)。ブックマーク・レイアウト・メタデータと**4つ揃えて**付け替える ―― コレクションの行だけ
     ///   古いパスに残すと、その行から`bookID`で引く表紙の指定とメタデータが外れる(いったんは止めていた。2026-09-21 の監査の D2)
     /// - 保存データの書き出し・読み込み・削除(コレクションも対象のまま)
     /// - 「このアプリが知っている本」の一覧と、本の実体へ届くための最後の手がかり(`KnownBooks.collect`・
@@ -582,7 +578,7 @@ final class AppStores: ObservableObject {
     private func pruneParsedOnlyMetadata() {
         var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            favoritesStore: favoritesStore, collectionStore: collectionStore,
+            collectionStore: collectionStore,
             modelContext: modelContext
         ), includingMetadata: false)
         known.formUnion(metadataCorpusStore.collectionBookIDs)
@@ -654,7 +650,7 @@ final class AppStores: ObservableObject {
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
     /// ウインドウごとの一覧(ファイルブラウザ・サイドパネル)は自分で受ける。ここはアプリで 1 つのもの:
-    /// よく使う項目と保存データを新しいパスへ付け替え、それが済んでから棚・履歴・お気に入りの「実体があるか」を確かめ直す
+    /// よく使う項目と保存データを新しいパスへ付け替え、それが済んでから棚・履歴の「実体があるか」を確かめ直す
     /// (以前の契機は起動・アクティブ化・ボリュームの着脱だけで、アプリの中で本を移しても消しても表示が変わらなかった)。
     private func handleFileSystemChange(_ change: FileSystemChange) {
         metadataCorpusStore.relocate(using: change)
@@ -684,7 +680,6 @@ final class AppStores: ObservableObject {
             if change.touchesAny(of: Set(self.recentFiles.entries.map { MountTable.normalized($0.path) })) {
                 self.recentFiles.scheduleRefresh()
             }
-            self.favoritesStore.scheduleExistenceRefresh()
         }
     }
 
@@ -711,7 +706,6 @@ final class AppStores: ObservableObject {
         collectionAutoFolderScanner.releaseResources()
         collectionCoverExtractor.releaseResources()
         collectionStore.releaseResources()
-        favoritesStore.releaseResources()
         bookmarkStore.releaseResources()
     }
 
@@ -731,7 +725,6 @@ final class AppStores: ObservableObject {
             // 毎秒(ウインドウごとに)発火し、そのたびに App の body(全 Scene + .commands)を作り直させていた。グラフは各ウインドウの
             // ビューが .environmentObject で直接観測する。
             launchCoordinator.objectWillChange,
-            favoritesStore.objectWillChange,
             bookmarkStore.objectWillChange,
             layoutStore.objectWillChange,
             metadataStore.objectWillChange,

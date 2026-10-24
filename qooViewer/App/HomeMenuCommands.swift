@@ -563,8 +563,8 @@ struct HomeViewMenuItems: View {
                 }
             } else {
                 // 選べる基準は操作列の並べ替えメニューと同じ(CollectionGridView / CollectionDetailView の sortFields)。
-                let fields: [FavoritesSortOption.Field] = home.openedCollectionID == nil
-                    ? FavoritesSortOption.Field.withoutTitle
+                let fields: [ItemSortOption.Field] = home.openedCollectionID == nil
+                    ? ItemSortOption.Field.withoutTitle
                     : [.name, .title, .dateAdded, .dateCreated, .dateModified]
                 ForEach(fields) { [appState] field in
                     Toggle(field.titleKey, isOn: Binding(
@@ -670,11 +670,11 @@ struct HomeViewMenuItems: View {
 
     /// 基準か向きの片方だけを差し替える。もう片方は**いまの値**から取る(メニューの値は保留されうるので使わない)。
     private static func setShelfSort(
-        field: FavoritesSortOption.Field?, ascending: Bool?, appState: AppState?, home: HomeMenuState
+        field: ItemSortOption.Field?, ascending: Bool?, appState: AppState?, home: HomeMenuState
     ) {
         guard let welcome = appState?.welcomeLibrary else { return }
         let current = home.openedCollectionID == nil ? welcome.collectionSort : welcome.itemSort
-        let option = FavoritesSortOption(field: field ?? current.field, ascending: ascending ?? current.isAscending)
+        let option = ItemSortOption(field: field ?? current.field, ascending: ascending ?? current.isAscending)
         if home.openedCollectionID == nil { welcome.collectionSort = option } else { welcome.itemSort = option }
     }
 

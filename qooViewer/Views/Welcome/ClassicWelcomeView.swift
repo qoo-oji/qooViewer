@@ -9,12 +9,12 @@ import UniformTypeIdentifiers
 /// 本棚は持たないので、ここから「開く」パネル、またはドラッグ&ドロップで
 /// フォルダ/アーカイブファイルを直接開く。
 ///
-/// 「最近開いた本」「最近お気に入りに追加したファイル」を各最大10件表示し、クリックで直接開ける。どちらも表示前に存在確認済みの
-/// ものだけが渡ってくる(RecentFilesStore.entries / FavoritesStore.recentFavorites(limit:)参照)。
+/// 「最近開いた本」を最大10件表示し、クリックで直接開ける(RecentFilesStore.entries。以前は「最近お気に入りに追加したファイル」の
+/// 列もあったが、2026-10-24 にお気に入りを機能ごと削除した)。
 ///
 /// ■ 当時との違い
 /// - 「最近開いた本」の列を出すかどうかの設定(showRecentFilesOnWelcome)は 2026-09-13 に撤去したので、常に出す
-///   (シークレットウインドウでは出さない)。お気に入りの列は `FavoritesFeature` が有効なときだけ(いまは出ない)
+///   (シークレットウインドウでは出さない)
 /// - 「開く…」のボタンに ⌘O を付けない(ファイルメニューの「開く…」が持っている)
 /// - 背景は WelcomeView が敷く
 /// - 左上に「直前の本へ戻る」(`HomeLastBookButton`、2026-09-28。帯の左端の代わり)
@@ -24,7 +24,6 @@ struct ClassicWelcomeView: View {
     @EnvironmentObject private var recentFiles: RecentFilesStore
     /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
     @Environment(\.dataUndoStack) private var dataUndo
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     /// アプリ内の表示言語(CLAUDE.md参照。OSのロケールとは独立)。一覧の見出しと形式バッジの
     /// 幅を実測するために、表示に使うのと同じ訳語を引く必要がある。
     @Environment(\.locale) private var locale
@@ -38,15 +37,6 @@ struct ClassicWelcomeView: View {
         // 「履歴」モード、またはファイルメニューの「Open Recent」で見られる)。
         // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
         let recentEntries = !appState.isPrivateWindow ? Array(recentFiles.entries.prefix(10)) : []
-        // 表示のたびにセキュリティスコープ付きブックマークの解決・存在確認を行うため、
-        // bodyの中で1回だけ計算して使い回す(isEmptyの判定とForEachの両方で同じ結果を使う)。
-        // 「最近のお気に入り」も同様に出さない(ユーザー要望。登録済みデータではあるが、
-        // 「最近」という切り口自体が利用の痕跡を映すため)。
-        // 改善要望5でお気に入りを無効化したため、この列は出さない(FavoritesFeature参照)。
-        let recentFavoriteBooks = FavoritesFeature.isEnabled
-            && preferences.showRecentFavoritesOnWelcome && !appState.isPrivateWindow
-            ? favoritesStore.recentFavorites(limit: 10)
-            : []
 
         // 見出しは表示用と幅の実測用で同じ文字列でなければならないため、環境のロケール
         // (アプリ内の表示言語)で1回だけ解決してから両方に使う。
@@ -79,16 +69,6 @@ struct ClassicWelcomeView: View {
                     )
                 }
             ),
-            recentFavoriteBooks.isEmpty ? nil : WelcomeQuickOpenColumn(
-                title: String(localized: "Recent Favorites", language: locale),
-                items: recentFavoriteBooks.map { favorite in
-                    WelcomeQuickOpenItem(
-                        id: favorite.id.uuidString, title: favorite.title, bookID: favorite.bookID
-                    ) {
-                        appState.openFavorite(favorite)
-                    }
-                }
-            ),
         ].compactMap { $0 }
 
         VStack(spacing: 16) {
@@ -98,7 +78,7 @@ struct ClassicWelcomeView: View {
                 VStack(spacing: 6) {
                     Label("Private Window", systemImage: "eyeglasses")
                         .font(.headline)
-                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved.")
+                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, layouts, metadata, or thumbnail cache is saved.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -166,8 +146,7 @@ struct ClassicWelcomeView: View {
     }
 }
 
-/// ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」で共通して使う、
-/// 1件分の項目。
+/// ウェルカム画面の「最近開いたファイル」の1件分の項目。
 ///
 /// privateでないのは、列幅の計算(WelcomeQuickOpenWidth.resolved)をテストから呼ぶため
 /// (ThumbnailDiskCache.trimThresholdと同じ理由)。使うのはこのファイルの中だけ。
@@ -180,14 +159,12 @@ struct WelcomeQuickOpenItem: Identifiable {
     let bookID: String
     let action: () -> Void
     /// 非nilなら右クリックメニューに破壊的な項目を1つ出す(「最近開いたファイル」の
-    /// 「履歴から削除」用。ユーザー要望)。「最近お気に入りに追加したファイル」側は
-    /// nilのまま ―― そちらで消せるのは登録そのもの(お気に入りの削除)で、意味が違う。
-    /// お気に入りの整理は専用の「お気に入りを整理」ウインドウが担う。
+    /// 「履歴から削除」用。ユーザー要望)。
     var destructiveActionTitleKey: LocalizedStringKey?
     var destructiveAction: (() -> Void)?
 }
 
-/// 一覧1つ分(「最近開いたファイル」または「最近のお気に入り」)。
+/// 一覧1つ分(「最近開いたファイル」。以前は「最近のお気に入り」の列もあった)。
 /// privateでない理由はWelcomeQuickOpenItemと同じ。
 struct WelcomeQuickOpenColumn: Identifiable {
     /// 画面には同じ見出しの列が2つ並ぶことはないので、見出しをそのままIDにできる。
@@ -197,7 +174,7 @@ struct WelcomeQuickOpenColumn: Identifiable {
     let items: [WelcomeQuickOpenItem]
 }
 
-/// ウェルカム画面の「最近開いたファイル」「最近のお気に入り」の列幅を決める計算。
+/// ウェルカム画面の「最近開いたファイル」の列幅を決める計算。
 ///
 /// ユーザー要望: 列が狭くてファイル名が「…」で省略され、何の本か分からないので、実際に
 /// 表示するファイル名の長さを実測し、ウインドウの幅を考慮して自動調整してほしい。加えて、

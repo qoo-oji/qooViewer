@@ -21,7 +21,6 @@ import Foundation
 /// - `AppState.currentBookmarks` — 本を開いた後の反映。「ブックマーク一覧」の項目数が変わる。
 /// - `RecentFilesStore.entries` — 本を開き終えた瞬間・ボリュームのマウント。「最近開いた
 ///   ファイル」が「(なし)」↔N項目に変わる。
-/// - `FavoritesStore` — お気に入り一覧そのもの。
 ///
 /// つまり「大きな書庫を開く → メニューを開いたまま待つ」だけで再現しうる。
 ///
@@ -121,7 +120,7 @@ final class MenuBarMenuGate {
     /// (run(_:_:)の一度きりの予約と違い、解除するまで残る)。
     ///
     /// 「メニューバーに出す一覧を、次に開いたときに最新にしておく」という保険のための入口。
-    /// FavoritesStore/BookmarkStoreがこれを使う。
+    /// BookmarkStoreがこれを使う。
     ///
     /// これらのストアが自前で`NSMenu.didEndTrackingNotification`を購読してはいけない。
     /// 同じ通知をこのゲート自身も購読しているため、**どちらのオブザーバが先に呼ばれるかは

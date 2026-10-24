@@ -13,7 +13,7 @@ final class BookCollection {
     var name: String
     var createdAt: Date
     /// 最後に中身が変わった日時。本の追加・削除・コレクションのリネームで更新する
-    /// (並び替え基準「更新順」用。FavoriteFolder.updatedAtと同じ考え方だが、あちらと違い
+    /// (並び替え基準「更新順」用。当時のお気に入りのフォルダと違い、
     /// リネームでも更新する ―― コレクションは名前そのものが棚の見出しであるため)。
     var updatedAt: Date
 

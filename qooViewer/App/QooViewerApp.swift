@@ -5,7 +5,7 @@ import Combine
 import StackNestViewerKit
 
 /// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
-/// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
+/// 要求はもともと@MainActorだが、ストアをModelContext付きで組み立てるための独自init()を
 /// 追加した際、他の@StateObjectプロパティ(recentFilesなど)の宣言時デフォルト値の評価まわりで
 /// 分離状態があいまいになり、「main actor-isolated instance method 'reload()' in a synchronous
 /// nonisolated context」のようなビルドエラーが連鎖する事象があったため、型そのものに明示しておく。
@@ -38,7 +38,6 @@ struct QooViewerApp: App {
     private var smartLibraryCatalog: SmartLibraryCatalog { stores.smartLibraryCatalog }
     private var fileBrowserThumbnails: FileBrowserThumbnailProvider { stores.fileBrowserThumbnails }
     private var resourceSampler: ProcessResourceSampler { stores.resourceSampler }
-    private var favoritesStore: FavoritesStore { stores.favoritesStore }
     private var bookmarkStore: BookmarkStore { stores.bookmarkStore }
     private var layoutStore: LayoutStore { stores.layoutStore }
     private var metadataStore: BookMetadataStore { stores.metadataStore }
@@ -132,7 +131,7 @@ struct QooViewerApp: App {
         return rect
     }()
 
-    /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
+    /// ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
     /// 書誌メタデータ(BookMetadata)・コレクション(BookLibrary/BookCollection/CollectionItem)
     /// のスキーマ。
     /// BookLayoutSettings/PageLayoutOverrideは、フォルダ・zip/cbz・rar/cbr・7z/cb7・PDFに対して
@@ -148,7 +147,9 @@ struct QooViewerApp: App {
     /// StoreSchemaGuard.generationsへ世代を1行足すこと**(忘れるとStoreSchemaGuardTestsが落ちる。
     /// 古いアプリが新しいストアを開いて列を消す事故を止めるための記録。あちらの型コメント参照)。
     static let modelTypes: [any PersistentModel.Type] = [
-        BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
+        // FavoriteFolder / FavoriteBook(お気に入り)は 2026-10-24 に削除した(StoreSchemaGuard の世代 5。
+        // 既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす)。
+        BookReadingState.self, Bookmark.self,
         BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self,
         BookLibrary.self, BookCollection.self, CollectionItem.self
     ]
@@ -164,14 +165,14 @@ struct QooViewerApp: App {
     /// インスタンスとして1つだけ持っておくことで、「新しいウインドウで開く」「新しいタブで開く」で
     /// AppKitから直接組み立てる追加ウインドウにも、メインウインドウと同じコンテナ(同じ保存先)を
     /// 渡せるようにしている。
-    /// static: favoritesStoreの初期化(下のinit()参照)で、StateObject(wrappedValue:)へ渡す
+    /// static: ストアの初期化(下のinit()参照)で、StateObject(wrappedValue:)へ渡す
     /// escaping autoclosureの中からこの値を参照する必要がある。インスタンスプロパティ(let)の
     /// ままだと、構造体(QooViewerApp)がまだ初期化を終えていない段階でselfをエスケープする
     /// クロージャに捕まえてしまうことになり、「Escaping autoclosure captures mutating 'self'
     /// parameter」というビルドエラーになった。staticにすることでselfを介さずに参照できるため、
     /// この問題を避けられる(値そのものはアプリ全体で1つだけ、という意図は変わらない)。
     ///
-    /// 過去に一度、FavoriteBook/FavoriteFolderへ非Optionalな属性(updatedAt)を追加した際、
+    /// 過去に一度、お気に入り(FavoriteBook/FavoriteFolder。2026-10-24 に削除)へ非Optionalな属性(updatedAt)を追加した際、
     /// 既存ユーザーの端末で「Validation error missing attribute values on mandatory destination
     /// attribute」という移行エラーが発生し、fatalErrorで即座にアプリが起動できなくなったことが
     /// あった(そのときはinit時の`= Date()`というデフォルト値追加で解決したが、根本的には
@@ -460,7 +461,7 @@ struct QooViewerApp: App {
     static let pendingStoreResetDefaultsKey = "qooViewer.pendingStoreReset"
     /// 上に加えて「このアプリが保存したすべて」(キャッシュ・環境設定を含む)を消す予約。
     ///
-    /// 「すべてのデータを削除」は、ストア(お気に入り・ブックマーク・レイアウト・読書位置・
+    /// 「すべてのデータを削除」は、ストア(ブックマーク・レイアウト・読書位置・
     /// メタデータ)だけでなく、2つのディスクキャッシュとUserDefaults(環境設定・キー/マウスの
     /// 割り当て・履歴・ウインドウの位置など)も対象にする(ユーザーの指示。以前はストアと
     /// キャッシュと履歴だけで、環境設定が残る中途半端な範囲だった)。**フォルダのアクセス権だけは
@@ -562,26 +563,26 @@ struct QooViewerApp: App {
         preferences.displayLanguage.locale
     }
 
-    /// favoritesStoreはmodelContainerから作ったModelContextを必要とするため、他のStateObjectと
+    /// ストアはmodelContainerから作ったModelContextを必要とするため、他のStateObjectと
     /// 違って宣言時のデフォルト値だけでは初期化できない。そのためこのinit()で明示的に組み立てる
     /// (modelContainer自身は宣言時のデフォルト値でそのまま初期化される。他の@StateObjectプロパティも
     /// 同様に、ここで触れていないものは宣言時のデフォルト値がそのまま使われる)。
     ///
-    /// FavoritesStore/BookmarkStore/LayoutStoreには、いずれも`QooViewerApp.modelContainer.mainContext`
+    /// BookmarkStore/LayoutStore等には、いずれも`QooViewerApp.modelContainer.mainContext`
     /// (メインスレッド用の既定ModelContext。`.modelContainer(modelContainer)`経由でContentView/
     /// ResetDataSettingsView/ViewerViewModel側の`@Environment(\.modelContext)`にも同じインスタンスが
     /// 注入される)をそのまま渡し、アプリ全体で単一のModelContextに統一している。
     ///
-    /// 以前はFavoritesStore/BookmarkStore/LayoutStoreそれぞれに`ModelContext(modelContainer)`で
+    /// 以前はお気に入り(削除済み)/BookmarkStore/LayoutStoreそれぞれに`ModelContext(modelContainer)`で
     /// 専用の(互いに素の)ModelContextを個別に作っていた。この構成では、例えば「編集ウインドウ
     /// (BookmarkStore)で削除したBookmarkを、ビューア側(ViewerViewModel。環境経由のmainContext)の
     /// 一覧が持つ古い参照へ渡してもSwiftData的には削除できない(別コンテキストのオブジェクトの
     /// ため)」といった、コンテキストが分裂していること自体に起因する取り扱い分けが複数の箇所
     /// (ViewerView.toggleCurrentPageBookmark等)で必要になっていた。単一のmainContextに統一する
-    /// ことで、同じ行を指すBookmark/FavoriteBook/BookLayoutSettings等はどこから取得しても同一の
+    /// ことで、同じ行を指すBookmark/BookLayoutSettings等はどこから取得しても同一の
     /// オブジェクトになり、この種の「別コンテキストのオブジェクトを渡すと静かに何も起きない」
     /// クラスの問題が構造的に起きなくなる。またAppState.open(url:)が本を開くたびに呼ぶ
-    /// favoritesStore/layoutStore/bookmarkStoreそれぞれのreconcileBookIDIfMoved(book:)も、
+    /// layoutStore/bookmarkStoreそれぞれのreconcileBookIDIfMoved(book:)も、
     /// 同じmainContextに対する変更として扱われるようになる。
     ///
     /// なお、一時期(このコメントの旧バージョン当時)「あるページのレイアウトをinsert()して
@@ -645,7 +646,6 @@ struct QooViewerApp: App {
             .environmentObject(smartLibraryCatalog)
             // シークレットフォルダ(2026-10-03。右クリックの追加・外す、インスペクタの注意書き)。
             .environmentObject(secretFolderStore)
-            .environmentObject(favoritesStore)
             .environmentObject(bookmarkStore)
             .environmentObject(layoutStore)
             .environmentObject(metadataStore)
@@ -685,45 +685,13 @@ struct QooViewerApp: App {
         )
     }
 
-    /// 「お気に入りの編集」ウインドウ。bodyから切り出してあるのは、この1つだけに
-    /// `.commandsRemoved()`を掛けるため。
-    ///
-    /// **`Window`シーンは、宣言するだけで「ウインドウ」メニューに項目が並ぶ。** 改善要望5で
-    /// お気に入りを無効化し、開く入り口(編集メニューの「お気に入りの編集…」・
-    /// ViewerAction.showFavoritesOrganizer)はすべてFavoritesFeature.isEnabledで塞いだが、
-    /// このメニュー項目だけは残っていて、そこからユーザーの登録内容ごと編集できる状態で開けた
-    /// (実機で確認)。`.commandsRemoved()`はそのシーンが足す既定のコマンド ―― この自動の
-    /// メニュー項目 ―― を取り除く。
-    ///
-    /// **フラグでSceneの宣言ごと囲むことはできない**: SwiftUIの`SceneBuilder`が受け付ける
-    /// 条件分岐は`if #available`だけで(`buildOptional`は`_LimitedAvailabilitySceneMarker`版
-    /// しか使えない)、普通の`if`を書くと型チェックが通らない(実測: "failed to produce
-    /// diagnostic for expression")。
-    ///
-    /// お気に入りを復活させるとき(FavoritesFeature.isEnabled = true)は、編集メニューの
-    /// 項目が入り口として戻るので、ここはこのままでよい ―― 「ウインドウ」メニューにも
-    /// 並べたければ`.commandsRemoved()`を外す。
-    private func favoritesOrganizerScene(locale: Locale) -> some Scene {
-        Window(String(localized: "Edit Favorites", language: locale), id: "favoritesOrganizer") {
-            FavoritesOrganizerView(favoritesStore: favoritesStore)
-                .environmentObject(launchCoordinator)
-                .environmentObject(preferences)
-                .environmentObject(preferences.appearance)
-                .environment(\.locale, locale)
-        }
-        .restorationBehavior(.disabled)
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-        // 「フォルダを上に」「並べ替え」をツールバーに載せているため、タイトルとツールバーを
-        // 1行にまとめた純正アプリと同じ見た目にする(FavoritesOrganizerView参照)。
-        .windowToolbarStyle(.unified)
-        .commandsRemoved()
-    }
-
     /// 「自動リネームの設定」ウインドウ(2026-09-15、ユーザー要望。docs/plans/auto-rename-study.md)。
     /// 開く場所: ファイルブラウザの右クリック・環境設定「ファイルブラウザ」・ホームメニュー。
     ///
-    /// `.commandsRemoved()` は、`Window` シーンが「ウインドウ」メニューへ自動で足す項目を落とす(favoritesOrganizerScene のコメント)。
+    /// **`Window`シーンは、宣言するだけで「ウインドウ」メニューに項目が並ぶ。** `.commandsRemoved()` は、そのシーンが足す既定の
+    /// コマンド ―― この自動のメニュー項目 ―― を取り除く(以前お気に入りの編集ウインドウを隠したときに実機で確かめた。
+    /// フラグでSceneの宣言ごと囲むことはできない: SwiftUIの`SceneBuilder`が受け付ける条件分岐は`if #available`だけで、
+    /// 普通の`if`を書くと型チェックが通らない(実測: "failed to produce diagnostic for expression"))。
     /// 環境設定「ファイルブラウザを有効にする」が OFF の間、上の 3 つの入り口はどれも消える・淡色になるが、この自動の項目だけは設定を
     /// 見ないので、そこから開けてしまう(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の F1)。`SceneBuilder` は条件分岐できないので、
     /// ON の間も「ウインドウ」メニューには並べない。OFF にした時点で開いていたウインドウは、自分で閉じる(AutoRenameSettingsWindow)。
@@ -941,8 +909,7 @@ struct QooViewerApp: App {
                             ForEach(focusedAppState.siblingBooks, id: \.self) { url in
                                 // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
                                 // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
-                                // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
-                                // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
+                                // 拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
                                 Button(
                                     FormatBadgeView.plainTextTitle(
                                         baseName: BookFileName.displayName(forBookID: url.path), bookID: url.path
@@ -961,7 +928,7 @@ struct QooViewerApp: App {
                     .id(menuCheckmarkState?.siblingBooksRevision ?? 0)
                 }
 
-                // ユーザー要望: 画像を直接開いた本(その場限りの本。読書位置もお気に入りも
+                // ユーザー要望: 画像を直接開いた本(その場限りの本。読書位置もブックマークも
                 // 記録されない)から、普通のフォルダの本へ移るための導線。
                 // 直前まで見ていた画像のページに着地する(AppState.openAllImagesInCurrentFolder参照)。
                 //
@@ -1491,21 +1458,11 @@ struct QooViewerApp: App {
                 .disabled(isEditingText ? !textUndo.canRedo : redoTitle == nil)
             }
 
-            // 「編集」(Edit)メニューの実際の内容。以前はそれぞれ「お気に入り」「レイアウト」と
-            // いう独立したトップレベルメニュー(CommandMenu)だったが、この「編集」メニューへ
-            // 統合した(要望)。CommandGroup(after: .pasteboard)は、標準のカット/コピー/
-            // ペースト/すべてを選択グループの直後に項目を挿入するため、先頭にDividerを置いて
-            // 標準コマンドとこの後に続く独自コマンドを区切る。
-            // 3つのグループ(お気に入り→ブックマーク→レイアウト)の並び順、および各グループ内の
-            // 並び順は、以前の「お気に入り」「レイアウト」メニューのときからユーザーの指示により
-            // 変えていない。ブックマーク(本を開いている間だけ有効な、ページ位置の目印)と
-            // お気に入り(本そのものを、階層フォルダで整理して保存する)は別の仕組みのため、
-            // Dividerでグループを分けて並べる。追加・削除は別々の項目ではなく、現在の本/ページの
-            // 登録状態に応じて文言・動作が切り替わる1つのトグル項目にまとめている
-            // (ツールバー・コンテキストメニューと同じ考え方)。「編集」の文言も「ブックマークの
-            // 編集…」と表現をそろえ、以前の「お気に入りを整理…」から「お気に入りの編集…」に
-            // 変更した(ViewerAction.showFavoritesOrganizer、Window("Edit Favorites", ...)も
-            // 同様に変更済み)。
+            // 「編集」(Edit)メニューの実際の内容。以前は「お気に入り」「レイアウト」という独立したトップレベルメニュー
+            // (CommandMenu)だったが、この「編集」メニューへ統合した(要望)。CommandGroup(after: .pasteboard)は、標準のカット/コピー/
+            // ペースト/すべてを選択グループの直後に項目を挿入する。ブックマーク→レイアウトのグループの並び順、および各グループ内の
+            // 並び順はユーザーの指示により変えていない(お気に入りのグループは 2026-10-24 に機能ごと削除した)。追加・削除は別々の項目では
+            // なく、現在のページの登録状態に応じて文言・動作が切り替わる1つのトグル項目にまとめている(ツールバー・コンテキストメニューと同じ)。
             CommandGroup(after: .pasteboard) {
                 // ファイルブラウザの「ここに項目を移動」(⌥⌘V。Finder と同じキー。2026-09-15 までは一覧のキー操作だけだった)。
                 // ファイルブラウザ機能がOFFの間は出さない。
@@ -1553,9 +1510,9 @@ struct QooViewerApp: App {
                 // ビューアに出ている本で見る(MenuCheckmarkState.hasBook。監査 M-6)。
                 let hasBook = menuCheckmarkState?.hasBook == true
                 // シークレットウインドウがフォーカス中か、記録を残さない本(直接渡された画像から
-                // 作った本・一時フォルダに書き出した入れ子の書庫。MangaBook.leavesNoRecord)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
+                // 作った本・一時フォルダに書き出した入れ子の書庫。MangaBook.leavesNoRecord)を表示中は、書き込みを伴う項目(ブックマークの
                 // 追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
-                // 一覧(Favorites List / Bookmark List)は読み取りだけなので使える。
+                // 一覧(Bookmark List)は読み取りだけなので使える。
                 // 変数名がisPrivateのままなのは以前からの経緯だが、判定条件は
                 // ViewerViewModel.skipsPersistenceと同じものになっている。
                 let isPrivate = menuCheckmarkState.map { $0.isPrivateWindow || $0.currentBookLeavesNoRecord } ?? false
@@ -1564,43 +1521,9 @@ struct QooViewerApp: App {
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
                 // 「本を開いているかどうか」だけで判定する。
 
-                // グループ1: お気に入り(追加/削除→編集→一覧の順)。改善要望5でお気に入りは
-                // 無効化したため、FavoritesFeature.isEnabledがfalseの間はこのグループごと出さない
-                // (項目を消すのではなく隠すだけ。FavoritesFeature参照)。グループの先頭にあった
-                // 「標準のカット/コピー/ペースト/すべてを選択グループとの区切り」のDividerも
-                // 一緒に隠し、区切りは次のブックマークグループの前のDividerが受け持つ。
-                if FavoritesFeature.isEnabled {
-                    // 標準のカット/コピー/ペースト/すべてを選択グループと、この後に続く
-                    // お気に入り/ブックマーク/レイアウト操作を区切る。
-                    Divider()
-
-                    Button(
-                        menuCheckmarkState?.isCurrentBookFavorited == true
-                            ? "Remove This Book from Favorites" : "Add This Book to Favorites…"
-                    ) {
-                        focusedAppState?.performViewerAction?(.toggleFavorite)
-                    }
-                    .disabled(!hasBook || isPrivate)
-
-                    Button("Edit Favorites…") {
-                        openWindow(id: "favoritesOrganizer")
-                    }
-                    .disabled(isPrivate)
-
-                    // 階層構造のままサブメニューで一覧表示する(要望4)。開く/新しいウインドウで開く/
-                    // 新しいタブで開くのみに絞り、並べ替え・移動はここでは行わない
-                    // (「お気に入りの編集」ウインドウ側の役割。favorites_feature_assessment.md参照)。
-                    Menu("Favorites List") {
-                        FavoritesMenuContent(
-                            favoritesStore: favoritesStore,
-                            onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
-                        )
-                    }
-                }
-
                 Divider()
 
-                // グループ2: ブックマーク(追加/削除→編集→一覧の順)
+                // グループ1: ブックマーク(追加/削除→編集→一覧の順)
                 // 文言は見開きの相方も数える(押したときの動き・ツールバーと同じ。監査 V-3)。
                 Button(
                     menuCheckmarkState?.isCurrentSpreadBookmarked == true
@@ -1610,7 +1533,7 @@ struct QooViewerApp: App {
                 }
                 .disabled(!hasBook || isPrivate)
 
-                // 「Edit Favorites…」と同じく、performViewerAction(ViewerViewが表示されている
+                // performViewerAction(ViewerViewが表示されている
                 // 間だけ登録されるクロージャ)には頼らず、直接openWindowで開く。以前は
                 // focusedAppState?.performViewerAction?(.showBookmarkList)経由だったが、
                 // 「ブックマークの編集」がすべての本を横断する構成になった今、この操作は
@@ -1646,9 +1569,9 @@ struct QooViewerApp: App {
 
                 Divider()
 
-                // グループ3: ページレイアウト制御(設計コンセプト8.2節)。ここではこのビュー自身の
+                // グループ2: ページレイアウト制御(設計コンセプト8.2節)。ここではこのビュー自身の
                 // @StateObjectであるViewerViewModelへ直接アクセスできないため、「移動」「上の
-                // お気に入り/ブックマーク」グループと同じFocusedValueブリッジ
+                // ブックマーク」グループと同じFocusedValueブリッジ
                 // (focusedAppState.performLayoutStateChange/performLayoutClear/
                 // performAutoLayout)を経由する。項目の有効/無効・件数構成はmenuCheckmarkState
                 // (値型。AppState.swiftのコメント参照)の現在値で判定する。
@@ -1834,12 +1757,11 @@ struct QooViewerApp: App {
                 // 「リセット」画面が履歴(最近開いたファイル)の消去も担当するため
                 // (ResetDataSettingsView参照。ユーザー要望)。
                 .environmentObject(recentFiles)
-                // 「リセット」タブ(ResetDataSettingsView)がfavoritesStore/bookmarkStoreの
+                // 「リセット」タブ(ResetDataSettingsView)がbookmarkStoreの
                 // 一括削除メソッド、および@Environment(\.modelContext)経由でBookReadingStateを
                 // 直接操作する必要があるため、他のScene(WindowGroup)と同様にここでも
-                // favoritesStore/bookmarkStore/modelContainerを渡す。
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
+                // bookmarkStore/modelContainerを渡す。
+                    .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 // 「シークレットフォルダ」(2026-10-03)。一覧と、フォルダの中に残っている保存データ・履歴の削除。
                 .environmentObject(secretFolderStore)
@@ -1866,24 +1788,10 @@ struct QooViewerApp: App {
         // したがって「リサイズできるかどうか」を決めるのはSettingsView側のframeの**上限**で、
         // そこに `maxWidth: .infinity` / `maxHeight: .infinity` を置いてある。
 
-        // 「お気に入りの編集」ウインドウ(要望3。以前は「お気に入りの整理」という表現だったが、
-        // 「ブックマークの編集」と表現をそろえるため「編集」に変更した)。Settingsと同様、
-        // 本を開いているウインドウとは独立した単独のウインドウとして、
-        // openWindow(id: "favoritesOrganizer")で開く。
-        // 改善要望5でお気に入りを無効化したため、このウインドウを開く入り口(編集メニュー・
-        // ViewerAction.showFavoritesOrganizer)は現在どこにも出ていない。将来復活させられるよう
-        // Scene自体は残してある(FavoritesFeature参照)。「ウインドウ」メニューに自動で並ぶ
-        // 項目だけは`.commandsRemoved()`で落としてある(favoritesOrganizerScene参照)。
-        // launchCoordinatorは、ツールバーの「現在の本を追加」ボタン(FavoritesOrganizerView参照)が
-        // 「今読んでいる本」(launchCoordinator.activeBookAppState)を特定するために必要。
-        // preferencesは、詳細ペインでお気に入りをダブルクリックして開いたときに、環境設定
-        // 「お気に入りを開くとき」(favoriteOpenBehavior)を判定するために必要
-        // (FavoritesOrganizerView.openFavoriteAccordingToPreference参照)。
         // 補助ウインドウのタイトルは、`Window("キー", id:)`だとSwiftUIがOSの言語で解決してしまい
         // 環境設定「表示言語」に従わない(Scene側の`.environment(\.locale, ...)`も効かない)ため、
         // 表示言語で引いたStringを渡す(String(localized:language:)のコメント参照)。以下の
         // Windowすべて同じ。
-        favoritesOrganizerScene(locale: locale)
 
         // ■ 以下の Window の並び = 「ウインドウ」メニューの並び(2026-09-27、利用者の指摘)
         // `Window` シーンは宣言した順に「ウインドウ」メニューへ項目を足す(実機で確認)。以前は作った順に並んでいて、保存データの
@@ -1899,10 +1807,10 @@ struct QooViewerApp: App {
         //   「ウインドウを残して終了」の次の起動で道具のウインドウだけが戻る(applicationSupportsSecureRestorableState のコメント)。
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
         // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを
-        // 扱っていたが、「お気に入りの編集」ウインドウと見た目・操作感を完全に揃えるため、
+        // 扱っていたが、当時の「お気に入りの編集」ウインドウ(削除済み)と見た目・操作感を揃えるため、
         // すべての本を横断して編集できる2ペイン構成に変更した。さらに4節により、ページ
         // レイアウト制御(BookLayoutSettings/PageLayoutOverride)の編集も同じウインドウへ統合した。
-        // データの実体はbookmarkStore/layoutStore(FavoritesStoreと同じくmodelContainer.mainContextを
+        // データの実体はbookmarkStore/layoutStore(ほかのストアと同じくmodelContainer.mainContextを
         // 共有する単一のModelContextを持つ)が持ち、launchCoordinatorは選択中の本が今開いているかの
         // 判定・呼び出し元別の初期
         // フィルタ(4.5節)の橋渡しに使う(BookmarkListView.swift参照)。preferencesは、右ペインの
@@ -1929,7 +1837,7 @@ struct QooViewerApp: App {
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
         // 同じく、本を今開いているかどうかに関わらずいつでも開ける。
         //
-        // 一覧には「このアプリが知っている本」をすべて並べるため、favoritesStore/bookmarkStore/
+        // 一覧には「このアプリが知っている本」をすべて並べるため、bookmarkStore/
         // layoutStore/metadataStoreに加えて、読書履歴(BookReadingState)を読むための
         // ModelContextも必要になる。他のシーンと同じくmodelContainerを渡すことで、
         // MetadataEditorWindow側の@Environment(\.modelContext)へ同じmainContextが注入される。
@@ -1945,8 +1853,7 @@ struct QooViewerApp: App {
                 .environment(\.bookRecordRelocator, stores.bookRecordRelocator)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
-                .environmentObject(favoritesStore)
-                .environmentObject(collectionStore)
+                    .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
                 // 右クリックの「開く」「コレクションに登録」(2026-09-23)。
@@ -1985,7 +1892,7 @@ struct QooViewerApp: App {
         .handlesExternalEvents(matching: [])
         .defaultSize(width: 1080, height: 760)
 
-        // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
+        // 7節: EPUB出力専用ウインドウ。
         Window(String(localized: "Export as EPUB", language: locale), id: "epubExport") {
             EpubExportWindow()
                 .environmentObject(bookmarkStore)
@@ -2003,7 +1910,7 @@ struct QooViewerApp: App {
         // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
         .windowToolbarStyle(.unified)
 
-        // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
+        // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成。
         Window(String(localized: "Export as PDF", language: locale), id: "pdfExport") {
             PDFExportWindow()
                 .environmentObject(bookmarkStore)
@@ -2021,7 +1928,7 @@ struct QooViewerApp: App {
         // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
         .windowToolbarStyle(.unified)
 
-        // CBZ出力専用ウインドウ。EPUB/PDF出力ウインドウと同じ構成(favoritesStoreは不要)。
+        // CBZ出力専用ウインドウ。EPUB/PDF出力ウインドウと同じ構成。
         Window(String(localized: "Export as CBZ", language: locale), id: "cbzExport") {
             CbzExportWindow()
                 .environmentObject(bookmarkStore)
@@ -2040,12 +1947,11 @@ struct QooViewerApp: App {
         .windowToolbarStyle(.unified)
 
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
-        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
+        // 同じく、bookmarkStore/layoutStoreなどはすべてmodelContainer.mainContextを
         // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
         Window(String(localized: "Export Saved Data", language: locale), id: "libraryExport") {
             LibraryExportWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
+                    .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
@@ -2068,8 +1974,7 @@ struct QooViewerApp: App {
 
         Window(String(localized: "Import Saved Data", language: locale), id: "libraryImport") {
             LibraryImportWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
+                    .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
@@ -2115,8 +2020,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
-                .environmentObject(favoritesStore)
-                .environmentObject(collectionStore)
+                    .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
@@ -2131,8 +2035,7 @@ struct QooViewerApp: App {
         // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
         Window(String(localized: "Delete Saved Data", language: locale), id: "libraryCleanup") {
             LibraryCleanupWindow()
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
+                    .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
@@ -2224,68 +2127,6 @@ struct QooViewerApp: App {
         }
     }
 
-    /// 「お気に入り」メニューの一覧から「新しいウインドウで開く」「新しいタブで開く」を
-    /// 選んだときに呼ぶ。開く前にセキュリティスコープ付きブックマークを解決し、実際に
-    /// ファイル/フォルダが存在するかを確認する(要望5)。見つからなければ、通常の「開く」
-    /// (AppState.openFavorite)と同じくmissingFavoriteをセットしてアラートを出す。
-    ///
-    /// 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
-    private func openFavorite(_ favorite: FavoriteBook, asTab: Bool) {
-        let appState = focusedAppState
-        let locale = currentLocale
-        Task { @MainActor in
-            switch await favoritesStore.locateForOpening(favorite) {
-            case .found(let url):
-                openInNewWindow(BookOpenRequest(url), asTab: asTab, tabTarget: nil)
-            case .notFound:
-                appState?.missingFavorite = favorite
-            case .timedOut:
-                // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
-                if let appState { appState.postViewerNotice(FavoritesStore.timedOutMessage(for: favorite, locale: locale)) } else { UserFeedback.beep() }
-            }
-        }
-    }
-
-    /// メニューバーの「お気に入り一覧」からお気に入りをクリックしたときの実際の分岐処理。
-    /// 以前はお気に入りごとに「開く/新しいウインドウで開く/新しいタブで開く」をサブメニューから
-    /// 毎回選ぶ形式だったが、Finderから開いたときの挙動(AppDelegate.application(_:open:)の
-    /// finderOpenBehavior判定)と同じ考え方で、環境設定「本を開く」の「お気に入りから」
-    /// (preferences.favoriteOpenBehavior)1箇所で挙動を決めるように変更した。
-    /// まだ本を表示していない(Welcome画面)場合は、Finderから開いたときと同様、設定に関わらず
-    /// 常にそのウインドウでそのまま開く(閉じるべき「現在の本」がそもそも無いため)。
-    ///
-    /// バグ修正(ユーザー報告): 以前はfocusedAppStateだけを見ており、コンテンツウインドウが
-    /// 1枚も無い(すべて閉じた)状態や、コンテンツウインドウはあるが「ブックマークの編集」等の
-    /// 別ウインドウにフォーカスがある状態では、focusedAppStateがnilになりお気に入りを
-    /// クリックしても何も起きなかった。launchCoordinator.frontmostContentAppState()を
-    /// フォールバックとして使い、それも無い(=本当にコンテンツウインドウが1枚も無い)場合は、
-    /// 「最近使ったファイル」(openURLPreferringFocusedWindow参照)と同じく新しいウインドウを
-    /// 開いてそこへ表示する。
-    private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        // 焦点が無ければ、新しい窓と同じ性質の手前の窓(監査 M-8。openRecentAccordingToPreference と同じ)。
-        let targetAppState = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen()
-        guard let targetAppState, targetAppState.currentBook != nil else {
-            if let targetAppState {
-                targetAppState.openFavorite(favorite)
-            } else {
-                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
-                Task { @MainActor in
-                    guard case .found(let url) = await favoritesStore.locateForOpening(favorite) else { return UserFeedback.beep() }
-                    openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
-                }
-            }
-            return
-        }
-        switch preferences.favoriteOpenBehavior {
-        case .replaceCurrentBook:
-            targetAppState.openFavorite(favorite)
-        case .newTab:
-            openFavorite(favorite, asTab: true)
-        case .newWindow:
-            openFavorite(favorite, asTab: false)
-        }
-    }
-
     /// 「最近使った項目を開く」から選んだ本を、環境設定「本を開く」の「履歴から」に従って開く(2026-09-28。
     /// 分岐は `AppState.openFromHistory`)。相手のウインドウの探し方と、内容ウインドウが 1 枚も無いときの扱いは
     /// `openURLPreferringFocusedWindow` と同じ。
@@ -2310,8 +2151,8 @@ struct QooViewerApp: App {
     /// コンテンツウインドウ以外にフォーカスがあるだけの場合を救う)、それも無ければ
     /// (=コンテンツウインドウが1枚も無い、すべて閉じた状態を含む)新しいウインドウを開いて
     /// そこへ開く。「最近使ったファイル」メニューが、コンテンツウインドウにフォーカスが無い
-    /// (0枚を含む)ときに何も起きなくなる不具合の対策(ユーザー報告。お気に入りの同種の不具合は
-    /// openFavoriteAccordingToPreference参照)。
+    /// (0枚を含む)ときに何も起きなくなる不具合の対策(ユーザー報告。当時のお気に入りの一覧にも
+    /// 同じ不具合があった)。
     private func openURLPreferringFocusedWindow(_ url: URL) {
         // 焦点が無ければ、新しい窓と同じ性質の手前の窓(監査 M-8)。
         if let target = focusedAppState ?? launchCoordinator.frontmostContentAppStateForUnfocusedOpen() {

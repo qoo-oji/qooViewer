@@ -272,7 +272,7 @@ struct SiblingFinderTests {
 }
 
 /// ファイルノード識別子(Services/FileNodeIdentifier.swift)。
-/// 移動・リネームしてもお気に入り・レイアウト・ブックマークを引き継ぐための手がかり。
+/// 移動・リネームしてもレイアウト・ブックマークなどを引き継ぐための手がかり。
 struct FileNodeIdentifierTests {
     @Test("同じファイルなら同じ値、別のファイルなら別の値")
     func identifiersDistinguishFiles() throws {

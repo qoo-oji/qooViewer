@@ -52,117 +52,6 @@ struct LibraryImportTests {
         )
     }
 
-    private func favoritesFile(_ source: ExportSource, title: String, folders: [String]) -> ExportedFavorites {
-        // folders は ["作者A", "続き"] のような上から下への並び。最後の要素の中へ本を入れる。
-        var exported: [ExportedFavoriteFolder] = []
-        var parentID: String?
-        for (index, name) in folders.enumerated() {
-            let id = "f\(index)"
-            exported.append(ExportedFavoriteFolder(id: id, name: name, parentId: parentID))
-            parentID = id
-        }
-        return ExportedFavorites(
-            folders: exported,
-            books: [ExportedFavoriteBook(bookID: source.book.id, title: title, folderId: parentID)]
-        )
-    }
-
-    // MARK: - お気に入り
-
-    @Test("お気に入りはフォルダ階層ごと復元される")
-    func favoritesKeepTheFolderTree() async throws {
-        let source = try await ExportSource.zip(pages: 3, label: "import-fav")
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-
-        let summary = await library.apply(
-            QooLibraryExportFile(favorites: favoritesFile(source, title: "本 A", folders: ["作者A", "続き"])),
-            policies: .all(.merge)
-        )
-
-        #expect(summary.favoritesImportedFolders == 2)
-        #expect(summary.favoritesImportedBooks == 1)
-        #expect(library.favoriteBookPaths() == ["作者A/続き/本 A"])
-        // 登録されるのは JSON の bookID ではなく、実際に解決できたファイルのパス。
-        #expect(library.favorites.isFavorited(bookID: source.book.id))
-    }
-
-    @Test("同じファイルを 2 回 merge しても、フォルダも登録も増えない")
-    func mergingTwiceDoesNotDuplicate() async throws {
-        let source = try await ExportSource.zip(pages: 3, label: "import-fav-twice")
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-        let file = QooLibraryExportFile(favorites: favoritesFile(source, title: "本 A", folders: ["作者A"]))
-
-        await library.apply(file, policies: .all(.merge))
-        let second = await library.apply(file, policies: .all(.merge))
-
-        // 2 回目は「同名フォルダを再利用し、登録済みの本は足さない」。
-        #expect(second.favoritesImportedFolders == 0)
-        #expect(second.favoritesImportedBooks == 0)
-        #expect(library.favoriteBookPaths() == ["作者A/本 A"])
-    }
-
-    @Test("overwrite は既存のお気に入りを消してから入れ直す")
-    func overwriteReplacesTheWholeTree() async throws {
-        let source = try await ExportSource.zip(pages: 3, label: "import-fav-overwrite")
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-
-        await library.apply(
-            QooLibraryExportFile(favorites: favoritesFile(source, title: "古い名前", folders: ["古いフォルダ"])),
-            policies: .all(.merge)
-        )
-        await library.apply(
-            QooLibraryExportFile(favorites: favoritesFile(source, title: "新しい名前", folders: ["新しいフォルダ"])),
-            policies: LibraryImportExportService.ImportPolicies(favorites: .overwrite)
-        )
-
-        #expect(library.favoriteBookPaths() == ["新しいフォルダ/新しい名前"])
-    }
-
-    @Test("上書きは、フォルダに入っていないお気に入りも消す")
-    func overwriteAlsoDeletesRootLevelFavorites() async throws {
-        // 回帰テスト(2026-09-06): FavoriteBook の一括削除(delete(model:))は、folder への
-        // mandatory な逆リレーションのせいで**全件ぶん失敗**していた。実際に消えていたのは
-        // FavoriteFolder のカスケードぶん = フォルダの中の本だけで、ルート直下の登録が残り、
-        // 「上書きで取り込んだのに古い登録が残る」状態になっていた
-        // (FavoritesStore.deleteAllFavorites のコメント参照)。
-        let source = try await ExportSource.zip(pages: 3, label: "import-fav-root")
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-        let folder = try #require(try? library.favorites.createFolder(name: "古いフォルダ", parent: nil).get())
-        library.favorites.forceAddFavorite(book: source.book, to: folder)
-        library.favorites.forceAddFavorite(book: source.book, to: nil)
-        #expect(library.favorites.totalFavoritesCount() == 2)
-
-        await library.apply(
-            QooLibraryExportFile(favorites: favoritesFile(source, title: "新しい名前", folders: ["新しいフォルダ"])),
-            policies: LibraryImportExportService.ImportPolicies(favorites: .overwrite)
-        )
-
-        #expect(library.favoriteBookPaths() == ["新しいフォルダ/新しい名前"])
-        #expect(library.favorites.totalFavoritesCount() == 1)
-        #expect(library.favorites.subfolders(of: nil).map(\.name) == ["新しいフォルダ"])
-    }
-
-    @Test("ファイルが見つからない本は、お気に入りに登録しない")
-    func favoritesSkipMissingFiles() async throws {
-        let library = try InMemoryLibrary()
-        defer { library.close() }
-        let missing = ExportedFavorites(
-            folders: [],
-            books: [ExportedFavoriteBook(bookID: "/nowhere/missing.cbz", title: "無い本", folderId: nil)]
-        )
-
-        let summary = await library.apply(
-            QooLibraryExportFile(favorites: missing), policies: .all(.merge)
-        )
-
-        #expect(summary.favoritesImportedBooks == 0)
-        #expect(library.favoriteBookPaths().isEmpty)
-    }
-
     // MARK: - ブックマーク
 
     @Test("ブックマークは鍵で書かれ、取り込み時に実効ページ順の番号へ変換される")
@@ -649,7 +538,6 @@ struct LibraryImportTests {
 
         let summary = await library.apply(
             QooLibraryExportFile(
-                favorites: favoritesFile(source, title: "本 A", folders: ["作者A"]),
                 bookmarks: [bookmarkEntry(source, [(source.key(1), "一枚目")])],
                 layouts: [layoutEntry(source, readingDirection: ReadingDirection.leftToRight.stableID)],
                 metadata: [ExportedBookMetadataEntry(
@@ -659,11 +547,9 @@ struct LibraryImportTests {
             policies: .all(.ignore)
         )
 
-        #expect(summary.favoritesImportedBooks == 0)
         #expect(summary.bookmarksImportedEntries == 0)
         #expect(summary.layoutsImportedBooks == 0)
         #expect(summary.metadataImportedBooks == 0)
-        #expect(library.favoriteBookPaths().isEmpty)
         #expect(library.bookmarkRows(forBookID: source.book.id).isEmpty)
         #expect(library.layouts.bookLayoutSettings(forBookID: source.book.id) == nil)
         #expect(library.metadata.metadata(forBookID: source.book.id) == nil)
@@ -686,9 +572,7 @@ struct LibraryImportTests {
         let destination = try InMemoryLibrary(label: "destination")
         defer { destination.close() }
 
-        // 移す側のライブラリを、4 カテゴリすべてが埋まった状態にする。
-        let folder = try #require(try? origin.favorites.createFolder(name: "作者A", parent: nil).get())
-        origin.favorites.forceAddFavorite(book: source.book, to: folder)
+        // 移す側のライブラリを、3 カテゴリすべてが埋まった状態にする。
         origin.layouts.setReadingDirectionOverride(for: source.book, .leftToRight)
         origin.layouts.setPageLayoutState(for: source.book, pageKey: source.key(3), state: .excluded)
         origin.bookmarks.addBookmark(
@@ -703,7 +587,6 @@ struct LibraryImportTests {
         #expect(result.allSkippedFilePaths.isEmpty)
         await destination.apply(file, policies: .all(.merge))
 
-        #expect(destination.favoriteBookPaths() == origin.favoriteBookPaths())
         #expect(destination.bookmarkRows(forBookID: source.book.id).map(\.pageKey) == [source.key(5)])
         // 除外を挟んだ実効ページ順で数え直されるので、番号も移す前と同じ。
         #expect(destination.bookmarkRows(forBookID: source.book.id).map(\.pageIndex) == [3])
@@ -714,16 +597,12 @@ struct LibraryImportTests {
         )
         #expect(destination.metadata.metadata(forBookID: source.book.id)?.series == "シリーズ")
 
-        // 移した先から書き出し直すと、同じファイルになる。お気に入りのフォルダ id は取り込みで
-        // 振り直される(このファイルの中だけで通用する一時的な文字列)ため、そこだけは
-        // 「木の形」で比べる。
+        // 移した先から書き出し直すと、同じファイルになる。
         let (again, _) = await destination.buildExportFile(.everything)
         #expect(encoded(again.bookmarks) == encoded(file.bookmarks))
         #expect(encoded(again.layouts) == encoded(file.layouts))
         #expect(encoded(again.metadata) == encoded(file.metadata))
         #expect(again.metadataRules == file.metadataRules)
-        #expect(again.favorites?.books.map(\.bookID) == file.favorites?.books.map(\.bookID))
-        #expect(again.favorites?.folders.map(\.name) == file.favorites?.folders.map(\.name))
     }
 
     // MARK: - コレクション

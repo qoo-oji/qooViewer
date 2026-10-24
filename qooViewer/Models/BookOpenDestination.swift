@@ -14,8 +14,7 @@ import Foundation
 /// `BookWindowOpener.open(_:to:from:...)`が1箇所で持つ。
 enum BookOpenDestination: Hashable, Sendable, CaseIterable {
     /// 新しいウインドウ。シークレットかどうかは派生元のウインドウから引き継ぐ。
-    /// 従来からある「新しいウインドウで開く…」(ファイルメニュー・お気に入り一覧・
-    /// 環境設定「Finderから」「お気に入りを開くとき」)がこれ。
+    /// 従来からある「新しいウインドウで開く…」(ファイルメニュー・環境設定「Finderから」)がこれ。
     case newWindow
 
     /// 新しいウインドウ。派生元が何であれ**必ず記録の残る通常のウインドウ**。

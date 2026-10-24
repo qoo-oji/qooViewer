@@ -4,7 +4,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// 設計コンセプト6.2節: インポート用の独立ウインドウ。NSOpenPanelでJSONファイルを選び、
-/// ファイルに含まれているカテゴリ(お気に入り/ブックマーク/ページレイアウト設定)ごとに
+/// ファイルに含まれているカテゴリ(コレクション/ブックマーク/ページレイアウト設定など)ごとに
 /// 上書き/マージ/無視を選んでから取り込む。
 ///
 /// ユーザー要望: 以前は、ファイルに含まれていないカテゴリのピッカーや、ファイルを選ぶ前の
@@ -13,7 +13,6 @@ import UniformTypeIdentifiers
 /// 「ライブラリデータをインポート」ボタンはどちらも常に表示したままにし、対象カテゴリが無い/
 /// ファイル未選択の間は無効化(グレーアウト)するだけにする。
 struct LibraryImportWindow: View {
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -47,16 +46,13 @@ struct LibraryImportWindow: View {
     @State private var resetsWhenIdle = false
 
     /// 方針の既定。
-    /// 改善要望5でお気に入りを無効化した間は、ファイルに`favorites`があっても取り込まない
-    /// (取り込んでもどこにも見えないため。FavoritesFeature参照)。読み込みの経路自体は
-    /// 壊さずに残してあるので、復活させれば過去の書き出しファイルからそのまま取り込める。
+    /// 以前のファイルの`favorites`(お気に入り。2026-10-24 に機能ごと削除)は読み飛ばす。
     /// 規則(qooMeta。以前はフォーマット定義)は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
     /// マージという選択肢自体が無い(ImportPolicies.metadataRulesのコメント参照)。
     /// 2026-09-23 に足した環境設定も規則と同じく「置き換えるか取り込まないか」の2択で、既定は無視。
     /// ほかは ImportPolicies の既定(マージ)のまま。
     private static var defaultPolicies: LibraryImportExportService.ImportPolicies {
         LibraryImportExportService.ImportPolicies(
-            favorites: FavoritesFeature.isEnabled ? .merge : .ignore,
             metadataRules: .ignore,
             settings: .ignore
         )
@@ -78,7 +74,6 @@ struct LibraryImportWindow: View {
 
     /// ファイルが持っているカテゴリ。ピッカーの淡色は選んでいるファイルで、結果の欄は読み込んだときのファイル(`ImportOutcome.file`)で決める。
     private struct FileCategories {
-        let hasFavorites: Bool
         let hasCollections: Bool
         let hasBookmarks: Bool
         let hasLayouts: Bool
@@ -91,7 +86,6 @@ struct LibraryImportWindow: View {
         let hasSettings: Bool
 
         init(_ file: QooLibraryExportFile?) {
-            hasFavorites = file?.favorites != nil
             hasCollections = file?.libraries?.isEmpty == false
             hasBookmarks = file?.bookmarks?.isEmpty == false
             hasLayouts = file?.layouts?.isEmpty == false
@@ -152,20 +146,16 @@ struct LibraryImportWindow: View {
                     .disabled(isImporting)
                 }
 
-                // ユーザー要望: お気に入り/ブックマーク/ページレイアウトの取り込み方針は、
+                // ユーザー要望: コレクション/ブックマーク/ページレイアウトなどの取り込み方針は、
                 // ファイルを選ぶ前も常に表示したまま(隠さない)にし、対象カテゴリが無い間は
                 // 触れないようグレーアウトするだけにしたい。
                 Section {
-                    if FavoritesFeature.isEnabled {
-                        policyPicker("Favorites", selection: $policies.favorites)
-                            .disabled(!categories.hasFavorites || isImporting)
-                    }
                     policyPicker("Collections", selection: $policies.collections)
                         .disabled(!categories.hasCollections || isImporting)
                     policyPicker("Bookmarks", selection: $policies.bookmarks)
                         .disabled(!categories.hasBookmarks || isImporting)
                     // ユーザー要望: 「ページレイアウトの設定」から「の設定」を省き、
-                    // お気に入り・ブックマークの見出しと同じ体裁の「ページレイアウト」にしたい。
+                    // ブックマークなどの見出しと同じ体裁の「ページレイアウト」にしたい。
                     policyPicker("Page Layout", selection: $policies.layouts)
                         .disabled(!categories.hasLayouts || isImporting)
                     policyPicker("Metadata", selection: $policies.metadata)
@@ -353,25 +343,6 @@ struct LibraryImportWindow: View {
             .font(.caption)
             .foregroundStyle(.orange)
         }
-        if categories.hasFavorites, policies.favorites != .ignore {
-            Text(
-                String(
-                    format: String(localized: "Favorites: %d folder(s), %d book(s) imported.", language: preferences.effectiveLocale),
-                    summary.favoritesImportedFolders, summary.favoritesImportedBooks
-                )
-            )
-            .font(.caption)
-            if summary.favoritesSkippedForLimit > 0 {
-                Text(
-                    String(
-                        format: String(localized: "%d favorite(s) were skipped because the total limit was reached.", language: preferences.effectiveLocale),
-                        summary.favoritesSkippedForLimit
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.orange)
-            }
-        }
         if categories.hasCollections, policies.collections != .ignore {
             Text(
                 String(
@@ -545,7 +516,7 @@ struct LibraryImportWindow: View {
             assert(modelContext.container === QooViewerApp.modelContainer, "libraryImport のシーンに .modelContext が無い")
             let summary = await LibraryImportExportService.apply(
                 loadedFile, policies: appliedPolicies,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 metadataStore: metadataStore, metadataRulesStore: metadataRulesStore,
                 collectionStore: collectionStore,
                 backupStores: LibraryImportExportService.BackupStores(

@@ -14,7 +14,7 @@ struct BookRecordRelocatorTests {
 
     private func makeRelocator(_ library: InMemoryLibrary) -> BookRecordRelocator {
         BookRecordRelocator(
-            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context
         )
     }

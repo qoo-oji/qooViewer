@@ -41,7 +41,6 @@ final class LibraryCleanupViewModel: ObservableObject {
         let bookID: String
         let fileName: String
         let existence: FileExistence
-        let favoriteCount: Int
         /// この本が入っているコレクションの数(改善要望5)。
         let collectionCount: Int
         let bookmarkCount: Int
@@ -89,7 +88,6 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// 表示し、確認ダイアログでも件数を必ず見せる。
     @Published var selectedBookIDs: Set<String> = []
 
-    private let favoritesStore: FavoritesStore
     private let collectionStore: CollectionStore
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
@@ -101,7 +99,6 @@ final class LibraryCleanupViewModel: ObservableObject {
     private var allRows: [Row] = []
 
     init(
-        favoritesStore: FavoritesStore,
         collectionStore: CollectionStore,
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
@@ -109,7 +106,6 @@ final class LibraryCleanupViewModel: ObservableObject {
         folderAccess: FolderAccessStore,
         modelContext: ModelContext
     ) {
-        self.favoritesStore = favoritesStore
         self.collectionStore = collectionStore
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
@@ -136,7 +132,7 @@ final class LibraryCleanupViewModel: ObservableObject {
     func reload() {
         var bookIDs = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext
+            collectionStore: collectionStore, modelContext: modelContext
         ), includingMetadata: false)
         bookIDs.formUnion(metadataStore.registeredBookIDs.filter(hasUserMetadata))
 
@@ -149,7 +145,6 @@ final class LibraryCleanupViewModel: ObservableObject {
                     // 既に判定済みならその結果を引き継ぎ、再スキャン中に表示が
                     // 「確認中」へ巻き戻らないようにする。
                     existence: existenceByBookID[bookID] ?? .checking,
-                    favoriteCount: favoritesStore.favoriteCount(forBookID: bookID),
                     collectionCount: collectionStore.membershipCount(forBookID: bookID),
                     bookmarkCount: bookmarkStore.bookmarks(forBookID: bookID).count,
                     hasLayout: layoutStore.bookLayoutSettings(forBookID: bookID) != nil
@@ -275,7 +270,7 @@ final class LibraryCleanupViewModel: ObservableObject {
         let probes = pending.map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
-                favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess
+                collectionStore: collectionStore, folderAccess: folderAccess
             )
         }
         existenceScanGeneration &+= 1
@@ -307,7 +302,6 @@ final class LibraryCleanupViewModel: ObservableObject {
                 bookID: row.bookID,
                 fileName: row.fileName,
                 existence: resolved,
-                favoriteCount: row.favoriteCount,
                 collectionCount: row.collectionCount,
                 bookmarkCount: row.bookmarkCount,
                 hasLayout: row.hasLayout,
@@ -347,11 +341,11 @@ final class LibraryCleanupViewModel: ObservableObject {
     ///
     /// 読書履歴(BookReadingState)まで消すのは、これを残すと「メタデータの編集」ウインドウにも
     /// この掃除ウインドウにも、その本の行が出続けてしまうため(この機能の目的が果たせない)。
-    /// お気に入りも対象に含めており、一覧のインジケータで登録の有無が分かるようにしてある
+    /// コレクションの所属も対象に含めており、一覧のインジケータで登録の有無が分かるようにしてある
     /// (削除前に確認ダイアログで何が消えるのかを明示する。LibraryCleanupWindow参照)。
     func deleteAllData(forBookIDs bookIDs: [String]) {
         BookSavedDataEraser(
-            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            collectionStore: collectionStore, bookmarkStore: bookmarkStore,
             layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
         ).deleteAllData(forBookIDs: bookIDs)
         // 消した本の実在判定の結果は用済み。残しておくと、同じパスの本が後からまた

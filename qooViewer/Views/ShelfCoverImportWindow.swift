@@ -17,7 +17,6 @@ struct ShelfCoverImportWindow: View {
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.modelContext) private var modelContext
@@ -34,7 +33,7 @@ struct ShelfCoverImportWindow: View {
                         viewModel = ShelfCoverImportViewModel(
                             sources: KnownBooks.Sources(
                                 metadataStore: metadataStore, bookmarkStore: bookmarkStore,
-                                layoutStore: layoutStore, favoritesStore: favoritesStore,
+                                layoutStore: layoutStore,
                                 collectionStore: collectionStore, modelContext: modelContext
                             ),
                             preferences: preferences

@@ -30,7 +30,6 @@ appcast と更新の書庫だけ。→ [自動アップデート](#自動アッ�
 | 場所 | 何のため |
 |---|---|
 | `RecentFilesStore` | 履歴(ファイルメニュー・サイドパネル)から開く |
-| `FavoriteBook.bookmarkData` | お気に入りから開く(無効化中) |
 | `CollectionItem.bookmarkData` | コレクションから開く・カバーを抽出する |
 | `Bookmark.bookmarkData` | 編集ウインドウから今開いていない本を開いてジャンプ |
 | `BookLayoutSettings.bookmarkData` | 編集ウインドウでレイアウトだけある本のサムネイル |
@@ -76,7 +75,7 @@ FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り
 - `BookLayoutEditorViewModel.securityScopedURL` / `BookExportViewModel.securityScopedURLs`:
   ウインドウが生きている間はサムネイルのために開いたままにし、`deinit` で閉じる。
   同じ本を何度読み込んでも開くのは1回だけ(Set)。
-- `SecurityScopedHandoff`: 履歴・お気に入り・ブックマーク一覧から**別のウインドウ/タブ**へ
+- `SecurityScopedHandoff`: 履歴・コレクション・ブックマーク一覧から**別のウインドウ/タブ**へ
   URL を渡すとき、受け取った側の `AppState.open(url:)` が走るのは次以降のランループなので、
   渡す直前に開き、10 秒以内に受け取り側が引き取る(引き取ったら渡し側が閉じる)。
 - 存在確認だけの一時的な open/close(`fileExists(bookmark:)`)は、その場で対にする。
@@ -88,7 +87,7 @@ FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り
 
 - 履歴の一覧はキャッシュしたパスだけで描き、解決は開くときだけ。再検証はアプリのアクティブ化と
   ボリュームのマウント/アンマウントで非同期に(`RecentFilesStore`)。
-- お気に入りの実在確認はキャッシュ(`existenceByFavoriteID`)を読むだけ。未確認は「存在する」扱い
+- コレクションの本の実在確認はキャッシュ(`existenceByItemID`)を読むだけ。未確認は「存在する」扱い
   (起動直後に全部が消えたように見えないため)。確認はメインアクターの外。
 - 書き出しウインドウの対象一覧の実在確認は `BookURLResolver` でメインアクターの外。
 - 「保存データの削除」の実在判定は3値(exists / missing / **unknown**)。アクセス権が無くて確認
@@ -106,7 +105,7 @@ ScopedBookmarkAgent が `smb://…` のマウントを求め、30 秒後に NetA
 
 解決はすべて `BookmarkResolution` を通す。裏で自動に行う解決(在りかの確かめ・移動の検出・カバーの抽出・書き出し・
 取り込み・起動時の復元・パネルの最初の場所)は `.background` = `.withoutMounting` + `.withoutUI`、利用者が本を**開く**
-操作(コレクション・お気に入り・ブックマーク一覧から開く、Finder に表示…)だけ `.userOpen` で従来どおり繋ぎに行く。
+操作(コレクション・ブックマーク一覧から開く、Finder に表示…)だけ `.userOpen` で従来どおり繋ぎに行く。
 引数の既定は `.background`(新しい呼び出しが既定のままでも、ダイアログを出す側には倒れない)。
 
 繋がっていないボリュームの上の本は、`.withoutMounting` で**約 10ms で `NSFileNoSuchFileError`(4)** ―― 実体が無いときと
@@ -427,7 +426,7 @@ StackNest の本の API の基点 `http://127.0.0.1:<ポート>/api/v1/…` と�
   `ViewerHarness` が自分の登録簿を渡し、プロセスで 1 つの登録簿に試験の役を残さない)。
 - **書き戻し**: StackNest の本はどの窓でも記録を残しませんが、StackNest へ位置を返すのは保存データではないので続けます。シークレット
   ウインドウでは送りません(`ViewerViewModel.recordingRule` → `writesBackToStackNest`)。
-- **ほかの機能の外**: コレクション(`CollectionStore.makePendingItem` が実ファイルの参照ファイルを断る)・お気に入り・本の書き出し・
+- **ほかの機能の外**: コレクション(`CollectionStore.makePendingItem` が実ファイルの参照ファイルを断る)・本の書き出し・
   メタデータ(`MetadataGenerator` の母体)・サムネイルのディスクキャッシュ(鍵を掛けられるライブラリの絵を、施錠や期限と関係なく
   残さない)には入れません。起動時の掃除(`ExternalMoveSweeper`・`NonBookFolderSweeper`)は参照ファイルの本を見ません。
 - **シークレットフォルダ**: 参照ファイルの場所からは StackNest の本の実際の置き場が分からないので、効きません(StackNest の本はもともと記録を残さない)。

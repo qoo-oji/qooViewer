@@ -183,7 +183,7 @@ final class CollectionCoverExtractor: ObservableObject {
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
-        // (FavoritesStore.initの同種のコメント参照)。
+        // (ViewerViewModel の同種のコメント参照)。
         let layoutObserver = NotificationCenter.default.addObserver(
             forName: .layoutDataDidChange, object: nil, queue: .main
         ) { [weak self] notification in
@@ -219,7 +219,7 @@ final class CollectionCoverExtractor: ObservableObject {
         observers = [layoutObserver, collectionsObserver, activationObserver]
         // `@Published`の投影はwillSetで飛ぶ(ストアの値はまだ差し替わっていない)ので、
         // 届いた値のほうで組み直す。代入はメインアクター上(finishExistenceRefresh)なので
-        // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
+        // ここも同期的にメインアクター上で走る。
         // Taskで1拍遅らせないのは、存在確認の待ち合わせ(CollectionStore.settleExistenceRefresh)
         // が返った時点で待ち行列が組み直されている、と言えるようにするため。
         existenceCancellable = collectionStore.$locationByItemID

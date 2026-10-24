@@ -13,7 +13,6 @@ import AppKit
 /// 組み立てる必要があるため、まず素の@Stateで持ち、実体の表示・状態観測は@ObservedObjectを持つ
 /// 子ビューへ委ねる。
 struct LibraryCleanupWindow: View {
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -32,7 +31,6 @@ struct LibraryCleanupWindow: View {
                     .frame(minWidth: 900, minHeight: 460)
                     .onAppear {
                         viewModel = LibraryCleanupViewModel(
-                            favoritesStore: favoritesStore,
                             collectionStore: collectionStore,
                             bookmarkStore: bookmarkStore,
                             layoutStore: layoutStore,
@@ -83,7 +81,7 @@ private struct LibraryCleanupContentView: View {
 
     /// クローム(絞り込み・すべて選択・選択した項目を削除・検索欄)はコンテンツ領域ではなく
     /// ウインドウのツールバーに置き、一覧はその下へスクロールして潜る。「メタデータの編集」
-    /// 「EPUB/PDF/CBZの書き出し」「ブックマーク・レイアウトの編集」「お気に入りの整理」と
+    /// 「EPUB/PDF/CBZの書き出し」「ブックマーク・レイアウトの編集」と
     /// 同じ形(ユーザー指摘: このウインドウだけ古い作りだった)。
     ///
     /// `.searchable`はナビゲーションコンテナの中でだけツールバーへ載るため、Tableを
@@ -139,7 +137,7 @@ private struct LibraryCleanupContentView: View {
                         : "Delete saved data for “\(deletion.displayName ?? "")”?"
                 ),
                 message: Text(
-                    "This permanently deletes the favorites, bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
+                    "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
                 ),
                 primaryButton: .destructive(Text("Delete")) {
                     viewModel.deleteAllData(forBookIDs: deletion.bookIDs)
@@ -397,12 +395,6 @@ private struct LibraryCleanupContentView: View {
     /// レイアウト/ブックマークインジケータと同じ考え方)。
     private func savedDataIndicators(_ row: LibraryCleanupViewModel.Row) -> some View {
         HStack(spacing: 6) {
-            // 改善要望5でお気に入りを無効化したため、この列は出さない(FavoritesFeature参照)。
-            // 削除の実体(LibraryCleanupViewModel)はお気に入りも消し続けるので、残骸は
-            // このウインドウから掃除できる。
-            if FavoritesFeature.isEnabled {
-                indicator("star.fill", isOn: row.favoriteCount > 0, help: "Is a favorite")
-            }
             indicator("books.vertical.fill", isOn: row.collectionCount > 0, help: "Is in a collection")
             indicator("bookmark.fill", isOn: row.bookmarkCount > 0, help: "Has bookmarks")
             indicator("rectangle.split.2x1", isOn: row.hasLayout, help: "Has page layout settings")

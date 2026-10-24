@@ -27,7 +27,6 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var preferences: AppPreferences
@@ -74,10 +73,10 @@ struct MetadataEditorWindow: View {
             .disabled(workspace == nil)
         }
         .frame(minWidth: 900, minHeight: 480)
-        .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess, metadataGenerator] in
+        .task { [metadataStore, bookmarkStore, layoutStore, collectionStore, folderAccess, metadataGenerator] in
             let model = MetadataEditorModel(
                 metadataStore: metadataStore, rulesStore: rulesStore,
-                stores: .init(favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+                stores: .init(collectionStore: collectionStore, bookmarkStore: bookmarkStore,
                               layoutStore: layoutStore, metadataStore: metadataStore, folderAccess: folderAccess,
                               generator: metadataGenerator, modelContext: modelContext),
                 preferences: preferences,
@@ -106,7 +105,6 @@ extension EnvironmentValues {
 final class MetadataEditorModel {
     /// 本の保存データに触るストア一式(一覧の母体・実体の確かめ・保存データの削除)。
     struct Stores {
-        let favoritesStore: FavoritesStore
         let collectionStore: CollectionStore
         let bookmarkStore: BookmarkStore
         let layoutStore: LayoutStore
@@ -274,7 +272,7 @@ final class MetadataEditorModel {
         bookIDs.map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: stores.metadataStore, layoutStore: stores.layoutStore,
-                bookmarkStore: stores.bookmarkStore, favoritesStore: stores.favoritesStore,
+                bookmarkStore: stores.bookmarkStore,
                 collectionStore: stores.collectionStore, folderAccess: stores.folderAccess)
         }
     }
@@ -1123,7 +1121,7 @@ extension MetadataBookTableView {
         await model.locateBook(book.id) ?? URL(filePath: book.id)
     }
 
-    /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(「お気に入りの編集」ウインドウから開くのと同じ)。
+    /// 「開く」。本のウインドウの外なので、新しいノーマルウインドウで開く(ほかの道具のウインドウから開くのと同じ)。
     /// 場所はメインの外で期限つきに解決し、見つからなければ開かずに知らせる(2026-10-04 の監査 O-12。ブックマーク・レイアウトの
     /// 編集ウインドウと同じ StoredBookLocator。以前は解決できないと素のパスで新しい窓を開き、窓の中でエラーにした)。
     fileprivate func openBook(_ book: MetadataBookRow) {

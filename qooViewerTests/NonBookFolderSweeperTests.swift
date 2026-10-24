@@ -57,7 +57,7 @@ struct NonBookFolderSweeperTests {
         }
 
         let swept = await NonBookFolderSweeper.sweep(
-            favoritesStore: library.favorites, collectionStore: library.collections, bookmarkStore: library.bookmarks,
+            collectionStore: library.collections, bookmarkStore: library.bookmarks,
             layoutStore: library.layouts, metadataStore: library.metadata,
             folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context)
 
@@ -87,7 +87,7 @@ struct NonBookFolderSweeperTests {
         try library.context.save()
 
         let swept = await NonBookFolderSweeper.sweep(
-            favoritesStore: library.favorites, collectionStore: library.collections, bookmarkStore: library.bookmarks,
+            collectionStore: library.collections, bookmarkStore: library.bookmarks,
             layoutStore: library.layouts, metadataStore: library.metadata,
             folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context)
 

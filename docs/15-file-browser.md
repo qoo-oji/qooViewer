@@ -382,7 +382,7 @@ OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfi
     祖先の名前が変わった・移ったなら、退避せずに付いていく**。中身が変わっていたら読み直し、ツリーにも知らせる(ネットワーク上ではこれが唯一の知らせ)。
     自分の操作が走っている間は読み直さない(済んだ時点で `didChangeFileSystem` が読み直す)。
   - `SidePanelBrowserState`(→ [09](09-ui-and-windows.md))、`FavoriteLocationStore.relocate`(よく使う項目のパス)、`FileCutClipboard.forget`。
-  - `AppStores.handleFileSystemChange`: 保存データの付け替え(→ [06](06-persistence.md#移動リネームへの追従))が済んでから、棚・履歴・お気に入りの実体確認。
+  - `AppStores.handleFileSystemChange`: 保存データの付け替え(→ [06](06-persistence.md#移動リネームへの追従))が済んでから、棚・履歴の実体確認。
 - アプリの**外**での変更は今までどおり FSEvents とアクティブ化。右ペインの見張りは 2026-09-19 に 3 つ直した: 直下のフォルダの中で項目が
   増減したら読み直す(そのフォルダの変更日と変更日順の並びが古いままだった。書き換えだけでは読み直さない)、イベントがあふれた知らせは
   表示中のフォルダの上でも下でも読み直す、初めて張るストリームは一覧を読み始める前のイベント ID から(`FolderChangeWatcher.watch(_:startingAt:)`)。
@@ -1028,7 +1028,7 @@ Finder の実物(macOS 27、使い捨てボリュームのファイルの右ク�
 ### 「ファイルブラウザで表示」(`FileBrowserReveal.swift`)
 
 既存の「Finder で表示」の隣 9 箇所に置いた: ファイルメニュー、ビューアの右クリック、サイドパネル(フォルダブラウザの行・本の中身ブラウザの行・
-お気に入り・履歴・ライブラリのツリー)、ページのサムネイル(`PageContextMenuItems` = サイドパネルのページモード・本の中身・ページ一覧)、
+履歴・ライブラリのツリー)、ページのサムネイル(`PageContextMenuItems` = サイドパネルのページモード・本の中身・ページ一覧)、
 本棚のコレクションの中。実体は `AppState.revealInFileBrowser(_:isDirectory:)`。
 
 - **何を見せるか**は `FinderReveal` と同じ: フォルダはその中、ファイルは入っているフォルダでその項目を選ぶ(`FileBrowserState.show`)。

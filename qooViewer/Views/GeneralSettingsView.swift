@@ -55,12 +55,6 @@ struct GeneralSettingsView: View {
                 )
                 // 「クリック 1 回で開く」「見つからなくなった本の削除を尋ねる」は「ライブラリ」の画面へ移した(2026-09-27、利用者の指示。
                 // この欄は大きな機能の ON/OFF だけにする。LibrarySettingsView)。
-                // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
-                // 設定値(showRecentFavoritesOnWelcome)自体は残してあるので、復活させれば
-                // 以前のON/OFFがそのまま戻る。
-                if FavoritesFeature.isEnabled {
-                    SettingsToggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
-                }
             } header: {
                 Text("Home")
             }
@@ -74,7 +68,7 @@ struct GeneralSettingsView: View {
                 SettingsToggle(
                     "Start in Private Mode",
                     isOn: $preferences.launchInPrivateMode,
-                    help: "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+                    help: "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
                 )
                 // 「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」と
                 // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
@@ -152,8 +146,6 @@ struct GeneralSettingsView: View {
                 Text("Saved Data")
             }
 
-            // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の
-            // 一覧表示は、それぞれ個別にON/OFFできるようにする(既定はON)。
             Section {
                 SettingsSlider(
                     "Recent Files to Keep",
@@ -203,7 +195,7 @@ struct GeneralSettingsView: View {
             // (AppPreferences.keys(for:)の「対象外にしている設定」参照)。下げると保存済みの
             // データがその場で消える設定なので、「設定を戻す」操作では触らない。
             SettingsResetSection(
-                help: "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.general)
             }

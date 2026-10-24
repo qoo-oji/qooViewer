@@ -12,7 +12,7 @@ import SwiftData
 ///   (本かどうか分からない)。繋がっていないボリュームとネットワークのボリュームのフォルダは調べもしない
 ///   (`ExternalMoveSweeper.isLocallyReachable`。ブックマークの解決が止まる・ディスクイメージを勝手にマウントしうる。2026-09-22 の監査)。
 ///   外付けのフォルダは、記録したボリュームの UUID が今のボリュームと一致するものだけ(UUID を記録していない記録は消さない)。
-/// - 消すのは保存データ一式(`BookSavedDataEraser.deleteAllData`: お気に入り・コレクションの項目・ブックマーク・レイアウト・
+/// - 消すのは保存データ一式(`BookSavedDataEraser.deleteAllData`: コレクションの項目・ブックマーク・レイアウト・
 ///   メタデータ・読書位置)。本ではないので、どれも意味を持たない。
 /// - ライブラリ機能が OFF でも走る(保存データを正しく保つ仕事。`AppStores.applyLibraryFeature` の型コメントの決まり)。
 @MainActor
@@ -20,18 +20,18 @@ enum NonBookFolderSweeper {
     /// 消した本の数。
     @discardableResult
     static func sweep(
-        favoritesStore: FavoritesStore, collectionStore: CollectionStore, bookmarkStore: BookmarkStore,
+        collectionStore: CollectionStore, bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, folderAccess: FolderAccessStore,
         modelContext: ModelContext
     ) async -> Int {
         let known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext))
+            collectionStore: collectionStore, modelContext: modelContext))
         let bookIDs = candidates(in: known)
         let probes = bookIDs.map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
-                favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess)
+                collectionStore: collectionStore, folderAccess: folderAccess)
         }
         guard !probes.isEmpty else { return 0 }
         // 外付けの本は、記録したボリュームの UUID と今そこにあるボリュームの UUID が同じときだけ消す(2026-09-22 の監査。
@@ -41,7 +41,6 @@ enum NonBookFolderSweeper {
             let identifiers = [metadataStore.metadata(forBookID: bookID)?.fileNodeIdentifier,
                                layoutStore.bookLayoutSettings(forBookID: bookID)?.fileNodeIdentifier]
                 + collectionStore.items(forBookID: bookID).map(\.fileNodeIdentifier)
-                + favoritesStore.existingFavorites(forBookID: bookID).map(\.fileNodeIdentifier)
             recordedVolumesByBookID[bookID] = Set(identifiers.compactMap { $0?.volumeUUID })
         }
         // ファイルに触る(ブックマークの解決は繋がっていないボリュームで秒単位止まる)ので、メインの外で。FileIO の上で(CLAUDE.md の
@@ -64,7 +63,7 @@ enum NonBookFolderSweeper {
         }
         guard !targets.isEmpty else { return 0 }
         BookSavedDataEraser(
-            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            collectionStore: collectionStore, bookmarkStore: bookmarkStore,
             layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
         ).deleteAllData(forBookIDs: targets.sorted())
         return targets.count

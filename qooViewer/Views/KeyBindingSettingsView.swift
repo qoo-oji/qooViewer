@@ -19,7 +19,7 @@ struct KeyBindingSettingsView: View {
     /// 先頭に置き、残りは列挙型の宣言順」という並びだったが、宣言順のまま並べた後半部分
     /// (表示切替・ブックマーク・ページ一覧・スライドショー・実寸表示・本の移動が脈絡なく
     /// 入り混じっていた)が見づらいという指摘を踏まえ、MANUAL.mdの章立て(ページ送り→表示・
-    /// レイアウト→ページ一覧→ブックマーク→お気に入り→スライドショー・実寸表示→本の移動)と
+    /// レイアウト→ページ一覧→ブックマーク→スライドショー・実寸表示→本の移動)と
     /// 同じ流れになるよう、機能ごとのグループにまとめて並べ替えている。
     ///
     /// - ページ送りグループ: 読み方向に関わらず常に同じ意味になるmoveNext/movePreviousを、
@@ -27,16 +27,8 @@ struct KeyBindingSettingsView: View {
     ///   先頭/末尾ジャンプ・割合ジャンプをまとめる
     /// - 表示・レイアウトグループ: 見開き/単ページ・読み方向・拡大縮小モードの切り替えに続けて、
     ///   自動レイアウト(9節)を並べる
-    /// - お気に入り関連の操作(toggleFavorite/showFavoritesOrganizer)は、ブックマーク関連の操作
-    ///   (toggleBookmark/nextBookmark/previousBookmark/showBookmarkList)のすぐ下に並べる
-    ///   (ユーザーからの指示。この点は従来の並びを踏襲)
     ///
-    /// showFavoritesList(旧「お気に入り一覧を表示」)は、ツールバーの一覧ボタンを廃止した際に
-    /// 他の入り口(メニューバー・コンテキストメニューは階層表示のサブメニューに置き換え済み)を
-    /// すべて失い、この一覧に残しておいても割り当てる意味がなくなったため、キー・マウス操作の
-    /// 一覧からは意図的に除外している(既定のキー割り当てを外すのではなく、項目自体を表示しない。
-    /// ユーザーからの指示)。ViewerAction自体からは削除していない(将来別の入り口を復活させる
-    /// 可能性に備えて残してある)。
+    /// (お気に入りの操作は 2026-10-24 に機能ごと削除した。)
     private let assignableActions: [ViewerAction] = {
         let navigationGroup: [ViewerAction] = [
             .moveNext, .movePrevious,
@@ -54,25 +46,17 @@ struct KeyBindingSettingsView: View {
         ]
         let pageListGroup: [ViewerAction] = [.showThumbnailGrid]
         let bookmarkGroup: [ViewerAction] = [.toggleBookmark, .nextBookmark, .previousBookmark, .showBookmarkList]
-        let favoriteGroup: [ViewerAction] = [.toggleFavorite, .showFavoritesOrganizer]
         let slideshowAndActualSizeGroup: [ViewerAction] = [
             .toggleSlideshow, .toggleLoupe, .showActualSizeLeft, .showActualSizeRight,
         ]
         let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook, .returnToWelcome]
-        // 改善要望5でお気に入りを無効化した間は、この画面にもお気に入りの操作を出さない
-        // (FavoritesFeature参照)。既定の割り当て自体はKeyBindingStoreに残してある
-        // (消すと復活時に既定が戻らないため)。出さない操作は下のhiddenへ移す ―― placedの
-        // 集合に入れておかないと、末尾のセーフティネット(rest)が拾って結局並んでしまう。
-        let hidden: [ViewerAction] = [.showFavoritesList] + (FavoritesFeature.isEnabled ? [] : favoriteGroup)
-
         let ordered =
             navigationGroup + displayGroup + pageListGroup + bookmarkGroup
-            + (FavoritesFeature.isEnabled ? favoriteGroup : [])
             + slideshowAndActualSizeGroup + bookNavigationGroup
         // ViewerActionに新しいケースを追加した際、上記グループへの追加を忘れても一覧から
         // 漏れないよう、どのグループにも含まれていない残りのケースを末尾に補う
         // (通常は空になるはずのセーフティネット)。
-        let placed = Set(ordered + hidden)
+        let placed = Set(ordered)
         let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
         // スクロール系の操作は、スクロールできる表示モードでしか意味を持たないため、
         // この画面からは外し、「表示モード別の操作」画面(ModeInputSettingsView)へ回す。
@@ -155,7 +139,6 @@ struct KeyBindingRow: View {
     /// 示す警告アラートを表示するだけにする。同じ操作への割り当てなら(通常この一覧には
     /// 出てこないが念のため)そのままstore.addKeyBindingへ委ねる。
     private func addKeyBindingIfAvailable(_ key: RemappableKey) {
-        // 隠した機能の操作(お気に入りの ⌥A / ⌥B)は断る理由に数えない(KeyBindingStore.conflictingAction。監査 BE-14)。
         if let existingAction = store.conflictingAction(for: key, in: mode), existingAction != action {
             conflictingKey = ConflictingKeyAssignment(key: key, existingAction: existingAction)
             return

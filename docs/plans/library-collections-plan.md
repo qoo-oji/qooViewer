@@ -157,8 +157,8 @@ enum FavoritesFeature {
     @Published private(set) var existenceByItemID: [UUID: Bool]   // 非同期の存在確認(FavoritesStore.existenceByFavoriteID と同じ)
 
     // 読み取り
-    func collections(in library: BookLibrary, sort: FavoritesSortOption) -> [BookCollection]
-    func items(in collection: BookCollection, sort: FavoritesSortOption) -> [CollectionItem]   // dateUpdated は addedAt で解釈
+    func collections(in library: BookLibrary, sort: ItemSortOption) -> [BookCollection]
+    func items(in collection: BookCollection, sort: ItemSortOption) -> [CollectionItem]   // dateUpdated は addedAt で解釈
     func library(withID:) / collection(withID:) / item(withID:)
     func allRegisteredBookIDs() -> Set<String>
     func membershipCount(forBookID:) -> Int
@@ -361,8 +361,8 @@ nonisolated enum CollectionDropClassifier {
     @Published var selectedLibraryID: UUID?                 // UserDefaults "qooViewer.welcome.selectedLibraryID"
     @Published var openedCollectionID: UUID?                // 本を開いて戻ってきても同じコレクションの中(Kindle と同じ)。保存しない
     @Published var isEditing = false                        // 一覧の編集モード。本を開いたら false に戻す
-    @Published var collectionSort: FavoritesSortOption      // "qooViewer.welcome.collectionSort"(既定 nameAscending)
-    @Published var itemSort: FavoritesSortOption            // "qooViewer.welcome.itemSort"
+    @Published var collectionSort: ItemSortOption      // "qooViewer.welcome.collectionSort"(既定 nameAscending)
+    @Published var itemSort: ItemSortOption            // "qooViewer.welcome.itemSort"
     @Published var tileSize: CGFloat                        // "qooViewer.welcome.tileSize"(120…320、既定 180)
     @Published var coverSize: CGFloat                       // "qooViewer.welcome.coverSize"(80…300、既定 140)
     @Published var pendingCreations: [PendingCollectionCreation]   // 名前入力待ちの列(Q4: 棚を複数ドロップしたら順番に)
@@ -421,7 +421,7 @@ var welcomeDropHandler: (([URL]) -> Bool)?
 - `Views/PanelIconButtonLabel` / `SidePanelNavButton` を右上の操作列に流用。編集モード中の編集ボタンはアクセント地 + `checkmark`。
 - スライダー2つは `.panelControlWell()`。
 - 並び替えメニュー: `Menu { Picker(Field) ; Divider ; Picker(Ascending/Descending) }`(サイドパネルの並べ替えと同じ形)。
-  コレクションの中では Field の `dateUpdated` の表示名を「Date Added」にする(`FavoritesSortOption.Field` に `titleKey(forCollectionItems:)` を足すか、
+  コレクションの中では Field の `dateUpdated` の表示名を「Date Added」にする(`ItemSortOption.Field` に `titleKey(forCollectionItems:)` を足すか、
   `dateUpdated` を選べないようにして `dateAdded` だけ出す ―― **後者**。並び替え3種は「名前・作成日(=追加日)・…」で要望を満たす)。
 - 実機確認: 帯の幅が狭いとき(ライブラリ名が多いとき)横スクロールで崩れない。輪郭2条件。ウインドウをまたいで同じライブラリを選択(UserDefaults)。
   `MenuBarMenuRefresher` に登録していないので、コレクションを変えてもメニューバーが作り直されない(`menu-rebuild` のログで確認)。

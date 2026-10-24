@@ -147,7 +147,7 @@ ComicInfo v2.0 の XSD にかけます(下の「CI」)。**添付にしている
 
 | suite | 見るもの |
 | --- | --- |
-| `LibraryImportTests` | JSON を実際のライブラリへ流し込んだ結果 ―― 方針(overwrite / merge / ignore)ごとの増減、お気に入りの木、ブックマークの鍵 → 番号の変換、**レイアウトをブックマークより先に取り込むこと**(利用者報告の回帰)、フォーマット定義の差し替え、別のライブラリへ移す往復 |
+| `LibraryImportTests` | JSON を実際のライブラリへ流し込んだ結果 ―― 方針(overwrite / merge / ignore)ごとの増減、ブックマークの鍵 → 番号の変換、**レイアウトをブックマークより先に取り込むこと**(利用者報告の回帰)、フォーマット定義の差し替え、別のライブラリへ移す往復 |
 | `SourceLayoutImportTests` | EPUB / PDF が自分で持つレイアウトを DB へ**一度だけ**取り込むこと(`LayoutStore.importSourceLayoutIfNeeded`)。2 回目は何もしない・先にあった設定を上書きしない・取り込むものが無ければ行を作らない |
 
 **`InMemoryLibrary` は使い終わったら `close()` すること**(`defer { library.close() }`)。ストアが
@@ -193,7 +193,6 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `PageLoaderTests` | ページ画像の読み出し役 ―― 番号どおりの画像・範囲外・メモリキャッシュの出入りと重複排除・同時要求のまとめ・上限を下げたときの即時追い出し・3 つのキャッシュの解放・サムネイル(寸法ごとの鍵)・ヘッダーだけで分かるページ寸法・書き出し用の生データ・先読みの範囲と後始末・ページ一覧の差し替え |
 | `ResourceAnomalyDetectorTests` / `ResourceMonitorSnapshotTests` / `ResourceHistoryTests` | リソースモニタ ―― 誤報を出さないための持続回数(3 回・走査 2 回、持ち主ごと・種類ごと)とその数え直し、ディスクキャッシュの境目(上限 + 刈り込みの余裕、間欠的に刈り込むものは 2 倍)、孤児の一時ファイル(入れ子の書庫・ネットワークボリュームの写し)、帯と「既読」の数え方、グラフの 2 段の履歴(容量・平均の取り方・巻き戻りの丸め) |
 | `MemoryUsageRegistryTests` | リソースモニタのメモリの内訳 ―― 届け出の順・項目を足すだけの届け出の合流・外れ方、機能ごとのまとまりと合計(見積もりは足さない)、「内訳の無いメモリ」 |
-| `FavoritesLimitTests` | お気に入りの上限(999 件・3 階層)と `move(_:to:)` の循環禁止(自分自身・子孫)、部分木の高さを見た深さ判定 |
 | `BookmarkKeyResolutionTests` | ブックマークが指すページの決め方 ―― `resolveKeys`(鍵の無い古い行は**従来順**から埋める・今の並びへの振り直し・消えたページ・`persists: false`)、並べ替えへの追従(`updatePageIndices`)、一括改名(`renameBookmarks`) |
 | `LayoutStoreTests` | ページ順の焼き付け、差し替え検知(指紋の比較と `pageCountMatches`、「そのまま適用する」で基準を更新すること)、1 冊ぶんの削除(消すものが無ければ通知も出さないこと)、カバーにできないファイルを選んだときの失敗 |
 | `LibraryDataPrunerTests` | 読書履歴の刈り込み ―― 古い順に消すこと、開いている本を飛ばすこと、**ブックマーク・レイアウト・メタデータを道連れにしないこと** |
@@ -445,6 +444,28 @@ ComicInfo v2.0 の XSD(anansi-project/comicinfo、MIT)は CI の検品ツール(
 `MARKETING_VERSION` はこのターゲットには置いていません。アプリ側の Debug / Release の2か所だけで
 持ち、`scripts/ci/check-version.sh` がその2つの一致を見ています。
 
+#### 既知のビルド警告(直さない。2026-10-24)
+
+空の DerivedData からビルドすると(Xcode 27・テストのビルド)、次の警告が 1 件出ます。差分ビルドや Xcode からの実行では出ません。
+
+```
+warning: 'StackNestViewerKit' is missing a dependency on 'StackNestViewerKitCore' because dependency scan of Swift module 'StackNestViewerKit' discovered a dependency on 'StackNestViewerKitCore'
+```
+
+**Xcode のビルドシステム(swift-build)の誤検出**です(swiftlang/swift-build #1801、FB24266061。Apple のフォーラム thread 803541 にも
+同じ形の報告)。アプリとテストの両方が同じパッケージを使うとパッケージの「動的な版」が作られ、その版が依存の表に載らないので、
+パッケージが宣言している依存まで「無い」と言われる。swift-build の main では直っていて、6.4 系への取り込み待ち。警告をエラーにする
+CI の設定(`QOO_CI_WARNINGS_AS_ERRORS`)はアプリのコードにだけ掛かるので、CI はこれでは落ちない。
+
+試して**だめだった**直し方(どれも空のビルドで確かめた):
+
+- テストのターゲットに `StackNestViewerKit` のプロダクトを足す(リンクあり・宣言だけのどちらも) ―― 警告は消えるが、テストの中に部品の
+  2 つ目の写しができ、アプリ側の写しが投げた `StackNestViewerError` とテスト側の型が別物になって、StackNest のテストが 6 件落ちる。
+- テストのターゲットだけ `SWIFT_ENABLE_EXPLICIT_MODULES = NO` ―― 警告は消えない(警告はパッケージの側の版から出ている)。
+
+残る回避策(プロジェクト全体で明示的なモジュールのビルドを切る、非公式の `EnableDiagnosingDiamondProblemsWhenUsingPackages=0`)は
+副作用があるので採らない(利用者の判断)。Xcode の修正が入ったら消えることを確かめて、この節を消す。
+
 ### CI
 
 GitHub Actions(2026-09-05 導入)。push のたびに「clone してビルドできる」ことと「約束事が守られている」ことを GitHub 上で確かめます。
@@ -551,8 +572,8 @@ UserDefaults・カバー画像・キャッシュのどれも普段使いのア�
 移行・書き換えるうえ、その後で普段使いのアプリ(古い)を起動すると今回と同じことが起きる。
 
 代償: Xcode から起動したアプリは空の本棚から始まる。**実データでの確認は普段使いのアプリ
-(`/Applications` に入れた Release)で行う。** ストアを Debug 側へ複写しても、コレクションや
-お気に入りの**セキュリティスコープ付きブックマークはアプリごとに発行されたもの**なので、
+(`/Applications` に入れた Release)で行う。** ストアを Debug 側へ複写しても、コレクションの
+**セキュリティスコープ付きブックマークはアプリごとに発行されたもの**なので、
 Debug ビルドからは解決できず、本はほぼ「場所を確定できない」になる(→ [10](10-sandbox-and-security.md))。
 
 「Swift 5 モード + 既定隔離 MainActor」という組み合わせがこのプロジェクトの最大の落とし穴です。

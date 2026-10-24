@@ -4,11 +4,10 @@ import SwiftData
 /// アプリ自身が移した・名前を変えた本の保存データを付け替える窓口(アプリで 1 つ。AppStores)。段取りと決まりは `BookRelocationPlan`。
 ///
 /// `FileSystemChange` を受けるたびに、(1) どれかのストアに行のある `bookID` を集め、(2) **メインアクターの外で**移った先を求めて
-/// (別ボリュームなら手がかりも取り直して)、(3) 5 つのストアと読書位置(`BookReadingState`)へ当てはめる。知らせは起きた順に
+/// (別ボリュームなら手がかりも取り直して)、(3) 4 つのストアと読書位置(`BookReadingState`)へ当てはめる。知らせは起きた順に
 /// 1 つずつ片付ける(A → B、B → C と続いたとき、先の付け替えが済んでから次を当てる)。
 @MainActor
 final class BookRecordRelocator {
-    private weak var favoritesStore: FavoritesStore?
     private weak var bookmarkStore: BookmarkStore?
     private weak var layoutStore: LayoutStore?
     private weak var metadataStore: BookMetadataStore?
@@ -19,12 +18,11 @@ final class BookRecordRelocator {
     private var tail: Task<Void, Never>?
 
     init(
-        favoritesStore: FavoritesStore?, bookmarkStore: BookmarkStore?, layoutStore: LayoutStore?,
+        bookmarkStore: BookmarkStore?, layoutStore: LayoutStore?,
         metadataStore: BookMetadataStore?, collectionStore: CollectionStore?, modelContext: ModelContext,
         coverExtractor: CollectionCoverExtractor? = nil
     ) {
         self.coverExtractor = coverExtractor
-        self.favoritesStore = favoritesStore
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
@@ -77,7 +75,6 @@ final class BookRecordRelocator {
                 plan = plan.merging(await Self.makePlan(knownBookIDs: moving, change: planned))
             }
             guard !plan.isEmpty else { return }
-            self.favoritesStore?.applyBookRelocation(plan)
             self.bookmarkStore?.applyBookRelocation(plan)
             self.layoutStore?.applyBookRelocation(plan)
             self.metadataStore?.applyBookRelocation(plan)
@@ -103,7 +100,7 @@ final class BookRecordRelocator {
     var afterPlanningForTesting: (@MainActor () async -> Void)?
 
     private func eraseReplaced(_ replaced: [URL]) {
-        guard !replaced.isEmpty, let favoritesStore, let collectionStore, let bookmarkStore, let layoutStore, let metadataStore
+        guard !replaced.isEmpty, let collectionStore, let bookmarkStore, let layoutStore, let metadataStore
         else { return }
         let paths = replaced.map { MountTable.normalized($0.path) }
         let targets = knownBookIDs().filter { bookID in
@@ -112,14 +109,13 @@ final class BookRecordRelocator {
         }
         guard !targets.isEmpty else { return }
         BookSavedDataEraser(
-            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            collectionStore: collectionStore, bookmarkStore: bookmarkStore,
             layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
         ).deleteAllData(forBookIDs: targets.sorted())
     }
 
     private func knownBookIDs() -> Set<String> {
         var ids = Set<String>()
-        ids.formUnion(favoritesStore?.knownBookIDs ?? [])
         ids.formUnion(bookmarkStore?.knownBookIDs ?? [])
         ids.formUnion(layoutStore?.knownBookIDs ?? [])
         ids.formUnion(metadataStore?.knownBookIDs ?? [])

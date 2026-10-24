@@ -72,7 +72,6 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.secretFolderBooksOpenPrivately.toggle()
     p.secretFolderPrivatePlacement = otherCase(p.secretFolderPrivatePlacement)
     p.fileBrowserFeatureEnabled.toggle()
-    p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()
     p.sidePanelPosition = otherCase(p.sidePanelPosition)
     p.sidePanelUsesDoubleClick.toggle()
@@ -104,7 +103,6 @@ func mutateEverySetting(_ p: AppPreferences) {
     // MARK: 本を開く
     p.reopenBehavior = otherCase(p.reopenBehavior)
     p.finderOpenBehavior = otherCase(p.finderOpenBehavior)
-    p.favoriteOpenBehavior = otherCase(p.favoriteOpenBehavior)
     p.historyOpenBehavior = otherCase(p.historyOpenBehavior)
     p.defaultReadingDirectionSetting = otherCase(p.defaultReadingDirectionSetting)
     p.defaultDisplayMode = otherCase(p.defaultDisplayMode)

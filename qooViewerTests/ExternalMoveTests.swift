@@ -11,7 +11,7 @@ import Testing
 struct ExternalMoveTests {
     private func makeRelocator(_ library: InMemoryLibrary) -> BookRecordRelocator {
         BookRecordRelocator(
-            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context
         )
     }
@@ -307,7 +307,7 @@ struct ExternalMoveTests {
         try FileManager.default.moveItem(at: old, to: new)
 
         let moved = await ExternalMoveSweeper.movedBooks(
-            favoritesStore: library.favorites, collectionStore: library.collections, bookmarkStore: library.bookmarks,
+            collectionStore: library.collections, bookmarkStore: library.bookmarks,
             layoutStore: library.layouts, metadataStore: library.metadata,
             folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context,
             skipsCollectionBooks: true)

@@ -440,7 +440,7 @@ struct CollectionMenuLibrary: Equatable {
 
 struct CollectionMenuCache {
     let revision: UInt64
-    let sort: FavoritesSortOption
+    let sort: ItemSortOption
     /// ライブラリの名前を引いた表示言語(既定のライブラリの名前は言語で変わる)。
     let localeIdentifier: String
     let libraries: [CollectionMenuLibrary]

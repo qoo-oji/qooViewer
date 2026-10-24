@@ -31,20 +31,20 @@ final class Bookmark {
     var pageKey: String?
     var name: String
     var createdAt: Date
-    /// この本を指すセキュリティスコープ付きブックマーク(FavoriteBook.bookmarkDataと同じもの)。
+    /// この本を指すセキュリティスコープ付きブックマーク(CollectionItem.bookmarkDataと同じもの)。
     /// 「ブックマークの編集」ウインドウから、今開いていない本をダブルクリックで新たに開いて
     /// ジャンプする機能のために保持する。bookIDは素のパス文字列でしかなく、サンドボックス環境では
     /// それだけでは(環境設定「フォルダのアクセス権」で許可済みのフォルダ配下でない限り)ファイルへ
     /// アクセスできないため、開く直前にこれを解決してURLを得る(BookmarkListView.resolvedURL参照)。
     ///
-    /// FavoriteBook.bookmarkDataと違い必須にしていない(Optional)のは、この属性を追加する前から
+    /// 必須にしていない(Optional)のは、この属性を追加する前から
     /// 存在するブックマークにはそもそも作成時点でこの値を持たせようがなく、後から復元する
     /// 手段も無いため。値が無い場合はbookIDのパスをそのまま使う形にフォールバックする
     /// (今開いている本へのジャンプ(要望1)には影響しない。今開いていない本を新たに開く場合
     /// (要望2〜4)にのみ影響し、フォルダへのアクセス権が既に許可されていれば問題なく開ける)。
     var bookmarkData: Data?
-    /// 最後に更新された日時。並び替え基準「更新順」に使う(FavoritesSortOption/BookmarkStore参照)。
-    /// ブックマークにはお気に入りのようなフォルダ移動の概念が無く、後から変えられる唯一の値が
+    /// 最後に更新された日時。並び替え基準「更新順」に使う(ItemSortOption/BookmarkStore参照)。
+    /// ブックマークにはフォルダ移動の概念が無く、後から変えられる唯一の値が
     /// 名前(リネーム)であるため、リネームしたときにのみ更新する(登録時点ではcreatedAtと同じ値。
     /// BookmarkStore.rename(_:to:)参照)。
     ///
@@ -52,8 +52,8 @@ final class Bookmark {
     /// ライトウェイトマイグレーション(SwiftDataが自動で行うスキーマ移行)のために必須。
     /// これが無いと、この属性が存在しなかった以前のバージョンで保存済みのデータを開こうとした際に
     /// 「Validation error missing attribute values on mandatory destination attribute」という
-    /// エラーで起動できなくなる(FavoriteBook.updatedAtで実際に踏んだ不具合と同じ原因。詳細は
-    /// そちらのコメント参照)。
+    /// エラーで起動できなくなる(当時のお気に入りのモデルの updatedAt で実際に踏んだ不具合と同じ原因。
+    /// QooViewerApp.modelContainerのコメント参照)。
     var updatedAt: Date = Date()
 
     /// EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)から自動的に取り込んだ
@@ -74,7 +74,7 @@ final class Bookmark {
     /// reloadBookmarksは画像ビューア自身の一覧のため、従来通りtrue/false問わず全件を含める)。
     ///
     /// `= false`という宣言時のデフォルト値は、この属性を後から追加したことによる
-    /// ライトウェイトマイグレーションのために必須(FavoriteBook.updatedAt/BookReadingState.
+    /// ライトウェイトマイグレーションのために必須(updatedAt/BookReadingState.
     /// scalingModeRawと同じ理由。既存の保存済みデータはすべてユーザー作成のブックマークで
     /// あり、falseとして扱って問題ない)。
     var isEpubDerived: Bool = false

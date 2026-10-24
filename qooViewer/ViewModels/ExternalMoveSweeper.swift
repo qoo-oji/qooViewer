@@ -21,13 +21,13 @@ import SwiftData
 enum ExternalMoveSweeper {
     /// 別の場所に見つかった本(古いパス → 新しいパス)。付け替えは呼び出し側。
     static func movedBooks(
-        favoritesStore: FavoritesStore, collectionStore: CollectionStore, bookmarkStore: BookmarkStore,
+        collectionStore: CollectionStore, bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, folderAccess: FolderAccessStore,
         modelContext: ModelContext, skipsCollectionBooks: Bool
     ) async -> [FileSystemChange.Relocation] {
         var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext))
+            collectionStore: collectionStore, modelContext: modelContext))
         if skipsCollectionBooks { known.subtract(collectionStore.allRegisteredBookIDs()) }
         // StackNest の参照ファイルの本は見ない(2026-10-18 のレビュー): StackNest が開くたびに書き直し、期限が切れると消すファイルで、
         // 動いた本を探す意味が無い(書き直しは新しいファイルになるので、ブックマークはパスへ落ちて同じ場所を指す)。起動のたびに
@@ -36,7 +36,7 @@ enum ExternalMoveSweeper {
         let probes = known.sorted().map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
-                favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess)
+                collectionStore: collectionStore, folderAccess: folderAccess)
         }.filter { !$0.bookmarkCandidates.isEmpty }
         guard !probes.isEmpty else { return [] }
         // ブックマークの解決は FileIO の上で(CLAUDE.md の FileIO の約束。以前は Task.detached。2026-10-05 の効率の監査)。

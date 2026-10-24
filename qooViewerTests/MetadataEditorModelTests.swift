@@ -15,12 +15,12 @@ struct MetadataEditorModelTests {
         let generator = library.makeMetadataGenerator(books: books)
         generator.start()
         let relocator = BookRecordRelocator(
-            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context
         )
         return MetadataEditorModel(
             metadataStore: library.metadata, rulesStore: library.metadataRules,
-            stores: .init(favoritesStore: library.favorites, collectionStore: library.collections, bookmarkStore: library.bookmarks,
+            stores: .init(collectionStore: library.collections, bookmarkStore: library.bookmarks,
                           layoutStore: library.layouts, metadataStore: library.metadata, folderAccess: access,
                           generator: generator, modelContext: library.context),
             preferences: library.preferences, relocator: relocator, fileSystemChanges: center,

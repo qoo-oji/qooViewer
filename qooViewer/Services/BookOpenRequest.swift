@@ -35,7 +35,7 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// サンドボックスのセキュリティスコープ付きアクセスは有限のカーネルリソースで、Appleは
     /// 使い果たした場合について「アプリはファイルシステム上の場所を自身のサンドボックスへ追加する
     /// 能力そのものを失う」と明記している。そうなるとこの本だけでなく、フォルダのアクセス許可
-    /// (FolderAccessStore)もお気に入りの登録も壊れる=アプリ全体が使えなくなる。
+    /// (FolderAccessStore)もコレクションの登録も壊れる=アプリ全体が使えなくなる。
     /// 実際にはFinder/Dockから渡されるURLは拡張が消費済みで`startAccessingSecurityScopedResource()`が
     /// falseを返す(=何も消費しない)ことが多いが、それに寄りかからず上限で頭を押さえておく。
     ///
@@ -62,7 +62,7 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// 履歴が埋まってしまう(ユーザーの指示)。
     ///
     /// **履歴に残さないだけで、その他の記録は通常どおり**行う ―― 読書位置・ブックマーク・
-    /// お気に入り・レイアウトは本ごとの資産で、これらまで捨てると「同じフォルダへ戻ったら
+    /// レイアウトは本ごとの資産で、これらまで捨てると「同じフォルダへ戻ったら
     /// 続きから読める」が壊れる。何も残さないのはシークレットウインドウとその場限りの本
     /// (MangaBook.isTransient)の役目で、そちらとは別の話。
     var recordsInHistory = true

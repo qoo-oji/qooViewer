@@ -34,7 +34,7 @@ struct SidePanelLibraryTreeModelTests {
     }
 
     private func inputs(
-        libraries: Set<UUID> = [], collections: Set<UUID> = [], itemSort: FavoritesSortOption = .nameAscending,
+        libraries: Set<UUID> = [], collections: Set<UUID> = [], itemSort: ItemSortOption = .nameAscending,
         caption: CollectionCoverCaptionStyle = .none
     ) -> SidePanelLibraryTreeModel.Inputs {
         SidePanelLibraryTreeModel.Inputs(

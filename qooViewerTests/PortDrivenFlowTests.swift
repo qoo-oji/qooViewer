@@ -33,7 +33,6 @@ struct PortDrivenFlowTests {
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata
-        state.favoritesStore = library.favorites
         state.folderAccess = folderAccess
         state.open(request: BookOpenRequest(book))
         await state.openTask?.value

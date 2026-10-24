@@ -23,7 +23,7 @@ nonisolated struct BookExistenceProbe: Sendable {
     @MainActor
     static func make(
         bookID: String, metadataStore: BookMetadataStore, layoutStore: LayoutStore, bookmarkStore: BookmarkStore,
-        favoritesStore: FavoritesStore, collectionStore: CollectionStore?, folderAccess: FolderAccessStore
+        collectionStore: CollectionStore?, folderAccess: FolderAccessStore
     ) -> BookExistenceProbe {
         BookExistenceProbe(
             bookID: bookID,
@@ -31,7 +31,6 @@ nonisolated struct BookExistenceProbe: Sendable {
                 metadataStore.metadata(forBookID: bookID)?.bookmarkData,
                 layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
                 bookmarkStore.anyBookmarkData(forBookID: bookID),
-                favoritesStore.anyBookmarkData(forBookID: bookID),
                 // nil = コレクションの行を読まない(ライブラリ機能が OFF の間の、裏の仕事。MetadataGenerator)。
                 collectionStore?.anyBookmarkData(forBookID: bookID),
             ].compactMap { $0 },
@@ -204,14 +203,13 @@ nonisolated struct BookExistenceProbe: Sendable {
     }
 }
 
-/// 本に関する保存データを、種類を問わずすべて削除する(お気に入り・コレクション・ブックマーク・レイアウト・メタデータ・
+/// 本に関する保存データを、種類を問わずすべて削除する(コレクション・ブックマーク・レイアウト・メタデータ・
 /// 読書履歴)。「本ごとの保存データを削除」ウインドウとメタデータの編集ウインドウの右クリックが使う。
 ///
 /// 読書履歴(BookReadingState)まで消すのは、これを残すと「メタデータの編集」ウインドウにも掃除のウインドウにも、
 /// その本の行が出続けてしまうため(LibraryCleanupViewModel.deleteAllData のコメント)。
 @MainActor
 struct BookSavedDataEraser {
-    let favoritesStore: FavoritesStore
     let collectionStore: CollectionStore
     let bookmarkStore: BookmarkStore
     let layoutStore: LayoutStore
@@ -229,7 +227,6 @@ struct BookSavedDataEraser {
     @discardableResult
     func deleteAllData(forBookIDs bookIDs: [String]) -> Task<Void, Never>? {
         for bookID in bookIDs {
-            favoritesStore.removeFavorites(forBookID: bookID)
             collectionStore.removeItems(forBookID: bookID)
             bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             // 行ごと(コレクション表紙なども)。この操作は「その本の保存データをすべて消す」(LayoutStore.deleteLayoutRow)。

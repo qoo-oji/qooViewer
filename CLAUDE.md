@@ -78,6 +78,11 @@ now puts smaller content top-leading (the Actual Size window centers it itself).
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
 capture explicit, never by dropping the inner `weak`.
 
+**One known clean-build warning is left alone** (2026-10-24, user decision): `'StackNestViewerKit' is missing a dependency on
+'StackNestViewerKitCore'` is a swift-build false positive for the package's dynamic variant (swiftlang/swift-build #1801). Do not "fix" it by
+adding the kit's product to the test target — that puts a second copy of the kit in the test bundle and the StackNest tests fail on
+mismatched `StackNestViewerError` types (docs/02「既知のビルド警告」).
+
 CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Release on `macos-26` with warnings
 treated as errors (passed as `QOO_CI_WARNINGS_AS_ERRORS=YES`, routed through `Configurations/Shared.xcconfig`
 so it reaches only the app target, not the SwiftPM dependencies), runs `qooViewerTests` in the Debug job
@@ -201,7 +206,7 @@ dropped it and every layout/bookmark write queried the file on main), and book-l
 `BookRowAnchors` built on `FileIO` (`anchors:`), never a URL to stat on main; the Debug build logs a fault when a write falls back to
 querying the file (docs/06「行に添える手がかりはメインの外で」).
 
-**SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
+**SwiftData persistence**: `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
 `CollectionStore` (ViewModels/) all share a
 single `ModelContext` (`QooViewerApp.modelContainer.mainContext`), constructed once in
 App/QooViewerApp.swift and injected via `.environmentObject`/`.modelContext` everywhere. Do not create
@@ -213,7 +218,9 @@ Models/PageLayoutOverride.swift / Models/BookLayoutSettings.swift, before touchi
 `QooViewerApp.modelSchema`/`modelConfiguration` also has a user-facing recovery path if the store fails to
 load (offers to delete and recreate) — keep new model types additive/lightweight-migration-friendly.
 **Whenever a `@Model` changes (or `QooViewerApp.modelTypes` does), add a row to
-`StoreSchemaGuard.generations`** (`StoreSchemaGuardTests` fails otherwise), and cover any new persisted
+`StoreSchemaGuard.generations`** (`StoreSchemaGuardTests` fails otherwise) — and when a model is *removed*, also list its entity
+name in `StoreSchemaGuard.retiredEntityNames`, or every upgraded store looks "written by a newer qooViewer" and the app warns at
+launch (removing the favorites models did exactly that in a test run, 2026-10-24), and cover any new persisted
 attribute with a save → close → reopen test on a disposable on-disk store (`DisposableStore` /
 `StorePersistenceTests`) — in-memory stores never exercise reopening or migration. When the new attribute
 lives on `BookLayoutSettings`, also decide whether the saved-data JSON exports it: a column that is
@@ -319,7 +326,7 @@ auto rename), so "refresh on app activation" is not enough any more: every such 
 `AutoRenameService` use `.shared`), as a `FileSystemChange` carrying old → new paths. Consumers: every `FileBrowserState` and
 `SidePanelBrowserState` (rewrite path-held state, follow a renamed current folder, reload — the only signal on network volumes),
 `FavoriteLocationStore.relocate`, `FileCutClipboard` (the cut memory is app-wide), and `AppStores.handleFileSystemChange`
-(`BookRecordRelocator` rekeys the five stores + `BookReadingState` by path, across volumes too, then existence refreshes). New code that
+(`BookRecordRelocator` rekeys the four stores + `BookReadingState` by path, across volumes too, then existence refreshes). New code that
 moves/renames/deletes user files must go through `FileOperationService`, and new UI that mirrors the file system must subscribe. Under tests
 each state gets a private center/clipboard and `AppStores` does not subscribe. Operations on a book open in any viewer are refused
 (`FileBrowserOperations.refusesBecauseOpenInViewer`; a conflict's "Replace" skips and reports an open book in the engine,
@@ -388,7 +395,7 @@ remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
 page-keyed persisted data must join that list (docs/06「移動・リネームへの追従」). **Moves made outside the app are followed too**
 (2026-09-22): the collection existence check (`CollectionStore.onBooksFoundAtNewPaths`), a post-launch `ExternalMoveSweeper` and the Edit
 Metadata window feed books whose bookmark resolves elsewhere into `BookRecordRelocator` (skipping books open in a viewer and the Trash);
-opening a moved book relocates all five stores *and* the reading position from whatever old path any store found; path-only folder settings
+opening a moved book relocates all four stores *and* the reading position from whatever old path any store found; path-only folder settings
 (secret folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Such found moves are a snapshot and go
 through `FileSystemChange.foundOutsideTheApp` (applied simultaneously, never chained — chaining `[1→2, 2→3]` gave volume 1's data to volume 3);
 in-app changes stay chained. Which rows move is decided after the
@@ -412,7 +419,7 @@ switched off at run time** (Settings ▸ General ▸ "Enable Libraries", `AppPre
 items leave the Home menu, the file browser context menu and the side panel, and the library-only background work stops —
 existence refresh, cover extraction and its launch preparation, auto-folder scanning and FSEvents, launch sweeps, the Home
 menu directory, collection reconciliation on book open. What stops and what deliberately does not (`BookRecordRelocator`,
-saved-data import/export/cleanup, following a moved book on open — `reconcileBookIDIfMoved` on all five stores together —
+saved-data import/export/cleanup, following a moved book on open — `reconcileBookIDIfMoved` on all four stores together —
 and the "books this app knows" lookups behind Edit Metadata / Export / cleanup) is listed on `AppStores.applyLibraryFeature`;
 **new library-only work must check the flag there too**, and must not fetch `CollectionItem`s while it is off — what stays on
 is only work that keeps saved data correct or a user action from failing. **Anything that can now be stopped at run time**
@@ -436,9 +443,9 @@ the user picks is (even while some feature is off). The 8 combinations are table
 run by `LibraryFeatureToggleTests.everyCombinationOfTheThreeFlags`. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add
 themselves to the Window menu unless `.commandsRemoved()` (the Auto Rename Settings window also closes itself when the
-flag goes off). The favorites feature is hidden behind
-`FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
-survives. Design and the reasons are in `docs/14-library-collections.md`.
+flag goes off). The favorites feature (hidden since improvement request 5) was **removed entirely on 2026-10-24** (user decision):
+models, store, windows, settings, key bindings and the JSON section are gone; old stores lose the tables by lightweight
+migration and old backup files' `favorites` is skipped. Design and the reasons are in `docs/14-library-collections.md`.
 
 **Metadata (qooMeta, 2026-09-21)**: `BookMetadata` holds title, authors (`author` = first, `additionalAuthorsRaw` = the
 rest), genre, event, source, info, series, volume (as written) and `volumeSort`, plus `fieldsVersion` (0 = registered before

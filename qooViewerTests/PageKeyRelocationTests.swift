@@ -99,7 +99,7 @@ struct PageKeyRelocationTests {
         try expectKeys(in: library, bookID: original.path)
 
         let relocator = BookRecordRelocator(
-            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context
         )
         let moved = temporary.file("book-b")

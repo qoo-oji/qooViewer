@@ -166,7 +166,7 @@ extension CollectionMenuLibrary {
     /// 並び順・表示言語が変わらない間は `cache` を返す。
     @MainActor
     static func libraries(
-        in collectionStore: CollectionStore, sort: FavoritesSortOption, locale: Locale, cache: inout CollectionMenuCache?
+        in collectionStore: CollectionStore, sort: ItemSortOption, locale: Locale, cache: inout CollectionMenuCache?
     ) -> [CollectionMenuLibrary] {
         if let cached = cache, cached.revision == collectionStore.revision, cached.sort == sort,
            cached.localeIdentifier == locale.identifier {

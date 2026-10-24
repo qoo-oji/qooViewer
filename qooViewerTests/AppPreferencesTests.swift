@@ -288,7 +288,6 @@ struct AppPreferencesTests {
         .general: [
             "displayLanguage", "launchOpensLastBook", "launchFullScreen", "launchInPrivateMode",
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
-            "showRecentFavoritesOnWelcome",
             "libraryFeatureEnabled", "fileBrowserFeatureEnabled",
             "smartLibraryFeatureEnabled",
             "sidePanelFeatureEnabled",
@@ -300,7 +299,7 @@ struct AppPreferencesTests {
         // 外観タブの設定は AppearanceSettings が揃いごとに持ち、戻すのも揃いごと(AppearanceSettingsTests)。
         .appearance: [],
         .opening: [
-            "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior", "historyOpenBehavior",
+            "reopenBehavior", "finderOpenBehavior", "historyOpenBehavior",
             "defaultReadingDirectionSetting",
             "defaultDisplayMode", "defaultScalingMode",
         ],

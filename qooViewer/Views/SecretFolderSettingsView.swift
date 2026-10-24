@@ -17,7 +17,6 @@ struct SecretFolderSettingsView: View {
     @EnvironmentObject private var secretFolders: SecretFolderStore
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var recentFiles: RecentFilesStore
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -236,7 +235,7 @@ struct SecretFolderSettingsView: View {
         }
         let known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext
+            collectionStore: collectionStore, modelContext: modelContext
         ))
         var result: [String: [String]] = [:]
         for folder in folders {
@@ -252,7 +251,7 @@ struct SecretFolderSettingsView: View {
         let openBookIDs = ViewerViewModel.openBookIDs
         let bookIDs = (savedBookIDsByFolder[folder] ?? []).filter { !openBookIDs.contains($0) }
         BookSavedDataEraser(
-            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            collectionStore: collectionStore, bookmarkStore: bookmarkStore,
             layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
         ).deleteAllData(forBookIDs: bookIDs)
         recentFiles.remove(historyEntries(in: folder))

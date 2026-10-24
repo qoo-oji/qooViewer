@@ -74,7 +74,7 @@ struct BookExportFormatSettingsView: View {
                 SettingsPicker(
                     "Saved Data",
                     selection: preferences.bookExportDataCleanupBinding(for: format),
-                    help: "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone."
+                    help: "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Collections and collection covers are kept. This can't be undone."
                 )
                 SettingsPicker(
                     "History",

@@ -296,57 +296,6 @@ struct StackNestOpeningTests {
         #expect(fixture.pageRequestIndices.isEmpty)
     }
 
-    @Test("お気に入りには参照ファイルの本を登録しない(どの登録口でも)")
-    func favoritesRefuseReferenceBooks() async throws {
-        let fixture = try StackNestTestBook(pageCount: 3)
-        defer { fixture.close() }
-        let library = try InMemoryLibrary(label: "stacknest-favorites")
-        defer { library.close() }
-        let book = try await FixtureBook.load(fixture.referenceURL)
-        for outcome in [library.favorites.addFavorite(book: book, to: nil), library.favorites.forceAddFavorite(book: book, to: nil)] {
-            if case .failed = outcome {} else { Issue.record("登録できてしまった: \(outcome)") }
-        }
-        let bulk = library.favorites.forceAddFavorites([.init(book: book, folder: nil)])
-        #expect(bulk.count == 1)
-        if case .failed = bulk[0] {} else { Issue.record("一括で登録できてしまった") }
-        #expect(library.favorites.totalFavoritesCount() == 0)
-    }
-
-    @Test("お気に入り: 参照ファイルの本の判定はパスでも行う(保存データの取り込みが作る本は参照を持たない)")
-    func favoritesRefuseReferenceBooksByPath() throws {
-        let library = try InMemoryLibrary(label: "stacknest-favorites-path")
-        defer { library.close() }
-        let temporary = try TemporaryDirectory("stacknest-favorites-path")
-        let url = temporary.file("Imported.stacknestbook")
-        try Data("{}".utf8).write(to: url)
-        // 参照(stackNestReference)を持たず、パスだけが参照ファイルの本。
-        let book = MangaBook(id: url.path, title: "Imported", sourceURL: url, pages: [])
-        #expect(!book.isStackNestReference)
-        for outcome in [library.favorites.addFavorite(book: book, to: nil), library.favorites.forceAddFavorite(book: book, to: nil)] {
-            if case .failed = outcome {} else { Issue.record("登録できてしまった: \(outcome)") }
-        }
-        let bulk = library.favorites.forceAddFavorites([.init(book: book, folder: nil)])
-        if case .failed = bulk.first {} else { Issue.record("一括で登録できてしまった") }
-        #expect(library.favorites.totalFavoritesCount() == 0)
-    }
-
-    @Test("お気に入り: 参照ファイルの本でも、すでにある登録の削除は通る(追加だけを断る)")
-    func existingReferenceFavoriteCanBeRemoved() throws {
-        let library = try InMemoryLibrary(label: "stacknest-favorites-remove")
-        defer { library.close() }
-        let temporary = try TemporaryDirectory("stacknest-favorites-remove")
-        let url = temporary.file("Old.stacknestbook")
-        try Data("{}".utf8).write(to: url)
-        let bookmark = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-        library.context.insert(FavoriteBook(bookID: url.path, bookmarkData: bookmark, title: "Old", folder: nil))
-        try library.context.save()
-        library.favorites.reload()
-        #expect(library.favorites.isFavorited(bookID: url.path))
-        library.favorites.removeFavorites(forBookID: url.path)
-        #expect(!library.favorites.isFavorited(bookID: url.path))
-        #expect(library.favorites.totalFavoritesCount() == 0)
-    }
-
     @Test("参照ファイルの本の振り分け(実ファイルかの確認)は、メインアクターの上で行わない")
     func referenceRoutingCheckRunsOffTheMainActor() async throws {
         let fixture = try StackNestTestBook(pageCount: 2)
@@ -430,7 +379,6 @@ struct StackNestOpeningTests {
         // 同じ本を表示しているほかのウインドウ(LaunchCoordinator.openAppState(forBookAt:) が見つけるもの)の AppState。
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata
@@ -499,7 +447,6 @@ struct StackNestOpeningTests {
         let preferences = suite.makePreferences()
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata
@@ -541,7 +488,6 @@ struct StackNestOpeningTests {
         let preferences = suite.makePreferences()
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata
@@ -570,7 +516,6 @@ struct StackNestOpeningTests {
         let preferences = suite.makePreferences()
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata

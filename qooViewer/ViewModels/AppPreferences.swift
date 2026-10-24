@@ -43,7 +43,6 @@ final class AppPreferences: ObservableObject {
         static let checksForUpdatesAutomatically = "qooViewer.pref.checksForUpdatesAutomatically"
         static let installsUpdatesAutomatically = "qooViewer.pref.installsUpdatesAutomatically"
         static let finderOpenBehavior = "qooViewer.pref.finderOpenBehavior"
-        static let favoriteOpenBehavior = "qooViewer.pref.favoriteOpenBehavior"
         static let historyOpenBehavior = "qooViewer.pref.historyOpenBehavior"
         static let maxTrackedBooksCount = "qooViewer.pref.maxTrackedBooksCount"
         static let hideToolbar = "qooViewer.pref.hideToolbar"
@@ -85,7 +84,6 @@ final class AppPreferences: ObservableObject {
         static let smartLibraryCoverFit = "qooViewer.pref.smartLibrary.coverFit"
         static let secretFolderBooksOpenPrivately = "qooViewer.pref.secretFolder.opensInPrivateWindow"
         static let secretFolderPrivatePlacement = "qooViewer.pref.secretFolder.privateWindowPlacement"
-        static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
         static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
@@ -94,6 +92,13 @@ final class AppPreferences: ObservableObject {
         /// 読まないが消さない(前の版へ戻したときにそのまま使えるように。`PageOrder.retiredSettingKey` と同じ扱い)。
         /// 保存データの JSON には入れない(`SettingsBackup.excludedKeys`)。
         static let retiredDefaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
+        /// 削除したお気に入り機能の設定(2026-10-24。お気に入りを開くとき・最近のお気に入りの表示・一覧の並べ替えとフォルダを上に)。
+        /// 機能ごと消した(保存データの表も軽量マイグレーションで落ちる)ので、起動時に消す(`init`)。保存データの JSON にも
+        /// 入れない(`SettingsBackup.excludedKeys`。古い控えを読み込んでも書き戻さない)。
+        static let retiredFavoritesKeys = [
+            "qooViewer.pref.favoriteOpenBehavior", "qooViewer.pref.showRecentFavoritesOnWelcome",
+            "qooViewer.pref.favoritesSortOption", "qooViewer.pref.favoritesFoldersAlwaysOnTop",
+        ]
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
@@ -377,24 +382,15 @@ final class AppPreferences: ObservableObject {
     @Published var finderOpenBehavior: FinderOpenBehavior {
         didSet { defaults.set(finderOpenBehavior.rawValue, forKey: Keys.finderOpenBehavior) }
     }
-    /// 既に本を表示している状態で、お気に入り一覧(メニューバー・ツールバー・ウェルカム画面)から
-    /// 別の本を開こうとしたときの挙動(既定は「現在の本を閉じて新しい本を開く」)。
-    /// FinderOpenBehaviorと選択肢(現在の本を閉じて開く/新しいタブ/新しいウインドウ)が同じ
-    /// ため、型はそのまま再利用している。以前はお気に入りを開くたびにサブメニューから
-    /// 「開く/新しいウインドウで開く/新しいタブで開く」を毎回選ぶ形式だったが、
-    /// この環境設定1箇所で挙動を固定できるように変更した。
-    @Published var favoriteOpenBehavior: FinderOpenBehavior {
-        didSet { defaults.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
-    }
     /// 既に本を表示している状態で、履歴(メニューバー「ファイル」→「最近使った項目を開く」、サイドパネルの「履歴」モード)から
     /// 別の本を開こうとしたときの挙動(2026-09-28、利用者の要望。既定は「現在の本を閉じて新しい本を開く」= それまでの挙動)。
-    /// 「Finderから」「お気に入りから」と同じ問い・同じ選択肢なので `FinderOpenBehavior` をそのまま使う。まだ本を表示していない
+    /// 「Finderから」と同じ問い・同じ選択肢なので `FinderOpenBehavior` をそのまま使う。まだ本を表示していない
     /// (ホーム)ときは、設定に関わらずそのウインドウで開く(`AppState.openFromHistory`)。
     @Published var historyOpenBehavior: FinderOpenBehavior {
         didSet { defaults.set(historyOpenBehavior.rawValue, forKey: Keys.historyOpenBehavior) }
     }
     /// 見開き表示中(実際に2ページ組でペア表示されているとき)、クリック位置の情報が無い経路
-    /// (ツールバーのボタン・メニューバー「お気に入り」メニュー・キーボードショートカット)から
+    /// (ツールバーのボタン・メニューバー「編集」メニュー・キーボードショートカット)から
     /// 「現在のページをブックマークに追加」したときに、左右どちらのページを対象にするか
     /// (既定は「読み方向に応じた既定側を常に対象にする」=この設定を導入する以前からの挙動)。
     /// コンテキストメニュー(右クリック)からの追加はクリックした側のページを一意に対象にできる
@@ -980,13 +976,6 @@ final class AppPreferences: ObservableObject {
     @Published var secretFolderPrivatePlacement: SecretFolderPrivatePlacement {
         didSet { defaults.set(secretFolderPrivatePlacement.rawValue, forKey: Keys.secretFolderPrivatePlacement) }
     }
-    /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
-    @Published var showRecentFavoritesOnWelcome: Bool {
-        didSet {
-            defaults.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
-        }
-    }
-
 
     // MARK: - レイアウト(環境設定「レイアウト」画面。ユーザー要望)
 
@@ -1310,7 +1299,7 @@ final class AppPreferences: ObservableObject {
 
     // ブックマークの並べ替え基準は、以前はここ(AppPreferences.bookmarkSortOption)に
     // 持たせていたが、「ブックマークの編集」ウインドウがすべての本を横断する2ペイン構成に
-    // なったことに伴い、お気に入りのFavoritesStoreと同じく専用のストア(BookmarkStore)が
+    // なったことに伴い、当時のお気に入りと同じく専用のストア(BookmarkStore)が
     // 自分自身で持つように変更した(BookmarkStore.sortOption参照)。
 
     /// displayLanguage を実際の Locale に変換したもの。
@@ -1358,6 +1347,7 @@ final class AppPreferences: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.sharesGlobalState = defaults === UserDefaults.standard
+        for key in Keys.retiredFavoritesKeys { defaults.removeObject(forKey: key) }
         // ノーマルの揃いは、ライト/ダークをアプリ全体へ掛ける(AppearanceSettings.appliesToApp)。
         self.appearance = AppearanceSettings(profile: .normal, defaults: defaults)
         self.privateAppearance = AppearanceSettings(profile: .privateWindow, defaults: defaults)
@@ -1409,9 +1399,6 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.installsUpdatesAutomatically) as? Bool ?? false
         self.finderOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.finderOpenBehavior) ?? "")
-                ?? .replaceCurrentBook
-        self.favoriteOpenBehavior =
-            FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.favoriteOpenBehavior) ?? "")
                 ?? .replaceCurrentBook
         self.historyOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.historyOpenBehavior) ?? "")
@@ -1500,8 +1487,6 @@ final class AppPreferences: ObservableObject {
         self.secretFolderPrivatePlacement = SecretFolderPrivatePlacement(
             rawValue: defaults.string(forKey: Keys.secretFolderPrivatePlacement) ?? ""
         ) ?? .tabInPrivateWindow
-        self.showRecentFavoritesOnWelcome =
-            defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewDelay), default: 0.35, range: Self.thumbnailHoverPreviewDelayRange)
         // 既定値440は、設定にする前に各所へ直接書かれていた値そのもの(見た目を変えないため)。
         self.thumbnailHoverPreviewSize = Self.storedDouble(defaults.object(forKey: Keys.thumbnailHoverPreviewSize), default: 440, range: Self.thumbnailHoverPreviewSizeRange)
@@ -1617,7 +1602,7 @@ extension AppPreferences {
     ///   ・recentFilesLimit … didSetの通知でRecentFilesStoreがその場で履歴を切り詰めて保存する
     /// どちらも取り消せない。この2つを戻すと、確認ダイアログも無いボタン1つで
     /// 「例えば2000冊 → 500冊」の削除が起きることになり、ボタンの説明文の
-    /// 「お気に入り・ブックマーク・読書履歴には影響しません」とも食い違う。
+    /// 「ブックマーク・読書履歴には影響しません」とも食い違う。
     /// **「設定を戻す」操作でユーザーのデータを捨ててはいけない**ので、この2つは戻さない
     /// (どちらもスライダーなので、戻したければその場で既定値へ動かせる)。
     private static func keys(for pane: SettingsPane) -> [String] {
@@ -1631,7 +1616,6 @@ extension AppPreferences {
                 Keys.quitWhenLastWindowClosed,
                 Keys.confirmBeforeClosingMultipleTabsWindow,
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
-                Keys.showRecentFavoritesOnWelcome,
                 // offersRemovingMissingCollectionBooks / homeOpensWithSingleClick は「ライブラリ」へ移した(2026-09-27。下の case .library)。
                 Keys.libraryFeatureEnabled,
                 Keys.fileBrowserFeatureEnabled,
@@ -1652,7 +1636,6 @@ extension AppPreferences {
             return [
                 Keys.reopenBehavior,
                 Keys.finderOpenBehavior,
-                Keys.favoriteOpenBehavior,
                 Keys.historyOpenBehavior,
                 // spreadBookmarkTargetBehavior は「閲覧中の動作」へ移した(2026-09-27。下の case .reading)。
                 Keys.defaultReadingDirection,
@@ -1805,7 +1788,6 @@ extension AppPreferences {
             quitWhenLastWindowClosed = source.quitWhenLastWindowClosed
             confirmBeforeClosingMultipleTabsWindow = source.confirmBeforeClosingMultipleTabsWindow
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
-            showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             libraryFeatureEnabled = source.libraryFeatureEnabled
             fileBrowserFeatureEnabled = source.fileBrowserFeatureEnabled
             smartLibraryFeatureEnabled = source.smartLibraryFeatureEnabled
@@ -1822,7 +1804,6 @@ extension AppPreferences {
         case .opening:
             reopenBehavior = source.reopenBehavior
             finderOpenBehavior = source.finderOpenBehavior
-            favoriteOpenBehavior = source.favoriteOpenBehavior
             historyOpenBehavior = source.historyOpenBehavior
             defaultReadingDirectionSetting = source.defaultReadingDirectionSetting
             defaultDisplayMode = source.defaultDisplayMode

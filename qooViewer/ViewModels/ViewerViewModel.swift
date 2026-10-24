@@ -1012,8 +1012,7 @@ final class ViewerViewModel: ObservableObject {
             // 呼ばれるが、NotificationCenterのクロージャ自体の型はMainActorに分離されて
             // いないため、コンパイラは静的にそれを保証できない。Task { @MainActor in ... }で
             // 包み直すと、今度はSwift 6の厳格な並行性チェックで「非同期に実行されるコードで
-            // selfをキャプチャしている」という別の警告/エラーになる(FavoritesStore.swiftの
-            // 同種のコメント参照)ため、代わりにMainActor.assumeIsolatedで「実行時には
+            // selfをキャプチャしている」という別の警告/エラーになるため、代わりにMainActor.assumeIsolatedで「実行時には
             // 既にMainActor上にいる」ことを伝える(queue: .mainにより保証されている前提の
             // 表明であり、Task化のような余分な非同期ホップも発生させない)。
             MainActor.assumeIsolated {
@@ -2472,7 +2471,7 @@ final class ViewerViewModel: ObservableObject {
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
         let pagePrefix = String(localized: "Page", language: preferences.effectiveLocale)
-        // セキュリティスコープ付きブックマークを一緒に保存しておく(FavoriteBook.bookmarkDataと
+        // セキュリティスコープ付きブックマークを一緒に保存しておく(コレクションの本(CollectionItem.bookmarkData)と
         // 同じ理由。「ブックマークの編集」ウインドウから、今開いていない本を新たに開いてジャンプ
         // する機能(要望2〜4)のために必要。今この本を開けている=このURLへのアクセス権を
         // 持っている、という前提で開いたときにメインの外で作ってある ―― `MangaBook.sourceFacts`。2026-10-11 の規約監査:

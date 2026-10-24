@@ -6,8 +6,8 @@ import SwiftUI
 /// (CBZ/EPUB/ZIP/RAR/CBR/7Z/CB7)。
 ///
 /// EPUB書き出し機能(7節)により、同じ作品のcbz版とepub版が両方存在する(別々のbookIDとして、
-/// お気に入り・ブックマーク・レイアウトにそれぞれ登録されうる)ケースが増える。
-/// FavoriteBook.title・BookmarkBookGroup.displayNameのいずれも拡張子を除いた名前を保持・
+/// ブックマーク・レイアウトにそれぞれ登録されうる)ケースが増える。
+/// BookmarkBookGroup.displayNameなどは拡張子を除いた名前を保持・
 /// 表示しており、同名のcbz/epubが並ぶと区別が付かないため、「ブックマーク・レイアウトの編集」
 /// ウインドウ(4節)・EPUB出力ウインドウ(7節)の一覧行で、タイトルと並べてこれを表示する。
 struct FormatBadgeView: View {
@@ -45,7 +45,7 @@ struct FormatBadgeView: View {
     /// このバッジが実際に占めるおおよその幅。
     ///
     /// ファイル名とこのバッジを横に並べた行の幅を実測から決めたい箇所(ウェルカム画面の
-    /// 「最近開いたファイル」「最近のお気に入り」の列幅。WelcomeQuickOpenWidth参照)で使う。
+    /// 「最近開いたファイル」の列幅。WelcomeQuickOpenWidth参照)で使う。
     /// バッジの文字列は形式ごとに長さが違う(「7Z」と「EPUB」と「フォルダ」)ため、
     /// 一律の固定値ではなく実際に表示する文字列を測る。
     ///
@@ -72,8 +72,7 @@ struct FormatBadgeView: View {
     /// 以前は" (CBZ)"のような大文字の括弧書きサフィックスを末尾に付けていたが、実際の
     /// ファイル名の見た目に近い「baseName.拡張子」(拡張子は小文字)の形に変更する。
     /// 「Folder」は元々拡張子が無く区別の必要が無いためbaseNameをそのまま返す
-    /// (FavoritesMenuContent/FavoritesNSMenuBridgeのお気に入り一覧・FavoritesOrganizerView
-    /// 以外の、メニュー項目としてタイトルを表示する箇所で使う)。
+    /// (メニュー項目・ウインドウのタイトルなど、文字だけでタイトルを表示する箇所で使う)。
     static func plainTextTitle(baseName: String, bookID: String) -> String {
         let pathExtension = BookFileName.bookExtension(forBookID: bookID)
         guard !pathExtension.isEmpty else { return baseName }

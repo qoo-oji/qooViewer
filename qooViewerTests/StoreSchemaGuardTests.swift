@@ -98,6 +98,32 @@ struct StoreSchemaGuardTests {
         )
     }
 
+    @Test("エンティティを外した後も、外す前の世代のストアは開いてよい(2026-10-24、お気に入りの削除)")
+    func proceedsAcrossARemovedEntity() {
+        let withFavorites: [String: Data] = ["A": Data([1]), "B": Data([2]), "FavoriteBook": Data([5])]
+        let generations = [1: StoreSchemaGuard.fingerprint(of: withFavorites), 2: StoreSchemaGuard.fingerprint(of: current)]
+        // 前の世代の指紋と同じストア(記録あり・なし)。
+        #expect(StoreSchemaGuard.verdict(storeHashes: withFavorites, currentHashes: current, recordedGeneration: 1,
+                                         currentGeneration: 2, knownGenerations: generations, retiredEntityNames: []) == .proceed)
+        #expect(StoreSchemaGuard.verdict(storeHashes: withFavorites, currentHashes: current, recordedGeneration: nil,
+                                         currentGeneration: 2, knownGenerations: generations, retiredEntityNames: []) == .proceed)
+        // 表に無い指紋(番人を入れる前の版)でも、削除したエンティティしか余っていなければ開いてよい。
+        let preGuard: [String: Data] = ["A": Data([0]), "B": Data([2]), "FavoriteBook": Data([5])]
+        #expect(StoreSchemaGuard.verdict(storeHashes: preGuard, currentHashes: current, recordedGeneration: nil,
+                                         currentGeneration: 2, knownGenerations: generations,
+                                         retiredEntityNames: ["FavoriteBook"]) == .proceed)
+        #expect(StoreSchemaGuard.verdict(storeHashes: preGuard, currentHashes: current, recordedGeneration: nil,
+                                         currentGeneration: 2, knownGenerations: generations, retiredEntityNames: []) == .newerStore)
+    }
+
+    @Test("いまのアプリが外したお気に入りの表を持つ、1.84 までのストアは止めない")
+    func favoritesStoresAreNotNewer() {
+        #expect(StoreSchemaGuard.retiredEntityNames.isSuperset(of: ["FavoriteBook", "FavoriteFolder"]))
+        let hashes = StoreSchemaGuard.currentHashes(for: SchemaSnapshot_1_54.types)
+        #expect(StoreSchemaGuard.verdict(storeHashes: hashes, currentHashes: StoreSchemaGuard.currentHashes(for: QooViewerApp.modelTypes), recordedGeneration: nil) == .proceed)
+        #expect(StoreSchemaGuard.verdict(storeHashes: hashes, currentHashes: StoreSchemaGuard.currentHashes(for: QooViewerApp.modelTypes), recordedGeneration: 4) == .proceed)
+    }
+
     @Test("記録は大きいほうを残す(古いアプリで開いても、新しいアプリが使った事実は消えない)")
     func recordKeepsTheHighestGeneration() {
         let suite = PreferencesSuite(label: "schema-generation")

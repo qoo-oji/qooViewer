@@ -6,12 +6,12 @@ import Testing
 
 /// 「本ごとの保存データを削除」ウインドウ(ViewModels/LibraryCleanupViewModel.swift)。
 ///
-/// この画面は**6 つの保存先を横断する**唯一の場所で、集めるのも消すのも 6 つすべてが
-/// 対象になっている必要がある(段階 4 で見つけた `deleteAllFavorites` の取りこぼしと
-/// 同じ性質の経路)。
+/// この画面は**5 つの保存先を横断する**唯一の場所で、集めるのも消すのも 5 つすべてが
+/// 対象になっている必要がある(段階 4 で見つけた、当時のお気に入りの一括削除の取りこぼしと
+/// 同じ性質の経路。お気に入りは 2026-10-24 に機能ごと削除した)。
 @MainActor
 struct LibraryCleanupTests {
-    /// この画面が必要とする保存先(SwiftData の 5 種 + アクセス権)を、テスト 1 つぶんの
+    /// この画面が必要とする保存先(SwiftData の 4 種 + アクセス権)を、テスト 1 つぶんの
     /// 入れ物の上に組む。
     private struct Environment {
         let library: InMemoryLibrary
@@ -33,7 +33,7 @@ struct LibraryCleanupTests {
 
         func makeViewModel() -> LibraryCleanupViewModel {
             LibraryCleanupViewModel(
-                favoritesStore: library.favorites, collectionStore: library.collections,
+                collectionStore: library.collections,
                 bookmarkStore: library.bookmarks, layoutStore: library.layouts,
                 metadataStore: library.metadata, folderAccess: folderAccess,
                 modelContext: library.context
@@ -42,8 +42,8 @@ struct LibraryCleanupTests {
 
         /// この画面から見えるぶんだけの本。
         ///
-        /// **実体(空のファイル)も作る** ―― お気に入りの登録はセキュリティスコープ付きの
-        /// ブックマークを作れないと失敗するため(`FavoritesStore.makeBookmarkData`)。
+        /// **実体(空のファイル)も作る** ―― コレクションへの登録はセキュリティスコープ付きの
+        /// ブックマークを作れないと失敗するため(`CollectionStore.makePendingItem`)。
         func book(_ name: String) throws -> MangaBook {
             let url = temporary.file(name)
             if !FileManager.default.fileExists(atPath: url.path) {
@@ -71,12 +71,11 @@ struct LibraryCleanupTests {
         }
     }
 
-    @Test("一覧は6つの保存先すべてから本を集める(どれか1つでもあれば行になる)")
+    @Test("一覧は5つの保存先すべてから本を集める(どれか1つでもあれば行になる)")
     func rowsAreCollectedFromEveryStore() throws {
         let env = try Environment()
         defer { env.close() }
 
-        _ = env.library.favorites.addFavorite(book: try env.book("favorite"), to: nil)
         env.library.bookmarks.addBookmark(bookID: env.id("bookmarked"), pageIndex: 0, name: "b")
         env.library.layouts.setPageLayoutState(
             for: try env.book("layout"), pageKey: "p1", state: .single
@@ -94,28 +93,26 @@ struct LibraryCleanupTests {
         let viewModel = env.makeViewModel()
         #expect(
             Set(viewModel.rows.map(\.bookID)) == Set(
-                ["favorite", "bookmarked", "layout", "cover", "metadata", "collected", "reading"]
+                ["bookmarked", "layout", "cover", "metadata", "collected", "reading"]
                     .map(env.id)
             )
         )
-        #expect(viewModel.totalRowCount == 7)
+        #expect(viewModel.totalRowCount == 6)
         // 行は「何を持っているか」も示す(削除前の確認ダイアログの材料)。
         let layoutRow = viewModel.rows.first { $0.bookID == env.id("layout") }
         #expect(layoutRow?.hasLayout == true)
         #expect(layoutRow?.hasMetadata == false)
         #expect(viewModel.rows.first { $0.bookID == env.id("bookmarked") }?.bookmarkCount == 1)
-        #expect(viewModel.rows.first { $0.bookID == env.id("favorite") }?.favoriteCount == 1)
         #expect(viewModel.rows.first { $0.bookID == env.id("collected") }?.collectionCount == 1)
     }
 
-    @Test("削除は、その本のデータを6つの保存先すべてから消す")
+    @Test("削除は、その本のデータを5つの保存先すべてから消す")
     func deletingRemovesTheBookFromEveryStore() throws {
         let env = try Environment()
         defer { env.close() }
         let book = try env.book("everything")
         let bookID = book.id
 
-        _ = env.library.favorites.addFavorite(book: book, to: nil)
         try env.addToCollection(named: "everything")
         env.library.bookmarks.addBookmark(bookID: bookID, pageIndex: 0, name: "b")
         env.library.layouts.setPageLayoutState(for: book, pageKey: "p1", state: .single)
@@ -132,7 +129,6 @@ struct LibraryCleanupTests {
         viewModel.deleteAllData(forBookIDs: [bookID])
 
         #expect(viewModel.rows.isEmpty)
-        #expect(env.library.favorites.favoriteCount(forBookID: bookID) == 0)
         #expect(env.library.collections.membershipCount(forBookID: bookID) == 0)
         #expect(env.library.bookmarks.bookmarks(forBookID: bookID).isEmpty)
         #expect(env.library.layouts.bookLayoutSettings(forBookID: bookID) == nil)

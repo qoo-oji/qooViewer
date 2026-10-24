@@ -198,7 +198,7 @@ nonisolated struct FileSystemChange: Sendable, Equatable {
     /// - 本そのもの、またはその祖先が変わった(移った・消えた・置き換えた・できた)
     /// - 本(フォルダの本)の中の項目が変わった(フォルダの更新日時が変わるので、日付順の並びに効く)
     ///
-    /// 棚・履歴・お気に入りの「実体があるか」の確かめ直し(全冊のブックマーク解決と stat)を、関わる変更のときだけにするために
+    /// 棚・履歴の「実体があるか」の確かめ直し(全冊のブックマーク解決と stat)を、関わる変更のときだけにするために
     /// 使う。どちらもパスの深さぶんの辞書引きで答える(本の数 × 変わった項目の数の比較はしない)。
     func touchesAny(of bookPaths: Set<String>) -> Bool {
         guard !bookPaths.isEmpty else { return false }

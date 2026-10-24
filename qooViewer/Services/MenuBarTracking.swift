@@ -3,7 +3,7 @@ import AppKit
 /// `NSMenu.didBeginTrackingNotification`が、メニューバー(NSApp.mainMenu)のメニューによるものか
 /// どうかを判定する。
 ///
-/// FavoritesStore/BookmarkStoreは、いずれも「メニューバーに出す一覧を、次に開いたときに
+/// BookmarkStoreは「メニューバーに出す一覧を、次に開いたときに
 /// 最新にしておく」ための保険として、メニューが閉じるたびにreload()を呼んでいる
 /// (MenuBarMenuGate.onMenuBarMenuDidClose(_:_:)経由。この判定はそのゲートが使う)。
 ///

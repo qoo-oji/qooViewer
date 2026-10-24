@@ -20,7 +20,6 @@ struct SheetAndFeedbackPortTests {
     private func makeAppState(_ library: InMemoryLibrary) -> AppState {
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = library.preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata

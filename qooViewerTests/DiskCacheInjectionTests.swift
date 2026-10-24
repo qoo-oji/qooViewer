@@ -228,7 +228,7 @@ struct DiskCacheInjectionTests {
         let erase = try await loadCaching(try makeZipBook(in: temporary, named: "erase.cbz"), caches: caches)
 
         let eraser = BookSavedDataEraser(
-            favoritesStore: library.favorites, collectionStore: library.collections,
+            collectionStore: library.collections,
             bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, modelContext: library.context,
             pageListCache: caches.pageLists

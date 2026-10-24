@@ -110,12 +110,12 @@ struct LibraryPaneControls: View {
     /// 選択が要るからで、**足す操作にはどちらの事情も無い** ―― 棚を作る・本を入れるのは
     /// この画面で最初にやることなのに、それがモードの奥に隠れていた。
     @Binding var isEditing: Bool
-    @Binding var sort: FavoritesSortOption
+    @Binding var sort: ItemSortOption
     /// 並べ替えの基準として選ばせるもの。コレクションの中では「更新日時」を出さない
     /// (本の行には後から更新される情報が無いため。CollectionStore.items(in:sort:)参照)。
     /// 逆に「タイトル」はコレクションの中だけに出す(書誌のタイトルを持つのは本だけ。
-    /// FavoritesSortOptionの型コメント参照)。
-    let sortFields: [FavoritesSortOption.Field]
+    /// ItemSortOptionの型コメント参照)。
+    let sortFields: [ItemSortOption.Field]
     @Binding var size: CGFloat
     let sizeRange: ClosedRange<CGFloat>
     let sizeHelp: LocalizedStringKey
@@ -237,8 +237,8 @@ private struct WelcomeEditToggleForeground: ViewModifier {
 }
 
 private struct WelcomeSortMenu: View {
-    @Binding var option: FavoritesSortOption
-    let fields: [FavoritesSortOption.Field]
+    @Binding var option: ItemSortOption
+    let fields: [ItemSortOption.Field]
 
     var body: some View {
         Menu {
@@ -277,17 +277,17 @@ private struct WelcomeSortMenu: View {
         .help("Sort By")
     }
 
-    private var fieldBinding: Binding<FavoritesSortOption.Field> {
+    private var fieldBinding: Binding<ItemSortOption.Field> {
         Binding(
             get: { option.field },
-            set: { option = FavoritesSortOption(field: $0, ascending: option.isAscending) }
+            set: { option = ItemSortOption(field: $0, ascending: option.isAscending) }
         )
     }
 
     private var ascendingBinding: Binding<Bool> {
         Binding(
             get: { option.isAscending },
-            set: { option = FavoritesSortOption(field: option.field, ascending: $0) }
+            set: { option = ItemSortOption(field: option.field, ascending: $0) }
         )
     }
 }

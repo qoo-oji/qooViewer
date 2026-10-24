@@ -42,7 +42,6 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `AppPreferences` | UserDefaults | 環境設定。1プロパティ=1キー、`didSet` で即保存 |
 | `RecentFilesStore` | UserDefaults | 履歴(セキュリティスコープ付きブックマーク+パスのキャッシュ) |
 | `FolderAccessStore` | UserDefaults | 環境設定「フォルダのアクセス権」。起動中ずっとアクセスを開いたまま維持 |
-| `FavoritesStore` | SwiftData | お気に入り(階層フォルダ付き。無効化中) |
 | `CollectionStore` | SwiftData | ライブラリ / コレクション / その中の本。**`allObjectWillChangePublishers` に入れない**(表紙の抽出・存在確認のたびに publish するので、つなぐと名前が変わっていなくてもメニューが作り直される) |
 | `HomeMenuDirectoryStore` | メモリ | 「ホーム」メニューに出すライブラリとコレクションの名前の写し(2026-09-15)。`CollectionStore` の代わりに `allObjectWillChangePublishers` に入り、名前・並び・所属が変わったときだけ publish する(→ [09](09-ui-and-windows.md#メニューバーのホーム画面の項目)) |
 | `CollectionCoverStore` | ディスク(Application Support) | コレクション表紙の表示用JPEG(actor) |
@@ -137,7 +136,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 `BookOpenRequest` で、フォルダを新しいタブ/ウインドウのファイルブラウザで開けなかった(改善要望7 段階 3)。
 `browse` だけが開くたびに変わる `nonce` を持つ(同じフォルダを 2 枚で見るため。→ [15](15-file-browser.md))。
 | `Settings` | ― | 環境設定 |
-| `Window` | `favoritesOrganizer` / `editBookmarks` / `editMetadata` / `epubExport` / `pdfExport` / `cbzExport` / `libraryExport` / `libraryImport` / `libraryCleanup` / `historyCleanup` | 単一インスタンスの補助ウインドウ。`favoritesOrganizer` は `.commandsRemoved()` で「ウインドウ」メニューの自動の項目を落としてある(`Window` は宣言するだけでそこに並ぶ。`SceneBuilder` は `if #available` 以外の条件分岐を受け付けないので、フラグでシーンごと囲むことはできない) |
+| `Window` | `editBookmarks` / `editMetadata` / `epubExport` / `pdfExport` / `cbzExport` / `libraryExport` / `libraryImport` / `libraryCleanup` / `historyCleanup` | 単一インスタンスの補助ウインドウ。メニューに出さないもの(自動リネームの設定など)は `.commandsRemoved()` で「ウインドウ」メニューの自動の項目を落としてある(`Window` は宣言するだけでそこに並ぶ。`SceneBuilder` は `if #available` 以外の条件分岐を受け付けないので、フラグでシーンごと囲むことはできない) |
 
 すべての本のウインドウは `.restorationBehavior(.disabled)` です。macOS の標準の状態復元が、
 ウインドウ0枚からの再アクティブ化で古い `NSWindow` を再利用し、「Finder から開くと一瞬出て消える/
@@ -204,7 +203,7 @@ Finder / Dock からの「開く」は `AppDelegate.application(_:open:)` が受
 
 ## メニューバーと MenuBarMenuGate
 
-メニューバーは `QooViewerApp` の `.commands` に全部あります。File / Edit(お気に入り・
+メニューバーは `QooViewerApp` の `.commands` に全部あります。File / Edit(
 ブックマーク・レイアウト・メタデータの編集もここ)/ View(`CommandGroup(after: .toolbar)` で
 標準の View メニューへ統合)/ Move(`CommandMenu`)/ Home(`CommandMenu`、2026-09-15)/ Window。
 ホーム画面(本棚・ファイルブラウザ)向けの項目の割り振りは [09](09-ui-and-windows.md#メニューバーのホーム画面の項目)。
@@ -213,7 +212,7 @@ Finder / Dock からの「開く」は `AppDelegate.application(_:open:)` が受
 (`NSContextMenuImpl` の行高キャッシュの範囲外アクセスで `NSRangeException`)。SwiftUI の
 `Commands` は `@FocusedValue` や `ObservableObject` の変化のたびに項目を作り直すため、
 「ユーザーの操作と無関係に非同期で変わる値」(見開きのデコード完了、履歴の再検証、
-お気に入りの存在確認、スライドショーの境界到達 …)がそのまま流れると危険です。
+コレクションの存在確認、スライドショーの境界到達 …)がそのまま流れると危険です。
 
 対策は3段です。
 
@@ -225,7 +224,7 @@ Finder / Dock からの「開く」は `AppDelegate.application(_:open:)` が受
 3. **メニュー項目の数を状態で変えない**: 条件で項目を出し分けるのではなく、常に同じ項目数で
    `.disabled` にする。項目数が変わる更新は再構築を引き起こす。
 
-同じ理由で、`RecentFilesStore` / `FavoritesStore` の `@Published` は「値が同じなら代入しない」
+同じ理由で、`RecentFilesStore` の `@Published` は「値が同じなら代入しない」
 (`@Published` は同値でも `objectWillChange` を発火する)。原因を突き止めた手順は
 [12](12-verification-and-debugging.md#メニュー再構築の現行犯逮捕) にあります。
 
@@ -264,7 +263,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
   **`PageLoader`(actor)の中でだけ触る。** デコード(CPU 負荷)は actor の外の `Task` で行い、
   actor をブロックしない。
 - メインアクターの外へ渡す値は、SwiftData のモデルをそのまま渡さず、メインアクターにいるうちに
-  `Sendable` な値(UUID・Data・String)へ写し取る(`FavoritesStore.scheduleExistenceRefresh`、
+  `Sendable` な値(UUID・Data・String)へ写し取る(`CollectionStore.scheduleExistenceRefresh`、
   `LibraryCleanupViewModel.ExistenceProbe`)。
 - `[weak self]` で受けた self は、`await` をまたぐ前に `guard let` で強参照へ変換する。
 - 結果の反映は世代番号(`generation`)で「自分が最新か」を確かめてから行う。走行中に来た要求は

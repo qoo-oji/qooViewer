@@ -3,7 +3,7 @@ import SwiftData
 
 @testable import qooViewer
 
-/// 保存データ(お気に入り・ブックマーク・レイアウト設定・書誌メタデータ)を持つ、
+/// 保存データ(ブックマーク・レイアウト設定・書誌メタデータ・コレクション)を持つ、
 /// **テスト 1 つぶんのライブラリ**。
 ///
 /// `ModelConfiguration(isStoredInMemoryOnly: true)` の `ModelContainer` をテストが自前で作り、
@@ -18,7 +18,7 @@ import SwiftData
 /// docs/06。コンテキストを分けると片方の変更がもう片方に見えない)。
 ///
 /// ■ このライブラリを作ると、走っているアプリ側に少しだけ触れる
-/// - `FavoritesStore` / `BookmarkStore` は固定のキーで `MenuBarMenuGate.shared` へ
+/// - `BookmarkStore` は固定のキーで `MenuBarMenuGate.shared` へ
 ///   「メニューを閉じたら一覧を作り直す」処理を登録する(アプリ全体で 1 つという前提)。
 ///   同じキーなので、テストのストアの登録がアプリのストアの登録を**置き換える**。置き換えた
 ///   処理はテストのストアが消えた時点で何もしなくなるが、影響はテストホストのメニューの
@@ -29,7 +29,6 @@ import SwiftData
 final class InMemoryLibrary {
     let container: ModelContainer
     let context: ModelContext
-    let favorites: FavoritesStore
     let bookmarks: BookmarkStore
     let layouts: LayoutStore
     let metadata: BookMetadataStore
@@ -77,7 +76,6 @@ final class InMemoryLibrary {
         )
         container = try ModelContainer(for: QooViewerApp.modelSchema, configurations: [configuration])
         context = container.mainContext
-        favorites = FavoritesStore(modelContext: context)
         bookmarks = BookmarkStore(modelContext: context)
         // コレクション表紙の元画像も SwiftData の外(ディスク上の JPEG)なので、
         // **このライブラリ専用の一時フォルダ**を渡す ―― 既定のままだと利用者の
@@ -140,7 +138,6 @@ final class InMemoryLibrary {
     /// deinit に任せられないのは、解放がメインスレッド以外で始まると通知の処理と重なるため。
     func close() {
         bookmarks.releaseResources()
-        favorites.releaseResources()
         collections.releaseResources()
         metadataRulesSuite.release()
         backupSuite.release()
@@ -166,7 +163,7 @@ final class InMemoryLibrary {
     var knownBookSources: KnownBooks.Sources {
         KnownBooks.Sources(
             metadataStore: metadata, bookmarkStore: bookmarks, layoutStore: layouts,
-            favoritesStore: favorites, collectionStore: collections, modelContext: context
+            collectionStore: collections, modelContext: context
         )
     }
 
@@ -181,7 +178,7 @@ final class InMemoryLibrary {
     ) async -> LibraryImportExportService.ImportSummary {
         await LibraryImportExportService.apply(
             file, policies: policies,
-            favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
+            bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataRulesStore: metadataRules,
             collectionStore: collections, backupStores: backupStores, cachesPageList: false
         )
@@ -198,29 +195,13 @@ final class InMemoryLibrary {
     ) async -> (QooLibraryExportFile, LibraryImportExportService.ExportResult) {
         await LibraryImportExportService.buildExportFile(
             selection: selection,
-            favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
+            bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataRulesStore: metadataRules,
             collectionStore: collections, backupStores: backupStores, cachesPageList: false
         )
     }
 
     // MARK: - 中身を読む(期待値の組み立て用)
-
-    /// フォルダ階層を `親/子/本` のパスの列にしたもの(並びは `FavoritesStore` の一覧順)。
-    /// お気に入りの木を 1 つの値として比べられるようにするためのもの。
-    func favoriteBookPaths() -> [String] {
-        var result: [String] = []
-        func walk(_ folder: FavoriteFolder?, prefix: String) {
-            for book in favorites.books(in: folder) {
-                result.append(prefix + book.title)
-            }
-            for subfolder in favorites.subfolders(of: folder) {
-                walk(subfolder, prefix: prefix + subfolder.name + "/")
-            }
-        }
-        walk(nil, prefix: "")
-        return result
-    }
 
     /// この本のブックマークを (ページ番号, 鍵, 名前) の列で。ページ番号順。
     func bookmarkRows(forBookID bookID: String) -> [(pageIndex: Int, pageKey: String?, name: String)] {
@@ -241,7 +222,7 @@ final class InMemoryLibrary {
 extension LibraryImportExportService.ExportSelection {
     /// すべてのカテゴリを書き出す選択。
     static let everything = Self(
-        includeFavorites: true, includeBookmarks: true, includeLayouts: true,
+        includeBookmarks: true, includeLayouts: true,
         includeMetadata: true, includeMetadataRules: true, includeCollections: true,
         includeReadingStates: true, includeSmartLibrary: true, includeFileBrowser: true,
         includeSettings: true
@@ -254,7 +235,7 @@ extension LibraryImportExportService.ImportPolicies {
     /// 丸ごと差し替えるため、ignore 以外は同じ意味になる)。
     static func all(_ policy: LibraryImportExportService.ImportPolicy) -> Self {
         Self(
-            favorites: policy, bookmarks: policy, layouts: policy, metadata: policy,
+            bookmarks: policy, layouts: policy, metadata: policy,
             metadataRules: policy, collections: policy, readingStates: policy,
             smartLibrary: policy, fileBrowser: policy, settings: policy
         )

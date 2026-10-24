@@ -1,34 +1,25 @@
 import SwiftUI
 
-/// 「名前」「タイトル」「追加日時」「更新日時」という4つの基準で、それぞれ昇順・降順に
-/// 並べ替えるための汎用的な列挙。以下の2箇所で共通して使う(名称は歴史的経緯で"Favorites"の
-/// ままだが、中身はお気に入り固有のものではない)。
+/// 「名前」「タイトル」「追加日時」「更新日時」などの基準で、それぞれ昇順・降順に並べ替えるための汎用的な列挙。
+/// ライブラリ・コレクション(ホーム、サイドパネル)とブックマークの編集ウインドウで共通して使う
+/// (2026-10-24 までの名前は FavoritesSortOption。最初に使ったお気に入り機能を削除したときに改名した。
+/// 保存している値は rawValue なので、改名で変わらない)。
 ///
-/// - お気に入り一覧(「お気に入りの整理」ウインドウ、およびメニューバー/ツールバーのサブメニュー):
-///   FavoritesStoreが公開するrootFolders/rootBooksとsubfolders(of:)/books(in:)は常にこの並び順で
-///   結果を返すため、ここを切り替えるだけで両方の画面に同時に反映される。
 /// - ブックマークの編集ウインドウ(「すべての本を横断したブックマーク編集」への変更に伴い、
 ///   以前あった専用のBookmarkSortOption(ページ番号ソートを含む6種)を廃止し、こちらを
-///   そのまま流用することにした。ブックマークにはページ番号という固有の基準もあったが、
-///   お気に入りと表記・挙動を完全に揃えるため、そちらは削除した。BookmarkSortOption.swiftは
-///   その後しばらく空ファイルとして残っていたが、2026-09に削除済み)。
+///   そのまま流用することにした。BookmarkSortOption.swiftはその後しばらく空ファイルとして
+///   残っていたが、2026-09に削除済み)。
 ///
 /// **「タイトル」だけは、どの画面にも出す基準ではない**(ユーザー要望 2026-09-10)。書誌の
-/// タイトルを持つのは本だけで、フォルダ・コレクション・ブックマークには名前しか無いためである。
+/// タイトルを持つのは本だけで、コレクション・ブックマークには名前しか無いためである。
 /// 出すのはコレクションの中(CollectionDetailView)だけで、それ以外の並べ替えメニューは
 /// `Field.withoutTitle`を渡して候補から外す ―― 選んでも何も起きない選択肢を並べないため
 /// (CollectionCoverCaptionStyleを別に立てたときと同じ判断)。
 ///
-/// (以前あった「登録順(手動の並び)」は廃止した。お気に入りでフォルダ・お気に入りをどちらを
-/// 上に表示するかは、この並び替え基準とは独立したFavoritesStore.foldersAlwaysOnTopで扱う)。
-///
-/// - 追加日時: FavoriteBook.addedAt / FavoriteFolder.createdAt(登録・作成した日時。以後変わらない)、
-///   またはBookmark.createdAt(追加した日時)。
-/// - 更新日時: FavoriteBook.updatedAt / FavoriteFolder.updatedAt(お気に入りが別フォルダへ
-///   移動された、またはフォルダ直下でお気に入り/サブフォルダの追加・移動・削除があった日時)、
-///   またはBookmark.updatedAt(リネームされた日時)。詳細は各モデルのupdatedAtのコメント、
-///   およびFavoritesStore/BookmarkStoreの各メソッド参照。
-enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable {
+/// - 追加日時: CollectionItem / BookCollection の追加・作成日時、またはBookmark.createdAt(追加した日時)。
+/// - 更新日時: 各モデルの updatedAt(Bookmark ならリネームされた日時)。詳細は各モデルのupdatedAtのコメント、
+///   およびCollectionStore/BookmarkStoreの各メソッド参照。
+enum ItemSortOption: String, CaseIterable, Identifiable, Codable, Hashable {
     case nameAscending
     case nameDescending
     case titleAscending
@@ -39,7 +30,7 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
     case dateUpdatedDescending
     /// 本のファイル/フォルダの作成日・変更日(Finderの「作成日」「変更日」と同じ値)。
     /// **本を並べる画面だけに出す**(ユーザー要望 2026-09-13。「タイトル」と同じ扱い ――
-    /// ファイルシステム上の日付を持つのは本だけ。お気に入り・ブックマーク・コレクションの
+    /// ファイルシステム上の日付を持つのは本だけ。ブックマーク・コレクションの
     /// 並べ替えでは名前として扱う)。
     case dateCreatedAscending
     case dateCreatedDescending
@@ -51,9 +42,8 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
     /// 並べ替えの基準そのもの(昇順・降順を含まない3種類)。
     ///
     /// 6つのcaseは「基準3種類 × 昇順/降順」の組み合わせでしかないため、その2つの軸を別々の
-    /// メニューとして選ばせる画面(ブックマーク・レイアウトの編集ウインドウの左ペイン、
-    /// およびお気に入りの整理ウインドウ。いずれもユーザー要望)のために、分解して読み書き
-    /// できるようにしてある。保存される値・並べ替えの実装は従来どおりFavoritesSortOptionのまま
+    /// メニューとして選ばせる画面(ブックマーク・レイアウトの編集ウインドウの左ペイン。
+    /// ユーザー要望)のために、分解して読み書きできるようにしてある。保存される値・並べ替えの実装は従来どおりItemSortOptionのまま
     /// (メニューバー等に残っている6項目を平らに並べる見せ方とも、同じ設定値を共有できる)。
     enum Field: String, CaseIterable, Identifiable, Hashable {
         case name
@@ -69,7 +59,7 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
 
         var id: String { rawValue }
 
-        /// タイトルを持たないもの(お気に入り・ブックマーク・コレクションそのもの)を並べる
+        /// タイトルを持たないもの(ブックマーク・コレクションそのもの)を並べる
         /// メニューに出す基準。`allCases`をそのまま渡すと「タイトル」まで並んでしまう。
         static let withoutTitle: [Field] = [.name, .dateAdded, .dateUpdated]
 

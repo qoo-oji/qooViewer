@@ -85,7 +85,7 @@ struct ReadingSettingsView: View {
                 Text("Slideshow")
             }
 
-            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
+            // ユーザー報告: 見開き表示中にツールバー/メニューバー/キーボードショートカットから
             // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
             // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
             // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
@@ -145,7 +145,7 @@ struct ReadingSettingsView: View {
             }
 
             SettingsResetSection(
-                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.reading)
             }

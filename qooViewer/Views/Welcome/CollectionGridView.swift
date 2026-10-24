@@ -107,8 +107,8 @@ struct CollectionGridView: View {
                     isEditing: $state.isEditing,
                     sort: $state.collectionSort,
                     // コレクションそのものには書誌のタイトルが無いので「タイトル」は出さない
-                    // (FavoritesSortOptionの型コメント参照)。
-                    sortFields: FavoritesSortOption.Field.withoutTitle,
+                    // (ItemSortOptionの型コメント参照)。
+                    sortFields: ItemSortOption.Field.withoutTitle,
                     size: $state.tileSize,
                     sizeRange: WelcomeLibraryState.tileSizeRange,
                     sizeHelp: "Tile Size",
@@ -636,7 +636,7 @@ struct CollectionGridView: View {
                 VStack(spacing: 6) {
                     Label("Private Window", systemImage: "eyeglasses")
                         .font(.headline)
-                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved.")
+                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, layouts, metadata, or thumbnail cache is saved.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

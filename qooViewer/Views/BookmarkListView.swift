@@ -395,12 +395,12 @@ struct BookmarkEditorView: View {
     /// 差し替える(ユーザー要望: 基準と昇順/降順を別々に選べるようにしたい)。
     /// 並べ替えは結果を即座に見たい操作のため、他のメニューと同じくwithoutAnimationを通す
     /// (このファイル冒頭のコメント参照)。
-    private var sortFieldBinding: Binding<FavoritesSortOption.Field> {
+    private var sortFieldBinding: Binding<ItemSortOption.Field> {
         withoutAnimation(
             Binding(
                 get: { bookmarkStore.bookSortOption.field },
                 set: { newField in
-                    bookmarkStore.bookSortOption = FavoritesSortOption(
+                    bookmarkStore.bookSortOption = ItemSortOption(
                         field: newField, ascending: bookmarkStore.bookSortOption.isAscending
                     )
                 }
@@ -414,7 +414,7 @@ struct BookmarkEditorView: View {
             Binding(
                 get: { bookmarkStore.bookSortOption.isAscending },
                 set: { isAscending in
-                    bookmarkStore.bookSortOption = FavoritesSortOption(
+                    bookmarkStore.bookSortOption = ItemSortOption(
                         field: bookmarkStore.bookSortOption.field, ascending: isAscending
                     )
                 }
@@ -613,7 +613,7 @@ struct BookmarkEditorView: View {
                         // との報告を受け、このメニューからは「一括リネーム」を削除し、削除系の
                         // 2項目は「ブックマークおよびレイアウトを全削除」の1項目へ統合した。
                         .contextMenu {
-                            // ユーザー要望: サイドパネル・「お気に入りの編集」と同じ「開き方」の
+                            // ユーザー要望: サイドパネルと同じ「開き方」の
                             // 項目を、ここにも同じ並びで置く(BookOpenContextMenuItems)。
                             // 「開く」はファイル名のダブルクリックと同じ挙動(openBook(bookID:))。
                             BookOpenContextMenuItems(
@@ -675,16 +675,16 @@ struct BookmarkEditorView: View {
 
                         // 並べ替え(ユーザー要望: 「名前(A→Z)」「名前(Z→A)」…と6項目を
                         // 並べる形ではなく、基準3種類と昇順/降順の2つを別々に選ばせる形に
-                        // したい)。保存する値は従来どおりFavoritesSortOptionの6つのcaseの
+                        // したい)。保存する値は従来どおりItemSortOptionの6つのcaseの
                         // ままで、その2つの軸へ分解して読み書きしている
-                        // (FavoritesSortOption.field/isAscending参照)。
+                        // (ItemSortOption.field/isAscending参照)。
                         // メニュー内の2つのPickerは.inlineにしてあり、macOSではそれぞれの
                         // グループにチェックマークが付く。候補が`allCases`でないのは、
                         // 「タイトル」を出さないため(ブックマークには名前しか無い。
-                        // FavoritesSortOptionの型コメント参照)。
+                        // ItemSortOptionの型コメント参照)。
                         Menu {
                             Picker(selection: sortFieldBinding) {
-                                ForEach(FavoritesSortOption.Field.withoutTitle) { field in
+                                ForEach(ItemSortOption.Field.withoutTitle) { field in
                                     Label {
                                         Text(field.titleKey)
                                     } icon: {

@@ -415,7 +415,7 @@ struct LibraryFeatureToggleTests {
         let moved = temporary.file("renamed.zip")
         try FileManager.default.moveItem(at: url, to: moved)
         let relocator = BookRecordRelocator(
-            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context,
             coverExtractor: extractor
         )
@@ -452,7 +452,6 @@ struct LibraryFeatureToggleTests {
         library.collections.setLibraryFeatureEnabled(false)
         let state = AppState(isPrivateWindow: false, usesPageListCache: false)
         state.preferences = preferences
-        state.favoritesStore = library.favorites
         state.bookmarkStore = library.bookmarks
         state.layoutStore = library.layouts
         state.metadataStore = library.metadata

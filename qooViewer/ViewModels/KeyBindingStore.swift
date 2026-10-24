@@ -118,12 +118,6 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.controlCharacter("c").id: .nextBook,
         RemappableKey.controlCharacter("d").id: .previousBook,
         RemappableKey.character("b").id: .showBookmarkList,
-        // お気に入り関連(toggleFavorite/showFavoritesOrganizer)は、対応するブックマーク操作
-        // (toggleBookmark = a、showBookmarkList = b)と同じキーにoptionを組み合わせた既定値に
-        // している(ユーザーからの指示)。文字キーはshift押し/素押しを区別しない仕様
-        // (RemappableKey.from参照)のため、shiftではなくoptionで組み合わせている。
-        RemappableKey.optionCharacter("a").id: .toggleFavorite,
-        RemappableKey.optionCharacter("b").id: .showFavoritesOrganizer,
         RemappableKey.character("g").id: .toggleSlideshow,
         // ルーペ(qooViewer独自の追加機能)。cooViewerに対応する操作が無いため、
         // 他の既定キーと衝突しないlキーを新規に割り当てている(ユーザー要望: 既定はLキー)。
@@ -372,17 +366,16 @@ final class KeyBindingStore: ObservableObject {
 
     /// 設定画面でキーを足すとき、断る理由になる「そのモードで既に割り当てられている別の操作」。
     ///
-    /// 機能を隠しているために設定画面に行の無い操作(`ViewerAction.isHiddenByFeatureSwitch`)は数えない ――
-    /// 数えると、見えない操作を理由に断られ、行が無いので外す手段も無い(2026-10-04 の監査 BE-14 = ST-11。既定の ⌥A / ⌥B)。
-    /// 足すと割り当ては 1 キー 1 操作なので、隠れた操作の割り当ては上書きされて消える(機能を戻しても既定は戻らない ―― 利用者が
-    /// そのキーを別の操作に使うと決めたので、`fillingMissingDefaults` の条件 1 と同じ扱い)。
+    /// 以前は、機能を隠しているために設定画面に行の無い操作(お気に入りの既定の ⌥A / ⌥B)を数えなかった(2026-10-04 の監査
+    /// BE-14 = ST-11 ―― 見えない操作を理由に断られ、行が無いので外す手段も無かった)。お気に入りを 2026-10-24 に削除して、
+    /// 隠れた操作は無くなった。保存されていたお気に入りの割り当ては、読むときに知らない操作名として落ちる(resolveActions)。
     func conflictingAction(for key: RemappableKey, in mode: ScalingMode) -> ViewerAction? {
-        assignedAction(for: key, in: mode).flatMap { $0.isHiddenByFeatureSwitch ? nil : $0 }
+        assignedAction(for: key, in: mode)
     }
 
     /// conflictingAction(for:in:)のマウス版。
     func conflictingAction(for trigger: MouseTrigger, in mode: ScalingMode) -> ViewerAction? {
-        assignedAction(for: trigger, in: mode).flatMap { $0.isHiddenByFeatureSwitch ? nil : $0 }
+        assignedAction(for: trigger, in: mode)
     }
 
     /// action にそのモードで現在割り当てられているキーの一覧を返す(複数割り当て対応)。
@@ -569,7 +562,7 @@ final class KeyBindingStore: ObservableObject {
     /// 保存済みの割り当てに、**今の既定値のうちまだ使われていないもの**を補う。
     ///
     /// 保存データはそのバージョン時点の割り当てをそのまま持つため、あとから既定へ加わった
-    /// 操作(拡大鏡・自動レイアウト・お気に入りのトグルなど)は、以前から使っているユーザーの
+    /// 操作(拡大鏡・自動レイアウトなど)は、以前から使っているユーザーの
     /// 手元にいつまでも現れなかった(ユーザーからの指摘)。
     ///
     /// 補うのは、次の2つを**どちらも**満たす既定だけである。
@@ -624,12 +617,12 @@ final class KeyBindingStore: ObservableObject {
     }
 
     /// 過去のバージョンで使っていた操作名と、今の操作の対応。どちらも「追加」と「削除」を
-    /// 1つのトグルへ統合したときに消えた名前(ViewerAction.toggleBookmark / toggleFavorite 参照)。
+    /// 1つのトグルへ統合したときに消えた名前(ViewerAction.toggleBookmark 参照。お気に入りの "addToFavorites" は、
+    /// お気に入りを 2026-10-24 に削除したので読み替えない ―― 知らない名前として落とす)。
     /// 統合前に保存された割り当ては捨てずに統合後の操作へ読み替える ― ユーザーから見れば
     /// 同じキーで同じことができるためである。
     private static let renamedActions: [String: ViewerAction] = [
         "addBookmark": .toggleBookmark,
-        "addToFavorites": .toggleFavorite,
     ]
 
     /// 保存されていた「トリガー -> 操作名」を、今の ViewerAction へ解決する。

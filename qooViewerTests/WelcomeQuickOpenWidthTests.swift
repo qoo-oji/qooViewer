@@ -36,7 +36,7 @@ struct WelcomeQuickOpenWidthTests {
     @Test("返る幅の数は列の数と同じ")
     func oneWidthPerColumn() {
         #expect(resolved([column("履歴", shortNames)], width: 800).count == 1)
-        #expect(resolved([column("履歴", shortNames), column("お気に入り", shortNames)], width: 800).count == 2)
+        #expect(resolved([column("履歴", shortNames), column("二列目", shortNames)], width: 800).count == 2)
     }
 
     @Test("短い名前でも下限を割らない")
@@ -53,13 +53,13 @@ struct WelcomeQuickOpenWidthTests {
 
     @Test("長い名前が並ぶ列のほうが広くなる")
     func theColumnWithLongerNamesGetsMoreRoom() {
-        let widths = resolved([column("履歴", longNames), column("お気に入り", shortNames)], width: 2000)
+        let widths = resolved([column("履歴", longNames), column("二列目", shortNames)], width: 2000)
         #expect(widths[0] > widths[1])
     }
 
     @Test("収まるなら希望幅そのまま(窓を広げても縮まない)")
     func aFittingLayoutKeepsTheIdealWidths() {
-        let columns = [column("履歴", shortNames), column("お気に入り", shortNames)]
+        let columns = [column("履歴", shortNames), column("二列目", shortNames)]
         let atWide = resolved(columns, width: 3000)
         let atWider = resolved(columns, width: 5000)
         #expect(atWide == atWider)
@@ -67,7 +67,7 @@ struct WelcomeQuickOpenWidthTests {
 
     @Test("収まらないときは希望幅の比で按分し、ウインドウの内側に収める")
     func anOverflowingLayoutIsScaledDownToFit() {
-        let columns = [column("履歴", longNames), column("お気に入り", longNames)]
+        let columns = [column("履歴", longNames), column("二列目", longNames)]
         let available: CGFloat = 700
         let widths = resolved(columns, width: available)
 
@@ -80,7 +80,7 @@ struct WelcomeQuickOpenWidthTests {
 
     @Test("窓がどれだけ狭くても下限は割らない(そのときだけ横へはみ出すのを許す)")
     func theMinimumWinsOverAVeryNarrowWindow() {
-        let columns = [column("履歴", longNames), column("お気に入り", longNames)]
+        let columns = [column("履歴", longNames), column("二列目", longNames)]
         let widths = resolved(columns, width: 120)
         #expect(widths.allSatisfy { $0 >= WelcomeQuickOpenWidth.minColumn })
         // 下限 × 2 + 間隔 は 120 より広い ―― つまり意図的にはみ出している。
@@ -91,7 +91,7 @@ struct WelcomeQuickOpenWidthTests {
     @Test("片方だけが下限に張り付いたら、余りはもう片方へ配り直す")
     func aPinnedColumnGivesItsSlackToTheOther() {
         // 片方は極端に長く、もう片方は 1 文字。按分だけだと短い側が下限を割る。
-        let columns = [column("履歴", longNames), column("お気に入り", ["a"])]
+        let columns = [column("履歴", longNames), column("二列目", ["a"])]
         let available: CGFloat = 460
         let widths = resolved(columns, width: available)
 
@@ -102,7 +102,7 @@ struct WelcomeQuickOpenWidthTests {
 
     @Test("幅の実測が届く前(0 以下)は、従来の固定幅 520 で見積もる")
     func anUnknownWindowWidthFallsBackToTheAssumedWidth() {
-        let columns = [column("履歴", longNames), column("お気に入り", longNames)]
+        let columns = [column("履歴", longNames), column("二列目", longNames)]
         let atZero = resolved(columns, width: 0)
         let atAssumed = resolved(columns, width: WelcomeQuickOpenWidth.assumedWidth
                                  + WelcomeQuickOpenWidth.windowMargin * 2)

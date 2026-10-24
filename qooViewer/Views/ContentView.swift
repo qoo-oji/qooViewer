@@ -16,7 +16,6 @@ struct ContentView: View {
     @EnvironmentObject private var homeMenuDirectory: HomeMenuDirectoryStore
     private var recentFiles: RecentFilesStore { UnobservedStores.required(unobservedStores.recentFiles) }
     private var folderAccess: FolderAccessStore { UnobservedStores.required(unobservedStores.folderAccess) }
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     private var bookmarkStore: BookmarkStore { UnobservedStores.required(unobservedStores.bookmarkStore) }
     private var layoutStore: LayoutStore { UnobservedStores.required(unobservedStores.layoutStore) }
     /// 書誌メタデータ。ツールバーのファイル名表示を登録済みのタイトル・著者に差し替えるため、
@@ -32,7 +31,7 @@ struct ContentView: View {
     @EnvironmentObject private var secretFolderStore: SecretFolderStore
     @Environment(\.openSettings) private var openSettings
     @Environment(\.modelContext) private var modelContext
-    /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
+    /// サイドパネル(ブックマークモード)の「編集」ボタンから、ブックマークの
     /// 編集ウインドウを開くために使う(sidePanelView参照)。
     @Environment(\.openWindow) private var openWindow
 
@@ -119,29 +118,18 @@ struct ContentView: View {
 
     // MARK: - サイドパネルの行の右クリックからのリネーム・削除(ユーザー要望)
 
-    /// リネーム中のお気に入りフォルダ / お気に入り(本) / ブックマーク。
-    /// 3つが同時に開くことはないため、入力欄(sidePanelRenameText)は共用している
-    /// (FavoritesOrganizerViewのrenameTextと同じ考え方)。
+    /// リネーム中のブックマーク。入力欄(sidePanelRenameText)は別に持つ。
     ///
     /// **ダイアログをSidePanelViewではなくここに持たせている理由**: パネルを隠す設定で
     /// 使っている場合、ダイアログが出ている間はホバーによる自動非表示を止める必要がある
     /// (止めないと、カーソルをダイアログへ動かした拍子にパネルが引っ込み、閉じたときには
     /// 一覧が消えている)。その判断はホバーの監視を持っているこちらにしか書けない。
-    @State private var renamingFavoriteFolder: FavoriteFolder?
-    @State private var renamingFavoriteBook: FavoriteBook?
     @State private var renamingBookmark: Bookmark?
     @State private var sidePanelRenameText = ""
-    /// 削除の確認待ち。お気に入りは元に戻せないため確認を挟む(「お気に入りの編集」ウインドウと
-    /// 同じ流儀)。ブックマークは確認せずその場で消す(「ブックマーク・レイアウトの編集」
-    /// ウインドウのゴミ箱ボタンと同じ流儀。SidePanelView側のコメント参照)。
-    @State private var favoriteFolderPendingDeletion: FavoriteFolder?
-    @State private var favoriteBookPendingDeletion: FavoriteBook?
-
-    /// サイドパネル由来のリネーム・削除ダイアログが出ているかどうか。
+    /// サイドパネル由来のリネームのダイアログが出ているかどうか。
     /// 出ている間は、ホバーによるパネルの自動非表示を止める(isMenuTrackingと同じ扱い)。
     private var isSidePanelEditingDialogPresented: Bool {
-        renamingFavoriteFolder != nil || renamingFavoriteBook != nil || renamingBookmark != nil
-            || favoriteFolderPendingDeletion != nil || favoriteBookPendingDeletion != nil
+        renamingBookmark != nil
     }
     /// 上記を検知するためのNSMenu.didBeginTracking/didEndTrackingの購読。
     @State private var menuTrackingObservers: [NSObjectProtocol] = []
@@ -683,7 +671,7 @@ struct ContentView: View {
         // タイトル自体は拡張子を除いた名前のため、同名のcbz/epub版を両方開いていると
         // タブバーだけでは見分けがつかない(ユーザー報告)。ウインドウ/タブのタイトルは
         // プレーンテキストのみでFormatBadgeView(カスタムView)を表示できないため、
-        // FavoritesMenuContent/FavoritesNSMenuBridgeと同じく括弧書きの拡張子で区別する。
+        // 括弧書きの拡張子で区別する(FormatBadgeView.plainTextTitle)。
         .navigationTitle(windowTitle)
         // このウインドウ自身への参照をappStateに持たせておく。Finderから別の本を開こうとした
         // ときに「新しいタブで開く」設定の場合、どのウインドウへタブを追加すべきかを
@@ -959,12 +947,8 @@ struct ContentView: View {
         // サイドパネルの行の右クリックから開く、リネーム・削除のダイアログ一式
         // (ユーザー要望)。中身は下のSidePanelEditingDialogsを参照。
         .sidePanelEditingDialogs(
-            renamingFolder: $renamingFavoriteFolder,
-            renamingBook: $renamingFavoriteBook,
             renamingBookmark: $renamingBookmark,
             renameText: $sidePanelRenameText,
-            folderPendingDeletion: $favoriteFolderPendingDeletion,
-            bookPendingDeletion: $favoriteBookPendingDeletion,
             onNotice: { message in appState.postViewerNotice(message) }
         )
         // 起動時の「見つからなくなった本をコレクションから外しますか」(既定OFFの設定)。
@@ -1003,43 +987,6 @@ struct ContentView: View {
             let message = appState.errorMessage ?? ""
             Text(message == String(localized: "The book could not be opened.", language: preferences.effectiveLocale) ? "" : message)
         }
-        // お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかった場合の
-        // アラート(要望5)。「お気に入りから削除」を選ぶと、favoritesStoreからそのお気に入りを
-        // 削除する(AppState自身はfavoritesStoreへweakにしかアクセスできないため、削除の実行は
-        // ここ、環境オブジェクトを直接持つContentView側で行う)。
-        .alert(
-            "Favorite Not Found",
-            isPresented: Binding(
-                get: { appState.missingFavorite != nil },
-                set: { isPresented in
-                    if !isPresented { appState.missingFavorite = nil }
-                }
-            )
-        ) {
-            Button("OK") { appState.missingFavorite = nil }
-            // シークレットウインドウでは「お気に入りから削除」を出さない。
-            //
-            // このウインドウはお気に入りの一覧を表示し、そこから本を開くこともできる(読み取りは
-            // 通常どおり行う)ため、実体が消えているお気に入りを開こうとしてこのアラートに
-            // たどり着ける。削除はDBへの書き込みで、しかも元に戻せない操作なので、
-            // 「シークレットウインドウはお気に入り・ブックマーク・レイアウト・メタデータを
-            // 登録も編集もしない」という約束から外れる(AppState.isPrivateWindowのコメント参照)。
-            // 見つからなかったことを伝えるところまでは有用なので、アラート自体は出す。
-            if !isPrivateWindow {
-                Button("Remove from Favorites", role: .destructive) {
-                    if let favorite = appState.missingFavorite {
-                        favoritesStore.delete(favorite)
-                    }
-                    appState.missingFavorite = nil
-                }
-            }
-        } message: {
-            // 文字列補間をそのままText("...")に渡すと手書きのLocalizable.xcstringsでは翻訳と
-            // 紐付かないため、FavoriteFolderPickerView.swiftの重複確認アラートと同じく、
-            // 固定文字列の断片をText同士の+でつなぐ形にしている。
-            Text("The file or folder for “") + Text(appState.missingFavorite?.title ?? "")
-                + Text("” could not be found. It may have been moved or deleted.")
-        }
     }
 
     /// メニューバーのチェックマーク表示専用に、値型でも同じ内容を公開する
@@ -1065,16 +1012,6 @@ struct ContentView: View {
             isRightToLeft: appState.isRightToLeft,
             scalingMode: appState.currentScalingMode,
             isPageShiftLocked: appState.isPageShiftLocked,
-            // isCurrentBookFavoritedは、AppState自身の@Publishedでは
-            // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
-            // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
-            // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
-            // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
-            // 改善要望5でお気に入りを無効化した間は、常にfalseにしてメニューの文言
-            // (「お気に入りに追加」/「お気に入りから削除」)が切り替わらないようにする
-            // (FavoritesFeature参照)。
-            isCurrentBookFavorited: FavoritesFeature.isEnabled
-                ? (appState.menuShownBook.bookID.map { favoritesStore.isFavorited(bookID: $0) } ?? false) : false,
             // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
             // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
             // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
@@ -1202,7 +1139,6 @@ struct ContentView: View {
         appState.preferences = preferences
         appState.recentFiles = recentFiles
         appState.folderAccess = folderAccess
-        appState.favoritesStore = favoritesStore
         appState.bookmarkStore = bookmarkStore
         appState.layoutStore = layoutStore
         appState.metadataStore = metadataStore
@@ -1776,7 +1712,7 @@ struct ContentView: View {
             currentBookPath: appState.currentBook?.id,
             loadPageThumbnail: appState.loadPageThumbnail,
             isPrivateWindow: isPrivateWindow,
-            // ＋/鉛筆(お気に入り・ブックマークの追加/編集)は、履歴の非表示とは別条件。
+            // ＋/鉛筆(ブックマークの追加/編集)は、履歴の非表示とは別条件。
             // その場限りの本でも無効にする必要があるが、履歴そのものは通常どおり見せる
             // (SidePanelViewのallowsLibraryEditingのコメント参照)。
             allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.leavesNoRecord != true,
@@ -1791,72 +1727,6 @@ struct ContentView: View {
             // ViewerViewだけのため(ViewerView.returnToWelcome()参照)。
             onReturnToWelcome: appState.currentBook == nil
                 ? nil : { appState.performViewerAction?(.returnToWelcome) },
-            // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、
-            // AppState経由の橋渡しを使う(AppState.addFavoriteActionのコメント参照)。
-            // 本を開いていないときはnil = ボタン自体がhasBook: falseで無効化されている。
-            onAddFavorite: { appState.addFavoriteAction?() },
-            onEditFavorites: { openWindow(id: "favoritesOrganizer") },
-            // お気に入りの行だけは、開く前にセキュリティスコープ付きブックマークを解決する
-            // 必要がある。見つからなければ通常の「開く」(AppState.openFavorite)と同じく
-            // アラートを出す(シークレットウインドウでは「お気に入りから削除」は出ない ――
-            // 保存データへの変更にあたるため。missingFavoriteの扱いはViewerView側が持つ)。
-            onOpenFavoriteInNewWindow: { favorite, destination in
-                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。
-                Task { @MainActor in
-                    let outcome = await favoritesStore.locateForOpening(favorite)
-                    guard case .found(let url) = outcome else {
-                        // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
-                        if case .notFound = outcome {
-                            appState.missingFavorite = favorite
-                        } else {
-                            appState.postViewerNotice(FavoritesStore.timedOutMessage(
-                            for: favorite, locale: appState.preferences?.effectiveLocale ?? AppLanguage.currentLocale))
-                        }
-                        return
-                    }
-                    BookWindowOpener.open(
-                        BookOpenRequest(url),
-                        to: destination,
-                        from: appState,
-                        launchCoordinator: launchCoordinator,
-                        openWindow: openWindow
-                    )
-                }
-            },
-            onOpenFavorite: { favorite in
-                if dismissesOnAction { appState.isSidePanelRevealed = false }
-                // 環境設定「本を開く」の「お気に入りから」(新しいタブ/ウインドウ)の判定はViewerViewが
-                // 持っている。本を開いていない(=ViewerViewが無い)場合は、置き換える対象の本
-                // 自体が無いためそのまま開く(AppState.openFavoriteActionのコメント参照)。
-                if let action = appState.openFavoriteAction {
-                    action(favorite)
-                } else {
-                    appState.openFavorite(favorite)
-                }
-            },
-            // 行の右クリックからのリネーム・削除(ユーザー要望)。実際の入力欄・確認は
-            // このビューが持つアラートで行う(isSidePanelEditingDialogPresentedのコメント参照)。
-            //
-            // 開く直前にrenameTextを一度空にしてから、次のランループで現在の名前を入れる。
-            // 同じアラートを続けて開いた場合、@Stateへ同じ値を代入しても変化とみなされず
-            // TextFieldに反映されないことがあるため(FavoritesOrganizerViewと同じ対処)。
-            onRenameFavorite: { entry in
-                sidePanelRenameText = ""
-                switch entry {
-                case .folder(let folder):
-                    renamingFavoriteFolder = folder
-                    DispatchQueue.main.async { sidePanelRenameText = folder.name }
-                case .book(let book):
-                    renamingFavoriteBook = book
-                    DispatchQueue.main.async { sidePanelRenameText = book.title }
-                }
-            },
-            onDeleteFavorite: { entry in
-                switch entry {
-                case .folder(let folder): favoriteFolderPendingDeletion = folder
-                case .book(let book): favoriteBookPendingDeletion = book
-                }
-            },
             onAddBookmark: { appState.addBookmarkAction?() },
             onEditBookmarks: { showBookmarkEditorWindow() },
             onJumpToBookmark: { bookmark in
@@ -2272,71 +2142,28 @@ struct ContentView: View {
 }
 
 
-/// サイドパネルの行を右クリックして行う、お気に入り(本・フォルダ)とブックマークの
-/// リネーム・削除のダイアログ一式(ユーザー要望)。
+/// サイドパネルの行を右クリックして行う、ブックマークのリネームのダイアログ(ユーザー要望)。
 ///
 /// ■ なぜContentViewのbodyに直接書かないのか
-/// 5つの`.alert`をbodyへ重ねたところ、Swiftの型チェックが時間内に終わらなくなった
-/// (`the compiler is unable to type-check this expression in reasonable time`)。
-/// SwiftUIのbodyは修飾子を重ねるたびに型が入れ子になって膨らむため、まとまった一式は
-/// こうしてModifierへ切り出し、body側の式を短く保つ。
+/// 以前はお気に入りのリネーム・削除と合わせて5つの`.alert`をbodyへ重ね、Swiftの型チェックが時間内に終わらなくなった
+/// (`the compiler is unable to type-check this expression in reasonable time`)。SwiftUIのbodyは修飾子を重ねるたびに型が
+/// 入れ子になって膨らむため、まとまった一式はこうしてModifierへ切り出し、body側の式を短く保つ。
 ///
 /// ■ なぜSidePanelViewではなくContentView側にあるのか
 /// パネルを隠す設定のときパネル自体はホバーで出入りするが、このビューは常にある。
 /// また、ダイアログが出ている間だけホバーによる自動非表示を止める必要があり、その判断は
 /// ホバーの監視を持つContentViewにしか書けない(ContentView.isSidePanelEditingDialogPresented
-/// のコメント参照)。
-///
-/// 削除の確認は**お気に入りだけ**。ブックマークは確認せずその場で消える(それぞれの編集
-/// ウインドウでの流儀に合わせてある。SidePanelView側のコメント参照)。
+/// のコメント参照)。ブックマークの削除は確認せずその場で消える(SidePanelView側のコメント参照)。
 private struct SidePanelEditingDialogs: ViewModifier {
     @EnvironmentObject private var preferences: AppPreferences
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
-    @Binding var renamingFolder: FavoriteFolder?
-    @Binding var renamingBook: FavoriteBook?
     @Binding var renamingBookmark: Bookmark?
-    /// 3種類のリネームで共用する入力欄(同時には1つしか開かないため)。
     @Binding var renameText: String
-    @Binding var folderPendingDeletion: FavoriteFolder?
-    @Binding var bookPendingDeletion: FavoriteBook?
     /// 名前を変えようとしたブックマークがもう無かったときの知らせ(AppState.postViewerNotice。BE-10)。
     var onNotice: (String) -> Void
 
     func body(content: Content) -> some View {
         content
-        .alert(
-            "Rename Folder",
-            isPresented: Binding(
-                get: { renamingFolder != nil },
-                set: { isPresented in if !isPresented { renamingFolder = nil } }
-            )
-        ) {
-            TextField("Name", text: $renameText)
-            Button("Save") {
-                if let folder = renamingFolder {
-                    favoritesStore.rename(folder, to: renameText)
-                }
-                renamingFolder = nil
-            }
-            Button("Cancel", role: .cancel) { renamingFolder = nil }
-        }
-        .alert(
-            "Rename Favorite",
-            isPresented: Binding(
-                get: { renamingBook != nil },
-                set: { isPresented in if !isPresented { renamingBook = nil } }
-            )
-        ) {
-            TextField("Name", text: $renameText)
-            Button("Save") {
-                if let favorite = renamingBook {
-                    favoritesStore.rename(favorite, to: renameText)
-                }
-                renamingBook = nil
-            }
-            Button("Cancel", role: .cancel) { renamingBook = nil }
-        }
         .alert(
             "Rename Bookmark",
             isPresented: Binding(
@@ -2355,40 +2182,6 @@ private struct SidePanelEditingDialogs: ViewModifier {
                 renamingBookmark = nil
             }
             Button("Cancel", role: .cancel) { renamingBookmark = nil }
-        }
-        // 削除の確認。お気に入りは元に戻せないため必ず1枚挟む(「お気に入りの編集」ウインドウと
-        // 同じ文面・同じ選択肢)。ブックマークはここを通らず、その場で消える。
-        .alert(
-            "Delete Folder?",
-            isPresented: Binding(
-                get: { folderPendingDeletion != nil },
-                set: { isPresented in if !isPresented { folderPendingDeletion = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
-            Button("Delete", role: .destructive) {
-                if let folder = folderPendingDeletion {
-                    favoritesStore.delete(folder)
-                }
-                folderPendingDeletion = nil
-            }
-        } message: {
-            Text("This also deletes any subfolders and favorites inside it.")
-        }
-        .alert(
-            "Remove from Favorites?",
-            isPresented: Binding(
-                get: { bookPendingDeletion != nil },
-                set: { isPresented in if !isPresented { bookPendingDeletion = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { bookPendingDeletion = nil }
-            Button("Remove", role: .destructive) {
-                if let favorite = bookPendingDeletion {
-                    favoritesStore.delete(favorite)
-                }
-                bookPendingDeletion = nil
-            }
         }
     }
 }
@@ -2439,21 +2232,13 @@ private final class FileBrowserMenuSelectionMemo {
 
 private extension View {
     func sidePanelEditingDialogs(
-        renamingFolder: Binding<FavoriteFolder?>,
-        renamingBook: Binding<FavoriteBook?>,
         renamingBookmark: Binding<Bookmark?>,
         renameText: Binding<String>,
-        folderPendingDeletion: Binding<FavoriteFolder?>,
-        bookPendingDeletion: Binding<FavoriteBook?>,
         onNotice: @escaping (String) -> Void
     ) -> some View {
         modifier(SidePanelEditingDialogs(
-            renamingFolder: renamingFolder,
-            renamingBook: renamingBook,
             renamingBookmark: renamingBookmark,
             renameText: renameText,
-            folderPendingDeletion: folderPendingDeletion,
-            bookPendingDeletion: bookPendingDeletion,
             onNotice: onNotice
         ))
     }

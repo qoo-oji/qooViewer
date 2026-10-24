@@ -18,7 +18,7 @@ import SwiftUI
 /// ■ 実体が見つからない本
 /// 一覧を描くたびにディスクを触ることはせず、CollectionStoreが非同期に更新している
 /// 存在確認の結果(cachedFileExists)で淡く描くだけにする。実際に開こうとした瞬間に初めて
-/// ブックマークを解決し、そこで見つからなければアラートを出す(お気に入りと同じ流れ)。
+/// ブックマークを解決し、そこで見つからなければアラートを出す。
 struct CollectionDetailView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     /// 削除を取り消せるようにする積み場所(DataUndoStack。2026-09-27、監査 34)。
@@ -135,7 +135,7 @@ struct CollectionDetailView: View {
         alert.messageText = missingBookTitle
         alert.addButton(withTitle: String(localized: "OK", language: locale))
         // 削除はDBへの書き込みなので、シークレットウインドウでは出さない
-        // (ContentViewの「お気に入りが見つかりません」と同じ判断)。
+        // (当時のお気に入りが見つからないときのアラートと同じ判断)。
         if allowsEditing {
             let remove = alert.addButton(withTitle: String(localized: "Remove from Collection", language: locale))
             remove.hasDestructiveAction = true
@@ -324,7 +324,7 @@ struct CollectionDetailView: View {
                 sort: $state.itemSort,
                 // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
                 // 「タイトル」を出すのはこの画面だけ(ユーザー要望 2026-09-10。
-                // FavoritesSortOptionの型コメント参照)。ファイル名と並べて見せるため、
+                // ItemSortOptionの型コメント参照)。ファイル名と並べて見せるため、
                 // 同じ文字の基準どうしを隣に置く。本のファイルの「作成日」「変更日」
                 // (ユーザー要望 2026-09-13。Finderと同じ値)も、日付の基準として追加日の後ろに。
                 sortFields: [.name, .title, .dateAdded, .dateCreated, .dateModified],

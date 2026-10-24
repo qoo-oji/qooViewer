@@ -4,13 +4,13 @@ import AppKit
 
 /// 環境設定ウインドウの「リセット」画面。
 ///
-/// お気に入り(FavoriteFolder/FavoriteBook)・ブックマーク(Bookmark)・読書履歴
+/// ブックマーク(Bookmark)・レイアウト・メタデータ・コレクション・読書履歴
 /// (BookReadingState、本ごとの最後に読んだページ・表示設定)は、すべて同じ1つのSwiftData
 /// ストアに保存されている。将来、アプリのバージョンアップ等でこのストアのスキーマが互換性を
-/// 失った場合(実際に一度、FavoriteBook/FavoriteFolderへupdatedAtを追加した際、この種の
+/// 失った場合(実際に一度、お気に入り(2026-10-24 に削除)のモデルへupdatedAtを追加した際、この種の
 /// 移行エラーでアプリごと起動できなくなったことがある。QooViewerApp.modelContainerの
-/// コメント参照)、通常の削除操作(お気に入り/ブックマークの個別削除ボタンなど)にはそもそも
-/// 到達できない。そうした事態に備え、ここから手動ですべてのお気に入り・ブックマーク・
+/// コメント参照)、通常の削除操作(ブックマークの個別削除ボタンなど)にはそもそも
+/// 到達できない。そうした事態に備え、ここから手動ですべてのブックマーク・
 /// 読書履歴を強制的に削除し、まっさらな状態からやり直せるようにする(ユーザーからの要望)。
 ///
 /// 2026-09-04から、この操作の対象は「フォルダのアクセス権を除く、このアプリがディスクに保存した
@@ -31,11 +31,11 @@ import AppKit
 /// 環境設定ウインドウ全体で揃う(SettingsControls.swift参照)。ただし内容は意図的に
 /// この画面だけ「説明 → 破壊的ボタン → 警告footer」という重い構成のままにしてある。
 ///
-/// 以前はperformReset()がModelContext経由で各モデル(FavoriteFolder/FavoriteBook/Bookmark/
+/// 以前はperformReset()がModelContext経由で各モデル(当時のお気に入りのモデル/Bookmark/
 /// BookLayoutSettings/PageLayoutOverride/BookReadingState)を個別にdelete()していたが、これだと
 /// 「ストア自体のスキーマやリレーションが壊れている状態」を想定していない。実際に、Bundle
 /// Identifierが同じ古いビルド(異なるSwiftDataモデル定義を持つ)が同じストアファイルを誤って
-/// 開いてしまい、お気に入りの親子関係(FavoriteFolder.parent/children、FavoriteBook.folder)が
+/// 開いてしまい、お気に入りの親子関係(当時のモデルのフォルダの親子)が
 /// 壊れたと見られる事例が報告された。行が壊れている・リレーションが繋がらない状態では、
 /// ModelContext.fetch()やdelete(model:)自体が意図通りに全件を捉えられるとは限らず、
 /// 「壊れているデータだけ消し残る」おそれがある。

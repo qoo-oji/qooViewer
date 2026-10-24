@@ -493,7 +493,7 @@ struct ExportWindowContent<Options: View>: View {
             Spacer()
 
             // ユーザー要望: 「出力を開始」ボタンの左に「キャンセル」ボタンを追加してほしい。
-            // 他のウインドウ(FavoriteFolderPickerView.bottomBar等)と同じ並び
+            // 他のウインドウと同じ並び
             // (キャンセル→既定ボタン)・同じキーボードショートカットの割り当て方に揃える。
             if isResolvingDestination {
                 DelayedProgressIndicator(controlSize: .small)

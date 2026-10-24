@@ -16,7 +16,7 @@ import SwiftUI
 /// 「リセット」と性質が揃っているため(`SettingsPane` 参照)。
 ///
 /// ■ 消えるのはキャッシュだけ
-/// この画面のどの操作も、お気に入り・ブックマーク・読書履歴には一切触れない。
+/// この画面のどの操作も、ブックマーク・読書履歴には一切触れない。
 /// 消えるのは再生成できるサムネイルだけで、失われるのは「次に同じ本を開いたときの速さ」だけ。
 /// そのため「リセット」画面のような重い確認は挟まない(あちらは取り消せない**データ**の削除)。
 struct CacheSettingsView: View {
@@ -148,7 +148,7 @@ struct CacheSettingsView: View {
                 // 説明は常時表示せず、ⓘの吹き出しに置く(SettingsControls.swift冒頭の方針)。
                 SettingRow(
                     "Thumbnail cache",
-                    help: "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them."
+                    help: "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your bookmarks or reading history; pages are simply decoded again the next time you need them."
                 ) {
                     HStack(spacing: 8) {
                         Text(usedBytesDescription)
@@ -195,7 +195,7 @@ struct CacheSettingsView: View {
             }
 
             SettingsResetSection(
-                help: "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.cache)
             }

@@ -75,7 +75,7 @@ struct RenderingSettingsView: View {
             // 「前後に先読みするページ数」は、メモリの使用量に直結する設定を1画面に集める方針
             // (ユーザー要望)により「キャッシュ」画面へ移した(CacheSettingsView参照)。
             SettingsResetSection(
-                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.rendering)
             }

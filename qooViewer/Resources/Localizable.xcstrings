@@ -2521,22 +2521,6 @@
         }
       }
     },
-    "(No Favorites)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(No Favorites)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(お気に入りなし)"
-          }
-        }
-      }
-    },
     "(No Matches)" : {
       "localizations" : {
         "en" : {
@@ -3007,22 +2991,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%d冊はファイルが見つからなかったためスキップしました。"
-          }
-        }
-      }
-    },
-    "%d favorite(s) were skipped because the total limit was reached." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d favorite(s) were skipped because the total limit was reached."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "件数の上限に達したため、お気に入り%d件をスキップしました。"
           }
         }
       }
@@ -5114,22 +5082,6 @@
         }
       }
     },
-    "Add This Book to Favorites…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add This Book to Favorites…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本をお気に入りに追加…"
-          }
-        }
-      }
-    },
     "Add This Page to Bookmarks" : {
       "localizations" : {
         "en" : {
@@ -5174,22 +5126,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "よく使う項目に登録"
-          }
-        }
-      }
-    },
-    "Add to Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add to Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りに追加"
           }
         }
       }
@@ -5255,22 +5191,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」をブックマークに追加しました"
-          }
-        }
-      }
-    },
-    "Added “%@” to Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Added “%@” to Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」をお気に入りに追加しました"
           }
         }
       }
@@ -5663,22 +5583,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アルファチャンネル"
-          }
-        }
-      }
-    },
-    "Already in Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Already in Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すでにお気に入りに登録されています"
           }
         }
       }
@@ -7469,22 +7373,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDF として書き出すには、ブックマーク・ページレイアウト設定・メタデータのいずれかが登録されている必要があります。"
-          }
-        }
-      }
-    },
-    "Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このウインドウで開いた本は何も残しません。履歴・読書位置・ブックマーク・お気に入り・レイアウト・メタデータ・サムネイルキャッシュのいずれも保存されません。"
           }
         }
       }
@@ -9928,22 +9816,6 @@
         }
       }
     },
-    "Could Not Add to Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could Not Add to Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りに追加できませんでした"
-          }
-        }
-      }
-    },
     "Could Not Open Book" : {
       "localizations" : {
         "en" : {
@@ -11548,23 +11420,6 @@
         }
       }
     },
-    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites, collections and collection covers are kept. This can't be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入り・コレクション・コレクションの表紙は残ります。\nこの操作は取り消せません。"
-          }
-        }
-      }
-    },
     "Deleting “%@”…" : {
       "localizations" : {
         "en" : {
@@ -12713,38 +12568,6 @@
         }
       }
     },
-    "Edit Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りの編集"
-          }
-        }
-      }
-    },
-    "Edit Favorites…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Favorites…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りの編集…"
-          }
-        }
-      }
-    },
     "Edit Layout…" : {
       "localizations" : {
         "en" : {
@@ -13276,22 +13099,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "イベント"
-          }
-        }
-      }
-    },
-    "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべての本がシークレットウインドウで開き、読書位置・ブックマーク・お気に入り・レイアウト・履歴のいずれも記録されません。\n記録を残したいときは、ファイルメニューの「新規ノーマルウインドウ」を使ってください。"
           }
         }
       }
@@ -14288,22 +14095,6 @@
         }
       }
     },
-    "Favorite folders can be nested up to %d levels deep." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorite folders can be nested up to %d levels deep."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りフォルダの階層は最大%d階層までです。"
-          }
-        }
-      }
-    },
     "Favorite Location" : {
       "localizations" : {
         "en" : {
@@ -14332,86 +14123,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "よく使う項目"
-          }
-        }
-      }
-    },
-    "Favorite Not Found" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorite Not Found"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りが見つかりません"
-          }
-        }
-      }
-    },
-    "Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り"
-          }
-        }
-      }
-    },
-    "Favorites (Top Level)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites (Top Level)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り"
-          }
-        }
-      }
-    },
-    "Favorites List" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites List"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り一覧"
-          }
-        }
-      }
-    },
-    "Favorites: %d folder(s), %d book(s) imported." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites: %d folder(s), %d book(s) imported."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り: フォルダ%d件、本%d件を読み込みました。"
           }
         }
       }
@@ -15328,23 +15039,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "見つかった場所"
-          }
-        }
-      }
-    },
-    "From Favorites" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "From Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りから"
           }
         }
       }
@@ -17127,22 +16821,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "である"
-          }
-        }
-      }
-    },
-    "Is a favorite" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Is a favorite"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りに登録されています"
           }
         }
       }
@@ -23022,22 +22700,6 @@
         }
       }
     },
-    "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ディスクに保存しているページのサムネイルです。分母は上の「最大容量」です。\n削除しても、お気に入り・ブックマーク・読書位置には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
-          }
-        }
-      }
-    },
     "Page Turning" : {
       "localizations" : {
         "en" : {
@@ -24638,22 +24300,6 @@
         }
       }
     },
-    "Recent Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recent Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近のお気に入り"
-          }
-        }
-      }
-    },
     "Recent Files" : {
       "localizations" : {
         "en" : {
@@ -25081,38 +24727,6 @@
         }
       }
     },
-    "Remove from Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove from Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りから削除"
-          }
-        }
-      }
-    },
-    "Remove from Favorites?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove from Favorites?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りから削除しますか?"
-          }
-        }
-      }
-    },
     "Remove from History" : {
       "localizations" : {
         "en" : {
@@ -25223,22 +24837,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した本をコレクションから削除"
-          }
-        }
-      }
-    },
-    "Remove This Book from Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove This Book from Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本をお気に入りから削除"
           }
         }
       }
@@ -25374,22 +24972,6 @@
         }
       }
     },
-    "Removed “%@” from Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removed “%@” from Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」をお気に入りから削除しました"
-          }
-        }
-      }
-    },
     "Removes this book from the history list once it has been exported. The book itself is not touched." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -25499,22 +25081,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションの名前を変更…"
-          }
-        }
-      }
-    },
-    "Rename Favorite" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rename Favorite"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りの名前を変更"
           }
         }
       }
@@ -26219,22 +25785,6 @@
         }
       }
     },
-    "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面と、各形式のページのすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
-          }
-        }
-      }
-    },
     "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface, except the two settings under Windows. The other windows’ appearance and other pages are not affected." : {
       "localizations" : {
         "en" : {
@@ -26279,54 +25829,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選んでいる表示モードについて、この画面のすべての設定を初期設定に戻します。\nほかの表示モードや設定には影響しません。"
-          }
-        }
-      }
-    },
-    "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「データを保持する本の数」と「履歴の保存件数」を除いて、この画面のすべての設定を初期設定に戻します(この2つは、下げると保存済みのデータがその場で消えるため戻しません)。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
-          }
-        }
-      }
-    },
-    "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
-          }
-        }
-      }
-    },
-    "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -28094,22 +27596,6 @@
         }
       }
     },
-    "Show Favorites List" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Favorites List"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り一覧を表示"
-          }
-        }
-      }
-    },
     "Show Hidden Files" : {
       "localizations" : {
         "en" : {
@@ -28234,22 +27720,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "プログレスバーを表示"
-          }
-        }
-      }
-    },
-    "Show Recent Favorites" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Recent Favorites"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近のお気に入りを表示する"
           }
         }
       }
@@ -30163,22 +29633,6 @@
         }
       }
     },
-    "The favorite could not be registered." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The favorite could not be registered."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りを登録できませんでした。"
-          }
-        }
-      }
-    },
     "The file browser's icon view, the collection list, the covers inside a collection, and the smart library's grid. Applies to a physical mouse wheel only; trackpad scrolling is unchanged." : {
       "localizations" : {
         "en" : {
@@ -31646,22 +31100,6 @@
         }
       }
     },
-    "This also deletes any subfolders and favorites inside it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This also deletes any subfolders and favorites inside it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "中のサブフォルダとお気に入りもすべて削除されます。"
-          }
-        }
-      }
-    },
     "This App" : {
       "localizations" : {
         "en" : {
@@ -32134,22 +31572,6 @@
         }
       }
     },
-    "This permanently deletes the favorites, bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This permanently deletes the favorites, bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本について qooViewer が保存しているお気に入り・ブックマーク・レイアウト設定・メタデータ・読書位置を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
-          }
-        }
-      }
-    },
     "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -32554,22 +31976,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ブックマークを追加/削除"
-          }
-        }
-      }
-    },
-    "Toggle Favorite" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toggle Favorite"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りに追加/削除"
           }
         }
       }
@@ -35043,22 +34449,6 @@
         }
       }
     },
-    "You can register up to %d favorites in total." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can register up to %d favorites in total."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入りは合計で最大%d件まで登録できます。"
-          }
-        }
-      }
-    },
     "You can’t copy some of these items because their names are too long for the destination volume. Do you want to skip these items and continue copying the other items?" : {
       "localizations" : {
         "en" : {
@@ -36600,6 +35990,150 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前の変更で拡張子を変えるとき、Finder と同じく先に確認します。"
+          }
+        }
+      }
+    },
+    "Books opened in this window leave no trace: no history, reading position, bookmarks, layouts, metadata, or thumbnail cache is saved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books opened in this window leave no trace: no history, reading position, bookmarks, layouts, metadata, or thumbnail cache is saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このウインドウで開いた本は何も残しません。履歴・読書位置・ブックマーク・レイアウト・メタデータ・サムネイルキャッシュのいずれも保存されません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page. Other pages, and your bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page. Other pages, and your bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期設定に戻します。\nほかの画面の設定と、ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Collections and collection covers are kept. This can't be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Collections and collection covers are kept. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。コレクション・コレクションの表紙は残ります。\nこの操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべての本がシークレットウインドウで開き、読書位置・ブックマーク・レイアウト・履歴のいずれも記録されません。\n記録を残したいときは、ファイルメニューの「新規ノーマルウインドウ」を使ってください。"
+          }
+        }
+      }
+    },
+    "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your bookmarks or reading history; pages are simply decoded again the next time you need them." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your bookmarks or reading history; pages are simply decoded again the next time you need them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ディスクに保存しているページのサムネイルです。分母は上の「最大容量」です。\n削除しても、ブックマーク・読書位置には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面と、各形式のページのすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「データを保持する本の数」と「履歴の保存件数」を除いて、この画面のすべての設定を初期設定に戻します(この2つは、下げると保存済みのデータがその場で消えるため戻しません)。\nほかの画面の設定と、ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本について qooViewer が保存しているブックマーク・レイアウト設定・メタデータ・読書位置を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
           }
         }
       }

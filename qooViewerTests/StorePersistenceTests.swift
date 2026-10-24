@@ -187,6 +187,33 @@ struct StorePersistenceTests {
         #expect(library.coverFit == .crop)
     }
 
+    @Test("お気に入りの表を持つストアは、お気に入りを削除した後も開け、ほかの行は残り、表は落ちる(2026-10-24)")
+    func favoritesTablesAreDroppedOnOpening() throws {
+        let store = try DisposableStore("favorites-dropped")
+        do {
+            let container = try store.open(SchemaSnapshot_1_54.types)
+            let folder = SchemaSnapshot_1_54.FavoriteFolder(name: "作者A")
+            let favorite = SchemaSnapshot_1_54.FavoriteBook(bookID: "/books/favorite")
+            favorite.folder = folder
+            container.mainContext.insert(folder)
+            container.mainContext.insert(favorite)
+            let bookmark = SchemaSnapshot_1_54.Bookmark(bookID: "/books/favorite")
+            bookmark.name = "残る"
+            container.mainContext.insert(bookmark)
+            try container.mainContext.save()
+        }
+        do {
+            let container = try store.openCurrent()
+            let bookmarks = try container.mainContext.fetch(FetchDescriptor<Bookmark>())
+            #expect(bookmarks.map(\.name) == ["残る"])
+        }
+        // 開いた時点でストアのスキーマはいまのものになり、お気に入りの表は無い。
+        let hashes = try #require(StoreSchemaGuard.storeHashes(at: store.url))
+        #expect(hashes.keys.contains("FavoriteBook") == false)
+        #expect(hashes.keys.contains("FavoriteFolder") == false)
+        #expect(hashes == StoreSchemaGuard.currentHashes(for: QooViewerApp.modelTypes))
+    }
+
     @Test("1.54のストアのメタデータは、欄を足した後も同じ値で読め、足した欄は空")
     func metadataFrom1_54KeepsItsValues() throws {
         let store = try DisposableStore("metadata-1.54")

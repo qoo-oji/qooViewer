@@ -9,11 +9,11 @@ import Foundation
 /// 二重になっているぶん1行あたりの文字数が増え、それがラベルの折り返しを招いていたので、
 /// 役割を次のように分けた。
 ///
-///   1. Sectionヘッダ … **いつの話か**(場面)     例:「Finder・お気に入りから開く」
+///   1. Sectionヘッダ … **いつの話か**(場面)     例:「別の本を開くとき」
 ///   2. 行のラベル     … **何を決めるのか**(短い名詞句) 例:「Finderから」
 ///   3. caption/footer … **補足**(条件・結果の説明)  例: 選択中の項目の説明
 ///
-/// ■ Finderとお気に入りを1つのSectionに統合した
+/// ■ Finderと履歴を1つのSectionに統合した(以前はお気に入りも。2026-10-24 に機能ごと削除)
 /// この2つは「既に本を開いている状態で別の本を開くとき、どこに開くか」という
 /// まったく同じ問いで、選択肢(FinderOpenBehavior)も共有している。
 /// Sectionを分けると同じ説明文を2回書くことになるうえ、
@@ -55,10 +55,7 @@ struct OpeningSettingsView: View {
                 Text("Reopening a Book")
             }
 
-            // Finderからの起動とお気に入りからの起動は同じ問い・同じ選択肢なので1つにまとめる。
-            // お気に入りの挙動は以前「開くたびにサブメニューから毎回選ぶ」形式だったが、
-            // Finderから開いたときと同じ考え方でここ1箇所の設定に統一した
-            // (FavoriteOpenBehavior自体はFinderOpenBehaviorを再利用)。
+            // Finderからの起動と履歴からの起動は同じ問い・同じ選択肢なので1つにまとめる(以前はお気に入りからの起動も)。
             Section {
                 SettingsPicker(
                     "From Finder",
@@ -71,15 +68,6 @@ struct OpeningSettingsView: View {
                     selection: $preferences.historyOpenBehavior,
                     help: "Applies to the File menu's Open Recent and the side panel's History mode, and only when qooViewer already has a book open. From Home, a book always opens in the current window."
                 )
-                // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
-                // 設定値(favoriteOpenBehavior)自体は残してある。
-                if FavoritesFeature.isEnabled {
-                    SettingsPicker(
-                        "From Favorites",
-                        selection: $preferences.favoriteOpenBehavior,
-                        help: "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window."
-                    )
-                }
             } header: {
                 Text("Opening Another Book")
             }
@@ -88,7 +76,7 @@ struct OpeningSettingsView: View {
             // 読んでいる間の設定なので)。
 
             SettingsResetSection(
-                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.opening)
             }

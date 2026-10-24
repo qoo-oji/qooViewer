@@ -9,8 +9,7 @@ import SwiftUI
 /// 保存されるデータ(ライブラリ・コレクション・本)はCollectionStoreが持ち、こちらは
 /// 「いまどのライブラリを見ているか」「編集モードか」「どの並び順・どの大きさで並べるか」
 /// といった、**画面側の都合でしかない値**だけを持つ。並び順をストアに持たせなかったのは、
-/// 同じデータを別のウインドウが別の並びで見られるようにするため(FavoritesStoreは
-/// メニューバーと共有する都合で並び順を自分で持っているが、こちらにその制約は無い)。
+/// 同じデータを別のウインドウが別の並びで見られるようにするため。
 ///
 /// ■ 保存先のキーが`qooViewer.pref.*`ではない理由
 /// これらは環境設定ウインドウに現れない値なので、「初期設定に戻す」(AppPreferencesが
@@ -428,14 +427,14 @@ final class WelcomeLibraryState: ObservableObject {
         itemSelection.isEmpty ? [] : shownItemIDs.filter(itemSelection.contains)
     }
 
-    @Published var collectionSort: FavoritesSortOption {
+    @Published var collectionSort: ItemSortOption {
         didSet {
             guard collectionSort != oldValue else { return }
             defaults.set(collectionSort.rawValue, forKey: Keys.collectionSort)
         }
     }
 
-    @Published var itemSort: FavoritesSortOption {
+    @Published var itemSort: ItemSortOption {
         didSet {
             guard itemSort != oldValue else { return }
             defaults.set(itemSort.rawValue, forKey: Keys.itemSort)
@@ -604,10 +603,10 @@ final class WelcomeLibraryState: ObservableObject {
             restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf,
             library: isLibraryEnabled, fileBrowser: isFileBrowserEnabled, smart: isSmartEnabled
         )
-        collectionSort = FavoritesSortOption(
+        collectionSort = ItemSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""
         ) ?? .nameAscending
-        itemSort = FavoritesSortOption(
+        itemSort = ItemSortOption(
             rawValue: defaults.string(forKey: Keys.itemSort) ?? ""
         ) ?? .nameAscending
         // objectがnil(まだ一度も保存していない)ときだけ既定値。0.0との区別が要るため

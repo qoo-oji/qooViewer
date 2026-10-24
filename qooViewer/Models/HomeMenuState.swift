@@ -4,7 +4,7 @@ import Foundation
 ///
 /// ■ なぜ値の写しを別に持つのか
 /// `CollectionStore` は表紙の抽出・自動登録フォルダの走査・存在確認のたびに publish する。そのままメニューバーへ
-/// つなぐと、名前が 1 つも変わっていないのにメニュー全体が作り直される(AppStores の型コメント、お気に入りの轍)。
+/// つなぐと、名前が 1 つも変わっていないのにメニュー全体が作り直される(AppStores の型コメント、当時のお気に入りの轍)。
 /// メニューが要るのは「ライブラリとコレクションの id・名前・並び」だけなので、それだけを値で写し、**変わったときだけ**
 /// 知らせる(HomeMenuDirectoryStore)。
 ///
@@ -80,7 +80,7 @@ struct HomeMenuState: Equatable {
 
     // 表示メニューのチェックマーク(ホーム画面の間は、表示メニューの中身がこれに入れ替わる)。
     /// 本棚の並び順(コレクションの中なら本の並び、一覧ならコレクションの並び)。
-    var shelfSort: FavoritesSortOption = .nameAscending
+    var shelfSort: ItemSortOption = .nameAscending
     var browserViewMode: FileBrowserViewMode = .list
     /// スマートライブラリの見せ方(表示メニューの「アイコン」「リスト」⌘1 / ⌘2 がスマートライブラリにも効く。2026-09-27、監査 21)。
     var smartViewMode: SmartLibraryViewMode = .grid

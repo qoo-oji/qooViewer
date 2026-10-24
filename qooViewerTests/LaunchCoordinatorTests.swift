@@ -38,7 +38,6 @@ struct LaunchCoordinatorTests {
         func makeAppState(isPrivate: Bool = false) -> AppState {
             let state = AppState(isPrivateWindow: isPrivate, usesPageListCache: false)
             state.preferences = preferences
-            state.favoritesStore = library.favorites
             state.bookmarkStore = library.bookmarks
             state.layoutStore = library.layouts
             state.metadataStore = library.metadata

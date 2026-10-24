@@ -4,7 +4,7 @@ import Foundation
 /// docs/plans/fs-ui-consistency-audit.md)。
 ///
 /// ■ なぜ要るか
-/// 保存データ(ブックマーク・レイアウト・メタデータ・棚の本・お気に入り)は `bookID`(パス)で引き、外れたときは本を開いた時点で
+/// 保存データ(ブックマーク・レイアウト・メタデータ・棚の本)は `bookID`(パス)で引き、外れたときは本を開いた時点で
 /// `FileNodeIdentifier`(inode + ボリューム)から追従する(各ストアの `reconcileBookIDIfMoved`)。それは「移すのはアプリの外」
 /// だった頃の作りで、**別ボリュームへの移動は inode が変わるので追えない**(docs/06「移動・リネームへの追従」)。いまは
 /// ファイルブラウザ自身が移すので、新旧のパスが分かっている(`FileSystemChange.relocations`)。それを使えば別ボリュームでも、

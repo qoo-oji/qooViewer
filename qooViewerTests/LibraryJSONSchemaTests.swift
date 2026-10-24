@@ -50,14 +50,6 @@ struct LibraryJSONSchemaTests {
     @Test("いま書き出す形は、そのまま読み戻せる")
     func theCurrentShapeRoundTrips() throws {
         let file = QooLibraryExportFile(
-            favorites: ExportedFavorites(
-                folders: [ExportedFavoriteFolder(id: "f1", name: "作者A", parentId: nil),
-                          ExportedFavoriteFolder(id: "f2", name: "続き", parentId: "f1")],
-                books: [ExportedFavoriteBook(
-                    bookID: "/books/a.cbz", inodeNumber: 12345, volumeDeviceNumber: 16777220,
-                    title: "本 A", folderId: "f2"
-                )]
-            ),
             bookmarks: [ExportedBookmarkEntry(
                 bookID: "/books/a.cbz", inodeNumber: 12345, volumeDeviceNumber: 16777220,
                 bookmarks: [ExportedBookmark(page: "003.jpg", name: "第1章")]
@@ -124,10 +116,7 @@ struct LibraryJSONSchemaTests {
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
         #expect(decoded.formatVersion == 7)
-        #expect(decoded.favorites?.folders.map(\.id) == ["f1", "f2"])
-        #expect(decoded.favorites?.folders.last?.parentId == "f1")
-        #expect(decoded.favorites?.books.first?.folderId == "f2")
-        #expect(decoded.favorites?.books.first?.fileNodeIdentifier
+        #expect(decoded.bookmarks?.first?.fileNodeIdentifier
             == FileNodeIdentifier(inodeNumber: 12345, volumeDeviceNumber: 16777220))
         #expect(decoded.bookmarks?.first?.bookmarks.map(\.page) == ["003.jpg"])
         #expect(decoded.layouts?.first?.layout.pageOrder == ["002.jpg", "001.jpg"])
@@ -173,7 +162,7 @@ struct LibraryJSONSchemaTests {
 
     // MARK: - 旧版のファイル
 
-    @Test("版 2(メタデータの無い形)のファイルもそのまま読める")
+    @Test("版 2(メタデータの無い形)のファイルもそのまま読める。お気に入り(2026-10-24 に削除)は読み飛ばす")
     func aVersionTwoFileStillDecodes() throws {
         let file = try decode("""
         {
@@ -193,9 +182,9 @@ struct LibraryJSONSchemaTests {
         }
         """)
         #expect(file.formatVersion == 2)
-        #expect(file.favorites?.books.count == 1)
+        // お気に入りの節があっても、ほかのカテゴリは読める(知らないキーは読み飛ばす)。
+        #expect(file.bookmarks?.count == 1)
         // iノードを持たない版なので、照合はパスへ落ちる(呼び出し側の最終手段)。
-        #expect(file.favorites?.books.first?.fileNodeIdentifier == nil)
         #expect(file.bookmarks?.first?.fileNodeIdentifier == nil)
         #expect(file.layouts?.first?.layout.forcedDisplayMode == nil)
         #expect(file.layouts?.first?.layout.pageOrder == nil)
@@ -209,17 +198,14 @@ struct LibraryJSONSchemaTests {
     func theVolumeUUIDTravelsInTheFile() throws {
         // UUID入りで書いたものが往復する。
         var file = QooLibraryExportFile()
-        file.favorites = ExportedFavorites(
-            folders: [],
-            books: [ExportedFavoriteBook(
-                bookID: "/books/a.cbz", inodeNumber: 17, volumeDeviceNumber: 16_777_249,
-                volumeUUID: "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54", title: "本 A", folderId: nil
-            )]
-        )
+        file.bookmarks = [ExportedBookmarkEntry(
+            bookID: "/books/a.cbz", inodeNumber: 17, volumeDeviceNumber: 16_777_249,
+            volumeUUID: "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54", bookmarks: []
+        )]
         let decoded = try JSONDecoder().decode(
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
-        let identifier = try #require(decoded.favorites?.books.first?.fileNodeIdentifier)
+        let identifier = try #require(decoded.bookmarks?.first?.fileNodeIdentifier)
         #expect(identifier.volumeUUID == "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54")
         // 取り込み先でデバイス番号が変わっていても、同じボリュームだと分かる
         // (マウント順で st_dev が変わる件。FileNodeIdentifier の型コメント参照)。
@@ -231,11 +217,11 @@ struct LibraryJSONSchemaTests {
         // UUIDを足す前に書き出した版 4 のファイル(キーが無い)。formatVersion は据え置きなので、
         // 「キーが無ければ nil」でそのまま読め、照合は従来どおりデバイス番号で行われる。
         let legacy = try decode(
-            #"{"formatVersion": 4, "favorites": {"folders": [], "books": ["#
+            #"{"formatVersion": 4, "bookmarks": ["#
             + #"{"bookID": "/books/a.cbz", "inodeNumber": 17, "volumeDeviceNumber": 16777249,"#
-            + #" "title": "本 A"}]}}"#
+            + #" "bookmarks": []}]}"#
         )
-        let legacyIdentifier = try #require(legacy.favorites?.books.first?.fileNodeIdentifier)
+        let legacyIdentifier = try #require(legacy.bookmarks?.first?.fileNodeIdentifier)
         #expect(legacyIdentifier.volumeUUID == nil)
         #expect(legacyIdentifier == FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16_777_249))
         #expect(legacyIdentifier != FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16_777_253))
@@ -244,7 +230,6 @@ struct LibraryJSONSchemaTests {
     @Test("チェックを外した種類はキーごと無い(含まれていない、と読める)")
     func omittedCategoriesAreAbsentKeys() throws {
         let file = try decode(#"{"formatVersion": 3, "bookmarks": []}"#)
-        #expect(file.favorites == nil)
         #expect(file.layouts == nil)
         #expect(file.metadata == nil)
         #expect(file.libraries == nil)

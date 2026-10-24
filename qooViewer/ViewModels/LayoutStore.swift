@@ -44,7 +44,7 @@ final class LayoutStore: ObservableObject {
     /// しておく。nilは「キャッシュ未構築(次回読み取り時にフェッチが必要)」を表す。
     ///
     /// このクラスがBookLayoutSettings/PageLayoutOverrideの唯一の書き込み口であり
-    /// (このファイル冒頭のコメント参照。modelContextはFavoritesStore/BookmarkStore、
+    /// (このファイル冒頭のコメント参照。modelContextはBookmarkStore、
     /// およびContentView/ViewerViewModel側の`@Environment(\.modelContext)`とも同じ単一の
     /// ModelContext(modelContainer.mainContext)を共有しているが、BookLayoutSettings/
     /// PageLayoutOverrideへ書き込むのはこのストアだけ)、insert/deleteのたびにこのキャッシュ

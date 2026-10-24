@@ -68,7 +68,7 @@ struct MenuBarStateTests {
         let book = MangaBook(id: "/shown", title: "shown", sourceURL: URL(fileURLWithPath: "/shown"), pages: [])
         state.setMenuShownBook(MenuShownBook(book))
         #expect(state.menuShownBook.hasBook)
-        #expect(state.menuShownBook.bookID == "/shown")
+        #expect(state.menuShownBook.sourceURL == book.sourceURL)
         #expect(!state.menuShownBook.leavesNoRecord)
         state.setMenuShownBook(MenuShownBook(nil))
         #expect(state.menuShownBook == MenuShownBook())

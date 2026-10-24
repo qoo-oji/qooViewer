@@ -14,7 +14,7 @@ import Foundation
 /// ■ 入れないもの
 /// - フォルダのアクセス権(`FolderAccessStore.defaultsKey` / `FolderSettingBookmarks`)と
 ///   最近開いた本の履歴(`RecentFilesStore`)、最後に開いていた本 ―― どれもセキュリティスコープ付き
-///   ブックマークで、**書き出した端末でしか意味を持たない**(お気に入り・コレクションの本で
+///   ブックマークで、**書き出した端末でしか意味を持たない**(コレクションの本で
 ///   ブックマークを書き出していないのと同じ理由)
 /// - スマートライブラリ・よく使う項目・自動リネーム ―― パスを含むので、読める形で別のカテゴリ
 ///   として書く(`ExportedSmartLibrary` / `ExportedFileBrowser`)
@@ -43,7 +43,10 @@ enum SettingsBackup {
         // 廃止した設定(PageOrder.retiredSettingKey)。読み替えは済んでいる。
         "qooViewer.pref.usesFinderSortOrder",
         // 廃止した「初回起動時に決めた読み方向」(AppPreferences.Keys.retiredDefaultReadingDirection)。
-        "qooViewer.pref.defaultReadingDirection"
+        "qooViewer.pref.defaultReadingDirection",
+        // 削除したお気に入り機能の設定(AppPreferences.Keys.retiredFavoritesKeys と同じもの。起動時に消している)。
+        "qooViewer.pref.favoriteOpenBehavior", "qooViewer.pref.showRecentFavoritesOnWelcome",
+        "qooViewer.pref.favoritesSortOption", "qooViewer.pref.favoritesFoldersAlwaysOnTop",
     ]
 
     /// 接頭辞には合うが、セキュリティスコープ付きブックマーク(とそのパス・パネルの位置の控え)なので入れないキーの印

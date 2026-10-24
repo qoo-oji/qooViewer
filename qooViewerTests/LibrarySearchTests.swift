@@ -221,7 +221,7 @@ struct LibrarySearchTests {
         let collection = try #require(library.collections.createCollection(
             name: "Shelf", in: shelf, items: pending
         ))
-        let titles = { (sort: FavoritesSortOption) in
+        let titles = { (sort: ItemSortOption) in
             library.collections.items(in: collection, sort: sort).map(\.title)
         }
 
@@ -235,13 +235,13 @@ struct LibrarySearchTests {
 
     @Test("基準と向きの分解・組み立ては、作成日・変更日でも往復する")
     func sortOptionRoundTripsForFileDates() {
-        for option in [FavoritesSortOption.dateCreatedAscending, .dateCreatedDescending,
+        for option in [ItemSortOption.dateCreatedAscending, .dateCreatedDescending,
                        .dateModifiedAscending, .dateModifiedDescending] {
-            #expect(FavoritesSortOption(field: option.field, ascending: option.isAscending) == option)
+            #expect(ItemSortOption(field: option.field, ascending: option.isAscending) == option)
         }
         // タイトルを持たないものの並べ替えメニューには出さない。
-        #expect(!FavoritesSortOption.Field.withoutTitle.contains(.dateCreated))
-        #expect(!FavoritesSortOption.Field.withoutTitle.contains(.dateModified))
+        #expect(!ItemSortOption.Field.withoutTitle.contains(.dateCreated))
+        #expect(!ItemSortOption.Field.withoutTitle.contains(.dateModified))
     }
 
     // MARK: - 列の割り付け

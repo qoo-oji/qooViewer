@@ -4,7 +4,7 @@ import Foundation
 /// アクセスを開くまでの間だけ**開いたままにするための小さな仕組み。
 ///
 /// ■ なぜ必要か
-/// 履歴・お気に入り・ブックマーク一覧から本を開く経路では、保存しておいたセキュリティスコープ
+/// 履歴・コレクション・ブックマーク一覧から本を開く経路では、保存しておいたセキュリティスコープ
 /// 付きブックマークを解決してURLを得る。このURLを実際に開くのは`AppState.open(url:)`で、
 /// そちらは自前で`startAccessingSecurityScopedResource()`し、次の本を開くときまで保持する
 /// (`AppState.securityScopedBookURL`参照)。
@@ -17,7 +17,7 @@ import Foundation
 /// 以前は各所で`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしにしていた。
 /// Appleのドキュメントは、対になる`stopAccessingSecurityScopedResource()`を呼ばないことに
 /// ついて「カーネルリソースを漏らす。使い果たすと、アプリはファイルシステム上の場所を自身の
-/// サンドボックスへ追加する能力そのものを失う」と明記している。履歴やお気に入りから本を開く
+/// サンドボックスへ追加する能力そのものを失う」と明記している。履歴などから本を開く
 /// たびに1つずつ確実に積み上がっていた(`AppState.securityScopedBookURL`が同じ理由で既に
 /// 直されており、こちらはその取りこぼし)。
 ///

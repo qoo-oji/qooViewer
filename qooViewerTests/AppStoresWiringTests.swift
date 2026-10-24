@@ -180,7 +180,7 @@ struct AppStoresWiringTests {
         let probes = [present, missing].map {
             BookExistenceProbe.make(
                 bookID: $0.path, metadataStore: stores.metadataStore, layoutStore: stores.layoutStore,
-                bookmarkStore: stores.bookmarkStore, favoritesStore: stores.favoritesStore, collectionStore: nil,
+                bookmarkStore: stores.bookmarkStore, collectionStore: nil,
                 folderAccess: stores.folderAccess
             )
         }

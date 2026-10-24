@@ -153,9 +153,8 @@ nonisolated extension FolderBrowserSort {
         }
         if primary != .orderedSame { return primary }
         // Finderと同じ並び(localizedStandardCompare: 数字は数値として比べ、大文字小文字・
-        // 全角半角は区別せず、ロケールの照合順序に従う)。お気に入り・ブックマーク・
-        // メタデータ編集など、このアプリの他の「人に見せる一覧」もこの比較で揃えてある
-        // (FavoritesStore.sortedBooks等)。
+        // 全角半角は区別せず、ロケールの照合順序に従う)。ブックマーク・
+        // メタデータ編集など、このアプリの他の「人に見せる一覧」もこの比較で揃えてある。
         //
         // この機能を入れる前は`compare(_:options: .numeric)`だった(ロケールを見ず、
         // 大文字始まりの名前がすべて小文字始まりより先に来る)。下段(本の中身ブラウザ、

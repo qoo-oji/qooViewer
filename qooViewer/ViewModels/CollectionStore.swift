@@ -4,13 +4,14 @@ import AppKit
 import Combine
 
 /// ライブラリ(BookLibrary)・コレクション(BookCollection)・その中の本(CollectionItem)の
-/// 永続化と操作をまとめて担当する(改善要望5)。FavoritesStoreと同じ作り・同じ約束事で書いてある。
+/// 永続化と操作をまとめて担当する(改善要望5)。当時のお気に入りのストア(2026-10-24 に機能ごと削除)と同じ作り・
+/// 同じ約束事で書いた。
 ///
-/// ■ FavoritesStoreとの違い
+/// ■ お気に入りのストアとの違い(当時)
 /// - **メニューバーに出ない。** そのためMenuBarMenuGate/MenuBarMenuRefresherには一切関わらない
-///   (`AppStores.allObjectWillChangePublishers`にも足さない)。お気に入りの@Publishedが
+///   (`AppStores.allObjectWillChangePublishers`にも足さない)。当時のお気に入りの@Publishedが
 ///   メニュー全体を作り直していた轍を踏まないため(AppStoresの型コメント参照)。
-/// - 並び順(FavoritesSortOption)はこのストアが持たない。ウェルカム画面の状態
+/// - 並び順(ItemSortOption)はこのストアが持たない。ウェルカム画面の状態
 ///   (WelcomeLibraryState)が持ち、`collections(in:sort:)`/`items(in:sort:)`へ都度渡す。
 ///   例外は「常に先頭/末尾に表示するコレクション」で、これはウインドウごとの見え方ではなく
 ///   棚そのものの決めごとなのでDB(BookLibrary)に持つ(全ウインドウ共通。setPinnedCollection)。
@@ -28,8 +29,7 @@ final class CollectionStore: ObservableObject {
     @Published private(set) var libraries: [BookLibrary] = []
 
     /// 本が「いまどうなっているか」のキャッシュ(CollectionItem.id -> BookLocation)。
-    /// 確認そのものはメインアクターの外で行い、表示側はこの辞書を読むだけ
-    /// (FavoritesStore.existenceByFavoriteIDと同じ理由・同じ作り)。
+    /// 確認そのものはメインアクターの外で行い、表示側はこの辞書を読むだけ。
     ///
     /// 以前は Bool(あるか無いか)だった。**消してよいかの判断には理由が要る**ので
     /// `BookLocation`に変えてある(あちらの型コメント参照)。淡く描くだけの用途は
@@ -63,7 +63,7 @@ final class CollectionStore: ObservableObject {
     /// ―― 並べ替えと表示で別の関数を通すと、並びと見えている文字が食い違いうる。
     let titleResolver: BookTitleResolver
 
-    /// 絞り込み無し全件フェッチの結果のキャッシュ(FavoritesStore.cachedFolders/cachedBooksと同じ)。
+    /// 絞り込み無し全件フェッチの結果のキャッシュ。
     /// このストアが3つのモデルの唯一の書き込み口であるため、insert/deleteのたびに捨てておけば
     /// 毎回フェッチした場合と同じ結果になる。
     private var cachedLibraries: [BookLibrary]?
@@ -108,7 +108,7 @@ final class CollectionStore: ObservableObject {
         reload()
 
         // 実体の存在確認は重いので、描画のたびではなく「古くなっている可能性が生まれたとき」に
-        // だけ非同期で行う(FavoritesStore.initと同じ考え方・同じ契機)。
+        // だけ非同期で行う。
         scheduleExistenceRefresh()
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -133,7 +133,7 @@ final class CollectionStore: ObservableObject {
         }
     }
 
-    /// このストアが張った購読を外す。**テストのための口**(FavoritesStore.releaseResourcesと
+    /// このストアが張った購読を外す。**テストのための口**(BookmarkStore.releaseResourcesと
     /// 同じ理由・同じ形。deinitでは間に合わない ―― 解放がメインスレッド以外で始まると
     /// 通知の処理と重なる)。
     func releaseResources() {
@@ -257,7 +257,7 @@ final class CollectionStore: ObservableObject {
     ///   だけが使う ―― あちらは「追加日時の昇順で固定」して差分を取りやすくするための並びで、
     ///   画面の見え方とは別物(exportCollections参照)。
     func collections(
-        in library: BookLibrary, sort: FavoritesSortOption, applyingPins: Bool = true
+        in library: BookLibrary, sort: ItemSortOption, applyingPins: Bool = true
     ) -> [BookCollection] {
         let sorted = sorted(library.collections, sort: sort)
         return applyingPins ? pinned(sorted, in: library) : sorted
@@ -321,7 +321,7 @@ final class CollectionStore: ObservableObject {
     /// 「名前」は登録した時点のファイル名(CollectionItem.title)、「タイトル」は書誌の
     /// タイトル(BookTitleResolver)で、この2つは別物。前者はDBの列を読むだけだが、後者は
     /// 未登録の本ではファイル名からの推測が走る(sortedByTitle参照)。
-    func items(in collection: BookCollection, sort: FavoritesSortOption) -> [CollectionItem] {
+    func items(in collection: BookCollection, sort: ItemSortOption) -> [CollectionItem] {
         sorted(collection.items, sort: sort)
     }
 
@@ -337,7 +337,7 @@ final class CollectionStore: ObservableObject {
     /// タイトル順のときだけ)と並び順。**抽出の結果(`isCoverResult`)だけは並びを変えない**ので控えを残す ―― ここを捨てると
     /// 抽出 1 冊ごとに全札の並べ替えに戻る。上位 N 件だけを選ぶ方法にしなかったのは、同じ名前の本どうしの前後まで今の
     /// 全件の並べ替えと一致させるため(札の見た目を 1 冊も変えない)。
-    func leadingItems(in collection: BookCollection, sort: FavoritesSortOption, limit: Int) -> [CollectionItem] {
+    func leadingItems(in collection: BookCollection, sort: ItemSortOption, limit: Int) -> [CollectionItem] {
         let key = LeadingItemsMemoKey(collectionID: collection.id, sort: sort, limit: limit)
         let titleToken: String? = switch sort {
         case .titleAscending, .titleDescending: titleResolver.stateToken
@@ -361,7 +361,7 @@ final class CollectionStore: ObservableObject {
 
     private struct LeadingItemsMemoKey: Hashable {
         let collectionID: UUID
-        let sort: FavoritesSortOption
+        let sort: ItemSortOption
         let limit: Int
     }
 
@@ -388,7 +388,7 @@ final class CollectionStore: ObservableObject {
     /// `keeping` の bookID の本は、検索に当たらなくても残す(インスペクタで直している本。直した題で検索から外れても、欄に焦点が
     /// ある間は一覧と選択に残す ―― `WelcomeLibraryState.bookKeptWhileEditing`。2026-10-04 のレビューの R2-2)。
     func items(
-        in collection: BookCollection, sort: FavoritesSortOption, matching query: LibrarySearchQuery?,
+        in collection: BookCollection, sort: ItemSortOption, matching query: LibrarySearchQuery?,
         keeping keptBookID: String? = nil
     ) -> [CollectionItem] {
         // 同じ描き直しの中で何度も求められる(コレクションの中の一覧は body の中で見出し・件数・格子・マーキーの範囲・右クリックの
@@ -430,7 +430,7 @@ final class CollectionStore: ObservableObject {
     /// 数に上限を設ける。
     private struct ItemsMemoKey: Hashable {
         let collectionID: UUID
-        let sort: FavoritesSortOption
+        let sort: ItemSortOption
         let terms: [String]?
         let keptBookID: String?
         let itemOrderRevision: UInt64
@@ -447,7 +447,7 @@ final class CollectionStore: ObservableObject {
     }
 
     /// 並び・検索の当たりがタイトル(`BookTitleResolver`)で変わるか。
-    private static func usesTitles(sort: FavoritesSortOption, query: LibrarySearchQuery?) -> Bool {
+    private static func usesTitles(sort: ItemSortOption, query: LibrarySearchQuery?) -> Bool {
         if query != nil { return true }
         switch sort {
         case .titleAscending, .titleDescending: return true
@@ -460,7 +460,7 @@ final class CollectionStore: ObservableObject {
     /// 一致するのは、**コレクションの名前**が一致するもの、または**中に一致する本がある**もの
     /// (本の名前・メタデータ。BookTitleResolver.searchableText参照)。
     func collections(
-        in library: BookLibrary, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
+        in library: BookLibrary, sort: ItemSortOption, matching query: LibrarySearchQuery?
     ) -> [BookCollection] {
         // 本棚の body は 1 回の描き直しでこれを 7 回前後呼び(見出し・件数・すべて選択・格子・マーキー・右クリックの相手)、検索中は
         // 名前の当たらないコレクションの全冊を照らす。`items(in:sort:matching:)` と同じ寿命で控える(2026-10-05 の効率の監査 B8)。
@@ -489,7 +489,7 @@ final class CollectionStore: ObservableObject {
     /// `itemOrderRevision` を進める)。
     private struct CollectionsMemoKey: Hashable {
         let libraryID: UUID
-        let sort: FavoritesSortOption
+        let sort: ItemSortOption
         let terms: [String]?
         let itemOrderRevision: UInt64
         let titleToken: String
@@ -561,7 +561,7 @@ final class CollectionStore: ObservableObject {
     }
 
     /// このアプリのコレクションに登録されている本のbookID一覧(「このアプリが知っている本」を
-    /// 横断的に集める用途。FavoritesStore.allRegisteredBookIDsと同じ役割)。
+    /// 横断的に集める用途)。
     func allRegisteredBookIDs() -> Set<String> {
         if let memo = registeredBookIDsMemo, memo.revision == itemOrderRevision { return memo.ids }
         let ids = Set(allItems().map(\.bookID))
@@ -593,7 +593,7 @@ final class CollectionStore: ObservableObject {
     }
 
     /// この本を指すセキュリティスコープ付きブックマークのうち最初に見つかったもの
-    /// (BookmarkStore/FavoritesStoreの同名メソッドと同じ用途)。
+    /// (BookmarkStoreの同名メソッドと同じ用途)。
     func anyBookmarkData(forBookID bookID: String) -> Data? {
         itemsByBookID()[bookID]?.first?.bookmarkData
     }
@@ -623,14 +623,14 @@ final class CollectionStore: ObservableObject {
 
     // MARK: - 並び順
 
-    private func sorted(_ collections: [BookCollection], sort: FavoritesSortOption) -> [BookCollection] {
+    private func sorted(_ collections: [BookCollection], sort: ItemSortOption) -> [BookCollection] {
         switch sort {
         case .nameAscending:
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .nameDescending:
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         // コレクションには書誌のタイトルが無い(棚に付けた名前がすべて)。「タイトル」は本を
-        // 並べるときだけの基準なのでメニューにも出さない(FavoritesSortOptionの型コメント)が、
+        // 並べるときだけの基準なのでメニューにも出さない(ItemSortOptionの型コメント)が、
         // 保存してある値が何かの拍子にこちらへ回ってきても並びが崩れないよう、名前として扱う。
         // 作成日・変更日もコレクションには無い(ファイルシステム上の日付を持つのは本だけ)。
         case .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
@@ -672,7 +672,7 @@ final class CollectionStore: ObservableObject {
         return head + middle + tail
     }
 
-    private func sorted(_ items: [CollectionItem], sort: FavoritesSortOption) -> [CollectionItem] {
+    private func sorted(_ items: [CollectionItem], sort: ItemSortOption) -> [CollectionItem] {
         switch sort {
         // 比べる値は 1 冊 1 回だけ読む(SwiftData の行の属性は読むたびに重い。比べるたびに 2 冊ぶん読むと、1 万冊の並べ替えで
         // 秒に届いた ―― 2026-10-06 の応答性の点検 R4-4)。比べ方・入力の順は以前と同じなので並びも同じ。
@@ -979,7 +979,7 @@ final class CollectionStore: ObservableObject {
     }
 
     /// URLから登録の材料を作る。セキュリティスコープ付きブックマークが作れなければnil
-    /// (アクセス権が無いURL。FavoritesStore.makeBookmarkDataと同じ判断)。
+    /// (アクセス権が無いURL)。
     ///
     /// `nonisolated`: ブックマークの生成はファイルへの問い合わせを伴い、1件あたりは短いが
     /// 千冊規模の棚では合計で秒に近づく。自動登録フォルダの走査はこれをメインアクターの外で
@@ -1053,7 +1053,7 @@ final class CollectionStore: ObservableObject {
 
     /// コレクションへ本をまとめて追加する。**同じコレクションに同じ本は入らない**
     /// (パス一致、またはファイルノード識別子の一致で弾く)。保存と通知は最後に1回だけ
-    /// (FavoritesStore.forceAddFavoritesと同じ理由 ―― 1件ずつsaveするとJSON取り込みが
+    /// (1件ずつsaveするとJSON取り込みが
     /// 目に見えて遅くなる)。
     @discardableResult
     func add(_ items: [PendingItem], to collection: BookCollection) -> [CollectionItem] {
@@ -1068,7 +1068,6 @@ final class CollectionStore: ObservableObject {
     private func insertItems(_ items: [PendingItem], into collection: BookCollection) -> [CollectionItem] {
         // collection.itemsはリレーションシップなので、まだsave()していないこのバッチ内の
         // 追加を反映しないことがある。重複判定と連番の材料はローカルに持っておく
-        // (FavoritesStore.forceAddFavoritesのnextSortOrderByFolderIDと同じ理由)。
         var existingPaths = Set(collection.items.map(\.bookID))
         var existingIdentifiers = Set(collection.items.compactMap(\.fileNodeIdentifier))
         var nextSortOrder = collection.items.count
@@ -1331,12 +1330,12 @@ final class CollectionStore: ObservableObject {
 
     // MARK: - 移動・リネームへの追従
 
-    /// 同一ボリューム内での移動・リネームに追従する(FavoritesStore.reconcileBookIDIfMovedと
+    /// 同一ボリューム内での移動・リネームに追従する(LayoutStore・BookmarkStoreのreconcileBookIDIfMovedと
     /// 同じ考え方・同じ手順。AppState.open(url:)から本を開くたびに呼ばれる)。
     ///
     /// **パスだけでなくtitleも新しいファイル名へ書き換える**(ユーザー要望 2026-09-10)。
-    /// お気に入り(FavoritesStore)がtitleに触れないのは、あちらには表示名を自分で付け替える操作
-    /// (rename(_ favorite:to:))があり、ユーザーが付けた名前を上書きしてはいけないため。
+    /// 当時のお気に入りがtitleに触れなかったのは、あちらには表示名を自分で付け替える操作があり、
+    /// ユーザーが付けた名前を上書きしてはいけなかったため。
     /// コレクションの本にその操作は無く、CollectionItem.titleは「そのファイル/フォルダの名前」
     /// そのものなので、iノードで同一ファイルと確定した以上は古い名前を残す理由がない
     /// (カバー下のキャプションを「ファイル名」にしているとリネーム前の名前が出たままになる)。
@@ -1401,7 +1400,7 @@ final class CollectionStore: ObservableObject {
     }
 
     /// 識別子を持たない古い行に、パスから取り直した識別子を補完する
-    /// (FavoritesStore.backfillFileNodeIdentifierと同じ役割)。
+    /// (LayoutStore・BookmarkStoreのbackfillFileNodeIdentifierと同じ役割)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
         let targets = items(forBookID: bookID)
             .filter { FileNodeIdentifier.needsBackfill($0.fileNodeIdentifier) }
@@ -1452,7 +1451,7 @@ final class CollectionStore: ObservableObject {
 
     /// キャッシュ済みの存在確認結果。**ファイルアクセスを一切行わない**ので、一覧の描画から
     /// 自由に呼んでよい。まだ確認できていない項目は「存在する」として扱う
-    /// (FavoritesStore.cachedFileExistsと同じ理由: 起動直後に全部が消えたように見せない)。
+    /// (起動直後に全部が消えたように見せない)。
     func cachedFileExists(for item: CollectionItem) -> Bool {
         locationByItemID[item.id]?.exists ?? true
     }
@@ -1489,7 +1488,7 @@ final class CollectionStore: ObservableObject {
         }
     }
 
-    /// 全登録の実体確認を非同期に予約する(FavoritesStore.scheduleExistenceRefreshと同じ作り)。
+    /// 全登録の実体確認を非同期に予約する。
     func scheduleExistenceRefresh() {
         // ライブラリ機能がOFFの間は確かめない(結果を見る画面がどこにも無い。isLibraryFeatureEnabledのコメント)。
         guard isLibraryFeatureEnabled else { return }
@@ -1725,8 +1724,9 @@ final class CollectionStore: ObservableObject {
     ///
     /// `modelContext.delete(model:)`(述語なしの一括削除)は使わない。逆リレーションが
     /// mandatoryなモデルではバッチ削除が全件失敗し、その失敗がtry?で握り潰されて
-    /// 「消したはずの行が残る」という形で表面化する(FavoritesStore.deleteAllFavoritesの
-    /// コメントに実測の記録がある)。行をフェッチして1件ずつ消す。
+    /// 「消したはずの行が残る」という形で表面化する(2026-09-06 に当時のお気に入りの一括削除で実測:
+    /// mandatory な逆リレーションを持つ型の `delete(model:)` が `Constraint trigger violation: … mandatory OTO nullify inverse`
+    /// で全件ぶん失敗し、フォルダのカスケードぶんしか消えなかった)。行をフェッチして1件ずつ消す。
     func deleteAll() {
         // コレクションの側からまとめて外してから消す(`deleteItems` のコメント。1 件ずつだと冊数 × コレクションの冊数)。
         deleteItems((try? modelContext.fetch(FetchDescriptor<CollectionItem>())) ?? [])

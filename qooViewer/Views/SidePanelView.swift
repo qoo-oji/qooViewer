@@ -18,10 +18,8 @@ import AppKit
 /// かえって分かりづらいため下段は非表示のまま(BookContentsBrowserState.init?がnilを返す)。
 ///
 /// **ブックマークモード**: 上段は今開いている本のブックマーク一覧、下段はライブラリ → コレクション →
-/// 本のツリー(2026-09-13。お気に入りを有効にしたときは、上段がお気に入りのツリー、下段が
-/// ブックマーク一覧)。ブックマーク・お気に入りの段は「追加」「編集ウインドウを開く」の2ボタンを
-/// 持つ(ユーザー要望)。実際の追加
-/// (登録先フォルダの選択シート)・編集ウインドウの表示は、このViewではなく呼び出し側
+/// 本のツリー(2026-09-13)。ブックマークの段は「追加」「編集ウインドウを開く」の2ボタンを
+/// 持つ(ユーザー要望)。実際の追加・編集ウインドウの表示は、このViewではなく呼び出し側
 /// (ContentView、およびそこからAppState経由でViewerView)が行う。
 ///
 /// 背景はViewerView.swiftの他のパネル(サムネイル一覧・Get Info)と違い自身で持つ
@@ -37,11 +35,7 @@ struct SidePanelView: View {
     @EnvironmentObject private var preferences: AppPreferences
     /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
     @EnvironmentObject private var appearance: AppearanceSettings
-    /// ブックマークモード上段(お気に入りツリー)の表示元。アプリ全体で1つのインスタンスを
-    /// 共有しているため(QooViewerApp参照)、@EnvironmentObjectとして受け取れば整理ウインドウ・
-    /// メニューバー側での変更もそのまま反映される。
-    @EnvironmentObject private var favoritesStore: FavoritesStore
-    /// 履歴モードの表示元(favoritesStoreと同じくアプリ全体で1つ)。
+    /// 履歴モードの表示元(アプリ全体で1つ)。
     @EnvironmentObject private var recentFiles: RecentFilesStore
     /// 右クリックの「ファイルブラウザで開く」(改善要望7 段階 8。RevealInFileBrowserActionの型コメント)。
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
@@ -116,8 +110,7 @@ struct SidePanelView: View {
     /// (PageContextMenuItems参照)。実装はViewerViewが持つため橋渡しのクロージャで受け取る。
     var onToggleBookmarkAtPage: (Int) -> Void
     /// 行の右クリックから、その本を新しいウインドウ/タブで開く(BookOpenContextMenuItems)。
-    /// フォルダブラウザ(上段)と履歴モードの行から呼ばれる。お気に入りは対象がURLでは
-    /// なくFavoriteBookなので、下の専用のクロージャを使う。
+    /// フォルダブラウザ(上段)と履歴モードの行から呼ばれる。
     ///
     /// `onOpen`と違い、パネルを閉じる処理は行わない ―― 開く先が別のウインドウ/タブなので、
     /// このウインドウのパネルは出したままのほうが「一覧から次々に開く」という使い方に合う
@@ -139,7 +132,7 @@ struct SidePanelView: View {
     /// 見開きで2ページとも表示しているときの相方ページ(AppState.currentPartnerPageIndex)。
     /// ページモードで、画面に出ている2ページの両方をハイライトするために使う。
     var partnerPageIndex: Int?
-    /// 本を開いているかどうか。「お気に入りに追加」「ブックマークを追加」の2ボタンは、本を
+    /// 本を開いているかどうか。「ブックマークを追加」ボタンは、本を
     /// 開いていない間は対象が無いため無効化する。
     var hasBook: Bool
     /// 今開いている本のパス(MangaBook.id)。履歴モードで、今読んでいる本の行を
@@ -157,10 +150,10 @@ struct SidePanelView: View {
     /// (MangaBook.isTransient)の導入で条件が食い違うようになったため分けた。ここへ単純にORして
     /// しまうと、**通常ウインドウでその場限りの本を開いた瞬間にサイドパネルの履歴が消える**。
     var isPrivateWindow: Bool = false
-    /// お気に入り/ブックマークの＋(追加)・鉛筆(編集)ボタンを使えるかどうか。
+    /// ブックマークの＋(追加)・鉛筆(編集)ボタンを使えるかどうか。
     /// falseになるのは、シークレットウインドウか、その場限りの本を開いているとき
     /// (どちらもDBへ書けないため。ViewerViewModel.skipsPersistenceと同じ条件)。
-    /// 一覧からのジャンプ・お気に入りを開く操作は読み取りなので、falseでも通常どおり使える。
+    /// 一覧からのジャンプは読み取りなので、falseでも通常どおり使える。
     var allowsLibraryEditing: Bool = true
     /// 開いている本に、qooViewer から辿れる置き場所が無いか(StackNest の本。MangaBook.hasBrowsableLocation)。真の間、
     /// フォルダブラウザは一覧の代わりに理由を出し(前の本のフォルダを残さない ―― 2026-10-18、利用者の決定)、ページの右クリックの
@@ -174,24 +167,6 @@ struct SidePanelView: View {
     /// nil = 本を開いていない = ボタンを無効にする。実体はViewerViewのreturnToWelcome()で、
     /// 呼び出し側はAppState.performViewerAction越しに渡す(ContentView.sidePanelView参照)。
     var onReturnToWelcome: (() -> Void)?
-    /// 今開いている本を、お気に入りへ追加する(登録先フォルダの選択シートを開く)。
-    var onAddFavorite: () -> Void
-    /// 「お気に入りの編集」ウインドウを開く。
-    var onEditFavorites: () -> Void
-    /// お気に入りの行の右クリックから、その本を新しいウインドウ/タブで開く。
-    /// URLの解決(見つからなければアラート)は呼び出し側が行う ―― 通常の`onOpenFavorite`と
-    /// 同じ扱いにするため。
-    var onOpenFavoriteInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
-    /// お気に入りツリーの本をクリックして開く(環境設定「本を開く」の「お気に入りから」に従う)。
-    var onOpenFavorite: (FavoriteBook) -> Void
-    /// お気に入り(本・フォルダ)の名前を変更する / 削除する(行の右クリックから。ユーザー要望)。
-    ///
-    /// 入力欄と確認ダイアログをここではなくContentViewに持たせているのは、パネルを隠す設定で
-    /// 使っている場合、ダイアログが出ている間だけホバーによる自動非表示を止める必要があるため
-    /// (メニューを開いている間に止めるのと同じ理屈。ContentView.isMenuTrackingのコメント参照)。
-    /// その判断はホバーの監視を持っているContentView側にしか書けない。
-    var onRenameFavorite: (FavoriteListEntry) -> Void
-    var onDeleteFavorite: (FavoriteListEntry) -> Void
     /// 今表示しているページをブックマークへ追加する。
     var onAddBookmark: () -> Void
     /// 「ブックマーク・レイアウトの編集」ウインドウを開く。
@@ -199,22 +174,22 @@ struct SidePanelView: View {
     /// ブックマーク一覧の項目をクリックして、そのページへジャンプする。
     var onJumpToBookmark: (Bookmark) -> Void
     /// ブックマークの名前を変更する / 削除する(行の右クリックから。ユーザー要望)。
-    /// ダイアログをContentViewに持たせている理由はonRenameFavoriteのコメント参照。
+    ///
+    /// 入力欄をここではなくContentViewに持たせているのは、パネルを隠す設定で使っている場合、ダイアログが出ている間だけ
+    /// ホバーによる自動非表示を止める必要があるため(メニューを開いている間に止めるのと同じ理屈。ContentView.isMenuTrackingの
+    /// コメント参照)。その判断はホバーの監視を持っているContentView側にしか書けない。
     var onRenameBookmark: (Bookmark) -> Void
     var onDeleteBookmark: (Bookmark) -> Void
     /// ブックマークモード下段のライブラリのツリーの並び順(同じウインドウのウェルカム画面の
     /// 並び順。SidePanelLibraryTreeSectionの型コメント)。
-    var librarySort: FavoritesSortOption = .nameAscending
-    var libraryItemSort: FavoritesSortOption = .nameAscending
+    var librarySort: ItemSortOption = .nameAscending
+    var libraryItemSort: ItemSortOption = .nameAscending
 
     @State private var topSectionFraction: CGFloat = 0.5
     /// ブックマークモードの上下分割比。ブラウザモードのtopSectionFraction(フォルダブラウザと
     /// 本の中身ブラウザの分割)とは意味も見せたい比率も別物のため、状態自体を分けて持つ
     /// (モードを行き来しても、それぞれのモードで最後に調整した比率がそのまま残る)。
     @State private var bookmarksTopSectionFraction: CGFloat = 0.5
-    /// お気に入りツリーで展開中のフォルダのid一覧(FavoritesOrganizerView.expandedFolderIDsと
-    /// 同じ考え方)。パネルの生存期間中は保持され、モードを切り替えても展開状態は残る。
-    @State private var expandedFavoriteFolderIDs: Set<UUID> = []
     /// ブックマークモード下段(ライブラリのツリー)で展開中のライブラリ・コレクション。
     /// 最初は何も開いていない = ライブラリだけが並ぶ(ユーザー要望 2026-09-13)。
     @State private var expandedLibraryIDs: Set<UUID> = []
@@ -392,44 +367,16 @@ struct SidePanelView: View {
     /// ブックマークモードの中身。
     ///
     /// **いまの形(2026-09-13〜): 上段=ブックマーク一覧、下段=ライブラリのツリー**
-    /// (ユーザー要望。SidePanelLibraryTreeSection)。お気に入りが無効な間は、お気に入りの
-    /// あった場所をブックマークが引き継ぎ、空いた下半分にライブラリ・コレクション・本のツリーが入る。
-    /// 分割の比率はお気に入りのときと同じ`bookmarksTopSectionFraction`を使う。
-    ///
-    /// 以下は、お気に入りを有効にしたとき(上段=お気に入りツリー、下段=ブックマーク一覧)の説明。
-    /// ブラウザモードと違い、上下どちらの段も常に表示する(本を開いていなくても、お気に入りの
-    /// 閲覧・編集ウインドウの呼び出しはできる必要があり、ブックマーク側も「まだ何もない」
-    /// ことが分かる形で見えていた方がよいため)。
-    ///
-    /// 改善要望5でお気に入りを無効化してから2026-09-13までは、FavoritesFeature.isEnabledがfalseの
-    /// 間はブックマーク一覧が全高を使う1列構成だった。いまはその下半分をライブラリのツリーが使う
-    /// (上記)。お気に入りを復活させた場合の形(お気に入り/ブックマークの2段)は変えていない。
+    /// (ユーザー要望。SidePanelLibraryTreeSection)。以前の上段はお気に入りのツリーで(2026-10-24 に機能ごと削除)、
+    /// そのあった場所をブックマークが引き継ぎ、空いた下半分にライブラリ・コレクション・本のツリーが入る。
+    /// 2026-09-13 までは、ブックマーク一覧が全高を使う1列構成だった。
     private var bookmarksModeBody: some View {
         GeometryReader { geometry in
             let fraction = effectiveTopFraction(
                 totalHeight: geometry.size.height, fraction: bookmarksTopSectionFraction
             )
             VStack(spacing: 0) {
-                if FavoritesFeature.isEnabled {
-                    SidePanelFavoritesSectionView(
-                        favoritesStore: favoritesStore,
-                        expandedFolderIDs: $expandedFavoriteFolderIDs,
-                        hasBook: hasBook,
-                        allowsEditing: allowsLibraryEditing,
-                        onAdd: onAddFavorite,
-                        onEdit: onEditFavorites,
-                        onOpen: onOpenFavorite,
-                        onOpenInNewWindow: onOpenFavoriteInNewWindow,
-                        onRename: onRenameFavorite,
-                        onDelete: onDeleteFavorite
-                    )
-                    .frame(height: max(80, geometry.size.height * fraction - 4))
-                    .clipped()
-                    dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
-                    bookmarksSection
-                        .frame(maxHeight: .infinity)
-                        .clipped()
-                } else if !preferences.libraryFeatureEnabled {
+                if !preferences.libraryFeatureEnabled {
                     // 環境設定「ライブラリを有効にする」がOFFの間は、ライブラリのツリーを出さず、ブックマーク一覧が全高を使う
                     // (2026-09-13 までの1列構成と同じ形)。
                     bookmarksSection
@@ -456,7 +403,7 @@ struct SidePanelView: View {
         }
     }
 
-    /// ブックマークモードのブックマーク一覧(お気に入りの有無で上段にも下段にもなる)。
+    /// ブックマークモードのブックマーク一覧(上段)。
     private var bookmarksSection: some View {
         SidePanelBookmarksSectionView(
             bookmarks: bookmarks,
@@ -671,7 +618,7 @@ struct SidePanelView: View {
                     // 表示しているので(moveAndShowImages参照)、ここは一覧が空である理由を
                     // 伝えるだけでよい ―― 押すべきボタンは無い。
                     //
-                    // 再アンカー(履歴やお気に入りから本を開いた場合)でここへ来たときだけは
+                    // 再アンカー(履歴やコレクションから本を開いた場合)でここへ来たときだけは
                     // まだ開いていないことがあるので、そのときは言い方を変える。
                     SidePanelEmptyMessage(
                         textKey: isCurrentBookFolder(directory)
@@ -810,7 +757,7 @@ struct SidePanelView: View {
         }
         // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。枠の側も同じ。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrentBookRow || isHighlighted)
-        // 名前は中間を省略して 1 行に収めるので、指したときに全体を出す(お気に入り・ブックマーク・履歴の行と同じ。
+        // 名前は中間を省略して 1 行に収めるので、指したときに全体を出す(ブックマーク・履歴の行と同じ。
         // 2026-10-12 まではこの行と本の中身の行だけ出しておらず、長い名前の全体を見る手段が無かった)。
         // SwiftUI には省略されたときだけ出す AppKit の「展開ツールチップ」が無いので、常に出す。
         .help(entry.displayName)
@@ -829,7 +776,7 @@ struct SidePanelView: View {
                     //
                     // **クリック回数の違う `.onTapGesture` を重ねない**(2026-10-06 の応答性の点検 R8-1)。SP-2 の直しで count: 2 と
                     // count: 1 を重ねたら、シングルクリックがシステムのダブルクリック間隔(既定 約 0.5 秒)だけ遅れた ―― 同じ不具合を
-                    // FavoritesOrganizerView・BookmarkListView で利用者の報告から直している。クリックはその場で処理し、ダブルクリックの
+                    // お気に入りの編集ウインドウ(削除済み)・BookmarkListView で利用者の報告から直している。クリックはその場で処理し、ダブルクリックの
                     // 2 回目は読み捨てる(`handleSingleClick`)。1 回目で中へ移った後の 2 回目が、新しい一覧の別の行を開かないように。
                     label.onTapGesture { handleSingleClick(rowID: entry.id) { handleFolderClick(entry) } }
                 }
@@ -968,7 +915,7 @@ struct SidePanelView: View {
     /// 開いた後に本の親フォルダへ再アンカーされると、移ったばかりの場所から弾き返されて
     /// しまうため、その1回だけ見送らせる(SidePanelBrowserState.skipsNextAnchor参照)。
     ///
-    /// **ここを通らない場所の変わり方もある** ―― 履歴やお気に入りから本を開いたときの
+    /// **ここを通らない場所の変わり方もある** ―― 履歴やコレクションから本を開いたときの
     /// 再アンカー(handlePanelRevealed)がそれで、あちらは「開いた本に合わせて表示を移す」
     /// 逆向きの動きなので、ここで本を開き直してはいけない(無限に開き直すことになる)。
     ///
@@ -1020,7 +967,7 @@ struct SidePanelView: View {
     /// 留まり、その行が選択色になる)に変えた ―― 空の一覧にバナーを出すより、親の一覧で
     /// 行が強調されているほうが「いまどのフォルダを見ているか」「隣は何か」が一目で分かる。
     ///
-    /// この見え方は、履歴・お気に入り・Finderから本を開いたときや、画像ファイルを直接
+    /// この見え方は、履歴・コレクション・Finderから本を開いたときや、画像ファイルを直接
     /// 開いたときにブラウザが取る見え方(親に留まって本の行を強調。SidePanelBrowserState.
     /// browserAnchor参照)と同じで、辿り着き方による食い違いがむしろ減る。
     /// 行の強調は、本が切り替わったときの再アンカー(handlePanelRevealed)がそのまま担う。
@@ -1096,8 +1043,7 @@ struct SidePanelView: View {
     }
 }
 
-/// ファイル名(拡張子)から行アイコンを決める。SidePanelView.iconNameとブックマークモードの
-/// お気に入りツリー(SidePanelFavoriteRow)から使うため、View外の関数として切り出している。
+/// ファイル名(拡張子)から行アイコンを決める。View外の関数として切り出してある(以前はお気に入りのツリーとも共用していた)。
 func sidePanelFileIconName(fileName: String?) -> String {
     guard let fileName else { return "doc" }
     if isArchiveFile(fileName) { return "doc.zipper" }
@@ -1590,246 +1536,6 @@ struct PanelModeIconButton: View {
     }
 }
 
-// MARK: - ブックマークモード上段(お気に入りツリー)
-
-/// ブックマークモードの上段。お気に入りをフォルダ階層のままツリー表示し、上部に「今の本を
-/// お気に入りに追加」「お気に入りの編集ウインドウを開く」の2ボタンを置く(ユーザー要望)。
-///
-/// 「お気に入りの整理」ウインドウ(FavoritesOrganizerView)がListのDisclosureGroupで組んで
-/// いるのに対し、ここはScrollView+LazyVStackに自前の三角マーク付きの行を並べている。
-/// List/DisclosureGroupは自前の背景(マテリアル)を持つこの狭いパネルの中では見た目が
-/// 浮いてしまうため、パネル内の他のセクション(フォルダブラウザ・本の中身ブラウザ)と
-/// 同じ、素朴な行の並びに揃えている。
-private struct SidePanelFavoritesSectionView: View {
-    @ObservedObject var favoritesStore: FavoritesStore
-    @Binding var expandedFolderIDs: Set<UUID>
-    var hasBook: Bool
-    /// falseなら追加・編集ボタンを無効にする(SidePanelView.allowsLibraryEditing参照)。
-    var allowsEditing: Bool
-    var onAdd: () -> Void
-    var onEdit: () -> Void
-    var onOpen: (FavoriteBook) -> Void
-    /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenFavoriteInNewWindow)。
-    var onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
-    /// 行の右クリックからのリネーム・削除(SidePanelView.onRenameFavorite / onDeleteFavorite)。
-    var onRename: (FavoriteListEntry) -> Void
-    var onDelete: (FavoriteListEntry) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                SidePanelNavButton(
-                    systemName: "plus",
-                    isDisabled: !hasBook || !allowsEditing,
-                    help: "Add This Book to Favorites…"
-                ) {
-                    onAdd()
-                }
-                SidePanelNavButton(systemName: "pencil", isDisabled: !allowsEditing, help: "Edit Favorites…") {
-                    onEdit()
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(10)
-
-            // フォルダブラウザの現在地表示(SidePanelView.folderSection)と同じ位置・同じ
-            // 書式の見出し。上下2つの段がそれぞれ何の一覧なのかを一目で分かるようにする。
-            Text("Favorites")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .panelOutlinedContent()
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Divider()
-
-            let entries = favoritesStore.entries(in: nil)
-            if entries.isEmpty {
-                SidePanelEmptyMessage(textKey: "(No Favorites)")
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(entries) { entry in
-                            SidePanelFavoriteRow(
-                                entry: entry,
-                                depth: 0,
-                                favoritesStore: favoritesStore,
-                                expandedFolderIDs: $expandedFolderIDs,
-                                allowsEditing: allowsEditing,
-                                onOpen: onOpen,
-                                onOpenInNewWindow: onOpenInNewWindow,
-                                onRename: onRename,
-                                onDelete: onDelete
-                            )
-                        }
-                    }
-                }
-                // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
-                .focusable(false)
-            }
-        }
-    }
-}
-
-/// お気に入りツリーの1行。SwiftUIでは`some View`を返す関数は自分自身を再帰呼び出しできない
-/// ため、専用のView構造体として実装する(FavoritesOrganizerView.OrganizerFolderRowと同じ理由)。
-private struct SidePanelFavoriteRow: View {
-    let entry: FavoriteListEntry
-    /// ルート直下を0とした階層の深さ。インデント量の計算にだけ使う。
-    let depth: Int
-    @ObservedObject var favoritesStore: FavoritesStore
-    @Binding var expandedFolderIDs: Set<UUID>
-    /// falseならリネーム・削除の項目を無効にする(SidePanelView.allowsLibraryEditing参照)。
-    /// 開く操作・Finderで開くは読み取りなので、falseでも通常どおり使える。
-    let allowsEditing: Bool
-    let onOpen: (FavoriteBook) -> Void
-    let onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
-    let onRename: (FavoriteListEntry) -> Void
-    let onDelete: (FavoriteListEntry) -> Void
-
-    @EnvironmentObject private var preferences: AppPreferences
-    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
-
-    var body: some View {
-        switch entry {
-        case .folder(let folder):
-            let isExpanded = expandedFolderIDs.contains(folder.id)
-            folderRow(folder, isExpanded: isExpanded)
-            if isExpanded {
-                ForEach(favoritesStore.entries(in: folder)) { child in
-                    SidePanelFavoriteRow(
-                        entry: child,
-                        depth: depth + 1,
-                        favoritesStore: favoritesStore,
-                        expandedFolderIDs: $expandedFolderIDs,
-                        allowsEditing: allowsEditing,
-                        onOpen: onOpen,
-                        onOpenInNewWindow: onOpenInNewWindow,
-                        onRename: onRename,
-                        onDelete: onDelete
-                    )
-                }
-            }
-        case .book(let book):
-            bookRow(book)
-        }
-    }
-
-    private func folderRow(_ folder: FavoriteFolder, isExpanded: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 10)
-            Image(systemName: "folder")
-                .frame(width: 16)
-                .foregroundStyle(.secondary)
-            Text(folder.name)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-        .panelOutlinedContent()
-        .padding(.leading, 8 + CGFloat(depth) * 12)
-        .padding(.trailing, 8)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .help(folder.name)
-        // 展開/折りたたみは、環境設定「一般」の「開く・フォルダへ移動をダブルクリックにする」の値に
-        // 関わらず常にシングルクリック。あの設定は「本を開く」「フォルダへ移動する」という
-        // 取り消しの効かない/表示が大きく変わる操作を誤操作から守るためのもので、その場で
-        // 見た目が開閉するだけのこの操作は対象外(戻る/進むボタンが常にシングルクリックなのと
-        // 同じ考え方)。
-        .onTapGesture {
-            if isExpanded {
-                expandedFolderIDs.remove(folder.id)
-            } else {
-                expandedFolderIDs.insert(folder.id)
-            }
-        }
-        // フォルダは本ではないので「開く」系は無く、整理の2項目だけになる
-        // (下のbookRowのコメント参照)。
-        .sidePanelContextHighlight(rowID: "favoriteFolder:\(folder.id.uuidString)")
-        .contextMenu {
-            Button("Rename…") { onRename(.folder(folder)) }
-                .disabled(!allowsEditing)
-            Button("Delete", role: .destructive) { onDelete(.folder(folder)) }
-                .disabled(!allowsEditing)
-        }
-    }
-
-    private func bookRow(_ book: FavoriteBook) -> some View {
-        HStack(spacing: 6) {
-            // フォルダ行の三角マークぶんの幅を空けて、同じ階層のフォルダと本の名前の
-            // 開始位置を揃える。
-            Color.clear.frame(width: 10, height: 1)
-            Image(systemName: sidePanelFileIconName(fileName: URL(fileURLWithPath: book.bookID, isDirectory: false).lastPathComponent))
-                .frame(width: 16)
-                .foregroundStyle(.secondary)
-            Text(book.title)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-        .panelOutlinedContent()
-        .padding(.leading, 8 + CGFloat(depth) * 12)
-        .padding(.trailing, 8)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .help(book.title)
-        // 本を開く操作は、パネル内の他の「開く」操作と同じく環境設定に従う。
-        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(book) }
-        // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
-        //
-        // ■ 編集系(名前の変更・お気に入りからの削除)について
-        // 当初は「開く」と「Finderで表示」だけに絞り、編集系は「お気に入りの編集」ウインドウ
-        // (FavoritesOrganizerView)の担当としていた ―― 取り消しの効かない操作を幅の狭い
-        // パネルの行の右クリックに置くと、掴み損ねたドラッグの直後などに誤って選ぶ危険が
-        // 増えるため。**その後ユーザーの指示で方針を変え、ここにも置いてある。**
-        // 誤操作への備えは「編集ウインドウでしかできなくする」ことではなく、削除に確認
-        // ダイアログを挟むこと(お気に入りの流儀。ContentView側のアラート参照)で担保する。
-        //
-        // Finderで示す対象は、パス文字列(book.bookID)から組み立てたURLではなく、
-        // **保存済みのセキュリティスコープ付きブックマークを解決したURL**にする。
-        // 素のパスから作ったURLにはアクセス権が付かず、サンドボックス下では
-        // FinderReveal側の存在確認が失敗して何も起きない(そちらのコメント参照)。
-        // 解決を通せば、本が移動・リネームされていても現在の場所を示せるという利点もある。
-        .sidePanelContextHighlight(rowID: "favorite:\(book.id.uuidString)")
-        .contextMenu {
-            BookOpenContextMenuItems(
-                onOpen: { onOpen(book) },
-                onOpenIn: { onOpenInNewWindow(book, $0) }
-            )
-            Divider()
-            Button("Show in Finder") {
-                // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。見つからなければ鳴らす。
-                Task { @MainActor in
-                    guard case .found(let url) = await favoritesStore.locateForOpening(book) else { return UserFeedback.beep() }
-                    FinderReveal.reveal(url)
-                }
-            }
-            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
-            if revealInFileBrowser.isFeatureEnabled {
-                Button("Show in File Browser") {
-                    Task { @MainActor in
-                        guard case .found(let url) = await favoritesStore.locateForOpening(book) else { return UserFeedback.beep() }
-                        revealInFileBrowser(url)
-                    }
-                }
-            }
-            Divider()
-            // 編集系は最後にまとめ、取り消しの効かない削除をいちばん下に置く(macOSの作法)。
-            // シークレットウインドウとその場限りの本では、DBへ書けないので無効になる。
-            Button("Rename…") { onRename(.book(book)) }
-                .disabled(!allowsEditing)
-            Button("Remove from Favorites", role: .destructive) { onDelete(.book(book)) }
-                .disabled(!allowsEditing)
-        }
-    }
-}
-
 // MARK: - ブックマークモード下段(ブックマーク一覧)
 
 /// ブックマークモードの下段。今開いている本のブックマークを一覧表示し、上部に「今のページを
@@ -1940,13 +1646,12 @@ private struct SidePanelBookmarksSectionView: View {
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
         // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
         // このモードの一覧は「今開いている本」のブックマークなので、行ごとに別の本を
-        // Finderで示す、という状況は生じない(それは上段のお気に入り側の役目)。
+        // Finderで示す、という状況は生じない。
         //
-        // 名前の変更・削除も、お気に入りの行と同じくここから直接行える(ユーザーの指示。
-        // 経緯は上のbookRowのコメント参照)。**削除に確認ダイアログは挟まない** ――
-        // 「ブックマーク・レイアウトの編集」ウインドウのゴミ箱ボタンが確認なしで消す
-        // 作りなので、同じものを別の場所から消したときに見え方が変わらないよう揃えてある
-        // (お気に入りは逆に、あちらが確認する流儀なのでこちらも確認する)。
+        // 名前の変更・削除もここから直接行える(ユーザーの指示。当初は編集系を編集ウインドウの担当にしていた ―― 幅の狭い
+        // パネルの行の右クリックに置くと、掴み損ねたドラッグの直後などに誤って選ぶ危険が増えるため)。**削除に確認ダイアログは
+        // 挟まない** ―― 「ブックマーク・レイアウトの編集」ウインドウのゴミ箱ボタンが確認なしで消す作りなので、同じものを別の
+        // 場所から消したときに見え方が変わらないよう揃えてある(取り消しは ⌘Z。DataUndoStack)。
         .sidePanelContextHighlight(rowID: "bookmark:\(bookmark.id)")
         .contextMenu {
             Button("Go to This Page") { onJump(bookmark) }
@@ -2739,7 +2444,7 @@ private struct SidePanelSearchField: View {
     }
 }
 
-/// 一覧が空のときにセクション本体いっぱいに表示する案内文(お気に入り・ブックマークで共用)。
+/// 一覧が空のときにセクション本体いっぱいに表示する案内文(ブックマーク・ライブラリのツリーなどで共用)。
 struct SidePanelEmptyMessage: View {
     let textKey: LocalizedStringKey
 

@@ -6,8 +6,8 @@ import SwiftUI
 ///
 /// ■ 何ができるか
 /// - 最初はライブラリだけが並ぶ。行をクリックすると、その中のコレクション、さらにその中の本へと
-///   展開する(開閉は「ダブルクリックで開く」の設定に関わらず常にシングルクリック ―― お気に入り
-///   ツリーのフォルダ行と同じ判断。SidePanelFavoriteRow.folderRowのコメント)
+///   展開する(開閉は「ダブルクリックで開く」の設定に関わらず常にシングルクリック ―― 当時の
+///   お気に入りツリーのフォルダ行と同じ判断。開閉は開く操作ではないので、ダブルクリックの設定を当てない)
 /// - 本をクリック(設定によってはダブルクリック)で開く
 /// - 本の右クリックは、履歴モードの行と同じ「開く / 新規◯◯で開く / Finderで表示」
 ///   (ユーザー指定: 既存のモードの動作に合わせる)。**ライブラリ・コレクションの右クリックは
@@ -18,8 +18,8 @@ import SwiftUI
 /// 2つあって並びが違うと、同じ本を探すのに2通りの順番を覚えることになる。
 ///
 /// ■ 行はツリーを平らにした1本の配列で並べる
-/// SwiftUIの`some View`は自分自身を再帰で呼べないので、お気に入りツリーは行ごとのView構造体を
-/// 再帰させている。こちらは階層が2段で固定なので、展開状態から「いま見えている行」の配列を
+/// SwiftUIの`some View`は自分自身を再帰で呼べないので、階層が深いツリーなら行ごとのView構造体を
+/// 再帰させる(当時のお気に入りツリーはそうしていた)。こちらは階層が2段で固定なので、展開状態から「いま見えている行」の配列を
 /// 作って`LazyVStack`へ流す ―― 数千冊のコレクションを開いても、組み立てるのは見えている行だけ。
 ///
 /// ■ 行は値の写し(SidePanelLibraryTreeModel)から描く
@@ -49,8 +49,8 @@ struct SidePanelLibraryTreeSection: View {
     @Binding var expandedLibraryIDs: Set<UUID>
     @Binding var expandedCollectionIDs: Set<UUID>
     /// ウェルカム画面の並び順(コレクション・本)。
-    let collectionSort: FavoritesSortOption
-    let itemSort: FavoritesSortOption
+    let collectionSort: ItemSortOption
+    let itemSort: ItemSortOption
     /// 今開いている本(MangaBook.id = パス)。その本の行を強調する。
     let currentBookPath: String?
     /// 本を開く。要求にはそのコレクションの本の並び(`BookSequence`)が載る ―― 「次の本へ」「前の本へ」がコレクションの
@@ -74,7 +74,7 @@ struct SidePanelLibraryTreeSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 他の段(ブックマーク・お気に入り)と同じ位置・同じ書式の見出し。
+            // 他の段(ブックマーク)と同じ位置・同じ書式の見出し。
             Text("Libraries")
                 .font(.callout)
                 .foregroundStyle(.secondary)

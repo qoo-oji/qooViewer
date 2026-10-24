@@ -65,7 +65,7 @@ struct LayoutSettingsView: View {
             completionSection
 
             SettingsResetSection(
-                help: "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.layout)
             }

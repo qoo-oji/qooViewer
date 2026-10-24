@@ -6,8 +6,8 @@ import SwiftUI
 enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 従来のサイドパネル。上段=フォルダブラウザ、下段=本の中身ブラウザ。
     case browser
-    /// 上段=お気に入りのツリー(改善要望5で無効化中。FavoritesFeature参照)、
-    /// 下段=今開いている本のブックマーク一覧。お気に入りが無効な間は下段だけの1列構成。
+    /// 上段=今開いている本のブックマーク一覧、下段=ライブラリのツリー(以前の上段はお気に入りのツリー。
+    /// 2026-10-24 に機能ごと削除。SidePanelView.bookmarksModeBody)。
     case bookmarks
     /// 最近開いた本の履歴一覧(上下の分割は持たず、1つの一覧で全高を使う)。
     case history
@@ -29,10 +29,8 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
-    /// スイッチのボタンに表示するアイコン。ツールバーのお気に入り/ブックマークのアイコン
-    /// (ViewerView参照: star/bookmark)と揃えたいが、ブックマークモードはお気に入りと
-    /// ブックマークの両方を含むため、より広い意味を持つ"star"側は使わず、モード名と一致する
-    /// "bookmark"にしている。リソースモードは、最初は計器(gauge)だったが履歴の時計と
+    /// スイッチのボタンに表示するアイコン。ブックマークモードはモード名と一致する"bookmark"にしている
+    /// (お気に入りがあった頃も、より広い意味を持つ"star"側は使わなかった)。リソースモードは、最初は計器(gauge)だったが履歴の時計と
     /// 見分けにくいとの指摘で折れ線グラフにした(中身もグラフが主役)。
     var systemImage: String {
         switch self {

@@ -15,7 +15,6 @@ enum KnownBooks {
         let metadataStore: BookMetadataStore
         let bookmarkStore: BookmarkStore
         let layoutStore: LayoutStore
-        let favoritesStore: FavoritesStore
         let collectionStore: CollectionStore
         let modelContext: ModelContext
     }
@@ -31,7 +30,6 @@ enum KnownBooks {
         bookIDs.formUnion(sources.layoutStore.coverOverrideBookIDs())
         bookIDs.formUnion(sources.layoutStore.shelfCoverBookIDs())
         bookIDs.formUnion(sources.bookmarkStore.groups.map(\.bookID))
-        bookIDs.formUnion(sources.favoritesStore.allRegisteredBookIDs())
         bookIDs.formUnion(sources.collectionStore.allRegisteredBookIDs())
         // 読書位置。一度でも開いた本はすべてここに含まれるため、実質的にこれが母体になる
         // (BookReadingStateはLibraryDataPrunerによって上限件数まで自動的に間引かれる。
@@ -41,16 +39,15 @@ enum KnownBooks {
         return bookIDs
     }
 
-    /// 機能に属さない保存データを持つ本(レイアウト・カバーの指定・ブックマーク・お気に入り・読書位置)。メタデータの行と
+    /// 機能に属さない保存データを持つ本(レイアウト・カバーの指定・ブックマーク・読書位置)。メタデータの行と
     /// コレクションは入れない ―― メタデータ生成(`MetadataGenerator`)の母体の一部で、コレクションの本は記録した一覧
     /// (`MetadataCorpusStore`)から足す(ライブラリ機能が OFF の間も `CollectionItem` を読まないため)。
     static func collectWithoutFeatures(bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-                                       favoritesStore: FavoritesStore, modelContext: ModelContext) -> Set<String> {
+                                       modelContext: ModelContext) -> Set<String> {
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
         bookIDs.formUnion(layoutStore.shelfCoverBookIDs())
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
-        bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
         let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         bookIDs.formUnion(readingStates.map(\.bookID))
         return bookIDs

@@ -11,7 +11,7 @@ import StackNestViewerKit
 /// 名前だけで決め、ファイルシステムには問い合わせない(`isDirectory` を渡さない `URL(fileURLWithPath:)` はフォルダかどうかを
 /// 確かめに行く)。本のパスの一覧をまとめて振り分ける呼び出し側があり、応答しないボリュームの上のパスで待たせないため。
 /// この名前のフォルダ(まず無い)は BookLoader ではフォルダの本として開くが、名前だけで判断する守り(書き出し・コレクション・
-/// メタデータ・お気に入り)からは参照ファイルの本と同じく外れる(docs/10)。
+/// メタデータ)からは参照ファイルの本と同じく外れる(docs/10)。
 nonisolated func isStackNestReferenceFile(_ path: String) -> Bool {
     StackNestBookReference.isReferenceFile(URL(fileURLWithPath: path, isDirectory: false))
 }

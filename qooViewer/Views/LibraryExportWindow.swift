@@ -3,12 +3,11 @@ import SwiftData
 import AppKit
 import UniformTypeIdentifiers
 
-/// 設計コンセプト6.2節: エクスポート用の独立ウインドウ。お気に入り・ブックマーク・ページ
-/// レイアウト設定のうち書き出す種類をチェックボックスで選び、NSSavePanelで保存先を選ぶ。
+/// 設計コンセプト6.2節: エクスポート用の独立ウインドウ。ブックマーク・ページ
+/// レイアウト設定などのうち書き出す種類をチェックボックスで選び、NSSavePanelで保存先を選ぶ。
 /// 「ブックマーク・レイアウトの編集」ウインドウと同じく、本を今開いているかどうかに関わらず
 /// メニューバーの「ファイル」メニューからいつでも開ける独立ウインドウとして実装している。
 struct LibraryExportWindow: View {
-    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -25,10 +24,6 @@ struct LibraryExportWindow: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    // 改善要望5でお気に入りを無効化した間は、既定でも書き出しに含めない(FavoritesFeature参照)。
-    // 含めてしまうと、UIのどこにも出てこないものがJSONに混ざり「何を書き出したのか分からない」
-    // ファイルになる。読み込み側は既存の書き出しファイルを読める状態のまま残してある。
-    @State private var includeFavorites = FavoritesFeature.isEnabled
     @State private var includeBookmarks = true
     @State private var includeLayouts = true
     @State private var includeMetadata = true
@@ -47,14 +42,14 @@ struct LibraryExportWindow: View {
     @State private var isExporting = false
     @State private var resultMessage: String?
     @State private var didSucceed = false
-    /// ユーザー要望: ファイルが見つからなかった本のパスを、カテゴリ(お気に入り/ブックマーク/
+    /// ユーザー要望: ファイルが見つからなかった本のパスを、カテゴリ(ブックマーク/
     /// レイアウト)をまたいで重複なく1つのリストにまとめてウインドウ下部に表示したい。
     /// 以前は「N冊はファイルが見つからなかったためスキップしました」という件数だけの文言
     /// だった(LibraryImportExportService.ExportResult.allSkippedFilePaths参照)。
     @State private var skippedFilePaths: [String] = []
 
     private var hasSelection: Bool {
-        includeFavorites || includeBookmarks || includeLayouts || includeMetadata
+        includeBookmarks || includeLayouts || includeMetadata
             || includeMetadataRules || includeCollections
             || includeReadingStates || includeSmartLibrary || includeFileBrowser || includeSettings
     }
@@ -63,13 +58,12 @@ struct LibraryExportWindow: View {
     /// 使い方(利用者の運用 2026-09-23: この JSON とコレクション表紙の組で環境を戻す)では、
     /// 10 個のチェックを毎回入れ直すことになるため。
     private var isEverythingSelected: Bool {
-        (includeFavorites || !FavoritesFeature.isEnabled) && includeBookmarks && includeLayouts
+        includeBookmarks && includeLayouts
             && includeMetadata && includeMetadataRules && includeCollections
             && includeReadingStates && includeSmartLibrary && includeFileBrowser && includeSettings
     }
 
     private func selectEverything() {
-        includeFavorites = FavoritesFeature.isEnabled
         includeBookmarks = true
         includeLayouts = true
         includeMetadata = true
@@ -93,9 +87,6 @@ struct LibraryExportWindow: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    if FavoritesFeature.isEnabled {
-                        Toggle("Favorites", isOn: $includeFavorites)
-                    }
                     Toggle("Collections", isOn: $includeCollections)
                     Toggle("Bookmarks", isOn: $includeBookmarks)
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
@@ -242,7 +233,7 @@ struct LibraryExportWindow: View {
             Task {
                 defer { if let workToken { RunningWorkRegistry.forCurrentProcess?.end(workToken) } }
                 let selection = LibraryImportExportService.ExportSelection(
-                    includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
+                    includeBookmarks: includeBookmarks,
                     includeLayouts: includeLayouts, includeMetadata: includeMetadata,
                     includeMetadataRules: includeMetadataRules,
                     includeCollections: includeCollections,
@@ -252,7 +243,7 @@ struct LibraryExportWindow: View {
                     includeSettings: includeSettings
                 )
                 let (file, result) = await LibraryImportExportService.buildExportFile(
-                    selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
+                    selection: selection, bookmarkStore: bookmarkStore,
                     layoutStore: layoutStore, metadataStore: metadataStore,
                     metadataRulesStore: metadataRulesStore, collectionStore: collectionStore,
                     backupStores: backupStores

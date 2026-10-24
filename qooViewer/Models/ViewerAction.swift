@@ -143,14 +143,6 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case toggleLoupe
     case showActualSizeLeft
     case showActualSizeRight
-    /// 現在の本をお気に入りに追加/削除する(未登録なら登録先フォルダを選ぶダイアログを開いて
-    /// 追加し、登録済みなら削除する。複数フォルダに登録されている場合はすべて削除する、
-    /// 1つのボタン/ショートカットにまとめたトグル操作)。
-    case toggleFavorite
-    /// お気に入り一覧を(階層構造のまま)表示する。
-    case showFavoritesList
-    /// 「お気に入りの整理」ウインドウを開く。
-    case showFavoritesOrganizer
     /// このウインドウを閉じる(同じタブグループのタブもすべて)。赤い閉じるボタン・
     /// メニューバー「ウインドウ」→「ウインドウを閉じる」とまったく同じ経路を通るので、
     /// 複数タブが開いていれば環境設定に従って確認ダイアログも出る
@@ -197,19 +189,6 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     var isMouseOnly: Bool {
         switch self {
         case .closeWindow, .closeTab, .quitApplication: return true
-        default: return false
-        }
-    }
-
-    /// 機能を隠しているために、どこにも見えない操作かどうか(今はお気に入りの 3 つ。FavoritesFeature)。
-    ///
-    /// 既定の割り当て(⌥A / ⌥B)は復活に備えて KeyBindingStore に残してあるが、設定画面には行が出ない。
-    /// キー設定の重複の確かめ(`KeyBindingStore.conflictingAction`)はこの操作を「割り当て済み」に数えない
-    /// (2026-10-04 の監査 BE-14 = ST-11 ―― 数えていたので、⌥A を別の操作に割り当てようとすると見えない操作を理由に断られ、
-    /// 行が無いので外す手段も無かった)。
-    var isHiddenByFeatureSwitch: Bool {
-        switch self {
-        case .toggleFavorite, .showFavoritesList, .showFavoritesOrganizer: return !FavoritesFeature.isEnabled
         default: return false
         }
     }
@@ -281,9 +260,6 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleLoupe: return "Toggle Loupe"
         case .showActualSizeLeft: return "Show Left Page at Actual Size"
         case .showActualSizeRight: return "Show Right Page at Actual Size"
-        case .toggleFavorite: return "Toggle Favorite"
-        case .showFavoritesList: return "Show Favorites List"
-        case .showFavoritesOrganizer: return "Edit Favorites…"
         case .closeWindow: return "Close Window"
         case .closeTab: return "Close Tab"
         case .quitApplication: return "Quit qooViewer"

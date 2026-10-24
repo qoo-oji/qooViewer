@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 操作の結果を短い間だけ浮かべる 1〜2 行の知らせ(トースト)。面は `PanelSurface.overlays`。
 ///
-/// ビューアのお気に入り・ブックマークの追加/削除(ViewerView.showToast)と、ファイルブラウザの
+/// ビューアのブックマークの追加/削除(ViewerView.showToast)と、ファイルブラウザの
 /// 「コレクションに登録」(FileBrowserState.showToast、ユーザー要望 2026-09-14)が同じ見た目で使う。
 /// 消す時間・位置・出入りのアニメーションは置く側が決める。
 ///

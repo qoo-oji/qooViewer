@@ -119,7 +119,7 @@ final class RecentFilesStore: ObservableObject {
         // 切り詰める。これはキャッシュを切るだけなのでファイルアクセスは発生しない。
         // queue: .mainにより実行時には必ずMainActor上で呼ばれるが、クロージャ自体の型は
         // 静的にMainActor隔離だと分からないため、MainActor.assumeIsolatedで明示する
-        // (FavoritesStore.swift/ViewerViewModel.swiftの同種のコメント参照。Task {
+        // (ViewerViewModel.swiftの同種のコメント参照。Task {
         // @MainActor in ... }で包むとselfのキャプチャに関する別の警告/エラーになる)。
         limitChangeObserver = NotificationCenter.default.addObserver(
             forName: .recentFilesLimitDidChange, object: nil, queue: .main

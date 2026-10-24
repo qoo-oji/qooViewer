@@ -43,8 +43,8 @@ final class SidePanelLibraryTreeModel: ObservableObject {
     struct Inputs: Equatable {
         var expandedLibraryIDs: Set<UUID>
         var expandedCollectionIDs: Set<UUID>
-        var collectionSort: FavoritesSortOption
-        var itemSort: FavoritesSortOption
+        var collectionSort: ItemSortOption
+        var itemSort: ItemSortOption
         var captionStyle: CollectionCoverCaptionStyle
         var language: Locale
         /// 命名規則の中身の印(`MetadataRulesStore.rules.contentHash`)。規則が変わればタイトルも変わるので、ツリーが読んで渡す
@@ -144,7 +144,7 @@ final class SidePanelLibraryTreeModel: ObservableObject {
 
     /// 本の行の名前にタイトル(BookTitleResolver)を使うか(型コメントの「名前」)。
     nonisolated static func showsMetadataTitle(
-        captionStyle: CollectionCoverCaptionStyle, itemSort: FavoritesSortOption
+        captionStyle: CollectionCoverCaptionStyle, itemSort: ItemSortOption
     ) -> Bool {
         switch captionStyle {
         case .title: return true

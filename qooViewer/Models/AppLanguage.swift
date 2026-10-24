@@ -54,7 +54,7 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable, Hashable {
     /// いま環境設定に保存されている表示言語。
     ///
     /// AppPreferences も View 階層も持たない場所 ―― nonisolated なサービス層のエラー文
-    /// (BookLoaderError・各 Exporter)、環境設定を作る前に出す起動時のアラート、お気に入りの
+    /// (BookLoaderError・各 Exporter)、環境設定を作る前に出す起動時のアラート、当時のお気に入りの
     /// NSMenu ―― から、表示言語で文字列を組み立てるために使う。それらが以前は OS の言語で
     /// 表示されていた(監査で指摘)。AppPreferences か `@Environment(\.locale)` が手元にある場所では
     /// そちらを使うこと(値は同じだが、あちらは設定の変更に追従して再描画される)。

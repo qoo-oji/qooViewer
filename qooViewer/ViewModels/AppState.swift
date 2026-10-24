@@ -20,7 +20,7 @@ final class AppState: ObservableObject {
     /// ■ trueのとき書かないもの(=「その本を閉じた後に一切残らない」の定義)
     /// - 「最近開いたファイル」(RecentFilesStore)・「最後に開いていた本」(LastActiveBookStore)
     /// - 読書状態(BookReadingState。読書位置・表示モード等)
-    /// - ブックマーク・お気に入り・レイアウト・メタデータの登録・編集、および
+    /// - ブックマーク・レイアウト・メタデータの登録・編集、および
     ///   EPUB/PDF/ComicInfo.xmlからのそれらの自動取り込み
     /// - コレクションへの登録・編集(ライブラリ/コレクションの作成・リネーム・削除、本の
     ///   追加・削除)と、そのカバー画像の抽出(CollectionCoverStore)。シークレット
@@ -526,25 +526,6 @@ final class AppState: ObservableObject {
     /// (UI側でもグレーアウトするが、経路が増えても漏れないよう二重に止める)。
     var toggleBookmarkAtIndex: ((Int) -> Void)?
 
-    /// サイドパネル(ブックマークモード)の「お気に入りに追加」ボタンから、今開いている本を
-    /// お気に入りへ登録するための橋渡し。登録先フォルダの選択シート
-    /// (FavoriteFolderPickerView)はViewerViewが持っているため、addBookmarkActionと同じく
-    /// ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す
-    /// (=本を開いていない間はnil。呼び出し側はnilならボタンを無効化する)。
-    ///
-    /// ツールバー/メニューバーの「お気に入りに追加/削除」がトグル(.toggleFavorite)なのに対し、
-    /// こちらは常に「追加」だけを行う(ユーザー要望: サイドパネルのボタンは追加専用)。
-    /// 既に登録済みの本を追加しようとした場合の重複確認はFavoriteFolderPickerView側が行う。
-    var addFavoriteAction: (() -> Void)?
-
-    /// サイドパネル(ブックマークモード)のお気に入りツリーから本を開くための橋渡し。
-    /// 環境設定「本を開く」の「お気に入りから」(favoriteOpenBehavior: そのまま開く/
-    /// 新しいタブ/新しいウインドウ)の判定はViewerView.openFavoriteAccordingToPreferenceが持つため、
-    /// addFavoriteActionと同じくViewerViewが表示されている間だけ登録される。nil(本を開いて
-    /// いない)の場合、呼び出し側は代わりにopenFavorite(_:)を直接呼ぶ(開いている本が無ければ
-    /// 「今の本を置き換える」以外の選択肢に意味が無いため)。
-    var openFavoriteAction: ((FavoriteBook) -> Void)?
-
     /// サイドパネル(ページモード)が、ページのサムネイルを取得するための橋渡し。
     /// サムネイルの実体はViewerViewModelが持つPageLoader(本ごとのactor。NSCacheつき)から
     /// 得るが、サイドパネルはViewerViewの外側(ContentView)にあってViewerViewModelを直接
@@ -930,7 +911,7 @@ final class AppState: ObservableObject {
     /// この2つが同じappStateインスタンスへ書き込むため、SwiftUIが実際にどちらを先に
     /// 実行するかという保証が無い(新→旧の順で実行されると、新しい本の正しい登録が
     /// 古い本のonDisappearによる後始末で上書き消去されてしまい、メニューバーの
-    /// 「お気に入りに追加」「ブックマークを追加」「ブックマークの編集」などが軒並み
+    /// 「ブックマークを追加」「ブックマークの編集」などが軒並み
     /// 反応しなくなる不具合になる。実際に本を連続して切り替えた際に発生が確認された)。
     ///
     /// この順序不定を解決するため、ViewerViewは自分自身を表す使い捨てのトークン(UUID)を
@@ -1033,23 +1014,18 @@ final class AppState: ObservableObject {
     /// FolderAccessStore自身のinitで行われるため、ここではURLを追加するためだけに参照する)
     weak var folderAccess: FolderAccessStore?
 
-    /// お気に入り(階層フォルダ + 登録した本)の管理。ツールバー・メニューバー・
-    /// コンテキストメニューからの「お気に入りに追加」「お気に入りを開く」で使う。
-    /// (QooViewerAppのonAppearで設定される)
-    weak var favoritesStore: FavoritesStore?
-
     /// ブックマーク(すべての本を横断)の管理。ツールバー・メニューバー・コンテキストメニュー・
     /// キーボードショートカットの「現在のページをブックマークから削除」から、
     /// BookmarkStore.delete(_:)を直接呼ぶために使う(削除・リネームはBookmarkStoreが
     /// SwiftDataを直接操作する設計のため。ViewerViewModel.swift:467あたりのコメント参照)。
-    /// favoritesStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
+    /// weakにしか保持しない。(QooViewerAppのonAppearで設定される)
     weak var bookmarkStore: BookmarkStore?
 
-    /// ページレイアウト設定(本全体設定 + ページ単位設定)の管理。ユーザー要望: お気に入り・
+    /// ページレイアウト設定(本全体設定 + ページ単位設定)の管理。ユーザー要望:
     /// レイアウト・ブックマークが同一ボリューム内での移動・リネームを引き継げるようにしたい。
-    /// open(url:)で本を開くたびに、favoritesStore/bookmarkStoreと合わせてreconcileBookIDIfMoved
+    /// open(url:)で本を開くたびに、bookmarkStoreと合わせてreconcileBookIDIfMoved
     /// (ファイルノード識別子(iノード番号)による自動追従)を呼ぶために参照する。
-    /// favoritesStore/bookmarkStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
+    /// bookmarkStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
     weak var layoutStore: LayoutStore?
 
     /// 書誌メタデータの管理。layoutStore等と同じく、open(url:)で本を開くたびに
@@ -1063,45 +1039,6 @@ final class AppState: ObservableObject {
     /// 識別子の補完を行うために参照する。weakにしか保持しない。
     /// (QooViewerAppのonAppearで設定される)
     weak var collectionStore: CollectionStore?
-
-    /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
-    /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
-    /// (OK/お気に入りから削除の2択)を表示する。削除が選ばれた場合は、ContentView側から
-    /// favoritesStore.delete(_:)を呼んでもらう(AppState自身はfavoritesStoreへweakにしか
-    /// アクセスできないが、delete操作自体はfavoritesStoreの責務のため、ここでは状態の保持だけ行う)。
-    @Published var missingFavorite: FavoriteBook?
-
-    /// お気に入りを開く。既存のopen(url:)をそのまま呼ぶのではなく、開く前にセキュリティスコープ
-    /// 付きブックマークを解決し、実際にファイル/フォルダがまだ存在するかを確認する
-    /// (要望5: 見つからない場合はmissingFavoriteをセットしてアラートを出す。実際に開く処理は
-    /// open(url:)にそのまま委譲する)。
-    ///
-    /// 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。待つ間は札を出し、後から頼んだ
-    /// 本があれば開かない(ほかの待つ入口と同じ `OpenIntent`)。
-    func openFavorite(_ favorite: FavoriteBook) {
-        guard let favoritesStore else {
-            missingFavorite = favorite
-            return
-        }
-        let intent = beginOpenIntent()
-        let wait = beginOpenWait(intent: intent)
-        Task { @MainActor [weak self] in
-            let outcome = await favoritesStore.locateForOpening(favorite)
-            guard let self else { return }
-            self.endOpenWait(wait)
-            guard self.isStillWanted(intent), !self.isOpenWaitCancelled(wait) else { return }
-            switch outcome {
-            case .found(let url):
-                self.open(url: url, intent: intent)
-            case .notFound:
-                self.missingFavorite = favorite
-            case .timedOut:
-                self.postViewerNotice(FavoritesStore.timedOutMessage(
-                    for: favorite, locale: self.preferences?.effectiveLocale ?? AppLanguage.currentLocale
-                ))
-            }
-        }
-    }
 
     /// 現在進行中の読み込みタスク。開いている途中でさらに別の本を開こうとした場合、
     /// 古い方の結果でcurrentBookが上書きされてしまわないようキャンセルする。
@@ -1137,7 +1074,7 @@ final class AppState: ObservableObject {
     /// Resource()を呼ばないことについて「カーネルリソースを漏らす。使い果たすと、アプリは
     /// ファイルシステム上の場所を自身のサンドボックスへ追加する能力そのものを失う」と明記して
     /// いる。同一ボリューム内の次/前の本への移動は素のfile URLなのでstartAccessing…がfalseを
-    /// 返し何も消費しないが、お気に入り・履歴から開いた場合はブックマークから解決した
+    /// 返し何も消費しないが、履歴・コレクションから開いた場合はブックマークから解決した
     /// セキュリティスコープ付きURLなので、開くたびに1つずつ確実に積み上がっていた。
     ///
     /// このウインドウが表示している本は常に1冊なので、次の本を開くとき・本を閉じるとき・
@@ -1243,7 +1180,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
+    /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、履歴からの
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
     func open(
         url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true,
@@ -1641,8 +1578,8 @@ final class AppState: ObservableObject {
                 // メニューを開いて待っている最中に読み込みが完了しがち**で、その瞬間の
                 // currentBookの発火は (1) ウインドウタイトルの変更を通じて、開いている最中の
                 // ウインドウメニューの項目リスト全体を何度も作り直させ(実測: 追跡中に262回の
-                // 項目追加/削除/変更)、(2) MenuCheckmarkStateのisTransientBook /
-                // isCurrentBookFavoritedを変えてメニューバー全体の再構築も引き起こしうる。
+                // 項目追加/削除/変更)、(2) MenuCheckmarkStateのisTransientBookを変えて
+                // メニューバー全体の再構築も引き起こしうる。
                 // どちらもmacOS 26のメニュー実装では描画崩れ/NSRangeExceptionの条件になる
                 // (詳細はMenuBarMenuGateの型コメント参照)。ユーザー報告(2026-08-30、
                 // 表示/ウインドウメニューの描画崩れ)は、BookLoader.loadに人工遅延を入れて
@@ -1658,11 +1595,11 @@ final class AppState: ObservableObject {
                     // この本についてDBへ一切書かないかどうか。シークレットウインドウに加えて、
                     // **その場限りの本**(直接渡された画像から作った本)も同じ扱いにする。
                     // 複数枚をまとめた本のbookIDは実在パスではないため、下のreconcileBookIDIfMovedを
-                    // 通すと、iノードが一致した既存のお気に入り/レイアウト/ブックマークのbookIDが
+                    // 通すと、iノードが一致した既存のレイアウト/ブックマークのbookIDが
                     // その場限りのIDへ恒久的に書き換わり、復旧不能になる
                     // (詳細はMangaBook.BookOriginのコメント参照)。
                     let skipsPersistence = self.isPrivateWindow || book.leavesNoRecord
-                    // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
+                    // ユーザー要望: レイアウト・ブックマークが、同一ボリューム内での
                     // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
                     // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子
                     // (iノード番号)を手がかりに自動的に追従(bookIDを書き換え)させておく。本を
@@ -1683,17 +1620,16 @@ final class AppState: ObservableObject {
                     let isInTrash = BookLocationResolver.isInTrash(book.sourceURL)
                     if !skipsPersistence, !isInTrash {
                         var movedFrom: [String?] = []
-                        movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         movedFrom.append(self.layoutStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         movedFrom.append(self.bookmarkStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         movedFrom.append(self.metadataStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
                         // **ライブラリ機能がOFFの間もコレクションの行を追従させる**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D2。
                         // 「止めないもの」の側 ―― AppStores.applyLibraryFeature)。いったんは「登録した本の全件フェッチを伴うので触らない。
                         // ONへ戻したときの存在確認がブックマークで追う」としたが、存在確認が埋めるのは場所の辞書だけで`bookID`は直さない。
-                        // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
-                        // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
+                        // 上の3つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
+                        // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。4つは必ず揃えて付け替える(2026-10-24 にお気に入りを削除するまでは5つ)。
                         movedFrom.append(self.collectionStore?.reconcileBookIDIfMoved(book: book, knownIdentifier: identifier))
-                        // 上の 5 つのどれかが元のパスを見つけたら、その元のパスで**5 つと読書位置をまとめて**付け替える(2026-09-22)。
+                        // 上の 4 つのどれかが元のパスを見つけたら、その元のパスで**4 つと読書位置をまとめて**付け替える(2026-09-22)。
                         // 識別子で探せるのは識別子を持つ行だけで、読書位置は識別子を持たず、メタデータの編集ウインドウ・スマートライブラリ
                         // が作った行も持たないことがある ―― 1 つずつだと、そういう行が古いパスに取り残された(読書位置が無いと 1 ページ目
                         // から始まり、直したメタデータが付いてこなかった。2026-09-22 の利用者の報告と監査)。付け替えの決まり(移った先に
@@ -1704,7 +1640,6 @@ final class AppState: ObservableObject {
                             let isDirectory = probedLocation?.isDirectory == true
                             let plan = BookRelocationPlan(bookIDs: [oldBookID: book.id], locators: [:],
                                                           directoryBookIDs: isDirectory ? [book.id] : [])
-                            self.favoritesStore?.applyBookRelocation(plan)
                             self.layoutStore?.applyBookRelocation(plan)
                             self.bookmarkStore?.applyBookRelocation(plan)
                             self.metadataStore?.applyBookRelocation(plan)
@@ -1728,17 +1663,14 @@ final class AppState: ObservableObject {
                         let pageKeys = book.pages.map(\.sortKey)
                         self.layoutStore?.repairStalePageKeys(forBookID: book.id, currentPageKeys: pageKeys)
                         self.bookmarkStore?.repairStalePageKeys(forBookID: book.id, currentPageKeys: pageKeys)
-                        // 識別子の補完(backfill)は5つのストアすべてに対して行う。
+                        // 識別子の補完(backfill)は4つのストアすべてに対して行う。
                         // 識別子を持たない古い行に足すのが元々の役目だったが、**ボリュームUUIDを
                         // 持たない行をUUIDでの照合へ昇格させる唯一の経路**でもある
-                        // (FileNodeIdentifier.needsBackfill参照)。ここで5つ揃えておかないと、
+                        // (FileNodeIdentifier.needsBackfill参照)。ここで4つ揃えておかないと、
                         // マウント順でデバイス番号が変わる外付けの本で、追従するストアと
                         // しないストアが混ざる。識別子の取得は1回で済ませて使い回す
                         // (未接続のボリュームでは秒単位ブロックしうる問い合わせのため。上で求めた値)。
                         if let identifier {
-                            self.favoritesStore?.backfillFileNodeIdentifier(
-                                forBookID: book.id, identifier: identifier
-                            )
                             self.layoutStore?.backfillFileNodeIdentifier(
                                 forBookID: book.id, identifier: identifier
                             )
@@ -2430,7 +2362,7 @@ final class AppState: ObservableObject {
     /// ■ なぜこの操作があるのか
     /// 画像を直接開いた本は「その場限りの本」で、読書位置もレイアウトも記録されない
     /// (MangaBook.BookOrigin.imageFiles参照)。この操作は、そこから**普通のフォルダの本**
-    /// (idが実在パスで、読書位置もお気に入りもブックマークも使える)へ移るための唯一の導線。
+    /// (idが実在パスで、読書位置もブックマークも使える)へ移るための唯一の導線。
     /// 逆に言えば、画像のドロップ側を単純なまま(=同じフォルダへ勝手に展開しない)に保てるのは、
     /// この明示的な逃げ道があるからでもある。
     ///
@@ -2821,7 +2753,7 @@ struct MenuCheckmarkState: Equatable {
     /// 許可を淡色にする(MangaBook.hasBrowsableLocation)。
     var isCurrentBookStackNestReference = false
     /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
-    /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
+    /// メニューバー側で、書き込みを伴う項目(ブックマーク/レイアウト/メタデータの
     /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の
     /// ウインドウでも値が必要なので、ViewerViewではなくContentViewが常に詰める。
     var isPrivateWindow = false
@@ -2856,12 +2788,6 @@ struct MenuCheckmarkState: Equatable {
     /// 明示的なレイアウト指定を持つ見開きを表示中trueになり、メニューバーの
     /// 「1ページだけ送る/戻す」をグレーアウトする(詳細はViewerViewModelの同名プロパティ参照)。
     var isPageShiftLocked = false
-    /// メニューバーの「お気に入り」メニュー(お気に入りに追加/削除トグルボタン)、および
-    /// ツールバー・コンテキストメニューの同ボタンの見た目・文言切り替えに使う、現在の本が
-    /// お気に入りに登録済みかどうか。ContentView.bodyがfavoritesStore(EnvironmentObject)と
-    /// appState.currentBookから都度計算して詰める(favoritesStoreの変更自体はAppStateの
-    /// @Publishedプロパティではないため、ContentView側で計算する必要がある)。
-    var isCurrentBookFavorited = false
     /// 同じく、表示中の見開き(起点と相方のページ)にブックマークがあるか(編集メニューの「このページをブックマークに追加/から削除」の
     /// 文言。押したときの動きと同じく相方も数える ―― AppState.isCurrentSpreadBookmarked、監査 V-3)。
     var isCurrentSpreadBookmarked = false
@@ -2901,8 +2827,6 @@ struct MenuShownBook: Equatable {
     var hasBook = false
     var isTransient = false
     var leavesNoRecord = false
-    /// お気に入りの判定に使う(本の id)。
-    var bookID: String?
     /// 本の場所。メニューバーの「Finder で表示」「ファイルブラウザで表示」の相手(2026-10-04 のレビュー R5-3 ―― 淡色をこの写しで
     /// 決めるのに、押したときは `currentBook` を見ていたので、受け渡しの間は画面に出ていない新しい本を示した)。
     var sourceURL: URL?
@@ -2915,7 +2839,6 @@ struct MenuShownBook: Equatable {
         hasBook = book != nil
         isTransient = book?.isTransient == true
         leavesNoRecord = book?.leavesNoRecord == true
-        bookID = book?.id
         sourceURL = book?.sourceURL
         isStackNestReference = book?.isStackNestReference ?? false
     }

@@ -16,8 +16,8 @@ import SwiftUI
 /// 呼び出し側で`.borderless`を指定しておけば、サイドパネルの既存のボタンと
 /// 押下中・無効時の見た目まで完全に同じになる。
 struct PanelIconButtonLabel: ViewModifier {
-    /// 「登録済み」状態を前景色・背景色の反転で示すかどうか(ツールバーのブックマーク/
-    /// お気に入りトグル専用。詳細はViewerView.toggleToolbarIconのコメント参照)。
+    /// 「登録済み」状態を前景色・背景色の反転で示すかどうか(ツールバーのブックマーク
+    /// トグル専用。詳細はViewerView.toggleToolbarIconのコメント参照)。
     var isHighlighted: Bool = false
 
     /// サイドパネルのボタンの寸法。既定のボタンサイズは小さく操作しづらいため、

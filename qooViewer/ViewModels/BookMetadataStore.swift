@@ -11,7 +11,7 @@ import QooMetaKit
 /// このクラス自体は「本を開いているかどうか」を意識しない。今開いている本のツールバー表示への
 /// 反映は、ViewerViewModel側がbookMetadataDidChangeを購読して行う。
 ///
-/// ModelContextはFavoritesStore/BookmarkStore/LayoutStoreと同じ、アプリ全体で1つだけの
+/// ModelContextはBookmarkStore/LayoutStoreと同じ、アプリ全体で1つだけの
 /// `QooViewerApp.modelContainer.mainContext`を共有する(CLAUDE.md / QooViewerApp.init()の
 /// コメント参照。コンテキストを分けると、一方のコンテキストのオブジェクトに対する更新・削除が
 /// もう一方に反映されず静かに失敗する)。
@@ -182,7 +182,6 @@ final class BookMetadataStore: ObservableObject {
     /// 開いている本のビューア)のreload()が1回走り、EPUB/PDF出力のreload()は対象の本ごとに
     /// セキュリティスコープ付きブックマークの解決まで行うため、件数の二乗に比例したディスクI/Oに
     /// なっていた。save()も通知もそれぞれ1回にまとめる
-    /// (FavoritesStore.removeFavorites(forBookID:)が1件ずつのsave()を避けているのと同じ考え方)。
     ///
     /// `values` が nil の件は登録を外す(メタデータの編集ウインドウの「登録を外す」と取り消し)。
     @discardableResult
@@ -414,7 +413,7 @@ final class BookMetadataStore: ObservableObject {
     /// 読み直し(`ProposalIndex`)と登録の量も増え続けた。
     ///
     /// 消すのは、ロックも直した欄も無く(消しても同じ行がまたできる)、`known`(行のほかに本を覚えている理由 ―― 読書位置・
-    /// ブックマーク・レイアウト・お気に入り・コレクション)にも無く、`folders`(スマートライブラリの対象フォルダ。機能を OFF にして
+    /// ブックマーク・レイアウト・コレクション)にも無く、`folders`(スマートライブラリの対象フォルダ。機能を OFF にして
     /// いても残す)の中にも無い本の行だけ。
     /// - Returns: 消した行の数。
     @discardableResult

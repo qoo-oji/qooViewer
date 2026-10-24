@@ -16,12 +16,13 @@ enum CollectionCoverStatus: Int, Sendable, CaseIterable {
 
 /// コレクションに入っている本1冊。
 ///
-/// お気に入り(FavoriteBook)と同じく、本そのものへの参照はセキュリティスコープ付き
+/// 本そのものへの参照はセキュリティスコープ付き
 /// ブックマーク(bookmarkData)として保持する ―― コレクションは「本を開いていない状態から
 /// 後で開く」ためのものなので、パス文字列だけでは次回起動時にアクセス権が無い
-/// (詳細はFavoriteBook.swiftのコメント参照)。
+/// (RecentFilesStore/FolderAccessStore/LastActiveBookStoreと同じ。履歴などはUserDefaultsに保存しているが、
+/// コレクションは件数・並び順など扱うデータが多いため、SwiftDataのモデルとして持たせる)。
 ///
-/// `@Attribute(.unique)`を付けない理由もFavoriteBookと同じ。同じコレクションの中での本の
+/// `@Attribute(.unique)`を付けない理由はBookmarkと同じ(詳細はBookmark.swiftのコメント)。同じコレクションの中での本の
 /// 重複はCollectionStore.add(_:to:)がパス/iノードの両方で弾く。
 @Model
 final class CollectionItem {
@@ -38,12 +39,12 @@ final class CollectionItem {
     /// 「本が見つかりません」のアラート、カバー下のキャプション(設定が「ファイル名」のとき)で使う。
     ///
     /// 登録時の名前で固定ではなく、**iノードで同一ファイルと確定したリネームには追従する**
-    /// (`CollectionStore.reconcileBookIDIfMoved`。FavoriteBook.titleと違い、ユーザーが表示名を
+    /// (`CollectionStore.reconcileBookIDIfMoved`。ユーザーが表示名を
     /// 付け替える操作は無いので、上書きして構わない)。
     var title: String
     var addedAt: Date
     /// コレクション内へ追加された順(小さいほど先)。表示順はCollectionStoreの並び替え設定に
-    /// 従うため、現在は表示には使っていない(FavoriteBook.sortOrderと同じ扱い)。
+    /// 従うため、現在は表示には使っていない(将来手動の並べ替えを足すときのために持っている)。
     var sortOrder: Int
 
     /// カバー画像の抽出状態(CollectionCoverStatusのrawValue)。
@@ -59,7 +60,7 @@ final class CollectionItem {
     var collection: BookCollection?
 
     /// 登録時点のファイルノード識別子。同一ボリューム内での移動・リネームに追従するために
-    /// 使う(FavoriteBook.inodeNumberと同じ役割。CollectionStore.reconcileBookIDIfMoved参照)。
+    /// 使う(CollectionStore.reconcileBookIDIfMoved参照)。
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
     /// ボリュームのUUID。**デバイス番号だけではボリュームを同定できない**(マウント順で変わる)
@@ -91,8 +92,7 @@ final class CollectionItem {
         self.volumeUUID = fileNodeIdentifier?.volumeUUID
     }
 
-    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す
-    /// (FavoriteBook.fileNodeIdentifierと同じ)。
+    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
         return FileNodeIdentifier(
@@ -107,4 +107,4 @@ final class CollectionItem {
     }
 }
 
-// Identifiableへの明示的な適合は付けていない(FavoriteFolder.swiftと同じ理由)。
+// Identifiableへの明示的な適合は付けていない(SwiftUI側では`ForEach(..., id: \.id)`のように明示的にidを指定して使う)。

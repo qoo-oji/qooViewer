@@ -12,14 +12,7 @@ struct ViewerView: View {
     @EnvironmentObject private var appearance: AppearanceSettings
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
-    /// お気に入りに追加/削除トグルボタン(ツールバー・コンテキストメニュー・「Favorites List」
-    /// サブメニュー)のために、appState.favoritesStore(weak var)ではなくこちらを直接使う。
-    /// weak varはAppState自身の@Publishedではないため、favoritesStoreの変更(reload())が
-    /// あってもAppState.objectWillChangeは発火せず、appState.favoritesStore経由で読んだ値は
-    /// 画面に反映されない。EnvironmentObjectとして直接持てば、reload()のたびにこのビュー自身が
-    /// 再描画されるため、トグルボタンの見た目・文言を確実に最新の状態に保てる。
-    @EnvironmentObject private var favoritesStore: FavoritesStore
-    /// 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」から
+    /// 「ブックマークの編集」ウインドウの「現在の本を追加」から
     /// 「今読んでいる本」を特定するために、このウインドウがキーウインドウになったことを
     /// 通知する(setUpWindowObservers参照)。
     ///
@@ -50,7 +43,7 @@ struct ViewerView: View {
     @State private var viewerToken = UUID()
     @State private var scrollMonitor: Any?
     /// 画面クリックでのページ送り(pageArea内の左右クリックゾーン)を有効にしてよいかどうか。
-    /// ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」はシングル
+    /// ウェルカム画面の「最近開いたファイル」はシングル
     /// クリックで即座に本を開く仕様のため、普段の癖でダブルクリックしてしまうと、1回目の
     /// クリックで本が開いてこのViewerViewに切り替わった直後、2回目のクリックがちょうど
     /// (画面中央付近に配置されがちな)クリックゾーンへ入力されてしまい、開いた直後の本が
@@ -119,8 +112,6 @@ struct ViewerView: View {
     /// ここに置けば、上のthumbnailGridDismissMonitorと同じく`handleOnDisappear`からも
     /// 確実に外せる。
     @State private var thumbnailGridEventMonitor: Any?
-    /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
-    @State private var showFavoriteFolderPicker = false
     /// 右クリックの「本の書き出し」で進行中の書き出し(OpenBookExportSheetの表示状態を兼ねる)。
     /// nilなら何も出ていない。
     @State private var openBookExport: OpenBookExportRequest?
@@ -128,13 +119,7 @@ struct ViewerView: View {
     /// 終えた直後に出すシートの表示状態(「最後のページで」の毎回確認とまったく同じ作りで、
     /// 選択肢の正典もBookExportCompletionBehavior 1つに揃えてある)。
     @State private var isShowingExportCompletionPrompt = false
-    /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
-    /// ツールバーのボタンのクリック・ショートカット(showFavoritesList)のどちらからも
-    /// showFavoritesListMenu()を呼び出す形に統一している。popUp自体は同期呼び出しで
-    /// 閉じるまでブロックされるため、厳密には@Stateに保持しなくても呼び出し元のローカル変数の
-    /// 生存期間だけで足りるはずだが、念のためこのビューの寿命に紐づけて保持している。
-    @State private var favoritesMenuBridge: FavoritesNSMenuBridge?
-    /// 「新しいウインドウで開く」「新しいタブで開く」(openFavorite(_:to:) → BookWindowOpener)
+    /// 「新しいウインドウで開く」「新しいタブで開く」(BookWindowOpener)
     /// で、指定したURLを持つ新しいウインドウをSwiftUIに作らせるための仕組み。
     @Environment(\.openWindow) private var openWindow
     /// このビューを表示しているウインドウ本体。フルスクリーンの入退場通知の登録・解除や、
@@ -201,8 +186,8 @@ struct ViewerView: View {
     /// 生かしておく必要がある ―― そのコメント参照)。ここにあるのは、このViewerViewが被せた
     /// ものへの手元の参照だけ。
     @State private var bookClosingDelegate: BookClosingWindowDelegate?
-    /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときに、画面中央下部へ
-    /// 一時的に表示するフィードバック文言(例:「“Xxx”をお気に入りに追加しました」)。
+    /// ブックマークの追加/削除トグルボタンなどを操作したときに、画面中央下部へ
+    /// 一時的に表示するフィードバック文言(例:「“Xxx”をブックマークから削除しました」)。
     /// nilのときは非表示。showToast(_:)参照。
     @State private var toastMessage: String?
     /// toastMessageを一定時間後に自動的に消すためのタスク。表示中に別の操作でトーストが
@@ -237,7 +222,7 @@ struct ViewerView: View {
     /// ここ1箇所(.alertのボタン)にまとめている。
     @State private var isShowingAutoLayoutConfirmation = false
 
-    /// 見開き表示中、ツールバー/お気に入りメニュー/キーボードショートカットからブックマークを
+    /// 見開き表示中、ツールバー/メニューバー/キーボードショートカットからブックマークを
     /// 追加しようとした際、環境設定(preferences.spreadBookmarkTargetBehavior == .askEachTime)に
     /// より左右どちらのページを対象にするか尋ねる確認ダイアログの表示状態。コンテキストメニュー
     /// (右クリック)からの追加はクリック位置で一意に決まるため、この仕組みは使わない
@@ -427,16 +412,6 @@ struct ViewerView: View {
         appState.toggleBookmarkAtIndex = { index in
             toggleBookmark(atIndex: index)
         }
-        // サイドパネル(ブックマークモード)の「お気に入りに追加」ボタン・お気に入りツリーの
-        // 橋渡し(AppState.addFavoriteAction/openFavoriteActionのコメント参照)。登録先フォルダの
-        // 選択シート・「お気に入りを開くとき」の判定はどちらもこのViewerViewが持っているため、
-        // サイドパネル側からはこのクロージャ経由で呼んでもらう。
-        appState.addFavoriteAction = {
-            showFavoriteFolderPicker = true
-        }
-        appState.openFavoriteAction = { favorite in
-            openFavoriteAccordingToPreference(favorite)
-        }
         // カーソルがウインドウの外へ出たときに、自動表示中のツールバー/プログレスバーを
         // 即座に隠すための橋渡し(AppState.hideAutoRevealedChromeのコメント参照)。
         // 拡大鏡ON時の強制非表示(下の.onChange(of: viewModel.isLoupeActive))と同じ処理内容。
@@ -491,14 +466,13 @@ struct ViewerView: View {
         appState.clearPendingInitialPage()
 
         // DBへ書かない本(シークレットウインドウ、またはその場限りの本)では、書き込みを伴う
-        // 橋渡し(ブックマーク/お気に入りの追加・レイアウト変更)は登録しない。メニュー側は
+        // 橋渡し(ブックマークの追加・レイアウト変更)は登録しない。メニュー側は
         // MenuCheckmarkStateのisPrivateWindow/isTransientBookで
         // グレーアウトしているが、「ブックマーク・レイアウトの編集」ウインドウのように
         // activeBookAppState経由でこれらを呼ぶ経路もあるため、クロージャ自体を空けておく。
         if viewModel.skipsPersistence {
             appState.addBookmarkAction = nil
             appState.toggleBookmarkAtIndex = nil
-            appState.addFavoriteAction = nil
             appState.performLayoutStateChange = nil
             appState.performLayoutClear = nil
             appState.performAutoLayout = nil
@@ -883,8 +857,6 @@ struct ViewerView: View {
         appState.jumpToPageIndex = nil
         appState.addBookmarkAction = nil
         appState.toggleBookmarkAtIndex = nil
-        appState.addFavoriteAction = nil
-        appState.openFavoriteAction = nil
         appState.hideAutoRevealedChrome = nil
         appState.updateLoadPageThumbnail(nil)
         appState.updateCurrentBookmarks([])
@@ -1153,8 +1125,7 @@ struct ViewerView: View {
     /// 書き出した本についてアプリが保存しているものを、設定に従って片付ける。
     ///
     /// DBへ書かない本(シークレットウインドウ・その場限りの本)では、そもそも消すものが無い
-    /// ので何もしない。お気に入りは消さない ―― レイアウトや読書位置と違って、ユーザーが
-    /// 明示的に手で登録したものだから(ユーザーの指示)。
+    /// ので何もしない。
     private func cleanUpExportedBook(format: BookExportFormat) {
         guard !viewModel.skipsPersistence else { return }
         let book = viewModel.book
@@ -1373,12 +1344,11 @@ struct ViewerView: View {
                 .animation(.easeInOut(duration: 0.15), value: showProgressBarOverlay)
             }
 
-            // お気に入り・ブックマークの追加/削除トグルを操作したときのフィードバック表示
+            // ブックマークの追加/削除トグルなどを操作したときのフィードバック表示
             // (ユーザー要望)。ツールバー・プログレスバーの自動隠し状態に関わらず、常に画面
             // 中央下部に一時的に浮かせる(操作の結果がツールバー/コンテキストメニュー/
             // メニューバー/キーボードショートカットのどこから行われても同じ見た目で分かるように、
-            // toggleCurrentPageBookmark()/toggleCurrentBookFavorite()/
-            // FavoriteFolderPickerViewのonAddedからshowToast(_:)を呼ぶだけでよい形にしている)。
+            // toggleCurrentPageBookmark()などからshowToast(_:)を呼ぶだけでよい形にしている)。
             if let toastMessage {
                 VStack {
                     Spacer()
@@ -1684,11 +1654,9 @@ struct ViewerView: View {
     private func applySheets<Content: View>(to content: Content) -> some View {
         content
             // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、
-            // 「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
+            // 当時の「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
             // (Window("Edit Bookmarks", id: "editBookmarks"))へ変更した。表示自体は
             // showBookmarkEditor()がopenWindowで行う(BookmarkEditorWindow.swift参照)。
-            // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
-            // FavoriteFolderPickerView側で完結する。
             // 環境設定「閲覧中の動作」の「最初のページで」「最後のページで」が「毎回確認」の
             // ときに、境界に達したその場で残りの選択肢を選ばせるシート
             // (ViewerViewModel.pendingBoundaryPrompt / PageBoundaryChoiceSheet参照)。
@@ -1754,28 +1722,12 @@ struct ViewerView: View {
                     performExportCompletionBehavior(choice, chosenByUser: true)
                 }
             }
-            .sheet(isPresented: $showFavoriteFolderPicker) {
-                FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
-                    showToast(
-                        String(
-                            format: String(localized: "Added “%@” to Favorites", language: preferences.effectiveLocale),
-                            viewModel.book.title
-                        )
-                    )
-                }
-            }
     }
 
     /// bodyのモディファイア連鎖のうち、確認アラート・伝播範囲ダイアログをまとめたグループ
     /// (mainZStack/applyLifecycleHandlersのコメント参照)。
     @ViewBuilder
     private func applyLayoutAlerts<Content: View>(to content: Content) -> some View {
-        // お気に入り一覧(要望4)。以前はここに.popover(isPresented:)でFavoritesListPopoverContent
-        // (List+DisclosureGroup)を表示していたが、フォルダを開くたびにクリックが必要で
-        // 使い勝手が良くなかったため、メニューバー側と同じくホバーでサブフォルダが展開する
-        // ネイティブNSMenu(FavoritesNSMenuBridge)へ置き換えた。ボタンのクリック・ショートカット
-        // のどちらもshowFavoritesListMenu()を呼ぶだけでよく、SwiftUI側の状態(.popoverのbinding)
-        // は不要になったため、ここには何も無い(showFavoritesListMenu()のコメント参照)。
         // 以下のアラート・確認ダイアログのボタンと Binding の閉包は、ViewerView を捕まえない(ViewerActionRelay の型コメント。
         // 2026-09-27 の監査で、このグループがまだ直接捕まえていたのを直した)。@State の値は body を作るたびに読んだ値を渡し、
         // ビューモデルは weak で読み、書き換えと操作は relay 経由。
@@ -1843,7 +1795,7 @@ struct ViewerView: View {
                 }
             }
         }
-        // 見開き表示中、ツールバー/お気に入りメニュー/キーボードショートカットからブックマークを
+        // 見開き表示中、ツールバー/メニューバー/キーボードショートカットからブックマークを
         // 追加しようとしたとき、環境設定「Adding Bookmarks in Spread View」が「実行するたびに
         // 尋ねる」の場合に表示する、左右どちらを対象にするかの確認ダイアログ(ユーザー報告)。
         // コンテキストメニュー(右クリック)からの追加はクリック位置で一意に決まるため、この
@@ -1986,12 +1938,6 @@ struct ViewerView: View {
         }
         guard let partnerPageIndex else { return false }
         return viewModel.bookmarks.contains { $0.pageIndex == partnerPageIndex }
-    }
-
-    /// 現在表示中の本がお気に入りに登録済みかどうか。isCurrentPageBookmarkedと同じ用途だが、
-    /// こちらはfavoritesStore(EnvironmentObject。上のプロパティ宣言のコメント参照)を読む。
-    private var isCurrentBookFavorited: Bool {
-        favoritesStore.isFavorited(bookID: viewModel.book.id)
     }
 
     /// 追加/削除トグルボタン用のツールバーアイコン。「未登録(追加できる状態)」のときは
@@ -2192,9 +2138,8 @@ struct ViewerView: View {
             .disabled(viewModel.skipsPersistence)
             .help("Auto-Layout Based on Current View")
 
-            // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
-            // 表示自体はメニューバー(「お気に入り」メニュー)・キーボードショートカット
-            // (showBookmarkList/showFavoritesList)からは引き続き行える。
+            // 「現在のブックマーク一覧を表示」のボタンは廃止した。一覧の
+            // 表示自体はメニューバー・キーボードショートカット(showBookmarkList)からは引き続き行える。
             // 追加・削除は、別々の2つのボタンではなく、登録状態に応じて見た目・動作が切り替わる
             // 1つのトグルボタンにまとめている(ユーザー要望)。登録済みのときは背景色と前景色を
             // 反転させる(toggleToolbarIcon参照)ことで、他のツールバーボタンと視覚的にも
@@ -2214,23 +2159,6 @@ struct ViewerView: View {
             // 自動レイアウトと同じ(`perform(.toggleBookmark)` が保存しない本では何もしない)。
             .disabled(viewModel.skipsPersistence)
             .help(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks")
-
-            // 改善要望5でお気に入りを無効化したため、星ボタンは出さない(FavoritesFeature参照)。
-            if FavoritesFeature.isEnabled {
-                Button {
-                    relay.send { view in
-                        view.perform(.toggleFavorite)
-                    }
-                } label: {
-                    toggleToolbarIcon(
-                        outlineSystemName: "star",
-                        filledSystemName: "star.fill",
-                        isRegistered: isCurrentBookFavorited
-                    )
-                }
-                .buttonStyle(.borderless)
-                .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
-            }
 
             Button {
                 relay.send { view in
@@ -2358,7 +2286,7 @@ struct ViewerView: View {
         // する。ツールバーの田の字ボタン・メニューバー「表示」→「ページ一覧を表示」・キーボード
         // ショートカットとまったく同じ経路(perform(.showThumbnailGrid))を通るため、開いた
         // パネルの閉じ方(外側クリック/同じ操作の再実行)も他の経路と揃う。
-        // 置き場所は、お気に入りグループのすぐ上に独立した1グループとして(ユーザーの指示)。
+        // 置き場所は、ブックマークグループのすぐ上に独立した1グループとして(ユーザーの指示)。
         Button("Show Page Grid") {
             relay.send { view in
                 view.perform(.showThumbnailGrid)
@@ -2367,33 +2295,10 @@ struct ViewerView: View {
 
         Divider()
 
-        // お気に入りグループ・ブックマークグループ・レイアウトグループの並び順、および文言は
-        // メニューバーの「編集」(Edit)メニュー内の対応するグループ(QooViewerApp.swiftの
-        // CommandGroup(after: .pasteboard))に合わせている(お気に入り→ブックマーク→
-        // レイアウトの順)。追加・削除は登録状態に応じて文言・動作が切り替わる1つのトグル項目に
-        // まとめている(ツールバーと同じ考え方。ユーザー要望)。
-        // 改善要望5でお気に入りを無効化したため、お気に入りグループは出さない
-        // (FavoritesFeature参照)。この後のDividerは、上の「ページ一覧」グループと
-        // 次のブックマークグループの区切りとして必要なので残す。
-        if FavoritesFeature.isEnabled {
-            Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
-                relay.send { view in
-                    view.perform(.toggleFavorite)
-                }
-            }
-            .disabled(viewModel.skipsPersistence)
-            Menu("Favorites List") {
-                FavoritesMenuContent(
-                    favoritesStore: favoritesStore,
-                    // ViewerView を直に捕まえない(右クリックの閉包は AppKit が窓より長く持つ ―― CLAUDE.md の ViewerActionRelay の件。
-                    // 2026-10-11 の規約監査。お気に入り機能は今は隠してあるが、戻したときに漏れが戻らないように)。
-                    onOpen: { [relay = actionRelay] favorite in relay.send { $0.openFavoriteAccordingToPreference(favorite) } }
-                )
-            }
-
-            Divider()
-        }
-
+        // ブックマークグループ・レイアウトグループの並び順、および文言はメニューバーの「編集」(Edit)メニュー内の対応する
+        // グループ(QooViewerApp.swiftのCommandGroup(after: .pasteboard))に合わせている。追加・削除は登録状態に応じて
+        // 文言・動作が切り替わる1つのトグル項目にまとめている(ツールバーと同じ考え方。ユーザー要望)。
+        //
         // ユーザー報告: 見開き左の画像を右クリックして「現在のページをブックマークに追加」
         // しても見開き右がブックマークされてしまう。見開き表示中(実際に2ページ組で
         // ペア表示されているとき)は、Layoutサブメニューと同じくクリック位置
@@ -3698,7 +3603,7 @@ struct ViewerView: View {
         // 隠す設定なら、カーソルが上端・下端の帯に無い限り隠したまま始める(isToolbarAutoRevealedのコメント)。
         settleAutoRevealedChromeToCursor()
 
-        // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」が
+        // 「ブックマークの編集」ウインドウの「現在の本を追加」が
         // 「今読んでいる本」を特定できるように、このウインドウが(本を表示しているウインドウとして)
         // キーウインドウになるたびにLaunchCoordinatorへ通知しておく。この時点で既にキーウインドウに
         // なっている可能性がある(setUpWindowObservers自体がonAppear経由で呼ばれるため)ので、
@@ -3767,7 +3672,7 @@ struct ViewerView: View {
             isMenuTracking = false
             registerMouseActivity()
         }
-        // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」用
+        // 「ブックマークの編集」ウインドウの「現在の本を追加」用
         // (上のlaunchCoordinator.setActiveBookAppState(appState)の初回呼び出しと同じ理由。
         // このウインドウが後から再びキーウインドウになるたびに更新し直す)。
         // バグ修正(ビルド時のエラー): NotificationCenter.addObserverのクロージャ自体は
@@ -4151,7 +4056,7 @@ struct ViewerView: View {
             // ツールバーのボタン・メニューバー「Edit」のレイアウトのグループの項目と
             // 同じ経路(3.1節)。
             // DBへ書かない本ではレイアウトを保存できないので、何もせずに理由を知らせる(以下の
-            // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため。知らせは X-10、noteNothingIsRecorded)。
+            // ブックマーク系も同じ。キー割り当てから直接届く経路を塞ぐため。知らせは X-10、noteNothingIsRecorded)。
             guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
@@ -4183,20 +4088,6 @@ struct ViewerView: View {
             showActualSizeWindow(forLeftPage: true)
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
-        // お気に入りは改善要望5で無効化した。既定のキー割り当て(⌥A/⌥B)は
-        // KeyBindingStoreに残したまま(復活時に既定が戻るようにするため)なので、
-        // 押されても何も起きないようにここで受け止める(FavoritesFeature参照)。
-        case .toggleFavorite:
-            guard FavoritesFeature.isEnabled else { return }
-            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
-            toggleCurrentBookFavorite()
-        case .showFavoritesList:
-            guard FavoritesFeature.isEnabled else { return }
-            showFavoritesListMenu()
-        case .showFavoritesOrganizer:
-            guard FavoritesFeature.isEnabled else { return }
-            guard !viewModel.skipsPersistence else { return noteNothingIsRecorded() }
-            openWindow(id: "favoritesOrganizer")
         // ウインドウを閉じる: 赤い閉じるボタン・メニューバーの「ウインドウを閉じる」と
         // **同じ経路**を通す(複数タブの確認ダイアログもそちらの設定に従って出る)。
         // 差し替えた専用のデリゲートが見つからない場合だけ、素のperformCloseへ落とす
@@ -4230,27 +4121,6 @@ struct ViewerView: View {
             NSApp.terminate(nil)
         case .none:
             break
-        }
-    }
-
-    /// 「お気に入り一覧」ポップオーバーからお気に入りをクリックしたときの実際の分岐処理。
-    /// QooViewerApp.swiftの同名メソッドと同じ考え方(環境設定「本を開く」の「お気に入りから」
-    /// favoriteOpenBehaviorに従って、そのまま開く/新しいタブ/新しいウインドウを判定する)だが、
-    /// ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、こちらでも
-    /// 同じ判定を実装している。ViewerViewが表示されている時点で必ず本を表示しているはずだが、
-    /// 念のためcurrentBookがnilの場合は常にそのまま開く形にフォールバックする。
-    func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        guard appState.currentBook != nil else {
-            appState.openFavorite(favorite)
-            return
-        }
-        switch preferences.favoriteOpenBehavior {
-        case .replaceCurrentBook:
-            appState.openFavorite(favorite)
-        case .newTab:
-            openFavorite(favorite, to: .newTab)
-        case .newWindow:
-            openFavorite(favorite, to: .newWindow)
         }
     }
 
@@ -4326,7 +4196,7 @@ struct ViewerView: View {
             // (「Adding Bookmarks in Spread View」)が「実行するたびに尋ねる」の場合は、
             // ここでは追加を実行せず、左右どちらを対象にするか尋ねる確認ダイアログ
             // (isShowingBookmarkSideDialog。applyLayoutAlerts参照)を表示するだけに留める
-            // (ユーザー報告: ツールバー/お気に入りメニューからのブックマーク追加対象の切り替え)。
+            // (ユーザー報告: ツールバー/メニューバーからのブックマーク追加対象の切り替え)。
             isShowingBookmarkSideDialog = true
         } else {
             // 単一ページ表示中(partnerPageIndexがnil。EPUB仕様の空白ページ表示を含む)、または
@@ -4402,25 +4272,6 @@ struct ViewerView: View {
         )
     }
 
-    /// 現在の本をお気に入りに追加/削除する(トグル)。すでに登録済みであれば(複数フォルダに
-    /// 登録されている場合はすべて)削除し、未登録であれば登録先フォルダを選ぶダイアログ
-    /// (showFavoriteFolderPicker)を開く。追加成功時のトースト表示は、フォルダ選択が絡む
-    /// 非同期の操作になるため、ここではなくFavoriteFolderPickerViewのonAdded(sheet参照)から行う。
-    private func toggleCurrentBookFavorite() {
-        if isCurrentBookFavorited {
-            let title = viewModel.book.title
-            favoritesStore.removeFavorites(forBookID: viewModel.book.id)
-            showToast(
-                String(
-                    format: String(localized: "Removed “%@” from Favorites", language: preferences.effectiveLocale),
-                    title
-                )
-            )
-        } else {
-            showFavoriteFolderPicker = true
-        }
-    }
-
     /// ページ一覧の矢印キー。グリッドの並び(左上から右へ)どおりに動かし、そのページを表示する(`GridKeyboardNavigation`)。
     private func moveThumbnailGridCursor(_ keyCode: UInt16) {
         let direction: GridKeyboardNavigation.Direction
@@ -4438,11 +4289,11 @@ struct ViewerView: View {
         viewModel.jump(toPageIndex: target)
     }
 
-    /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときの結果を、画面中央下部に
+    /// ブックマークの追加/削除トグルボタンなどを操作したときの結果を、画面中央下部に
     /// 一時的に表示する(ユーザー要望)。表示中に別の操作が行われた場合は、古い自動非表示
     /// タイマーをキャンセルしてから改めて表示時間を数え直す(短時間に連続して操作しても、
     /// 最後の1件が表示され続けている間に途中で消えてしまわないようにするため)。
-    /// キー・マウスに割り当てた書き込み操作(ブックマーク・自動レイアウト・お気に入り)を、記録を残さない窓・本で断ったときの知らせ
+    /// キー・マウスに割り当てた書き込み操作(ブックマーク・自動レイアウト)を、記録を残さない窓・本で断ったときの知らせ
     /// (2026-10-04 の監査 X-10)。以前は黙って何もしなかった ―― 外観は既定でノーマルのままなので、シークレットフォルダの本を
     /// ノーマルの窓で読んでいると、開いたときの 1 回の知らせを見落とせば、キーが効かないようにしか見えなかった。理由で文言を分ける。
     private func noteNothingIsRecorded() {
@@ -4473,71 +4324,6 @@ struct ViewerView: View {
             try? await Task.sleep(for: ToastDuration.duration(for: message))
             guard !Task.isCancelled else { return }
             toastMessage = nil
-        }
-    }
-
-    /// ツールバーの「お気に入り一覧」ボタン、およびキーボードショートカット
-    /// (ViewerAction.showFavoritesList)のどちらからも呼ぶ、一覧の表示処理。
-    /// ネイティブNSMenu(FavoritesNSMenuBridge)を組み立てて表示することで、メニューバー側と
-    /// 同じくホバーでサブフォルダが展開する挙動になる(詳細はFavoritesNSMenuBridge.swiftの
-    /// コメント参照)。項目をクリックしたときの実際の開き方は、他の入り口と同じく
-    /// openFavoriteAccordingToPreference(環境設定「本を開く」の「お気に入りから」)に従う。
-    private func showFavoritesListMenu() {
-        let bridge = FavoritesNSMenuBridge(favoritesStore: favoritesStore) { favorite in
-            openFavoriteAccordingToPreference(favorite)
-        }
-        favoritesMenuBridge = bridge
-        bridge.show()
-        // バグ修正: 以前はここで@Stateに入れたまま放置していた。onOpenに渡しているクロージャは
-        // ViewerView(struct)のコピーを丸ごとキャプチャしており、そのコピーはこの@State自身
-        // (favoritesMenuBridgeを保持している箱)を含むため、
-        //   bridge → onOpen → ViewerViewのコピー → @Stateの箱 → bridge
-        // という循環参照になっていた(handleOnAppearのonPageBoundaryRequestと同型で、
-        // お気に入り一覧を一度でも開くと成立する)。show()内のNSMenu.popUpはメニューが
-        // 閉じるまで戻らない同期呼び出しのため、ここへ戻ってきた時点でこのbridgeはもう不要。
-        favoritesMenuBridge = nil
-    }
-
-    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しい
-    /// ウインドウ/タブで開く。
-    ///
-    /// 以前はこの下に「ポーリングで増えたウインドウを見つけ、サイズと位置を整え、タブなら
-    /// 親へ追加する」という手順を、ウインドウ用とタブ用に1つずつ、計2つ書いていた。
-    /// 同じ手順がアプリ内に5つコピーされていた状態を解消するため、BookWindowOpenerへ
-    /// 集約してある(そちらの型コメント参照)。移行にともなって、この経路にも
-    /// 「すでに同じ本を開いているウインドウがあればそれを前面に出す」重複判定と、
-    /// カスケード位置が画面からはみ出す場合の押し戻しが入る(メニューバー経由の
-    /// 「新しいウインドウ/タブで開く」と挙動が揃う)。
-    ///
-    /// 見つからなかった場合は、通常の「開く」(AppState.openFavorite)と同じくアラートを出す。
-    private func openFavorite(_ favorite: FavoriteBook, to destination: BookOpenDestination) {
-        // 場所はメインの外で期限つきに解く(`FavoritesStore.locateForOpening`。2026-10-11 の規約監査)。待つ間に ViewerView を
-        // 掴まないよう、要るものだけを写して渡す。
-        let favoritesStore = favoritesStore
-        let appState = appState
-        let launchCoordinator = launchCoordinator
-        let openWindow = openWindow
-        Task { @MainActor in
-            let outcome = await favoritesStore.locateForOpening(favorite)
-            guard case .found(let url) = outcome else {
-                // 期限切れは「見つからない」にしない(削除を勧めない。FavoritesStore.locateForOpening のコメント)。
-                if case .notFound = outcome {
-                    appState.missingFavorite = favorite
-                } else {
-                    appState.postViewerNotice(FavoritesStore.timedOutMessage(
-                        for: favorite, locale: appState.preferences?.effectiveLocale ?? AppLanguage.currentLocale))
-                }
-                return
-            }
-            // このウインドウから派生した操作なので、シークレットかどうか・タブの追加先は
-            // このウインドウに揃える(BookWindowGroup / BookWindowOpener参照)。
-            BookWindowOpener.open(
-                BookOpenRequest(url),
-                to: destination,
-                from: appState,
-                launchCoordinator: launchCoordinator,
-                openWindow: openWindow
-            )
         }
     }
 
@@ -4618,7 +4404,7 @@ struct ViewerView: View {
         // (結果としてアプリ全体が強制終了)していたと考えられる。
         // (このウインドウはSwiftUIのWindow/WindowGroup Sceneを使わず、ここで直接
         // NSWindow+NSHostingViewを組み立てている。他のウインドウ[本編ウインドウ・
-        // お気に入り/ブックマーク編集ウインドウ等]はいずれもSwiftUIのScene経由でウインドウ
+        // ブックマーク編集ウインドウ等]はいずれもSwiftUIのScene経由でウインドウ
         // 自体のライフサイクルをSwiftUI側に管理させているため、このクラッシュは起きない)。
         //
         // isReleasedWhenClosedをfalseにすると、close()時にAppKitが即座に解放することは
@@ -4656,8 +4442,7 @@ private extension View {
 ///
 /// @Stateは値型しか保持できず、プロパティ自体にweakを付けることもできないため、weak varを
 /// 1つだけ持つ構造体を挟む(LaunchCoordinator.WeakAppStateBoxと同じ発想)。WindowAccessor
-/// 経由で受け取ったNSWindowを保持する各ビュー(ViewerView・BookmarkListView・
-/// FavoritesOrganizerView)が共通で使う。ウインドウ自体はAppKitが保持しているので、
+/// 経由で受け取ったNSWindowを保持する各ビュー(ViewerView・BookmarkListViewなど)が共通で使う。ウインドウ自体はAppKitが保持しているので、
 /// ビュー側が強参照する必要はない。
 struct WeakWindowBox {
     weak var window: NSWindow?
