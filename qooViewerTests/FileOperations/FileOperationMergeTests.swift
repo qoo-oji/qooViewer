@@ -209,7 +209,7 @@ nonisolated final class ConflictLog: @unchecked Sendable {
 }
 
 /// 進み具合の最後の報告(報告は FileIO のスレッドから来る)。
-private final class LastProgress: @unchecked Sendable {
+private nonisolated final class LastProgress: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: FileOperationProgress?
 
