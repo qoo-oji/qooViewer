@@ -103,6 +103,26 @@ struct StackNestOpeningTests {
         }
     }
 
+    @Test("すぐ断られたつながらない失敗は「起動していない」の文言、待ち切れずに失敗したものは「応答しません」")
+    func cannotConnectIsToldApartByTheWait() async throws {
+        let fixture = try StackNestTestBook()
+        defer { fixture.close() }
+        fixture.server.respond(.manifest, with: .failure(.cannotConnectToHost))
+        do {
+            _ = try await FixtureBook.load(fixture.referenceURL)
+            Issue.record("つながらないのに開けてしまった")
+        } catch {
+            // 断られたのはすぐ(待ちの上限よりずっと短い)なので、部品の「起動していないか、同期の設定がオフ」のまま。
+            #expect(error as? StackNestOpenError == StackNestOpenError(error: StackNestViewerError(.cannotConnect)))
+        }
+        // 待ち切れなかった失敗は qooViewer の「応答しません」(部品は同じ .cannotConnect を返す ―― 2026-10-24 の実機確認)。
+        let notResponding = StackNestOpenError(error: StackNestViewerError(.cannotConnect), notResponding: true)
+        #expect(notResponding.errorDescription == String(
+            localized: "StackNest isn’t responding. Open the book from StackNest again.", language: AppLanguage.currentLocale
+        ))
+        #expect(notResponding.errorDescription != StackNestOpenError(error: StackNestViewerError(.cannotConnect)).errorDescription)
+    }
+
     @Test("開くページの ID は startPage の名前のページ。範囲外なら最後のページ、参照ファイルの本でなければ nil")
     func startPageID() async throws {
         let fixture = try StackNestTestBook(pageCount: 6, startPage: 9)

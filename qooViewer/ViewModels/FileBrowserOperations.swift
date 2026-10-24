@@ -575,11 +575,16 @@ final class FileBrowserOperations: ObservableObject {
     private func confirmedRenameName(for entry: FileBrowserEntry, typed: String) async -> String? {
         let url = entry.url
         let original = url.lastPathComponent
-        var name = typed
+        // 確かめるのは**実際に付く名前**(前後の空白を落とした名前 ―― RenameFileCommand は FileNameValidation.validated で落としてから
+        // 変える)。打ったままの名前で確かめると、末尾に空白を足しただけの「別の本.zip␣」が拡張子を消す確認になり、「保持」で
+        // 「別の本.zip .zip」という名前になった(2026-10-24 のレビューで指摘、実機で再現)。編集へ戻すときだけ打ったままの文字を使う。
+        var name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         func backToEditing() -> String? {
             state?.requestRename(entry.id, text: typed)
             return nil
         }
+        // 空の名前は確かめずに渡す(名前の変更が「使えない名前」として断る。拡張子を消す確認を出さない)。
+        if name.isEmpty { return name }
         if name.hasPrefix("."), !original.hasPrefix(".") {
             let allowsUse = state?.showsHiddenFiles ?? false
             guard await asking({ await $0.confirmLeadingDot(allowsUse: allowsUse) }) == true else { return backToEditing() }
@@ -595,6 +600,9 @@ final class FileBrowserOperations: ObservableObject {
                 }
             }
         }
+        // 「保持」で元の名前に戻った(拡張子を消して保持した)。何も変わらないので変えない ―― 以前はそのまま名前の変更を走らせ、
+        // 何も変えていない「名前の変更」が取り消しに積まれた(2026-10-24 のレビュー、実機で再現)。
+        if name == original { return nil }
         let target = url.deletingLastPathComponent().appendingPathComponent(name)
         let taken = await FileIO.perform {
             FileOperationService.itemExists(at: target) && !FileOperationService.isSameEntry(url, target)
@@ -1195,7 +1203,7 @@ struct FileBrowserProblem: Equatable {
             let description = error.localizedDescription
             return FileBrowserProblem(
                 title: description.isEmpty
-                    ? String(format: String(localized: "%@ couldn’t be completed.", language: locale), operationName)
+                    ? String(format: String(localized: "%@ couldn’t be completed.", language: locale), operationName.quotedForDialog(locale: locale))
                     : description,
                 message: "", presentation: .row(item: item)
             )
@@ -1226,7 +1234,9 @@ struct FileBrowserProblem: Equatable {
                     format: isRedo
                         ? String(localized: "%@ could only be partly redone.", language: locale)
                         : String(localized: "%@ could only be partly undone.", language: locale),
-                    name
+                    // 操作の名前はメニュー(「取り消す」の項目)と同じ「」括りなので、行の題では “…” にする(docs/09 の括りの決まり。
+                    // 2026-10-24 の実機確認で「「動かす.zip」の移動は…」と出ていた)。
+                    name.quotedForDialog(locale: locale)
                 ),
                 message: listing(failures, locale: locale),
                 presentation: .row(item: nil)
@@ -1243,7 +1253,7 @@ struct FileBrowserProblem: Equatable {
                     format: isRedo
                         ? String(localized: "%@ couldn’t be redone.", language: locale)
                         : String(localized: "%@ couldn’t be undone.", language: locale),
-                    name
+                    name.quotedForDialog(locale: locale)
                 ),
                 message: message,
                 presentation: .row(item: nil)
@@ -1252,7 +1262,15 @@ struct FileBrowserProblem: Equatable {
     }
 
     static func listing(_ failures: [FailedItem], locale: Locale = AppLanguage.currentLocale) -> String {
-        var lines = failures.prefix(listedFailureLimit).map { "\($0.name): \($0.reason)" }
+        // 理由の文がすでに名前を言っているとき(“…”の操作を完了できませんでした。…)は、頭に名前を重ねない(2026-10-24 の実機確認:
+        // 「読めない.zip: “読めない.zip”の操作を…」と名前が 2 回出た)。
+        // ファイルを指さない失敗(まとめた操作の子の取り消し)の名前はメニューと同じ「」括りの操作名なので、行の中では “…” にする
+        // (題と同じ。docs/09 の括りの決まり)。ファイルの名前は変えない(名前そのものに括弧があっても)。
+        var lines = failures.prefix(listedFailureLimit).map { item -> String in
+            if item.reason.contains("“\(item.name)”") { return item.reason }
+            let name = item.url == nil ? item.name.quotedForDialog(locale: locale) : item.name
+            return "\(name): \(item.reason)"
+        }
         if failures.count > listedFailureLimit {
             lines.append(String(
                 format: String(localized: "…and %lld more.", language: locale),

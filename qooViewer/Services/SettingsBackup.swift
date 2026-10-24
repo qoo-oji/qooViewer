@@ -37,17 +37,15 @@ enum SettingsBackup {
     ]
 
     /// 接頭辞には合うが、設定ではないので入れないキー。
-    static let excludedKeys: Set<String> = [
+    static let excludedKeys: Set<String> = Set<String>([
         // 「表示言語を AppleLanguages へ書き戻した」という印(AppLanguage.applyAppleLanguagesOverride)。
         "qooViewer.pref.appleLanguagesOverrideApplied",
         // 廃止した設定(PageOrder.retiredSettingKey)。読み替えは済んでいる。
         "qooViewer.pref.usesFinderSortOrder",
         // 廃止した「初回起動時に決めた読み方向」(AppPreferences.Keys.retiredDefaultReadingDirection)。
         "qooViewer.pref.defaultReadingDirection",
-        // 削除したお気に入り機能の設定(AppPreferences.Keys.retiredFavoritesKeys と同じもの。起動時に消している)。
-        "qooViewer.pref.favoriteOpenBehavior", "qooViewer.pref.showRecentFavoritesOnWelcome",
-        "qooViewer.pref.favoritesSortOption", "qooViewer.pref.favoritesFoldersAlwaysOnTop",
-    ]
+        // 削除したお気に入り機能の設定は AppPreferences.retiredFavoritesKeys(起動時に消している一覧と同じもの)。
+    ]).union(AppPreferences.retiredFavoritesKeys)
 
     /// 接頭辞には合うが、セキュリティスコープ付きブックマーク(とそのパス・パネルの位置の控え)なので入れないキーの印
     /// (`LastUsedFolderMemory`: 前回のフォルダ・固定の保存先。2026-09-23 の 3 回目の監査の低 ―― 上の「入れないもの」の決まりに

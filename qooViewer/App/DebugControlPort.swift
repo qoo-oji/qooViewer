@@ -277,6 +277,34 @@ final class DebugControlPort {
         case "promptRows":
             // 出ている問い合わせ・報告の行の数(Finder と同じ形の操作ウインドウ ―― FileOperationPromptCenter)。
             return ["count": FileOperationPromptCenter.shared.pendingCount]
+        case "rememberExportFolder":
+            // 本の書き出しの「決まったフォルダ」を、パネルを通さずに覚えさせる(実機で書き出しの上書きの行を出すため。2026-10-24)。
+            // ブックマークはアプリ自身が作る(外で作ったセキュリティスコープ付きのブックマークは、このアプリでは解けない)。
+            guard let raw = arguments["format"] as? String, let format = BookExportFormat(rawValue: raw),
+                  let path = arguments["path"] as? String
+            else { throw Failure("rememberExportFolder needs format and path") }
+            await format.fixedFolder.remember(URL(filePath: path, directoryHint: .isDirectory))
+            return ["path": format.fixedFolder.lastFolderPath() ?? ""]
+        case "makeGrantBookmark":
+            // フォルダの許可のブックマーク(セキュリティスコープ付き)をアプリ自身に作らせ、base64 で返す(実機で「許可が 1 つだけ」の状態を
+            // 作って、取り消せない移動・アクセスの許可の知らせを出すため。2026-10-24)。書き込むのは頼む側(defaults)。
+            guard let path = arguments["path"] as? String else { throw Failure("makeGrantBookmark needs path") }
+            let data = try URL(filePath: path, directoryHint: .isDirectory)
+                .bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            return ["base64": data.base64EncodedString()]
+        case "createCollection":
+            // 合成名のライブラリとコレクションを作る(実機で削除の確認・見つからない本の片付けを出すため。2026-10-24)。
+            guard let libraryName = arguments["library"] as? String, let name = arguments["name"] as? String,
+                  let paths = arguments["paths"] as? [String]
+            else { throw Failure("createCollection needs library, name and paths") }
+            let store = stores.collectionStore
+            guard let library = store.libraries.first(where: { $0.name == libraryName }) ?? store.createLibrary(name: libraryName)
+            else { throw Failure("could not create the library") }
+            let items = await CollectionStore.makePendingItems(for: paths.map { URL(filePath: $0) })
+            guard store.createCollection(name: name, in: library, items: items) != nil else {
+                throw Failure("could not create the collection")
+            }
+            return ["items": items.count]
         case "closeWindow":
             guard let number = arguments["windowNumber"] as? Int,
                   let window = NSApp.windows.first(where: { $0.windowNumber == number })

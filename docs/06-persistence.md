@@ -8,7 +8,7 @@
 | ブックマーク | SwiftData `Bookmark` | `BookmarkStore` / `ViewerViewModel` | 無制限(自動削除しない) |
 | レイアウト(本全体) | SwiftData `BookLayoutSettings` | `LayoutStore` | 無制限 |
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
-| (お気に入り) | **2026-10-24 に機能ごと削除** | ―― | 改善要望5で入り口を閉じたまま使わなくなったので、利用者の判断でモデル(`FavoriteBook` / `FavoriteFolder`)・ストア・ウインドウ・JSON の節をすべて消した。既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす(`StoreSchemaGuard` の世代 5。削除したエンティティの名前は `retiredEntityNames` に並べ、「知らない表 = 新しいアプリのストア」の判定から外す)。設定の 4 つのキーは起動時に消す(`AppPreferences.Keys.retiredFavoritesKeys`) |
+| (お気に入り) | **2026-10-24 に機能ごと削除** | ―― | 改善要望5で入り口を閉じたまま使わなくなったので、利用者の判断でモデル(`FavoriteBook` / `FavoriteFolder`)・ストア・ウインドウ・JSON の節をすべて消した。既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす(`StoreSchemaGuard` の世代 5。削除したエンティティの名前は `retiredEntityNames` に並べ、「知らない表 = 新しいアプリのストア」の判定から外す)。設定の 4 つのキーは起動時に消し、保存データの JSON にも入れない(`AppPreferences.retiredFavoritesKeys` の 1 か所に書き、`SettingsBackup.excludedKeys` もそれを読む ―― 2 か所に書くと片方だけ直して控えから書き戻しうる) |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
 | コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |

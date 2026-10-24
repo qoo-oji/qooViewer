@@ -9,6 +9,15 @@ import AppKit
 /// cooViewerの「環境設定ウィンドウ」の一部に相当する。
 @MainActor
 final class AppPreferences: ObservableObject {
+    /// 削除したお気に入り機能の設定(2026-10-24。お気に入りを開くとき・最近のお気に入りの表示・一覧の並べ替えとフォルダを上に)。
+    /// 機能ごと消した(保存データの表も軽量マイグレーションで落ちる)ので、起動時に消す(`init`)。保存データの JSON にも
+    /// 入れない(`SettingsBackup.excludedKeys` がこれを読む。古い控えを読み込んでも書き戻さない)。一覧はここ 1 か所だけに書く
+    /// (2026-10-24 のレビュー: 2 か所に同じ文字列を書いていて、片方だけ直すと起動時には消すのに控えからは書き戻しえた)。
+    nonisolated static let retiredFavoritesKeys: Set<String> = [
+        "qooViewer.pref.favoriteOpenBehavior", "qooViewer.pref.showRecentFavoritesOnWelcome",
+        "qooViewer.pref.favoritesSortOption", "qooViewer.pref.favoritesFoldersAlwaysOnTop",
+    ]
+
     private enum Keys {
         static let launchOpensLastBook = "qooViewer.pref.launchOpensLastBook"
         static let launchFullScreen = "qooViewer.pref.launchFullScreen"
@@ -92,13 +101,6 @@ final class AppPreferences: ObservableObject {
         /// 読まないが消さない(前の版へ戻したときにそのまま使えるように。`PageOrder.retiredSettingKey` と同じ扱い)。
         /// 保存データの JSON には入れない(`SettingsBackup.excludedKeys`)。
         static let retiredDefaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
-        /// 削除したお気に入り機能の設定(2026-10-24。お気に入りを開くとき・最近のお気に入りの表示・一覧の並べ替えとフォルダを上に)。
-        /// 機能ごと消した(保存データの表も軽量マイグレーションで落ちる)ので、起動時に消す(`init`)。保存データの JSON にも
-        /// 入れない(`SettingsBackup.excludedKeys`。古い控えを読み込んでも書き戻さない)。
-        static let retiredFavoritesKeys = [
-            "qooViewer.pref.favoriteOpenBehavior", "qooViewer.pref.showRecentFavoritesOnWelcome",
-            "qooViewer.pref.favoritesSortOption", "qooViewer.pref.favoritesFoldersAlwaysOnTop",
-        ]
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
@@ -1347,7 +1349,7 @@ final class AppPreferences: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.sharesGlobalState = defaults === UserDefaults.standard
-        for key in Keys.retiredFavoritesKeys { defaults.removeObject(forKey: key) }
+        for key in Self.retiredFavoritesKeys { defaults.removeObject(forKey: key) }
         // ノーマルの揃いは、ライト/ダークをアプリ全体へ掛ける(AppearanceSettings.appliesToApp)。
         self.appearance = AppearanceSettings(profile: .normal, defaults: defaults)
         self.privateAppearance = AppearanceSettings(profile: .privateWindow, defaults: defaults)

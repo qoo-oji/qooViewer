@@ -439,7 +439,9 @@ extension FileOperationError: LocalizedError {
             return String(
                 // Finder の文(2026-10-24)。
                 format: String(localized: "“%@” can’t be modified or deleted because it’s required by macOS.", language: locale),
-                url.lastPathComponent
+                // Finder と同じく表示名で(「アプリケーション」「ムービー」…。lastPathComponent では “Applications” と出た ―― 2026-10-24 の
+                // 実機確認)。
+                Self.protectedLocationName(url, locale: locale)
             )
         case let .duplicateArchiveEntryName(name, _):
             return String(
@@ -484,6 +486,29 @@ nonisolated enum PosixFailure {
             return String(localized: "The item is in use. An app may have a file inside it open.", language: locale)
         default:
             return NSError(domain: NSPOSIXErrorDomain, code: Int(code)).localizedDescription
+        }
+    }
+}
+
+
+extension FileOperationError {
+    /// macOS が必要とするフォルダ(`FileOperationService.isProtectedLocation`)の、Finder が見せる名前を**表示言語で**返す。
+    /// `FileManager.displayName(atPath:)` は OS の言語でディスクに問い合わせる(メインで呼ばれうる・表示言語と混ざる ―― 2026-10-24 の
+    /// レビュー)ので、守る場所の決まった名前を自分で訳す。ホーム(ユーザ名)など一覧に無い名前はそのまま。
+    nonisolated static func protectedLocationName(_ url: URL, locale: Locale) -> String {
+        switch url.lastPathComponent {
+        case "Applications": String(localized: "Applications", language: locale)
+        case "Desktop": String(localized: "Desktop", language: locale)
+        case "Documents": String(localized: "Documents", language: locale)
+        case "Downloads": String(localized: "Downloads", language: locale)
+        case "Library": String(localized: "Library", language: locale)
+        case "Movies": String(localized: "Movies", language: locale)
+        case "Music": String(localized: "Music", language: locale)
+        case "Pictures": String(localized: "Pictures", language: locale)
+        case "Public": String(localized: "Public", language: locale)
+        case "System": String(localized: "System", language: locale)
+        case "Users": String(localized: "Users", language: locale)
+        default: url.lastPathComponent
         }
     }
 }

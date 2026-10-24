@@ -182,7 +182,7 @@ struct ResetDataSettingsView: View {
             }
         } message: {
             Text(
-                "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward."
+                "This deletes all saved data except folder access permissions and quits qooViewer. You can’t undo this action."
             )
         }
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある

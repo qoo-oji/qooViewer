@@ -889,6 +889,38 @@
         }
       }
     },
+    "Movies" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movies"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ムービー"
+          }
+        }
+      }
+    },
+    "Music" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Music"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ミュージック"
+          }
+        }
+      }
+    },
     "Nested archives that the lower half of the side panel opened itself to list the book’s contents, against the “Nested archives kept in memory” setting." : {
       "localizations" : {
         "en" : {
@@ -1018,6 +1050,22 @@
         }
       }
     },
+    "Pictures" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピクチャ"
+          }
+        }
+      }
+    },
     "Pictures held by the list" : {
       "localizations" : {
         "en" : {
@@ -1078,6 +1126,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "準備しています…"
+          }
+        }
+      }
+    },
+    "Public" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Public"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パブリック"
           }
         }
       }
@@ -1194,6 +1258,38 @@
         }
       }
     },
+    "StackNest isn’t responding. Open the book from StackNest again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest isn’t responding. Open the book from StackNest again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "StackNest が応答しません。StackNest から開き直してください。"
+          }
+        }
+      }
+    },
+    "System" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システム"
+          }
+        }
+      }
+    },
     "Temporary files left by a previous launch (extracted nested archives or copies of network volume books) are still in the temporary folder. They should be removed automatically at launch." : {
       "localizations" : {
         "en" : {
@@ -1206,6 +1302,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "以前の起動が残した一時ファイル(展開した入れ子の書庫やネットワークボリュームの本の写し)が一時フォルダに残っています。本来は起動時に自動で削除されます。"
+          }
+        }
+      }
+    },
+    "The book file isn’t deleted. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book file isn’t deleted. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本のファイルは削除されません。この操作は取り消せません。"
           }
         }
       }
@@ -1434,6 +1546,22 @@
         }
       }
     },
+    "This deletes all saved data except folder access permissions and quits qooViewer. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes all saved data except folder access permissions and quits qooViewer. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダのアクセス権以外の保存データをすべて削除し、qooViewerを終了します。この操作は取り消せません。"
+          }
+        }
+      }
+    },
     "This page can’t be displayed." : {
       "localizations" : {
         "en" : {
@@ -1516,6 +1644,22 @@
         }
       }
     },
+    "Users" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Users"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ユーザ"
+          }
+        }
+      }
+    },
     "Your changes to the rules that derive metadata from file names, and copies of a rules file that could not be read." : {
       "localizations" : {
         "en" : {
@@ -1581,6 +1725,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "! ? ♡ …「X♡2」はシリーズ「X♡」の 2 巻になります"
+          }
+        }
+      }
+    },
+    "“%1$@” contains %2$@ files, more than qooViewer extracts at once (%3$@)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” contains %2$@ files, more than qooViewer extracts at once (%3$@)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@”には %2$@個のファイルが入っていて、qooViewer が一度に展開できる数(%3$@)を超えています。"
           }
         }
       }
@@ -1997,7 +2157,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@”はボリュームなので移動できません。"
+            "value" : "“%@”はボリュームのため、移動できません。"
           }
         }
       }
@@ -2238,22 +2398,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "“%1$@”の名前を変更できません。%2$@"
-          }
-        }
-      }
-    },
-    "“%1$@” contains %2$lld files, more than qooViewer extracts at once (%3$lld)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%1$@” contains %2$lld files, more than qooViewer extracts at once (%3$lld)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%1$@”には %2$lld個のファイルが入っていて、qooViewer が一度に展開できる数(%3$lld)を超えています。"
           }
         }
       }
@@ -3296,7 +3440,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld項目がロックされています。ゴミ箱に入れてもよろしいですか?"
+            "value" : "%lld項目がロックされています。ゴミ箱に入れますか?"
           }
         }
       }
@@ -10823,7 +10967,6 @@
       }
     },
     "Delete “%@”?" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10834,7 +10977,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を削除しますか?"
+            "value" : "“%@”を削除しますか?"
           }
         }
       }
@@ -11236,7 +11379,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」の保存データを削除しますか?"
+            "value" : "“%@”の保存データを削除しますか?"
           }
         }
       }
@@ -18596,7 +18739,6 @@
       }
     },
     "Make “%@” the series?" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -18607,7 +18749,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "シリーズを「%@」にしますか?"
+            "value" : "シリーズを“%@”にしますか?"
           }
         }
       }
@@ -23579,7 +23721,6 @@
       }
     },
     "Put “%@” back to the default?" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -23590,7 +23731,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」の設定を初期設定に戻しますか?"
+            "value" : "“%@”の設定を初期設定に戻しますか?"
           }
         }
       }
@@ -24641,7 +24782,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を履歴から削除しますか?"
+            "value" : "“%@”を履歴から削除しますか?"
           }
         }
       }
@@ -25489,7 +25630,6 @@
       }
     },
     "Reset “%@” to the bundled contents?" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -25500,7 +25640,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を標準の内容に戻しますか?"
+            "value" : "“%@”を標準の内容に戻しますか?"
           }
         }
       }
@@ -31229,22 +31369,6 @@
         }
       }
     },
-    "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダのアクセス権を除く、qooViewerが保存したすべてのデータを削除します。この操作は取り消せません。実行後、qooViewerはただちに終了します。"
-          }
-        }
-      }
-    },
     "This deletes every bookmark in this book. You can undo this with Edit ▸ Undo." : {
       "localizations" : {
         "en" : {
@@ -31585,22 +31709,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
-    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。「編集」メニューの「取り消す」で元に戻せます。"
           }
         }
       }
@@ -34949,7 +35057,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このEPUBは画像の本(固定レイアウト)ではないため、開けません。"
+            "value" : "このEPUBは固定レイアウトの画像の本ではないため、開けません。"
           }
         }
       }
@@ -36118,22 +36226,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、ブックマーク・読書位置には影響しません。"
-          }
-        }
-      }
-    },
-    "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本について qooViewer が保存しているブックマーク・レイアウト設定・メタデータ・読書位置を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
           }
         }
       }

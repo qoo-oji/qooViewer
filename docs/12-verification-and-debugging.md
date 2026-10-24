@@ -77,6 +77,10 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     「サイドパネルを隠す」)/ `contextClick '{"windowNumber":N,"x":…,"y":…}'`(窓の内容の左上からの pt を右クリックした形にして
     右クリックメニューを開く。中身は AX の `menu 1 of window …` などで読み、AX の `AXCancel` で閉じる。プロセスを名指しした CGEvent の
     右クリックは窓に届かなかった ―― 2026-10-19)。どれも既存の入口を通す。
+  - 合成データを用意する頼み(2026-10-24、実機で確認・報告を出すため): `rememberExportFolder '{"format":"cbz","path":…}'`(本の書き出しの
+    「決まったフォルダ」をパネルを通さずに覚えさせる)/ `makeGrantBookmark '{"path":…}'`(フォルダの許可のブックマークをアプリ自身に作らせて
+    base64 で返す。外で作ったセキュリティスコープ付きのブックマークはこのアプリでは解けないため。defaults へ書くのは頼む側)/
+    `createCollection '{"library":…,"name":…,"paths":[…]}'`(合成名のライブラリ・コレクションを作る)。
   - **`menu` の淡色は、メニューバーの今の状態を映さないことがある**(2026-10-18 実測。本に依る項目が、普通の本でも淡色と返った)。
     淡色の確認は AX で読む(下の「StackNest の本の実機の確かめ方」)。
   - 置き場所はコンテナの `tmp/qooViewer-debug-control/`(署名していない CI のビルドでは `$(getconf DARWIN_USER_TEMP_DIR)`、

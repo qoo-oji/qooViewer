@@ -1588,9 +1588,12 @@ actor PageLoader {
         // なるので、つまみを動かすように続けて飛ぶと、通り過ぎたページの取り寄せが門の枠を握ったまま最後まで走った)。表示の要求は
         // ページを替えるたびに取り消される(reloadAsync)が、新しい先読みの範囲に入っていれば先読みが待ち続けるので、取り寄せは続く。
         let waitsRemotely = isRemoteSource(page.source)
-        // **打ち切った先読みには、表示の要求は合流しない**(2026-10-06 のコードレビュー)。打ち切られた読み込みも終わるまで
+        // **打ち切った読み込みには合流しない**(2026-10-06 のコードレビュー)。打ち切られた読み込みも終わるまで
         // `inFlightTasks` に残るので、そこへ合流すると nil を受け取り、ビューアが「このページを表示できません」と出した。読み直す。
-        if let existingTask = inFlightTasks[inFlightKey], isPrefetch || !existingTask.isCancelled {
+        // 先読みも同じ(2026-10-24 のレビュー): 網越しの本では、通り過ぎたページの取り寄せを待つ人がいなくなると取り消す
+        // (awaitRemote)ので、すぐ戻って来たときの先読みがその取り消し済みの読み込みに合流して nil を受け取り、そのページは表示されるまで
+        // 取り寄せられなかった。
+        if let existingTask = inFlightTasks[inFlightKey], !existingTask.isCancelled {
             if !isPrefetch {
                 // 先読みが始めた読み込みに、実際の表示要求が合流した。もう打ち切ってはならない。
                 cancellableInFlightKeys.remove(inFlightKey)
@@ -1617,6 +1620,10 @@ actor PageLoader {
         inFlightTasks[inFlightKey] = task
         if isPrefetch {
             cancellableInFlightKeys.insert(inFlightKey)
+        } else {
+            // 取り消し済みの先読みが同じ鍵で残っている(上で合流しなかった)とき、その印を外す。残すと、この表示の読み込みが先読みと
+            // して取り消されうる(2026-10-24 のレビュー)。
+            cancellableInFlightKeys.remove(inFlightKey)
         }
 
         let decoded = waitsRemotely ? await awaitRemote(task, key: inFlightKey) : await task.value
@@ -1782,7 +1789,9 @@ actor PageLoader {
     private func promoteDecodeWaiter(forKey key: String) {
         // 網越しのページの先読みがまだ取り寄せの門で待っていれば、表示の列へ移す(StackNestRequestGate.promote)。
         cachedStackNestReader?.requestGate.promote(key: key)
-        guard let index = prefetchDecodeWaiters.firstIndex(where: { $0.key == key }) else { return }
+        // 同じ鍵の待ちが 2 つあるときは新しい方(後ろ)を移す。取り消した先読みが鍵に残ったまま、同じ鍵で新しい読み込みを始めることが
+        // ある(上の inFlight の合流の決まり。2026-10-24 のレビュー)ので、前の方は取り消し済みの古い待ちでありうる。
+        guard let index = prefetchDecodeWaiters.lastIndex(where: { $0.key == key }) else { return }
         urgentDecodeWaiters.append(prefetchDecodeWaiters.remove(at: index))
     }
 
@@ -1999,7 +2008,12 @@ actor PageLoader {
     /// 網越しの読み込みを待つ。待っている人が**全員**取り消したら、読み込みそのもの(`task`)を取り消す ―― 門の待ち
     /// (StackNestRequestGate)からも部品の要求からも抜ける。1 人でも待っていれば続ける。読み込みは切り離した Task なので、
     /// 呼び出し側の取り消しはそのままでは届かない(2026-10-19 のレビュー)。
-    private func awaitRemote<Value: Sendable>(_ task: Task<Value?, Never>, key: String) async -> Value? {
+    ///
+    /// 札は**読み込みごと**に数える(鍵に Task を足す。2026-10-24 のレビュー: 取り消し済みの読み込みが鍵に残っている間に同じ鍵で
+    /// 新しい読み込みを始めるようになったので、鍵だけで数えると古い読み込みの待ち人の札が新しい方の札と混ざり、最後に抜けた古い
+    /// 札が古い方だけを取り消して、待つ人のいない新しい読み込みが門の枠を握ったまま残りえた)。
+    private func awaitRemote<Value: Sendable>(_ task: Task<Value?, Never>, key inFlightKey: String) async -> Value? {
+        let key = "\(inFlightKey)#\(task.hashValue)"
         let token = UUID()
         remoteWaiters[key, default: []].insert(token)
         let value = await withTaskCancellationHandler {

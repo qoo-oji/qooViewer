@@ -162,3 +162,29 @@ extension String {
         self.init(localized: keyAndValue, bundle: locale.displayLanguageBundle, locale: locale)
     }
 }
+
+extension String {
+    /// ダイアログ用の “…” で名前を括った文を、トースト・メニューの括り(日本語では「…」)にする(docs/09「ダイアログとシートの作法」:
+    /// 名前はダイアログでは “…”、メニュー・トースト・画面の中の文では「」)。同じ文をアラートとトーストの両方に使う所
+    /// (履歴の本が開けない知らせ ―― `RecentFilesStore.OpenFailure.message`)が、トーストへ渡すときに通す。英語は “…” のまま。
+    ///
+    /// 換えるのは**最初の開き括弧と最後の閉じ括弧だけ**(文の型の括り)。間に入る名前そのものに括弧があっても(「“作品”第1巻」)
+    /// 名前は変えない(2026-10-24 のレビュー)。そのため**名前を 1 つだけ括る文**にだけ使う(名前が 2 つある文では括りが食い違う)。
+    nonisolated func quotedForToast(locale: Locale) -> String {
+        guard locale.language.languageCode?.identifier == "ja" else { return self }
+        return replacingOuterQuotes(open: "“", close: "”", with: "「", "」")
+    }
+
+    /// 逆向き: メニュー用の「…」で括った名前(取り消しの操作名「a.zip」の移動 など)を、ダイアログ・操作ウインドウの行の題に
+    /// 入れるときの “…” にする。換えるのは同じく外側の 1 組だけ。
+    nonisolated func quotedForDialog(locale: Locale) -> String {
+        guard locale.language.languageCode?.identifier == "ja" else { return self }
+        return replacingOuterQuotes(open: "「", close: "」", with: "“", "”")
+    }
+
+    private nonisolated func replacingOuterQuotes(open: Character, close: Character, with newOpen: Character, _ newClose: Character) -> String {
+        guard let first = firstIndex(of: open), let last = lastIndex(of: close), first < last else { return self }
+        return String(self[..<first]) + String(newOpen) + String(self[index(after: first)..<last]) + String(newClose)
+            + String(self[index(after: last)...])
+    }
+}

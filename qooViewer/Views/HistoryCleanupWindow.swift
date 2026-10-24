@@ -123,10 +123,10 @@ struct HistoryCleanupWindow: View {
                         ? "Remove \(deletion.paths.count) books from the history?"
                         : "Remove “\(deletion.displayName ?? "")” from the history?"
                 ),
-                message: Text(
-                    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched. You can undo this with Edit ▸ Undo."
-                ),
-                primaryButton: .destructive(Text("Remove")) {
+                // 説明は 1 文(ダイアログの作法 ―― docs/09。取り消し方の案内は書かない)。取り消せる(DataUndoStack)ので赤くせず、
+                // 「取り除く」を既定にする(取り消せない操作だけを赤く・既定なしにする決まり。2026-10-24)。
+                message: Text("Book files aren’t deleted."),
+                primaryButton: .default(Text("Remove")) {
                     DataUndoStack.removeHistory(
                         recentFiles.entries.filter { deletion.paths.contains($0.id) }, in: recentFiles, recordingOn: dataUndo
                     )

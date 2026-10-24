@@ -61,9 +61,16 @@ enum ReplaceBackupRecovery {
         if !orphaned.isEmpty {
             notices.append(Notice(
                 title: String(localized: "Some items that were being replaced couldn’t be put back.", language: locale),
+                // 一覧は置き換え先の場所(利用者が知っている場所)で書く。以前は退避の隠しフォルダのパス
+                // (`.qooViewer-replace-<UUID>/…`)をそのまま出し、4 行に折り返して読めなかった(2026-10-24 の実機確認)。
+                // 隠しフォルダは同じフォルダにあると説明の文が言っている(Finder で隠しファイルを表示すれば見える)。
                 message: String(
                     localized: "The originals are kept as hidden items in the same folder.", language: locale
-                ) + "\n" + listing(orphaned.map { "\($0.backup.path): \($0.reason)" }, locale: locale),
+                ) + "\n" + listing(orphaned.map {
+                    // 同じフォルダに戻せなかった退避が 2 つ以上あっても見分けられるよう、隠しフォルダの名前を頭だけ添える(UUID まで
+                    // 全部出すと 7 行に折り返した ―― 2026-10-24 の実機確認。頭の 8 字で Finder の一覧でも見分けられる)。
+                    "\($0.target.path) (\(String($0.backup.deletingLastPathComponent().lastPathComponent.prefix(FileOperationService.replaceHolderPrefix.count + 8)))…): \($0.reason)"
+                }, locale: locale),
                 isWarning: true
             ))
         }

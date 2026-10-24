@@ -136,9 +136,9 @@ private struct LibraryCleanupContentView: View {
                         ? "Delete saved data for \(deletion.bookIDs.count) books?"
                         : "Delete saved data for “\(deletion.displayName ?? "")”?"
                 ),
-                message: Text(
-                    "This permanently deletes the bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
-                ),
+                // 説明は結果が予想と違う所だけ(ダイアログの作法 ―― docs/09。以前は消すものの一覧と「ファイル自体には触れません」
+                // 「この操作は取り消せません」の 3 文だった。2026-10-24 の実機確認)。
+                message: Text("The book file isn’t deleted. You can’t undo this action."),
                 primaryButton: .destructive(Text("Delete")) {
                     viewModel.deleteAllData(forBookIDs: deletion.bookIDs)
                 },

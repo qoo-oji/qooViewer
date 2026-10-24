@@ -828,6 +828,18 @@ private struct SmartFilterPopUpButton: NSViewRepresentable {
         override func performClick(_ sender: Any?) {
             if let onPress { onPress() } else { super.performClick(sender) }
         }
+        // VoiceOver などのアクセシビリティの「押す」も同じ(2026-10-24: AX の押す・メニューを表示は performClick を通らず、
+        // 「指定なし」1 項目だけのメニューが開いた)。
+        override func accessibilityPerformPress() -> Bool {
+            guard let onPress else { return super.accessibilityPerformPress() }
+            onPress()
+            return true
+        }
+        override func accessibilityPerformShowMenu() -> Bool {
+            guard let onPress else { return super.accessibilityPerformShowMenu() }
+            onPress()
+            return true
+        }
     }
 
     final class Coordinator: NSObject {

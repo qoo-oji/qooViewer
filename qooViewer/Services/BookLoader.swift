@@ -149,6 +149,7 @@ nonisolated enum BookLoader {
 
     private static func stackNestReferenceBook(at url: URL) throws -> MangaBook {
         guard FileManager.default.fileExists(atPath: url.path) else { throw BookLoaderError.notFound }
+        let started = ContinuousClock.now
         do {
             let reader = try StackNestReferenceReader(referenceFileURL: url)
             // manifest がページ数と読み方向の正(参照ファイルの値は開いた時点のもの)。開くたびに問い合わせる: 覚えた manifest を
@@ -159,9 +160,18 @@ nonisolated enum BookLoader {
                 direction: manifest.direction ?? reader.reference.direction, at: url)
         } catch let error as StackNestViewerError {
             // アラートは errorDescription を出す。部品のエラーのままだと qooViewer の表示言語にならない(StackNestOpenError)。
-            throw StackNestOpenError(error: error)
+            // つながらないときはすぐ(拒否)に返り、応答しないときは部品の待ちの上限まで待ってから同じ `.cannotConnect` で返る。
+            // 長く待った失敗は「応答しない」として伝える(StackNestOpenError.notResponding)。
+            let waited = ContinuousClock.now - started
+            throw StackNestOpenError(error: error, notResponding: error.code == .cannotConnect && waited >= stackNestNotRespondingAfter)
         }
     }
+
+    /// これより長く待ってから `.cannotConnect` で失敗したら「応答しない」とみなす。拒否(StackNest が動いていない)は数 ms で返り、
+    /// 部品の待ちの上限(`StackNestBookSession.Configuration.waitLimit`、既定 25 秒。実機では約 22 秒で返った)で返るものが応答しない。
+    /// 補助プロセスの起動や門(StackNestRequestGate)の待ちで拒否が遅れても取り違えないよう、上限寄りで切る。部品が時間切れを
+    /// 別のコードで返すようになれば、この見積もりは要らない(部品は StackNest の作者のもの ―― docs/10「StackNest の本と通信」)。
+    static let stackNestNotRespondingAfter: Duration = .seconds(15)
 
     private static func stackNestReferenceBook(
         reference: StackNestBookReference, pageCount: Int, direction: StackNestReadingDirection?, at url: URL

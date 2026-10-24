@@ -22,6 +22,36 @@ struct FileOperationPromptTests {
         #expect(PromptRowView.keepingWordsTogether("plain English text") == "plain English text")
     }
 
+    @Test("名前の括り: ダイアログの行は “…”、トーストは「」(日本語だけ。英語は “…” のまま)")
+    func quotesFollowTheDialogRule() {
+        let ja = Locale(identifier: "ja")
+        let en = Locale(identifier: "en")
+        #expect("「a.zip」の移動".quotedForDialog(locale: ja) == "“a.zip”の移動")
+        #expect("“a”が見つかりません。".quotedForToast(locale: ja) == "「a」が見つかりません。")
+        #expect("“a” can’t be found.".quotedForToast(locale: en) == "“a” can’t be found.")
+        #expect("Move of “a”".quotedForDialog(locale: en) == "Move of “a”")
+        // 名前そのものの括弧は変えない(外側の 1 組だけ)。
+        #expect("「「作品」第1巻.zip」の移動".quotedForDialog(locale: ja) == "“「作品」第1巻.zip”の移動")
+        #expect("““作品”第1巻”が見つかりません。".quotedForToast(locale: ja) == "「“作品”第1巻」が見つかりません。")
+    }
+
+    @Test("macOS が必要とするフォルダは、Finder と同じ名前を表示言語で出す")
+    func protectedLocationNamesAreLocalized() {
+        let ja = Locale(identifier: "ja")
+        #expect(FileOperationError.protectedLocationName(URL(fileURLWithPath: "/Applications"), locale: ja) == "アプリケーション")
+        #expect(FileOperationError.protectedLocationName(URL(fileURLWithPath: "/Users/someone/Movies"), locale: ja) == "ムービー")
+        #expect(FileOperationError.protectedLocationName(URL(fileURLWithPath: "/Users/someone"), locale: ja) == "someone")
+    }
+
+    @Test("失敗の一覧は、理由の文が名前を言っていれば頭に名前を重ねない")
+    func failureListingDoesNotRepeatTheName() {
+        let url = URL(fileURLWithPath: "/tmp/x/読めない.zip")
+        let named = FailedItem(url: url, reason: "“読めない.zip”の操作を完了できませんでした。アクセス権がありません。")
+        let plain = FailedItem(url: url, reason: "アクセス権がありません。")
+        #expect(FileBrowserProblem.listing([named]) == "“読めない.zip”の操作を完了できませんでした。アクセス権がありません。")
+        #expect(FileBrowserProblem.listing([plain]) == "読めない.zip: アクセス権がありません。")
+    }
+
     @Test("行の寸法は Finder の実測どおり: 本文の下 10pt にボタン、ボタンは右寄せで 6pt 間隔、すべてに適用があれば 1pt 下がる")
     func rowLayoutMatchesFinder() {
         func row(_ checkbox: String?) -> PromptRowView {

@@ -827,6 +827,11 @@ actor FileOperationService {
         case .merge:
             // 結合はコピーのフォルダ同士だけ。それ以外(「すべてに適用」で覚えた結合がファイルに当たった)は尋ね直す。
             guard !isMove, isMergeableFolder(source), isMergeableFolder(target) else { return .needsUserDecision }
+            // 結合する相手が運ぶ項目を中に含む(`x/a/a` を `x` へ運んで `x/a` と結合)。中身を書き足すと、運んでいる最中の元の
+            // フォルダ(の子)に書き込むことになる。置き換えと同じく断る(2026-10-24 のレビュー)。
+            if isSameItemOrInside(source.standardizedFileURL, target.standardizedFileURL) {
+                throw FileOperationError.alreadyExists(target)
+            }
             return .merge(target)
         case .replace:
             // 置き換える相手が、運ぶ項目を中に含んでいる(`a/b/b` を `a` へ置き換えで運ぶ)。退避すると
@@ -1039,10 +1044,14 @@ actor FileOperationService {
                         outcome.failure = FailedItem(url: childSource, reason: error.localizedDescription)
                         return outcome
                     case .skip, .needsUserDecision, .merge:
+                        if tracker.countsBytes { tracker.excludeBytes(byteCount(of: childSource)) }
                         continue
                     }
                 } else {
-                    // 宛先の方が新しい(か同じ)。残す。
+                    // 宛先の方が新しい(か同じ)。残す。前段で数えた全体のバイト数にこの項目も入っているので、運ばなかった分は
+                    // 総量から外す(2026-10-24 のレビュー: 外さないと、宛先の方が新しい項目が多い結合で帯が途中で止まって見え、
+                    // 最後に一気に終わった)。総量を数えていない(クローンで済む)ときは数えない ―― 使わない走査になる。
+                    if tracker.countsBytes { tracker.excludeBytes(byteCount(of: childSource)) }
                     continue
                 }
                 guard let carried = try carry(childSource, to: resolved, using: perform, tracker: tracker, environment: environment) else {
@@ -1060,6 +1069,22 @@ actor FileOperationService {
             }
         }
         return outcome
+    }
+
+    /// 項目のバイト数(フォルダは中のファイルの合計。リンクはたどらない)。結合で運ばなかった項目を進み具合の総量から外すため
+    /// (前段の `FileOperationPreflight.walk` と同じ数え方)。
+    nonisolated static func byteCount(of url: URL) -> Int64 {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey, .isRegularFileKey]
+        guard let values = try? url.resourceValues(forKeys: keys), values.isSymbolicLink != true else { return 0 }
+        guard values.isDirectory == true else { return Int64(values.fileSize ?? 0) }
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys), options: []) else { return 0 }
+        var total: Int64 = 0
+        while let child = enumerator.nextObject() as? URL {
+            // 中止されたら数えるのをやめる(進み具合の総量を直すためだけの走査で、中止を待たせない)。
+            if Cancellation.isRequestedInCurrentScope { return total }
+            if let v = try? child.resourceValues(forKeys: keys), v.isRegularFile == true { total += Int64(v.fileSize ?? 0) }
+        }
+        return total
     }
 
     /// `a` の変更日が `b` より新しいか(結合で残す方を決める。読めなければ新しくないとみなす ―― 既存を残す側に倒す)。

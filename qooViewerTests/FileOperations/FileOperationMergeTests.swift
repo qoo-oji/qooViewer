@@ -69,6 +69,41 @@ struct FileOperationMergeTests {
         #expect(try read(source.appendingPathComponent("only.txt")) == "only", "コピーなので元はそのまま")
     }
 
+    @Test("運ぶフォルダを中に含むフォルダとは結合しない(運んでいる元へ書き足さない)")
+    func mergeRefusesAFolderThatContainsTheSource() async throws {
+        // m2/a/a(運ぶ側)を m2 へ ―― 宛先の m2/a は運ぶ側を中に含む。
+        _ = try write("deep", to: "m2/a/a/a/deep.txt")
+        let source = temporary.file("m2/a/a")
+        let destination = temporary.file("m2")
+        let options = FileOperationOptions(conflictPolicy: .ask, conflictResolver: { _ in ConflictDecision(.merge) })
+
+        let outcome = try? await service.copy([source], to: destination, options: options)
+
+        #expect(outcome?.isCompleteSuccess != true)
+        #expect(try names(in: temporary.file("m2/a")) == ["a"], "宛先(運ぶ側の親)に中身を書き足さない")
+        #expect(try names(in: source) == ["a"], "運ぶ側(元)にも書き足さない")
+        #expect(try names(in: source.appendingPathComponent("a")) == ["deep.txt"])
+    }
+
+    @Test("結合で運ばなかった項目(宛先の方が新しい)のバイト数は進み具合の総量から外し、最後は総量に届く")
+    func mergeReportsSkippedBytes() async throws {
+        let (source, destination) = try makeFolders()
+        let service = FileOperationService(environment: .pseudoTrash(at: trash), allowsCloning: false)
+        let last = LastProgress()
+        let options = FileOperationOptions(
+            conflictPolicy: .ask, conflictResolver: { _ in ConflictDecision(.merge) },
+            progress: ProgressSink { last.set($0) }
+        )
+
+        let outcome = try await service.copy([source], to: destination, options: options)
+
+        #expect(outcome.isCompleteSuccess)
+        let progress = try #require(last.value)
+        #expect(progress.totalBytes > 0)
+        // 宛先の older.txt の方が新しいので運ばない。その分を総量から外すので、最後は全体に届く(以前は届かずに終わった)。
+        #expect(progress.completedBytes == progress.totalBytes)
+    }
+
     @MainActor
     @Test("結合したコピーの取り消しは、置いたものだけをゴミ箱へ送り、置き換えた元を戻す")
     func undoingMergeRestoresTheFolder() async throws {
@@ -171,4 +206,22 @@ nonisolated final class ConflictLog: @unchecked Sendable {
     }
 
     var conflicts: [FileConflict] { lock.withLock { storage } }
+}
+
+/// 進み具合の最後の報告(報告は FileIO のスレッドから来る)。
+private final class LastProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: FileOperationProgress?
+
+    var value: FileOperationProgress? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    func set(_ progress: FileOperationProgress) {
+        lock.lock()
+        stored = progress
+        lock.unlock()
+    }
 }

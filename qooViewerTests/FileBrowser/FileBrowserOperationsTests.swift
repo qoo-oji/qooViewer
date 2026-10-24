@@ -678,6 +678,37 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.problems.isEmpty)
     }
 
+    @Test("名前の変更の確認は、前後の空白を落とした名前(実際に付く名前)で行う。保持で元の名前に戻ったら何もしない")
+    func renamingChecksTheTrimmedName() async throws {
+        let fixture = try Fixture("fbops-rename-trimmed")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        try Data("other".utf8).write(to: fixture.root.appendingPathComponent("taken.txt"))
+
+        // 後ろの空白だけ違う同じ名前: 拡張子の確認ではなく「すでに使用されています」(2026-10-24 の実機確認: 拡張子を消す確認が出て、
+        // 保持で「taken.txt .txt」という名前になった)。
+        fixture.state.operations.rename(fixture.entry(file), to: "taken.txt ")
+        await fixture.finish()
+        #expect(fixture.presenter.extensionPrompts.isEmpty)
+        #expect(fixture.presenter.takenNames == ["taken.txt"])
+        #expect(fixture.exists(file))
+
+        // 前の空白の後ろのドット: 実際の名前はドットで始まるので確かめる。
+        fixture.presenter.usesLeadingDot = false
+        fixture.state.operations.rename(fixture.entry(file), to: " .a.txt")
+        await fixture.finish()
+        #expect(fixture.presenter.leadingDotPrompts == 1)
+        #expect(fixture.exists(file))
+
+        // 拡張子を消して保持 = 元の名前: 名前の変更を走らせず、取り消しにも積まない。
+        fixture.presenter.extensionDecision = .keep
+        fixture.state.operations.rename(fixture.entry(file), to: "a")
+        await fixture.finish()
+        #expect(fixture.presenter.extensionPrompts.map(\.new) == [""])
+        #expect(fixture.exists(file))
+        #expect(!fixture.state.commandStack.canUndo)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
     @Test("ロックされた項目の名前の変更は尋ね、続ければ新しい名前でもロックされている")
     func renamingLockedItemAsks() async throws {
         let fixture = try Fixture("fbops-rename-locked")

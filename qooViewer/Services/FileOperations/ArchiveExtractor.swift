@@ -353,8 +353,9 @@ extension ArchiveOperationError: LocalizedError {
             return String(format: String(localized: "“%@” couldn’t be read. It may be damaged, encrypted, or compressed with a method qooViewer doesn’t support.", language: locale),
                           archive.lastPathComponent)
         case let .tooManyEntries(archive, count, limit):
-            return String(format: String(localized: "“%1$@” contains %2$lld files, more than qooViewer extracts at once (%3$lld).", language: locale),
-                          archive.lastPathComponent, count, limit)
+            // 数は桁区切りで(「100001個」では読みにくかった ―― 2026-10-24 の実機確認)。
+            return String(format: String(localized: "“%1$@” contains %2$@ files, more than qooViewer extracts at once (%3$@).", language: locale),
+                          archive.lastPathComponent, count.formatted(.number.locale(locale)), limit.formatted(.number.locale(locale)))
         case let .tooLarge(archive, limit):
             let formatter = ByteCountFormatter()
             return String(format: String(localized: "“%1$@” would expand to more than %2$@, so it wasn’t extracted.", language: locale),

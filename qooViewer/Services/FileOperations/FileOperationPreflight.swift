@@ -89,6 +89,20 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
         mutate(force: true) { $0.completedItems += 1 }
     }
 
+    /// 総量を数えている(前段でバイト数を数えた)か。クローンで済むコピーなどでは数えず、進み具合はバイトで示さない。
+    var countsBytes: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return progress.totalBytes > 0
+    }
+
+    /// 前段で数えたが運ばないことにしたバイト数を、総量から外す(結合で宛先の方が新しいので残した項目。2026-10-24 のレビュー:
+    /// 運んだことにして足すと、残り時間の見積もり ―― 運んだバイト数 ÷ 経過時間 ―― が、運んでいないバイトまで速さに数えた)。
+    func excludeBytes(_ bytes: Int64) {
+        guard bytes > 0 else { return }
+        mutate(force: false, countsAsBytes: false) { $0.totalBytes = max($0.completedBytes, $0.totalBytes - bytes) }
+    }
+
     /// 更新と報告の判定を 1 つの鍵の下で行い、**報告そのものは鍵の外で**呼ぶ(受け手が何をするか分からない)。
     /// - Parameter countsAsBytes: false なら「最初のバイトは間引かない」の例外を使わず、消費もしない(展開・圧縮のエントリの区切り。
     ///   消費させると、エントリの名前の報告が例外を使い切り、書き始めたバイトの報告が 100ms 待たされる)。

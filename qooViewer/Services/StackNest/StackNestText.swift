@@ -20,6 +20,16 @@ nonisolated enum StackNestText {
 /// そのまま投げると qooViewer の表示言語ではない文言になりうる。BookLoader は部品のエラーをこの形にして投げる。
 nonisolated struct StackNestOpenError: LocalizedError, Equatable, Sendable {
     let error: StackNestViewerError
+    /// 待ち切れずに失敗した(`.cannotConnect` が待ちの上限まで待ってから返った)。部品は「つながらない」と「応答しない」を同じ
+    /// `.cannotConnect` で返し、文言は「StackNest が起動していないか、読書位置の同期の設定がオフです」になる。StackNest が動いていて
+    /// 答えないだけのときにそれを出すと理由が違う(2026-10-24 の実機確認: 応答しない作り物で約 22 秒後にこの文が出た)ので、
+    /// 待った時間で見分けて qooViewer の文言にする(`BookLoader.stackNestReferenceBook`)。
+    var notResponding = false
 
-    var errorDescription: String? { StackNestText.message(for: error, locale: AppLanguage.currentLocale) }
+    var errorDescription: String? {
+        if notResponding {
+            return String(localized: "StackNest isn’t responding. Open the book from StackNest again.", language: AppLanguage.currentLocale)
+        }
+        return StackNestText.message(for: error, locale: AppLanguage.currentLocale)
+    }
 }

@@ -136,7 +136,8 @@ nonisolated final class StackNestRequestGate: @unchecked Sendable {
     /// 背景の列で `key` の待ちがあれば表示の列へ移す(空いていればその場で許可を渡す)。
     func promote(key: String) {
         let ready: [(Waiter, Lane)] = lock.withLock {
-            guard let index = waiters[.background]?.firstIndex(where: { $0.key == key }),
+            // 同じ鍵が 2 つ並ぶときは新しい方(後ろ)。前の方は取り消した読み込みの古い待ちでありうる(PageLoader.promoteDecodeWaiter)。
+            guard let index = waiters[.background]?.lastIndex(where: { $0.key == key }),
                   let waiter = waiters[.background]?.remove(at: index)
             else { return [] }
             waitStates[waiter.id] = .queued(.display)

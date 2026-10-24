@@ -191,7 +191,9 @@ struct ReplaceBackupJournalTests {
         ])
         #expect(notices.map(\.isWarning) == [false, true])
         #expect(notices[0].message.contains(target.path))
-        #expect(notices[1].message.contains(backup.path))
+        // 戻せなかった項目は置き換え先の場所で書く(退避の隠しフォルダのパスは長くて読めない ―― 2026-10-24)。
+        #expect(notices[1].message.contains(target.path))
+        #expect(!notices[1].message.contains(backup.path))
     }
 }
 

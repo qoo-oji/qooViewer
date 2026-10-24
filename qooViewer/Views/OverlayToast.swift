@@ -27,6 +27,12 @@ struct OverlayToast: View {
             .panelSurfaceBackground(
                 appearance.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
             )
+            // すりガラスの下に、ウインドウの地の色を半分敷く。すりガラスだけでは白いページの上で地が明るい灰色になり、
+            // ダークの白い文字が読みにくかった(2026-10-24 の実機確認。シークレットフォルダの知らせ)。面の色の設定はこの上に
+            // そのまま効き、敷く濃さは面の「すりガラスの濃さ」に合わせる(透明にした人の面には敷かない)。
+            .background(Capsule().fill(
+                Color(nsColor: .windowBackgroundColor).opacity(0.5 * appearance.overlaySurfaceStyle.materialOpacity)
+            ))
             .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
     }
 }

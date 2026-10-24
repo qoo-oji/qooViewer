@@ -408,7 +408,9 @@ final class RecentFilesStore: ObservableObject {
             case .failure(let failure):
                 let message = failure.message(name: entry.displayName, locale: locale)
                 if let report {
-                    report(message)
+                    // トーストでは名前を「」で括る(文はアラートと共通で “…”。docs/09 の括りの決まり ―― 2026-10-24 の実機確認で
+                    // トーストに “履歴C” と出ていた)。
+                    report(message.quotedForToast(locale: locale))
                 } else {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
