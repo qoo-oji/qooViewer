@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [1.85] - 2026-10-24
+
 ### 追加
 
 - StackNest から渡される本の参照ファイル(`.stacknestbook`)を開けるようにしました。StackNest の「StackNest と読書位置を同期する(対応アプリのみ)」をオンにして、画像の本の外部ビューアを qooViewer にすると、StackNest の本(リモートのライブラリの本も)を qooViewer で読めます。

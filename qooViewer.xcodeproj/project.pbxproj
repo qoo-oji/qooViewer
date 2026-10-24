@@ -525,7 +525,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.84;
+				MARKETING_VERSION = 1.85;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Alternate;
@@ -579,7 +579,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.84;
+				MARKETING_VERSION = 1.85;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				QOO_DOCUMENT_HANDLER_RANK = Default;
@@ -654,7 +654,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = StackNestConnector;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.84;
+				MARKETING_VERSION = 1.85;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.debug.StackNestConnector;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -679,7 +679,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = StackNestConnector;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.84;
+				MARKETING_VERSION = 1.85;
 				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewer.StackNestConnector;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
