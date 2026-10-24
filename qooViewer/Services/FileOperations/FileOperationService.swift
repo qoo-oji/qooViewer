@@ -490,6 +490,31 @@ actor FileOperationService {
         perform: @escaping @Sendable (URL, URL, @escaping (Int64) -> Void) throws -> FileCopyEngine.Outcome
     ) async throws -> TransferOutcome {
         guard !items.isEmpty else { return TransferOutcome() }
+        // **名前が宛先の上限を超える項目は、事前検査の前に尋ねる**(Finder と同じく「スキップして続ける」か「中止」。2026-10-24)。
+        // 尋ねる口が無ければ尋ねず、事前検査が以前どおり断る。
+        var items = items
+        var skippedForLongNames: [URL] = []
+        if let resolver = options.longNameResolver {
+            let candidates = items
+            let tooLong = await FileIO.perform { FileOperationPreflight.itemsWithNamesTooLong(candidates, destination: folder, mounts: .current()) }
+            if !tooLong.isEmpty {
+                guard await resolver(tooLong) else {
+                    options.cancellation.request()
+                    var outcome = TransferOutcome()
+                    outcome.wasCancelled = true
+                    outcome.unprocessed = items
+                    return outcome
+                }
+                let skipping = Set(tooLong)
+                items.removeAll { skipping.contains($0) }
+                skippedForLongNames = tooLong
+                if items.isEmpty {
+                    var outcome = TransferOutcome()
+                    outcome.skipped = tooLong
+                    return outcome
+                }
+            }
+        }
         let allowsCloning = allowsCloning
         let tracker = try await FileIO.perform(cancellation: options.cancellation) {
             try Self.preflight(items: items, destination: folder, sink: options.progress, isMove: isMove, allowsCloning: allowsCloning)
@@ -516,9 +541,32 @@ actor FileOperationService {
             do {
                 let resolution = try await resolveDestination(
                     item, target, decision: blanketDecision ?? ConflictDecision(options.conflictPolicy), options: options,
-                    isMove: isMove, placedByThisOperation: placed, environment: environment
+                    isMove: isMove, hasMoreItems: index < items.count - 1, isSingleItem: items.count == 1,
+                    placedByThisOperation: placed, environment: environment
                 )
                 if let remembered = resolution.rememberedDecision { blanketDecision = remembered }
+                if let mergeTarget = resolution.mergeInto {
+                    // フォルダ同士の「結合」。中身を 1 件ずつ運び、置いたもの・置き換えたものの受領書を返す(取り消しはそれらだけを
+                    // ゴミ箱へ送り、置き換えた元を戻す ―― コピーの取り消しのまま)。
+                    let protected = await options.protectedFromReplacing?() ?? []
+                    let merged = try await FileIO.perform(cancellation: options.cancellation) {
+                        Self.merge(item, into: mergeTarget, protectedPaths: protected, using: perform, tracker: tracker, environment: environment)
+                    }
+                    outcome.receipts += merged.receipts
+                    for receipt in merged.receipts { if let identity = receipt.identity { placed.insert(identity) } }
+                    tracker.finishItem()
+                    if let failure = merged.failure {
+                        outcome.failures.append(failure)
+                        outcome.unprocessed = Array(items[(index + 1)...])
+                        break
+                    }
+                    if merged.wasCancelled {
+                        outcome.wasCancelled = true
+                        outcome.unprocessed = Array(items[(index + 1)...])
+                        break
+                    }
+                    continue
+                }
                 if let refusal = resolution.refusal {
                     // 置き換える相手がビューアで開いている本だった(FileOperationOptions.protectedFromReplacing)。この項目は飛ばして
                     // 理由を残し、**残りは続ける**(2026-10-04 の監査 FBA-1・決定 17(a)。名前の変更・移動・ゴミ箱が開いている本を
@@ -564,6 +612,7 @@ actor FileOperationService {
         // 最後の項目の衝突で「中止」を選ぶと、次の区切りが来ないまま終わる。そのままだと「スキップ」と同じ結果になり、
         // まとめた操作(CompositeFileCommand)が済んだ子を巻き戻さなかったので、中止として返す(2026-09-14)。
         if !outcome.wasCancelled, options.cancellation.isRequested { outcome.wasCancelled = true }
+        outcome.skipped += skippedForLongNames
         // 1 件も動かずに失敗したなら、受け取るべき受領書が無いので素の失敗として投げる
         // (呼び出し側は理由をそのまま見せればよい)。
         if outcome.receipts.isEmpty, outcome.skipped.isEmpty, let firstError { throw firstError }
@@ -650,6 +699,8 @@ actor FileOperationService {
         let rememberedDecision: ConflictDecision?
         /// 置き換えを断った理由(相手がビューアで開いている本)。あれば `destination` は nil で、失敗として数える。
         var refusal: FileOperationError?
+        /// フォルダ同士の「結合」で、まとめる先(既存のフォルダ)。あれば `destination` は nil。
+        var mergeInto: URL?
     }
 
     private nonisolated enum ConflictCheck: Sendable {
@@ -658,14 +709,16 @@ actor FileOperationService {
         case needsUserDecision
         /// 置き換えてはいけない相手だった(`FileOperationOptions.protectedFromReplacing`)。何にも触っていない。
         case refused(FileOperationError)
+        /// フォルダ同士を結合する(何にも触っていない)。
+        case merge(URL)
     }
 
     /// **ブロッキングする部分(存在確認・退避・名前探し)とユーザーを待つ部分を分けてある。** 前者は
     /// FileIO の上、後者(conflictResolver の await)はこの actor の上。尋ねたあとにもう一度調べるのは、
     /// 考えている間に宛先が変わっているかもしれないため。
     private func resolveDestination(
-        _ source: URL, _ target: URL, decision: ConflictDecision, options: FileOperationOptions, isMove: Bool,
-        placedByThisOperation placed: Set<FileIdentity>, environment: FileOperationEnvironment
+        _ source: URL, _ target: URL, decision: ConflictDecision, options: FileOperationOptions, isMove: Bool, hasMoreItems: Bool,
+        isSingleItem: Bool, placedByThisOperation placed: Set<FileIdentity>, environment: FileOperationEnvironment
     ) async throws -> Resolution {
         // 置き換えてはいけない場所(開いている本)は、**置き換えると決まった答えで調べる直前に**毎回尋ねる(FileOperationOptions.
         // protectedFromReplacing のコメント。確認に答えている間に別のウインドウで開いた本も当たる)。置き換えない答えでは尋ねない。
@@ -684,7 +737,9 @@ actor FileOperationService {
             guard let resolver = options.conflictResolver else {
                 throw FileOperationError.conflictResolutionRequired(destination: target)
             }
-            let answer = await resolver(FileConflict(source: source, destination: target))
+            let answer = await resolver(FileConflict(
+                source: source, destination: target, isMove: isMove, hasMoreItems: hasMoreItems, isSingleItem: isSingleItem
+            ))
             guard answer.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
             if answer.applyToRemaining { remembered = answer }
             let answeredProtected = await protectedPaths(for: answer)
@@ -698,6 +753,7 @@ actor FileOperationService {
         case .decided(let resolved): return Resolution(destination: resolved, rememberedDecision: remembered)
         case .skip: return Resolution(destination: nil, rememberedDecision: remembered)
         case .refused(let error): return Resolution(destination: nil, rememberedDecision: remembered, refusal: error)
+        case .merge(let folder): return Resolution(destination: nil, rememberedDecision: remembered, mergeInto: folder)
         case .needsUserDecision: throw FileOperationError.conflictResolutionRequired(destination: target)
         }
     }
@@ -766,6 +822,10 @@ actor FileOperationService {
             return .skip
         case .keepBoth:
             return keepingBoth()
+        case .merge:
+            // 結合はコピーのフォルダ同士だけ。それ以外(「すべてに適用」で覚えた結合がファイルに当たった)は尋ね直す。
+            guard !isMove, isMergeableFolder(source), isMergeableFolder(target) else { return .needsUserDecision }
+            return .merge(target)
         case .replace:
             // 置き換える相手が、運ぶ項目を中に含んでいる(`a/b/b` を `a` へ置き換えで運ぶ)。退避すると
             // 運ぶ項目ごと退避されてしまうので断る。綴りだけ違う同じフォルダ(`A/a` を `a` へ)も実体で見る(R3-1 と同じ根)。
@@ -909,6 +969,103 @@ actor FileOperationService {
             return Carried(receipt: receipt, problem: [reason, replacedItemKept].compactMap(\.self).joined(separator: " "))
         }
         return Carried(receipt: receipt, problem: replacedItemKept)
+    }
+
+    /// 結合できるフォルダか(シンボリックリンク・パッケージは 1 つの項目として扱う ―― Finder も .app を結合しない)。
+    nonisolated static func isMergeableFolder(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]) else { return false }
+        return values.isDirectory == true && values.isSymbolicLink != true && values.isPackage != true
+    }
+
+    /// 結合の結果。
+    nonisolated struct MergeOutcome: Sendable {
+        var receipts: [TransferReceipt] = []
+        /// 止まった原因(最初の失敗で止まる)。
+        var failure: FailedItem?
+        var wasCancelled = false
+    }
+
+    /// フォルダ同士の結合(`ConflictPolicy.merge`)。`source` の中身を `target` の中へ 1 件ずつ運ぶ。
+    ///
+    /// - 宛先に無い項目はそのまま写す(フォルダならフォルダごと 1 件)。
+    /// - 両方にあるフォルダ同士は、さらにその中をまとめる(受領書は中で置いたものだけ)。
+    /// - 両方にあるファイル・型の違う項目は**新しい方を残す**(Finder の「新しい方の項目がすべて保持されます」)。運ぶ側が新しければ
+    ///   `.replace` と同じ手順(退避 → 書く → 退避をゴミ箱へ。開いている本・macOS が要るフォルダ・ロックは断る)、古いか同じなら残す。
+    ///
+    /// 写すのは `carry` なので、書きかけの片付け・元の変化の確かめ・中止は普通のコピーと同じ。ブロッキングするので FileIO の上で呼ぶ。
+    nonisolated static func merge(
+        _ source: URL, into target: URL, protectedPaths: [String],
+        using perform: (URL, URL, @escaping (Int64) -> Void) throws -> FileCopyEngine.Outcome,
+        tracker: ProgressTracker, environment: FileOperationEnvironment
+    ) -> MergeOutcome {
+        var outcome = MergeOutcome()
+        let names: [String]
+        do {
+            names = try directoryEntryNames(atPath: source.path).sorted()
+        } catch {
+            outcome.failure = FailedItem(url: source, reason: error.localizedDescription)
+            return outcome
+        }
+        for name in names {
+            if Cancellation.isRequestedInCurrentScope {
+                outcome.wasCancelled = true
+                return outcome
+            }
+            let childSource = source.appendingPathComponent(name)
+            let childTarget = target.appendingPathComponent(name)
+            do {
+                let resolved: ResolvedDestination
+                if !itemExists(at: childTarget) {
+                    resolved = ResolvedDestination(target: childTarget, backupOfReplaced: nil)
+                } else if isMergeableFolder(childSource), isMergeableFolder(childTarget) {
+                    let inner = merge(childSource, into: childTarget, protectedPaths: protectedPaths, using: perform, tracker: tracker, environment: environment)
+                    outcome.receipts += inner.receipts
+                    if inner.failure != nil || inner.wasCancelled {
+                        outcome.failure = inner.failure
+                        outcome.wasCancelled = inner.wasCancelled
+                        return outcome
+                    }
+                    continue
+                } else if isNewer(childSource, than: childTarget) {
+                    switch try checkConflict(
+                        childSource, childTarget, decision: ConflictDecision(.replace), isMove: false, placed: [],
+                        protectedPaths: protectedPaths, environment: environment
+                    ) {
+                    case .decided(let replacing):
+                        resolved = replacing
+                    case .refused(let error):
+                        outcome.failure = FailedItem(url: childSource, reason: error.localizedDescription)
+                        return outcome
+                    case .skip, .needsUserDecision, .merge:
+                        continue
+                    }
+                } else {
+                    // 宛先の方が新しい(か同じ)。残す。
+                    continue
+                }
+                guard let carried = try carry(childSource, to: resolved, using: perform, tracker: tracker, environment: environment) else {
+                    outcome.wasCancelled = true
+                    return outcome
+                }
+                outcome.receipts.append(carried.receipt)
+                if let problem = carried.problem {
+                    outcome.failure = FailedItem(url: childSource, reason: problem)
+                    return outcome
+                }
+            } catch {
+                outcome.failure = FailedItem(url: childSource, reason: error.localizedDescription)
+                return outcome
+            }
+        }
+        return outcome
+    }
+
+    /// `a` の変更日が `b` より新しいか(結合で残す方を決める。読めなければ新しくないとみなす ―― 既存を残す側に倒す)。
+    nonisolated static func isNewer(_ a: URL, than b: URL) -> Bool {
+        var first = stat()
+        var second = stat()
+        guard lstat(a.path, &first) == 0, lstat(b.path, &second) == 0 else { return false }
+        return isLater(first.st_mtimespec, than: second.st_mtimespec)
     }
 
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる

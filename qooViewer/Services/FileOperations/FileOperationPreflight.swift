@@ -241,6 +241,12 @@ nonisolated enum FileOperationPreflight {
         name.precomposedStringWithCanonicalMapping.utf8.count
     }
 
+    /// 運ぶ項目そのもの(中の項目は見ない)のうち、名前が宛先の上限を超えるもの。上限を持たない宛先では空。
+    static func itemsWithNamesTooLong(_ items: [URL], destination: URL, mounts: MountTable) -> [URL] {
+        guard let limit = nameByteLimit(at: destination, mounts: mounts) else { return [] }
+        return items.filter { nameBytesAtDestination($0.lastPathComponent) > limit }
+    }
+
     /// 名前が宛先の上限に収まるか。上限を持たない宛先では何もしない。見せるバイト数も比べた値(NFC)。
     static func checkNameFits(_ name: String, at folder: URL, mounts: MountTable) throws {
         guard let limit = nameByteLimit(at: folder, mounts: mounts) else { return }

@@ -235,6 +235,21 @@ final class DebugControlPort {
             ) else { throw Failure("could not make the event") }
             DispatchQueue.main.async { [weak window] in window?.sendEvent(event) }
             return ["windowNumber": number]
+        case "fileBrowserTransfer":
+            // 前面の窓のファイルブラウザで、項目をコピー・移動する(ペースト・ドロップと同じ `FileBrowserOperations.transfer`)。
+            // 実機で衝突・名前が長すぎるなどの問い合わせの行を出して、Finder の画像と並べて撮るため(2026-10-24)。
+            guard let paths = arguments["paths"] as? [String], let destination = arguments["to"] as? String else {
+                throw Failure("fileBrowserTransfer needs paths and to")
+            }
+            guard let browser = try frontmost().fileBrowser else { throw Failure("the file browser is not shown") }
+            browser.operations.transfer(
+                paths.map { URL(filePath: $0) }, to: URL(filePath: destination, directoryHint: .isDirectory),
+                isMove: arguments["move"] as? Bool ?? false
+            )
+            return [:] as [String: Any]
+        case "promptRows":
+            // 出ている問い合わせ・報告の行の数(Finder と同じ形の操作ウインドウ ―― FileOperationPromptCenter)。
+            return ["count": FileOperationPromptCenter.shared.pendingCount]
         case "closeWindow":
             guard let number = arguments["windowNumber"] as? Int,
                   let window = NSApp.windows.first(where: { $0.windowNumber == number })

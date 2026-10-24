@@ -683,6 +683,11 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   import); the default button and Esc keep the app running. New long user-started work calls `begin()`/`end(_:)`; tests never touch the
   shared registry (`forCurrentProcess` is nil under tests). Destructive choices are never the default button, and a SwiftUI `.alert`
   without a `role: .cancel` button gets an automatic no-op "Cancel" — give the safe choice that role (docs/09「その他の小さな約束」).
+  **File-browser operation questions and reports are the exception** (2026-10-24, user decision "match Finder"): conflicts, locked
+  items, too-long names, irreversible moves and run results are rows in one Finder-shaped window (`FileOperationPromptCenter`,
+  `Views/FileBrowser/FileOperationPromptWindow.swift` — pixel-matched against Finder on macOS 27, no default button, Finder's own
+  strings; a row is answered "Stop" when its owner window closes); only pre-start refusals and "Delete Immediately" stay `NSAlert`
+  sheets (docs/15「操作の問い合わせ」).
   **Save/open panels and confirmation alerts that belong to a window go through `WindowSheet`** (2026-09-27): a sheet on that window
   (stacked on a SwiftUI sheet if one is up; a second panel on the same window beeps), app-modal only with no window or inside a popover.
   Never call `runModal()` directly except for app-wide prompts (startup store warnings, the quit confirmation, launch recovery, Open in

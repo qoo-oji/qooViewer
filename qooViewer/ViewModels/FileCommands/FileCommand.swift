@@ -20,6 +20,10 @@ protocol FileCommand: AnyObject {
     var completionSound: SystemSoundEffect? { get }
     func execute() async throws -> FileCommandResult
     func undo() async throws -> FileUndoResult
+    /// 操作が相手にする項目(失敗の報告の文とアイコンに使う。コピー・移動だけが持つ)。**要件として宣言する** ―― 拡張だけの既定値だと、
+    /// `any FileCommand` から読んだときに型ごとの値ではなく既定の `[]` が返った(2026-10-24 の実機確認で、空き不足の文が Finder の文に
+    /// ならなかった)。
+    var primaryItems: [URL] { get }
     /// 既定は `execute()` のやり直し(undo が完全に元へ戻したことが前提 ―― 部分的な取り消しは
     /// FileCommandStack が redo へ積まない)。
     func redo() async throws -> FileCommandResult
@@ -72,6 +76,8 @@ extension FileCommand {
 
     /// 既定は無音(名前の変更・新規フォルダは一瞬で終わり、結果がすぐ画面で分かる)。
     var completionSound: SystemSoundEffect? { nil }
+
+    var primaryItems: [URL] { [] }
 }
 
 nonisolated enum FileCommandResult: Sendable, Equatable {
@@ -154,6 +160,8 @@ final class CompositeFileCommand: FileCommand {
 
     /// 実行した(投げずに返った)子と、その子に取り消す対象があるか。取り消し・やり直しはこれだけを相手にする。
     private var executed: [(command: any FileCommand, hasEffect: Bool)] = []
+
+    var primaryItems: [URL] { children.flatMap(\.primaryItems) }
 
     func execute() async throws -> FileCommandResult {
         try await runChildren { try await $0.execute() }

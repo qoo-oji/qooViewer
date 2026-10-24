@@ -2178,22 +2178,6 @@
         }
       }
     },
-    "“%@” is locked. Do you want to move it to the Trash anyway?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@” is locked. Do you want to move it to the Trash anyway?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%@」はロックされています。ゴミ箱に入れてもよろしいですか?"
-          }
-        }
-      }
-    },
     "“%@” is locked. Do you want to rename it anyway?" : {
       "localizations" : {
         "en" : {
@@ -2350,22 +2334,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%1$@.%2$@」は保存先フォルダにすでに存在します。"
-          }
-        }
-      }
-    },
-    "“%1$@” (%2$@) is larger than the destination volume allows (%3$@)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%1$@” (%2$@) is larger than the destination volume allows (%3$@)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「%1$@」(%2$@)は、移動先のボリュームに置ける大きさ(%3$@)を超えています。"
           }
         }
       }
@@ -3557,6 +3525,22 @@
         }
       }
     },
+    "%lld items will be deleted immediately. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items will be deleted immediately. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld項目はすぐに削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
     "%lld missing" : {
       "localizations" : {
         "en" : {
@@ -4486,6 +4470,22 @@
         }
       }
     },
+    "A folder named “%@” already exists in this location. Do you want to merge or replace it with the one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A folder named “%@” already exists in this location. Do you want to merge or replace it with the one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前のフォルダがすでにこの場所にあります。現在コピー中のフォルダにまとめますか? それともコピー中のフォルダで置き換えますか?"
+          }
+        }
+      }
+    },
     "A format reads a bracket as a field only at the head of a name, right after the authors, or at the end. A bracket in the middle of a title could never have become a field, so it is not counted as left over. The ones at the title's head and end are still counted — they may have been a source work or a volume." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4582,6 +4582,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "足した規則は並びの先頭に入り、ほかより先に見られます。"
+          }
+        }
+      }
+    },
+    "A newer folder named “%@” already exists in this location. Do you want to merge or replace it with the older one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A newer folder named “%@” already exists in this location. Do you want to merge or replace it with the older one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の新しいフォルダがすでにこの場所にあります。現在コピー中の古いフォルダにまとめますか? それとも古いフォルダで置き換えますか?"
+          }
+        }
+      }
+    },
+    "A newer item named “%@” already exists in this location. Do you want to replace it with the older one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A newer item named “%@” already exists in this location. Do you want to replace it with the older one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の新しい項目がすでにこの場所にあります。現在コピー中の古い項目で置き換えますか?"
+          }
+        }
+      }
+    },
+    "A newer item named “%@” already exists in this location. Do you want to replace it with the older one you’re moving?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A newer item named “%@” already exists in this location. Do you want to replace it with the older one you’re moving?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の新しい項目がすでにこの場所にあります。現在移動中の古い項目で置き換えますか?"
           }
         }
       }
@@ -5999,6 +6047,38 @@
         }
       }
     },
+    "An item named “%@” already exists in this location. Do you want to replace it with the one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item named “%@” already exists in this location. Do you want to replace it with the one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という項目がすでにこの場所にあります。現在コピー中の項目で置き換えますか?"
+          }
+        }
+      }
+    },
+    "An item named “%@” already exists in this location. Do you want to replace it with the one you’re moving?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item named “%@” already exists in this location. Do you want to replace it with the one you’re moving?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の項目がすでにこの場所にあります。現在移動中の項目で置き換えますか?"
+          }
+        }
+      }
+    },
     "An item with the new name already exists, and the rules would change the numbered name again." : {
       "localizations" : {
         "en" : {
@@ -6043,6 +6123,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "元の場所に同じ名前の項目があったため、「%@」という名前で戻しました。"
+          }
+        }
+      }
+    },
+    "An older folder named “%@” already exists in this location. Do you want to merge or replace it with the newer one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An older folder named “%@” already exists in this location. Do you want to merge or replace it with the newer one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の古いフォルダがすでにこの場所にあります。現在コピー中の新しいフォルダにまとめますか? それとも新しいフォルダで置き換えますか?"
+          }
+        }
+      }
+    },
+    "An older item named “%@” already exists in this location. Do you want to replace it with the newer one you’re copying?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An older item named “%@” already exists in this location. Do you want to replace it with the newer one you’re copying?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の古い項目がすでにこの場所にあります。現在コピー中の新しい項目で置き換えますか?"
+          }
+        }
+      }
+    },
+    "An older item named “%@” already exists in this location. Do you want to replace it with the newer one you’re moving?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An older item named “%@” already exists in this location. Do you want to replace it with the newer one you’re moving?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”という名前の古い項目がすでにこの場所にあります。現在移動中の新しい項目で置き換えますか?"
           }
         }
       }
@@ -6566,6 +6694,22 @@
         }
       }
     },
+    "Are you sure you want to delete the %lld selected items?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Are you sure you want to delete the %lld selected items?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した%lld項目を削除してもよろしいですか?"
+          }
+        }
+      }
+    },
     "Are you sure you want to delete “%@”?" : {
       "localizations" : {
         "en" : {
@@ -6577,23 +6721,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を削除してもよろしいですか?"
-          }
-        }
-      }
-    },
-    "Are you sure you want to delete these %lld items?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Are you sure you want to delete these %lld items?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "これらの %lld 項目を削除してもよろしいですか?"
+            "value" : "“%@”を削除してもよろしいですか?"
           }
         }
       }
@@ -12435,22 +12563,6 @@
         }
       }
     },
-    "Do you want to replace it, keep both items, or skip this item?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Do you want to replace it, keep both items, or skip this item?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "置き換えますか? 両方の項目を残しますか? それともこの項目をスキップしますか?"
-          }
-        }
-      }
-    },
     "Documents" : {
       "localizations" : {
         "en" : {
@@ -17841,6 +17953,22 @@
         }
       }
     },
+    "Item “%@” is locked. Do you want to move it to the Trash anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Item “%@” is locked. Do you want to move it to the Trash anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目“%@”はロックされています。ゴミ箱に入れますか?"
+          }
+        }
+      }
+    },
     "It’s still in the Undo history, so you can try again after fixing the problem." : {
       "localizations" : {
         "en" : {
@@ -18243,7 +18371,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "両方を残す"
+            "value" : "両方とも残す"
           }
         }
       }
@@ -19791,6 +19919,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "マージ"
+          }
+        }
+      }
+    },
+    "Merge Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "結合"
+          }
+        }
+      }
+    },
+    "Merge will combine the two folders, preserving all the newer items such as “%1$@” and %2$lld other item." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge will combine the two folders, preserving all the newer items such as “%1$@” and %2$lld other item."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2個のフォルダを1個に結合します。新しい方の項目（“%1$@”とその他%2$lld項目）がすべて保持されます。"
+          }
+        }
+      }
+    },
+    "Merge will combine the two folders, preserving all the newer items such as “%1$@” and %2$lld other items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge will combine the two folders, preserving all the newer items such as “%1$@” and %2$lld other items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2個のフォルダを1個に結合します。新しい方の項目（“%1$@”とその他%2$lld項目）がすべて保持されます。"
+          }
+        }
+      }
+    },
+    "Merge will combine the two folders, preserving all the newer items such as “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge will combine the two folders, preserving all the newer items such as “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2個のフォルダを1個に結合します。新しい方の項目（“%@”など）がすべて保持されます"
+          }
+        }
+      }
+    },
+    "Merge will combine the two folders, preserving all the newer items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Merge will combine the two folders, preserving all the newer items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2個のフォルダを1個に結合します。新しい方の項目がすべて保持されます。"
           }
         }
       }
@@ -31193,22 +31401,6 @@
         }
       }
     },
-    "The folder “%@” can’t be put inside itself." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The folder “%@” can’t be put inside itself."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダ「%@」をそれ自身の中に入れることはできません。"
-          }
-        }
-      }
-    },
     "The folder can’t be found." : {
       "localizations" : {
         "en" : {
@@ -31369,6 +31561,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前を変更するあいだだけロックを外し、変更後にロックし直します。"
+          }
+        }
+      }
+    },
+    "The item “%@” can’t be copied because it is too large for the volume’s format." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item “%@” can’t be copied because it is too large for the volume’s format."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目“%@”はこのボリュームのフォーマットには大きすぎるため、コピーできません。"
+          }
+        }
+      }
+    },
+    "The item “%@” can’t be copied because there isn’t enough free space." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item “%@” can’t be copied because there isn’t enough free space."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空き領域が不足しているため、項目“%@”をコピーできません。"
           }
         }
       }
@@ -32520,22 +32744,6 @@
         }
       }
     },
-    "These items will be deleted immediately. You can’t undo this action." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These items will be deleted immediately. You can’t undo this action."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "これらの項目はすぐに削除されます。この操作は取り消せません。"
-          }
-        }
-      }
-    },
     "These rules apply to items that are already in their target folders. Items added later are renamed without asking." : {
       "localizations" : {
         "en" : {
@@ -33023,22 +33231,6 @@
         }
       }
     },
-    "This item is on a volume without a Trash, so it will be deleted immediately. You can’t undo this action." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This item is on a volume without a Trash, so it will be deleted immediately. You can’t undo this action."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この項目はゴミ箱の無いボリュームにあるため、すぐに削除されます。この操作は取り消せません。"
-          }
-        }
-      }
-    },
     "This item will be deleted immediately. You can’t undo this action." : {
       "localizations" : {
         "en" : {
@@ -33051,22 +33243,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この項目はすぐに削除されます。この操作は取り消せません。"
-          }
-        }
-      }
-    },
-    "This location doesn’t have a Trash, so if you replace the item, it will be deleted immediately. You can’t undo this action." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This location doesn’t have a Trash, so if you replace the item, it will be deleted immediately. You can’t undo this action."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この場所にはゴミ箱が無いため、置き換えると元の項目はすぐに削除されます。この操作は取り消せません。"
           }
         }
       }
@@ -36333,6 +36509,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この確認は環境設定「一般」→「ホーム」で止められます。"
+          }
+        }
+      }
+    },
+    "You can’t copy some of these items because their names are too long for the destination volume. Do you want to skip these items and continue copying the other items?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can’t copy some of these items because their names are too long for the destination volume. Do you want to skip these items and continue copying the other items?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの項目の一部はコピーできません。コピー先ボリュームで使用するには名前が長すぎます。コピーできない項目をスキップして、ほかの項目のコピーを続行しますか?"
+          }
+        }
+      }
+    },
+    "You can’t paste “%@” at this location because you can’t paste an item into itself." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can’t paste “%@” at this location because you can’t paste an item into itself."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目をそれ自身にペーストすることはできないため、“%@”をこの場所にペーストすることはできません。"
           }
         }
       }

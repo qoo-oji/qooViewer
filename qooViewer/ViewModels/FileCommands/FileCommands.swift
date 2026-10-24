@@ -49,6 +49,7 @@ final class MoveFilesCommand: FileCommand {
 
     /// ペースト・D&D の完了音(Finder もペーストで鳴らす)。
     let completionSound: SystemSoundEffect? = .operationComplete
+    var primaryItems: [URL] { items }
 
     func execute() async throws -> FileCommandResult {
         remainingToUndo = nil
@@ -123,6 +124,7 @@ final class CopyFilesCommand: FileCommand {
 
     let isUndoable = true
     let completionSound: SystemSoundEffect? = .operationComplete
+    var primaryItems: [URL] { items }
 
     func execute() async throws -> FileCommandResult {
         outcome = try await fileOps.copy(items, to: destination, options: options)

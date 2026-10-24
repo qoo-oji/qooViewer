@@ -54,6 +54,15 @@ struct FileBrowserOperationsTests {
             return conflictAnswer
         }
 
+        /// 名前が長すぎる項目を飛ばすか(「スキップ」なら true)。
+        var skipsLongNames = false
+        private(set) var longNamePrompts: [[URL]] = []
+
+        func confirmSkippingLongNames(_ urls: [URL]) async -> Bool {
+            longNamePrompts.append(urls)
+            return skipsLongNames
+        }
+
         /// 一括リネームのシートの答え(nil は「キャンセル」)。
         var bulkRenameAnswer: BulkRenameSettings?
         private(set) var bulkRenameRequests: [BulkRenameRequest] = []

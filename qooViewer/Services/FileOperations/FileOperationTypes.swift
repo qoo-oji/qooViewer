@@ -18,12 +18,32 @@ nonisolated enum ConflictPolicy: Sendable, Equatable {
     /// `name 2.ext` の名前で置く(FileNameValidation.nextAvailableName)。
     case keepBoth
     case skip
+    /// フォルダ同士の衝突で、運ぶフォルダの中身を既存のフォルダへまとめる(Finder の「結合」。2026-10-24)。
+    /// **コピーのときだけ**(Finder も移動では出さない ―― 実測)。中身は 1 件ずつ、宛先に無ければ置き、両方にあるフォルダは
+    /// さらにまとめ、両方にあるファイル・型の違う項目は**新しい方を残す**(運ぶ側が新しければ `.replace` と同じく退避してから
+    /// 置き換え、古ければ飛ばす)。フォルダ同士でない衝突では尋ね直す(「すべてに適用」で覚えた答えがファイルに当たったとき)。
+    case merge
 }
 
 /// 尋ねるときに渡す 1 件ぶんの衝突。
 nonisolated struct FileConflict: Sendable, Equatable {
     let source: URL
     let destination: URL
+    /// 移動の衝突か(文面と、フォルダ同士で「結合」を出すかが変わる)。
+    var isMove = false
+    /// この後にも運ぶ項目が残っているか(「すべてに適用」を出すか)。
+    var hasMoreItems = false
+    /// 1 項目だけを運ぶ操作か。Finder は 1 項目のときだけ「新しい項目が…」「古い項目が…」と書き分け、複数のときは
+    /// どれも「という項目がすでに…」と書く(2026-10-24 に実測)。
+    var isSingleItem = true
+
+    init(source: URL, destination: URL, isMove: Bool = false, hasMoreItems: Bool = false, isSingleItem: Bool = true) {
+        self.source = source
+        self.destination = destination
+        self.isMove = isMove
+        self.hasMoreItems = hasMoreItems
+        self.isSingleItem = isSingleItem
+    }
 }
 
 /// 衝突への答え。`applyToRemaining` なら同じ操作の残りの衝突にも同じ答えを使う(もう尋ねない)。
@@ -101,6 +121,11 @@ nonisolated struct FileOperationOptions: Sendable {
     /// 開かれた本も当たる)。nil なら照合しない(テスト・取り消しの `.keepBoth` は置き換えない)。照合は綴りの違い(大文字小文字・NFC/NFD)を
     /// 畳み、実体で確かめる(`FileOperationService.replacedItemOverlaps`。2026-10-04 のレビュー R3-1)。
     var protectedFromReplacing: (@MainActor @Sendable () -> [String])?
+    /// 運ぶ項目そのものの名前が宛先の上限(SMB の 255 バイト ―― `FileOperationPreflight.nameByteLimit`)を超えていたときに尋ねる口
+    /// (Finder の「コピーできない項目をスキップして、ほかの項目のコピーを続行しますか?」。2026-10-24)。true ならその項目を飛ばして
+    /// 残りを運び(`TransferOutcome.skipped`)、false なら何も運ばずに中止として返す。nil なら尋ねずに、事前検査が
+    /// `nameTooLongForDestination` で断る(以前どおり)。フォルダの**中の**項目の名前は尋ねずに断る(中だけを飛ばしては写せない)。
+    var longNameResolver: (@MainActor @Sendable ([URL]) async -> Bool)?
 
     init(
         conflictPolicy: ConflictPolicy = .ask,
@@ -109,7 +134,8 @@ nonisolated struct FileOperationOptions: Sendable {
         cancellation: Cancellation = Cancellation(),
         unlockingLocked: Bool = false,
         expectedIdentities: [URL: FileIdentity] = [:],
-        protectedFromReplacing: (@MainActor @Sendable () -> [String])? = nil
+        protectedFromReplacing: (@MainActor @Sendable () -> [String])? = nil,
+        longNameResolver: (@MainActor @Sendable ([URL]) async -> Bool)? = nil
     ) {
         self.conflictPolicy = conflictPolicy
         self.conflictResolver = conflictResolver
@@ -118,6 +144,7 @@ nonisolated struct FileOperationOptions: Sendable {
         self.unlockingLocked = unlockingLocked
         self.expectedIdentities = expectedIdentities
         self.protectedFromReplacing = protectedFromReplacing
+        self.longNameResolver = longNameResolver
     }
 }
 
@@ -351,7 +378,11 @@ extension FileOperationError: LocalizedError {
                 destination.lastPathComponent, formatter.string(fromByteCount: required), formatter.string(fromByteCount: available)
             )
         case let .destinationInsideSource(source, _):
-            return String(format: String(localized: "The folder “%@” can’t be put inside itself.", language: locale), source.lastPathComponent)
+            // Finder の文(それ自身へペーストしようとしたときのアラート。2026-10-24 に揃えた)。
+            return String(
+                format: String(localized: "You can’t paste “%@” at this location because you can’t paste an item into itself.", language: locale),
+                source.lastPathComponent
+            )
         case let .destinationIsReadOnly(destination):
             return String(format: String(localized: "“%@” is on a read-only volume.", language: locale), destination.lastPathComponent)
         case let .destinationNotWritable(destination, _):
@@ -377,11 +408,11 @@ extension FileOperationError: LocalizedError {
                 format: String(localized: "The name “%1$@” is too long for the destination (%2$lld bytes; the limit is %3$lld).", language: locale),
                 name, lengthBytes, limitBytes
             )
-        case let .fileTooLargeForDestination(item, size, limit):
-            let formatter = ByteCountFormatter()
+        case let .fileTooLargeForDestination(item, _, _):
+            // Finder の文(FAT32 へ 4GB を超えるファイルを写そうとしたとき。2026-10-24 に揃えた)。
             return String(
-                format: String(localized: "“%1$@” (%2$@) is larger than the destination volume allows (%3$@).", language: locale),
-                item.lastPathComponent, formatter.string(fromByteCount: size), formatter.string(fromByteCount: limit)
+                format: String(localized: "The item “%@” can’t be copied because it is too large for the volume’s format.", language: locale),
+                item.lastPathComponent
             )
         case let .replaceBackupOrphaned(backup, target):
             return String(

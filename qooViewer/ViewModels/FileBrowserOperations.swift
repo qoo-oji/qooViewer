@@ -807,16 +807,12 @@ final class FileBrowserOperations: ObservableObject {
             result = try await stack.run(command)
             problem = result.flatMap { FileBrowserProblem.afterRun($0, operationName: command.displayName) }
         } catch let rollback as CompositeRollbackError {
-            problem = FileBrowserProblem(title: rollback.localizedDescription, message: FileBrowserProblem.listing(rollback.failures))
+            problem = FileBrowserProblem(
+                title: rollback.localizedDescription, message: FileBrowserProblem.listing(rollback.failures), presentation: .row(item: nil)
+            )
         } catch {
             if !FileCommandStack.isCancellation(error) {
-                problem = FileBrowserProblem(
-                    title: String(
-                        format: String(localized: "%@ couldn’t be completed.", language: AppLanguage.currentLocale),
-                        command.displayName
-                    ),
-                    message: error.localizedDescription
-                )
+                problem = FileBrowserProblem.failure(error, operationName: command.displayName, items: command.primaryItems)
             }
         }
         if let token { endActivity(token) }
@@ -906,7 +902,12 @@ final class FileBrowserOperations: ObservableObject {
             cancellation: cancellation,
             // 置き換えられる側がビューアで開いている本なら、その項目は置き換えずに飛ばす(2026-10-04 の監査 FBA-1)。閉包はペインが繋いだ
             // ものをそのまま持つ ―― 弱参照の self 越しにすると、ウインドウを閉じた後に走り続ける操作・やり直しで守りが外れる。
-            protectedFromReplacing: openBookPaths
+            protectedFromReplacing: openBookPaths,
+            // 名前が宛先の上限を超える項目は、Finder と同じく「スキップして続ける / 中止」を尋ねる(2026-10-24)。尋ねる相手がいなければ中止。
+            longNameResolver: { [weak self] urls in
+                guard let presenter = self?.presenter else { return false }
+                return await presenter.confirmSkippingLongNames(urls)
+            }
         )
     }
 
@@ -1095,8 +1096,17 @@ struct FileBrowserActivity: Equatable, Identifiable {
 
 /// 利用者に見せる問題 1 件(何が / なぜ / 次に何ができるか を title と message に入れる)。
 struct FileBrowserProblem: Equatable {
+    /// どこに出すか(2026-10-24、Finder に揃えた)。始める前に断る理由はアラート(Finder の「それ自身にはペーストできません」と同じ)、
+    /// 走らせた操作の結果は Finder の操作ウインドウと同じ行(`FileOperationPromptCenter`)。
+    enum Presentation: Equatable {
+        case alert
+        /// `item` は行のアイコンにする項目(nil なら書類のアイコン)。
+        case row(item: URL?)
+    }
+
     let title: String
     let message: String
+    var presentation: Presentation = .alert
 
     /// 一覧に並べる失敗の上限(超えた分は件数だけ)。
     static let listedFailureLimit = 10
@@ -1108,8 +1118,38 @@ struct FileBrowserProblem: Equatable {
                 format: String(localized: "%@: Some items couldn’t be processed.", language: locale),
                 operationName
             ),
-            message: listing(failures, locale: locale)
+            message: listing(failures, locale: locale),
+            presentation: .row(item: failures.count == 1 ? failures[0].url : nil)
         )
+    }
+
+    /// 操作が 1 件も運べずに失敗した(`FileBrowserOperations.run`)。Finder の行と同じく**理由の文 1 つだけ**を出す(以前は
+    /// 「…を完了できませんでした。」の題の下に理由を置いたアラートで、パスが長すぎるときなどに読みにくかった ―― 2026-10-24)。
+    /// Finder と同じ働きの断りは Finder の文にする: 空き不足(運ぶ項目が 1 つのとき)と、それ自身へのペースト(アラート)。
+    static func failure(_ error: any Error, operationName: String, items: [URL]) -> FileBrowserProblem {
+        let locale = AppLanguage.currentLocale
+        let item = items.count == 1 ? items[0] : nil
+        switch error as? FileOperationError {
+        case .insufficientFreeSpace? where item != nil:
+            return FileBrowserProblem(
+                title: String(format: String(localized: "The item “%@” can’t be copied because there isn’t enough free space.", language: locale), item!.lastPathComponent),
+                message: "", presentation: .row(item: item)
+            )
+        case .destinationInsideSource?:
+            return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .alert)
+        case let .pathTooLong(failed, _, _)?:
+            return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .row(item: failed))
+        case let .fileTooLargeForDestination(failed, _, _)?:
+            return FileBrowserProblem(title: error.localizedDescription, message: "", presentation: .row(item: failed))
+        case .some, .none:
+            let description = error.localizedDescription
+            return FileBrowserProblem(
+                title: description.isEmpty
+                    ? String(format: String(localized: "%@ couldn’t be completed.", language: locale), operationName)
+                    : description,
+                message: "", presentation: .row(item: item)
+            )
+        }
     }
 
     /// 操作を走らせた後に見せる報告(`FileBrowserOperations.run`)。
@@ -1138,7 +1178,8 @@ struct FileBrowserProblem: Equatable {
                         : String(localized: "%@ could only be partly undone.", language: locale),
                     name
                 ),
-                message: listing(failures, locale: locale)
+                message: listing(failures, locale: locale),
+                presentation: .row(item: nil)
             )
         case let .failed(name, reason, canRetry):
             var message = reason
@@ -1154,7 +1195,8 @@ struct FileBrowserProblem: Equatable {
                         : String(localized: "%@ couldn’t be undone.", language: locale),
                     name
                 ),
-                message: message
+                message: message,
+                presentation: .row(item: nil)
             )
         }
     }
@@ -1222,6 +1264,8 @@ protocol FileBrowserOperationPresenting: AnyObject {
     /// 同じ名前の項目があった。「中止」は `cancellation.request()` してスキップを返す。
     /// - Parameter replacingDeletesImmediately: 宛先にゴミ箱が無く、「置き換える」と元の項目がすぐに消える。
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision
+    /// 運ぶ項目のうち `urls` は名前が宛先の上限を超える。飛ばして残りを運ぶなら true(Finder の「スキップ」)、「中止」なら false。
+    func confirmSkippingLongNames(_ urls: [URL]) async -> Bool
     /// 一括リネームのシート。「名称変更」なら入力を、「キャンセル」なら nil を返す。
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings?
     /// 「保存先を選んで圧縮…」「展開先を選んで展開…」のフォルダ選択。キャンセルなら nil。
@@ -1250,6 +1294,7 @@ final class DetachedFileBrowserOperationPresenter: FileBrowserOperationPresentin
         return ConflictDecision(.skip)
     }
 
+    func confirmSkippingLongNames(_ urls: [URL]) async -> Bool { false }
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? { nil }
     func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL? { nil }
 

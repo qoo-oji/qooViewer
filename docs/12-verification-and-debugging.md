@@ -66,6 +66,8 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   - 動かす頼み: `open PATH [--via finder]`(`--via finder` は Finder から渡したのと同じ `application(_:open:)`。`send open` に
     `{"via":"windowNumber","windowNumber":N}` を渡せば窓を名指しで)、`focusWindow '{"windowNumber":N}'`(前に出してキーに)、
     `nudge`(空のイベントと描き直し。解放を数える前に)、`quit`、
+    `fileBrowserTransfer '{"paths":[…],"to":"…","move":false}'`(前面の窓のファイルブラウザでコピー・移動。問い合わせの行を出すため)/
+    `promptRows`(出ている問い合わせ・報告の行の数。docs/15「操作の問い合わせ」)、
     `send closeBook` / `perform '{"action":"moveNext"}'`(ViewerAction の rawValue)/ `jumpToPage '{"index":3}'` /
     `selectHomeMode '{"mode":"browser"}'` / `setPreference '{"key":"libraryFeatureEnabled","value":false}'`(機能の ON/OFF と
     読み取り専用だけ)/ `performMenuItem '{"path":["ファイル","…"]}'`(表示言語の題。淡色なら押さずに断る)/ `newWindow` /
