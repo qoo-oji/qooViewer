@@ -79,6 +79,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserReadOnly = "qooViewer.pref.fileBrowser.readOnly"
         static let fileBrowserWarnsBeforeChangingExtension = "qooViewer.pref.fileBrowser.warnsBeforeChangingExtension"
         static let fileBrowserImageFolderOpenAction = "qooViewer.pref.fileBrowser.imageFolderOpenAction"
+        static let fileBrowserImageFileOpenAction = "qooViewer.pref.fileBrowser.imageFileOpenAction"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let offersRemovingMissingCollectionBooks =
@@ -604,10 +605,17 @@ final class AppPreferences: ObservableObject {
         didSet { defaults.set(fileBrowserWarnsBeforeChangingExtension, forKey: Keys.fileBrowserWarnsBeforeChangingExtension) }
     }
     /// 右ペインで画像フォルダをダブルクリック / Return で開いたときにすること(既定: フォルダを開く。2026-09-14、ユーザー要望)。
-    /// 右クリックの「開く」はこの反対をする(FileBrowserImageFolderOpenAction の型コメント)。
+    /// 右クリックの「開く」はこの設定に関係なく常にフォルダを開く(⌥ で「本として開く」。FileBrowserImageFolderOpenAction の型コメント)。
     @Published var fileBrowserImageFolderOpenAction: FileBrowserImageFolderOpenAction {
         didSet {
             defaults.set(fileBrowserImageFolderOpenAction.rawValue, forKey: Keys.fileBrowserImageFolderOpenAction)
+        }
+    }
+    /// ファイルブラウザで画像ファイルを 1 つ開いたときに開くもの(既定: フォルダ全体を本として。2026-10-24、ユーザー決定。
+    /// FileBrowserImageFileOpenAction の型コメント)。
+    @Published var fileBrowserImageFileOpenAction: FileBrowserImageFileOpenAction {
+        didSet {
+            defaults.set(fileBrowserImageFileOpenAction.rawValue, forKey: Keys.fileBrowserImageFileOpenAction)
         }
     }
     /// アイコン表示で動画の絵を作るか(QuickLook。既定ON、段階 7b)。**よく使う項目の中の動画を裏で先に作っておくのも、
@@ -1456,6 +1464,9 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserImageFolderOpenAction = FileBrowserImageFolderOpenAction(
             rawValue: defaults.string(forKey: Keys.fileBrowserImageFolderOpenAction) ?? ""
         ) ?? .openFolder
+        self.fileBrowserImageFileOpenAction = FileBrowserImageFileOpenAction(
+            rawValue: defaults.string(forKey: Keys.fileBrowserImageFileOpenAction) ?? ""
+        ) ?? .wholeFolder
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -1722,6 +1733,7 @@ extension AppPreferences {
                 Keys.fileBrowserReadOnly,
                 Keys.fileBrowserWarnsBeforeChangingExtension,
                 Keys.fileBrowserImageFolderOpenAction,
+                Keys.fileBrowserImageFileOpenAction,
             ]
         case .library:
             return [
@@ -1860,6 +1872,7 @@ extension AppPreferences {
             fileBrowserReadOnly = source.fileBrowserReadOnly
             fileBrowserWarnsBeforeChangingExtension = source.fileBrowserWarnsBeforeChangingExtension
             fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
+            fileBrowserImageFileOpenAction = source.fileBrowserImageFileOpenAction
         case .library:
             homeOpensWithSingleClick = source.homeOpensWithSingleClick
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks

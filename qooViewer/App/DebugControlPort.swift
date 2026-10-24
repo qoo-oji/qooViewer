@@ -174,7 +174,8 @@ final class DebugControlPort {
         case "open":
             return try open(arguments)
         case "closeBook":
-            try frontmost().closeBook()
+            // `windowNumber` があればその窓(実機で、シークレットの窓の本だけを閉じるため)。
+            try appState(arguments).closeBook()
             return [:] as [String: Any]
         case "perform":
             guard let raw = arguments["action"] as? String, let action = ViewerAction(rawValue: raw) else {
@@ -270,6 +271,56 @@ final class DebugControlPort {
                 browser.operations.moveToTrash(entries)
             }
             return [:] as [String: Any]
+        case "fileBrowserNavigate":
+            // 窓のファイルブラウザで、そのフォルダへ移る(実機で右クリックの「開く」系を確かめるため。2026-10-24)。
+            guard let path = arguments["path"] as? String else { throw Failure("fileBrowserNavigate needs path") }
+            guard let browser = try appState(arguments).fileBrowser else { throw Failure("the file browser is not shown") }
+            browser.navigate(to: URL(filePath: path, directoryHint: .isDirectory))
+            return [:] as [String: Any]
+        case "fileBrowserSelect":
+            // 一覧の選択(メニューバーの「ファイル」の項目が相手にするもの)。
+            guard let paths = arguments["paths"] as? [String] else { throw Failure("fileBrowserSelect needs paths") }
+            guard let browser = try appState(arguments).fileBrowser else { throw Failure("the file browser is not shown") }
+            browser.selection = Set(paths.map { FileBrowserState.id(for: URL(filePath: $0)) })
+            return ["selected": browser.selectedEntries.map(\.url.path)]
+        case "fileBrowserOpen":
+            // ダブルクリック / Return と同じ入口(FileBrowserActions.open)。
+            guard let paths = arguments["paths"] as? [String] else { throw Failure("fileBrowserOpen needs paths") }
+            let actions = try fileBrowserActions(arguments)
+            var kinds: [String: String] = [:]
+            actions.open(paths.map { FileBrowserListing.makeEntry(URL(filePath: $0), kindCache: &kinds) })
+            return [:] as [String: Any]
+        case "fileBrowserContextMenu":
+            // 右クリックメニューを、AppKit の一覧が組むのと同じ部品(FileBrowserMenuBuilder)で組んで中身を返す(⌥ で入れ替わる項目も)。
+            let (context, actions) = try fileBrowserMenuContext(arguments)
+            let menu = NSMenu()
+            FileBrowserMenuBuilder().rebuild(menu, for: context, actions: actions, locale: stores.preferences.effectiveLocale)
+            return menu.items.map { item -> [String: Any] in
+                var entry: [String: Any] = ["title": item.title, "isEnabled": item.isEnabled, "isSeparator": item.isSeparatorItem]
+                if item.isAlternate { entry["isAlternate"] = true }
+                return entry
+            }
+        case "fileBrowserMenuCommand":
+            // 右クリックメニューの項目を選んだのと同じ(淡色なら断る)。開く系だけ(実機の検証で使うもの)。
+            guard let name = arguments["command"] as? String, let command = Self.openMenuCommands[name] else {
+                throw Failure("unknown command: \(arguments["command"] ?? "nil")")
+            }
+            let (context, actions) = try fileBrowserMenuContext(arguments)
+            guard command.isEnabled(in: context, actions: actions) else { throw Failure("“\(name)” is disabled") }
+            command.perform(in: context, actions: actions)
+            return [:] as [String: Any]
+        case "setFileBrowserOpenActions":
+            // 環境設定「画像フォルダを開くとき」「画像ファイルを開くとき」(実機で両方の値を確かめるため)。
+            if let raw = arguments["imageFolder"] as? String {
+                guard let value = FileBrowserImageFolderOpenAction(rawValue: raw) else { throw Failure("unknown value: \(raw)") }
+                stores.preferences.fileBrowserImageFolderOpenAction = value
+            }
+            if let raw = arguments["imageFile"] as? String {
+                guard let value = FileBrowserImageFileOpenAction(rawValue: raw) else { throw Failure("unknown value: \(raw)") }
+                stores.preferences.fileBrowserImageFileOpenAction = value
+            }
+            return ["imageFolder": stores.preferences.fileBrowserImageFolderOpenAction.rawValue,
+                    "imageFile": stores.preferences.fileBrowserImageFileOpenAction.rawValue]
         case "showGoToFolder":
             guard let browser = try frontmost().fileBrowser else { throw Failure("the file browser is not shown") }
             browser.isShowingGoToFolder = true
@@ -340,6 +391,51 @@ final class DebugControlPort {
             throw Failure("unknown command: \(command)")
         }
     }
+
+    /// `windowNumber` があればその窓、無ければいちばん前の窓(`frontmost`)。
+    private func appState(_ arguments: [String: Any]) throws -> AppState {
+        guard let number = arguments["windowNumber"] as? Int else { return try frontmost() }
+        guard let state = stores.launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow?.windowNumber == number }) else {
+            throw Failure("no content window \(number)")
+        }
+        return state
+    }
+
+    private func fileBrowserActions(_ arguments: [String: Any]) throws -> FileBrowserActions {
+        guard let actions = try appState(arguments).fileBrowserActions else { throw Failure("the file browser is not shown") }
+        return actions
+    }
+
+    /// 右クリックの相手(`path`。`isVolume` ならボリュームの行 ―― 「コンピュータ」・ツリーの根と同じ項目)と種類(`kind`: folder / file / tree)。
+    private func fileBrowserMenuContext(_ arguments: [String: Any]) throws -> (FileBrowserMenuContext, FileBrowserActions) {
+        guard let path = arguments["path"] as? String else { throw Failure("missing path") }
+        let actions = try fileBrowserActions(arguments)
+        let entry: FileBrowserEntry
+        if arguments["isVolume"] as? Bool == true {
+            guard let volume = FileBrowserListing.volumeEntries(mountTable: .current())
+                .first(where: { MountTable.normalized($0.url.path) == MountTable.normalized(path) })
+            else { throw Failure("no volume at \(path)") }
+            entry = volume
+        } else {
+            var kinds: [String: String] = [:]
+            entry = FileBrowserListing.makeEntry(URL(filePath: path), kindCache: &kinds)
+        }
+        let kind: FileBrowserMenuKind = switch arguments["kind"] as? String {
+        case "tree": .tree
+        case "file": .file
+        case "folder": .folder
+        default: FileBrowserMenuKind.of(entry)
+        }
+        var context = FileBrowserMenuContext(kind: kind, entries: [entry], folder: actions.state?.currentFolder)
+        context.isTreeRoot = kind == .tree && entry.isVolume
+        return (context, actions)
+    }
+
+    private static let openMenuCommands: [String: FileBrowserMenuCommand] = [
+        "open": .open, "openInNewTab": .openInNewTab, "openInNewNormalWindow": .openInNewNormalWindow,
+        "openInNewPrivateWindow": .openInNewPrivateWindow, "openAsBook": .openAsBook, "openAsBookInNewTab": .openAsBookInNewTab,
+        "openAsBookInNewNormalWindow": .openAsBookInNewNormalWindow, "openAsBookInNewPrivateWindow": .openAsBookInNewPrivateWindow,
+    ]
 
     /// 頼みの相手(いちばん前の、本を出す窓)。開いている本・ホームに対する操作なので、プライバシーで選び直さない(開く頼みは `open` を参照)。
     private func frontmost() throws -> AppState {
@@ -468,6 +564,8 @@ enum DebugStateDump {
             "isWaitingToOpen": state.isWaitingToOpen,
             "isLoading": state.loadingProgress != nil,
             "errorMessage": state.errorMessage ?? NSNull(),
+            // 画面の下の知らせ(「本として開けません」など。実機で、開かなかった理由が出たかを読むため)。
+            "viewerNotice": state.viewerNotice?.message ?? NSNull(),
             "homeMode": state.currentBook == nil ? (state.welcomeLibrary?.mode.rawValue ?? NSNull()) : NSNull(),
             "fileBrowserFolder": state.fileBrowser?.currentFolder?.path ?? NSNull(),
             "isSidePanelRevealed": state.isSidePanelRevealed,

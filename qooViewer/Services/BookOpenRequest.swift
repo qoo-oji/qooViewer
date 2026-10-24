@@ -71,11 +71,20 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// 「次の本へ」「前の本へ」がこの並びをたどる。nil なら同じフォルダの本をたどる(従来どおり)。
     var sequence: BookSequence?
 
+    /// 開いた直後に着地させるページ(`PageRef.id` = フォルダの本では画像のパス)。ファイルブラウザで画像を開いたとき、そのフォルダを
+    /// 本として開く場合だけ持つ(環境設定「画像ファイルを開くとき」、2026-10-24。FileBrowserImageFileOpening)。保存された読書位置より
+    /// 優先する(AppState.pendingInitialPage)。値に入れるのは新しいタブ・ウインドウへも運ぶため(`WindowGroup` の値はこの型だけ)。
+    ///
+    /// **一度きりの指定**: 開けた本の控え(`AppState.lastOpenedBook` ―― 「直前の本へ戻る」・ウインドウの値)には残さない
+    /// (残すと、戻るたびに読書位置ではなくこのページへ戻る)。同じ画像からは同じ値になるので、毎回変わる値ではない(型コメント)。
+    var initialPagePath: String?
+
     /// 従来どおり、1つのURLをそのまま開く。
-    init(_ url: URL, recordsInHistory: Bool = true, sequence: BookSequence? = nil) {
+    init(_ url: URL, recordsInHistory: Bool = true, sequence: BookSequence? = nil, initialPagePath: String? = nil) {
         self.urls = [url]
         self.recordsInHistory = recordsInHistory
         self.sequence = sequence
+        self.initialPagePath = initialPagePath
     }
 
     /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から渡された複数のURLを分類し、

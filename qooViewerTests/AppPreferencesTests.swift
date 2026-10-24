@@ -328,7 +328,7 @@ struct AppPreferencesTests {
             "fileBrowserCompressionFormat",
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
             "fileBrowserWarnsBeforeChangingExtension",
-            "fileBrowserImageFolderOpenAction",
+            "fileBrowserImageFolderOpenAction", "fileBrowserImageFileOpenAction",
         ],
         .library: ["homeOpensWithSingleClick", "offersRemovingMissingCollectionBooks"],
         .smartLibrary: ["smartLibraryUsesFirstAuthorOnly", "smartLibraryCoverShape", "smartLibraryCoverCropAnchor", "smartLibraryCoverFit"],

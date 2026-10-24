@@ -1193,6 +1193,13 @@ final class AppState: ObservableObject {
         )
     }
 
+    /// ファイルブラウザで画像を開いたとき、その画像のフォルダを本として、その画像のページから開く(環境設定「画像ファイルを開くとき」、
+    /// 2026-10-24。FileBrowserImageFileOpening)。フォルダは直下に画像があるので必ず本になる ―― 下調べ(`open(urls:)`)は要らない。
+    /// 同じフォルダの本を別のウインドウで開いていれば、そちらを前へ出す(ページはそのまま。`open(request:)` の重複の判定)。
+    func open(folder: URL, landingOn page: URL, intent: OpenIntent? = nil) {
+        open(request: BookOpenRequest(folder, initialPagePath: page.path), intent: intent)
+    }
+
     /// ウインドウへのドロップ・「開く…」のパネル・ファイルブラウザ(複数を選んで開く/外から落とす)から URL が渡された場合の入口。
     /// 全部が画像なら 1 冊にまとめる(BookOpenRequest)。
     ///
@@ -1392,6 +1399,13 @@ final class AppState: ObservableObject {
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
         pendingInitialEdge = initialEdge
         pendingStartsSlideshow = startsSlideshow
+        // 着地するページ(「このフォルダの画像をすべて開く」・ファイルブラウザで画像を開いてそのフォルダを本として開く。
+        // BookOpenRequest.initialPagePath)も、ここで毎回置き換える ―― 持っていない要求なら捨てる。以前は積んだ側が後始末を頼っていて、
+        // 着地の付いた読み込みを中止すると(cancelOpen は消さない)残り、後で同じフォルダを履歴などから開いたときに読書位置ではなく
+        // そのページへ着地した(2026-10-24 のコードレビュー)。別のウインドウを前面に出して終えたときは触れない(上の早期 return)。
+        pendingInitialPage = request.initialPagePath.flatMap { pagePath in
+            request.primaryURL.map { PendingInitialPage(bookID: $0.path, pageID: pagePath) }
+        }
         // 一覧の並びも、実際に読み込みを始めるここで置き換える(別のウインドウを前面に出して終えた場合は触れない)。
         bookSequence = request.sequence
         // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLsの
@@ -1702,6 +1716,8 @@ final class AppState: ObservableObject {
                         shownRequest = BookOpenRequest(attempted, recordsInHistory: request.recordsInHistory,
                                                        sequence: landedSequence ?? request.sequence)
                     }
+                    // 着地の指定は一度きり(BookOpenRequest.initialPagePath)。控えた要求から開き直したときは読書位置から。
+                    shownRequest.initialPagePath = nil
                     if let landedSequence { self.bookSequence = landedSequence }
                     // 次の本・前の本で飛ばして別の本を開いたなら、飛ばした本(要求の URL)のスコープはもう要らない(R7-1)。
                     // 表示中の本のぶんだけを持つ(securityScopedBookURLs のコメント)。棚の読み替え(step が無い)は、棚の
@@ -2392,11 +2408,11 @@ final class AppState: ObservableObject {
             // パネルはシートなので、その間にメニューバーから別の本へ移っていれば何もしない(置き換える先が違う)。
             guard currentBook?.id == bookID, isStillWanted(intent) else { return }
             // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
-            // 開く前にpendingInitialPageの宛先を確定できる。
-            pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
-            // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積んであるので、
+            // 開く前に着地先(pendingInitialPage)の宛先を確定できる。要求に載せ、読み込みを始めるところで積む
+            // (BookOpenRequest.initialPagePath。2026-10-24 まではここで直接積んでいた)。
+            // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積むので、
             // 別のウインドウへ譲ると着地先を失う(open(request:reusesExistingWindow:)のコメント参照)。
-            open(url: folderURL, reusesExistingWindow: false, intent: intent)
+            open(request: BookOpenRequest(folderURL, initialPagePath: pageURL.path), reusesExistingWindow: false, intent: intent)
         }
     }
 

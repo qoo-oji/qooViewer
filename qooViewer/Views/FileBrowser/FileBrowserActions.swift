@@ -18,6 +18,8 @@ final class FileBrowserActions {
     weak var appState: AppState?
     weak var launchCoordinator: LaunchCoordinator?
     weak var folderAccess: FolderAccessStore?
+    /// 画像のフォルダを読む許可があるか(`imageFileTarget`)。**テストの口**: nil なら `folderAccess` の控え(`isPathCovered`)で見る。
+    var folderAccessCheck: ((URL) -> Bool)?
     weak var favoriteLocations: FavoriteLocationStore?
     weak var preferences: AppPreferences?
     /// 新しいタブ/ウインドウを開く口。値なので weak にできない。**ペインが消えたら外す**(`FileBrowserPane` の `onDisappear`。
@@ -44,9 +46,10 @@ final class FileBrowserActions {
 
     // MARK: - 開く
 
-    /// ダブルクリック / Return。フォルダは中へ移動する ―― 画像フォルダだけは環境設定
+    /// ダブルクリック / Return。フォルダは中へ移動する ―― 画像フォルダ(直下に画像があるフォルダ)だけは環境設定
     /// (`fileBrowserImageFolderOpenAction`。既定はほかのフォルダと同じく中へ移動、2026-09-14 から選べる)に従う。
-    /// 本と画像は qooViewer で開き、それ以外は既定のアプリで開く。
+    /// 本と画像は qooViewer で開き、それ以外は既定のアプリで開く。画像を 1 つだけ開くときは、環境設定「画像ファイルを開くとき」
+    /// (`fileBrowserImageFileOpenAction`。既定はそのフォルダ全体を本として、2026-10-24)に従う(`openBookFile`)。
     ///
     /// 複数を選んでいるとき、フォルダは開かない(移動先は1つしか選べない)。本は
     /// `BookOpenRequest`の規則でまとめる(全部画像なら1冊、それ以外は先頭の1冊)。
@@ -65,6 +68,10 @@ final class FileBrowserActions {
         }
         if entries.count == 1, let entry = entries.first, entry.isLink {
             return openLink(entry, fromMenu: false)
+        }
+        if entries.count == 1, let entry = entries.first, entry.opensAsBook {
+            openBookFile(entry, intent: nil)
+            return nil
         }
         let books = entries.filter(\.opensAsBook).map(\.url)
         if !books.isEmpty {
@@ -87,14 +94,49 @@ final class FileBrowserActions {
         return !entries.contains { $0.isNavigableFolder || $0.isLink }
     }
 
-    /// 右クリックの「開く」。画像フォルダでは**ダブルクリックと反対のことをする**(既定の設定なら本として開き、
-    /// 「ビューアで開く」にしてあれば中へ移動する)。どちらの設定でも、もう片方の開き方がここに残る。リンクの先がフォルダでも同じ。
+    /// 右クリックの「開く」(メニューバーの「開く」をクリックしたときも)。**フォルダは設定に関係なく常に中へ移動する**(リンクの先が
+    /// フォルダでも)。本として開くのは ⌥ を押している間の「本として開く」(`openAsBook`。2026-10-24、ユーザー決定 ―― それまでは
+    /// 画像フォルダでダブルクリックの反対をしていた。FileBrowserImageFolderOpenAction の型コメント)。ファイルはダブルクリックと同じ。
     @discardableResult
     func openFromMenu(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard entries.count == 1, let entry = entries.first else { return open(entries) }
         if entry.isLink { return openLink(entry, fromMenu: true) }
         guard entry.isNavigableFolder else { return open(entries) }
         return openFolder(entry, fromMenu: true)
+    }
+
+    /// 本・画像のファイルを 1 つ、この窓で開く。画像は環境設定「画像ファイルを開くとき」に従う(フォルダ全体を本として、なら
+    /// そのフォルダをその画像のページから。FileBrowserImageFileOpening)。
+    /// - Parameter intent: 待ってから開くとき(リンクの先を解いた後)、待ち始めたときの開く意図。nil はその場で頼まれた要求。
+    private func openBookFile(_ entry: FileBrowserEntry, intent: AppState.OpenIntent?) {
+        guard let appState else { return }
+        if case .folder(let folder, let page)? = imageFileTarget(for: entry) {
+            appState.open(folder: folder, landingOn: page, intent: intent)
+        } else if let intent {
+            appState.open(url: entry.url, intent: intent)
+        } else {
+            appState.open(urls: [entry.url])
+        }
+    }
+
+    /// 画像ファイルを 1 つ開くときに実際に開くもの(画像でなければ nil)。マウント表・パスの文字列・許可の控えだけで決める
+    /// (ファイルに触らない。FileBrowserImageFileOpening.target)。
+    func imageFileTarget(for entry: FileBrowserEntry) -> FileBrowserImageFileOpening.Target? {
+        guard !entry.isDirectory, isImageFile(entry.url.lastPathComponent) else { return nil }
+        let folderAccess = folderAccess
+        let isFolderAccessible = folderAccessCheck ?? { folderAccess?.isPathCovered($0) == true }
+        return FileBrowserImageFileOpening.target(
+            for: entry.url, action: preferences?.fileBrowserImageFileOpenAction ?? .wholeFolder,
+            mounts: .current(), isFolderAccessible: isFolderAccessible
+        )
+    }
+
+    /// 本・画像のファイル 1 つを開く要求(新しいタブ・ウインドウへ渡す。画像は `imageFileTarget` のとおり)。
+    private func bookRequest(forFile entry: FileBrowserEntry) -> BookOpenRequest {
+        if case .folder(let folder, let page)? = imageFileTarget(for: entry) {
+            return BookOpenRequest(folder, initialPagePath: page.path)
+        }
+        return BookOpenRequest(entry.url)
     }
 
     /// 記号リンク・エイリアスなら解けている先の項目、それ以外はそのまま(`FileBrowserState.effective`)。淡色の判定と操作の相手はこれで見る
@@ -109,12 +151,16 @@ final class FileBrowserActions {
     /// - Parameter inheritedIntent: リンクの先として開くとき、リンクを解き始めたときに進めた開く意図(`openLink` → `openResolved`)。
     ///   渡されたらそれを引き継ぎ、新しく進めない(2026-10-04 のレビューの RC-1 ―― 以前はここで新しい意図を取ったので、リンクを
     ///   解く間に後から頼まれた本に勝ち、画像フォルダがその本を置き換える・確かめを待っているその本を捨てさせていた)。
+    ///
+    /// 本として開く側でも、**ボリューム・マウントポイントは調べずに中へ移動する**(2026-10-24。根に画像があってもボリューム全体を 1 冊に
+    /// しない)。判定は直下に画像があるか(規則 1)だけ ―― 章ごとに画像フォルダを分けた本(規則 2)を本にすると、画像入りのフォルダを
+    /// 1 つ持つだけの棚のフォルダやボリュームが本になる(ツリーの Return と同じ決まり。`openTreeRow`)。
     private func openFolder(
         _ entry: FileBrowserEntry, fromMenu: Bool, inheritedIntent: AppState.OpenIntent? = nil
     ) -> Task<Void, Never>? {
         guard let state else { return nil }
         let action = preferences?.fileBrowserImageFolderOpenAction ?? .openFolder
-        guard action.opensAsBook(fromMenu: fromMenu) else {
+        guard !fromMenu, action.opensAsBook, !Self.isVolumeOrMountPoint(entry) else {
             state.navigate(to: entry.url)
             return nil
         }
@@ -136,26 +182,19 @@ final class FileBrowserActions {
         }
     }
 
-    /// 新規タブ / 新規ノーマルウインドウ / 新規シークレットウインドウで開く。フォルダは画像フォルダなら
-    /// 本として、それ以外はファイルブラウザとして開く。記号リンク・エイリアスは解けている先(Finder と同じ)。
+    /// 新規タブ / 新規ノーマルウインドウ / 新規シークレットウインドウで開く。**フォルダは常にファイルブラウザとして開く**
+    /// (2026-10-24、ユーザー決定。本として開くのは ⌥ の「本として新規タブで開く」など ―― `openAsBook`)。それまでは画像フォルダかを
+    /// 規則 1・2 で調べて本として開いていたので、根に画像入りのフォルダが 1 つあるだけのボリュームが本として開いた(ユーザー報告)。
+    /// 本と画像はそのタブ・ウインドウのビューアで(画像は環境設定「画像ファイルを開くとき」のとおり)。記号リンク・エイリアスは
+    /// 解けている先(Finder と同じ)。
     func open(_ entry: FileBrowserEntry, in destination: BookOpenDestination) {
-        guard let openWindow, let launchCoordinator else { return }
+        guard let openWindow, let launchCoordinator else { return UserFeedback.beep() }
         let entry = effective(entry)
-        let source = appState
         if entry.isNavigableFolder {
-            Task {
-                if await Self.isImageFolder(entry.url) {
-                    BookWindowOpener.open(
-                        BookOpenRequest(entry.url), to: destination, from: source,
-                        launchCoordinator: launchCoordinator, openWindow: openWindow
-                    )
-                } else {
-                    BookWindowOpener.openFolder(entry.url, to: destination, from: source, openWindow: openWindow)
-                }
-            }
+            BookWindowOpener.openFolder(entry.url, to: destination, from: appState, openWindow: openWindow)
         } else if entry.opensAsBook {
             BookWindowOpener.open(
-                BookOpenRequest(entry.url), to: destination, from: source,
+                bookRequest(forFile: entry), to: destination, from: appState,
                 launchCoordinator: launchCoordinator, openWindow: openWindow
             )
         }
@@ -165,6 +204,62 @@ final class FileBrowserActions {
     func canOpenInNewWindow(_ entries: [FileBrowserEntry]) -> Bool {
         guard entries.count == 1, let entry = entries.first.map(effective) else { return false }
         return entry.isNavigableFolder || entry.opensAsBook
+    }
+
+    /// フォルダ(リンクの先がフォルダでも)を 1 つだけ選んでいるか。右クリックの開く 4 項目が ⌥ で「本として〜」に入れ替わるのは
+    /// このときだけ(`FileBrowserMenuCommand.optionAlternate(for:actions:)`)。
+    func isSingleFolder(_ entries: [FileBrowserEntry]) -> Bool {
+        guard entries.count == 1, let entry = entries.first.map(effective) else { return false }
+        return entry.isNavigableFolder
+    }
+
+    /// 「本として開く」系を押せるか。フォルダ 1 つで、ボリュームそのもの・マウントポイントでないとき(ボリュームを 1 冊の本として
+    /// 読ませない。2026-10-24、ユーザー決定)。本があるかはここでは見ない(押したときに、ウインドウへ落としたのと同じ下調べで知らせる)。
+    func canOpenAsBook(_ entries: [FileBrowserEntry]) -> Bool {
+        guard isSingleFolder(entries), let entry = entries.first.map(effective) else { return false }
+        return !Self.isVolumeOrMountPoint(entry)
+    }
+
+    /// ボリュームそのもの(「コンピュータ」・ツリーの根の行)か、マウントポイントか(`/Volumes` をフォルダとして開いたときの行・
+    /// リンクの先は `isVolume` が偽)。マウント表とパスの文字列だけで決める(ファイルに触らない)。
+    nonisolated static func isVolumeOrMountPoint(_ entry: FileBrowserEntry, mounts: MountTable = .current()) -> Bool {
+        entry.isVolume || mounts.isMounted(entry.url.path)
+    }
+
+    /// 右クリックで ⌥ を押している間の「本として開く」「本として新規タブ/ノーマル/シークレットウインドウで開く」(2026-10-24)。
+    /// フォルダを、**ウインドウへ落としたのと同じ決まり**で本として開く: 直下に画像がある・章ごとに画像フォルダを分けたフォルダは
+    /// それ全体を 1 冊、棚は先頭の本、本が 1 冊も無ければ開かずに知らせる(DroppedBooks)。前もって画像フォルダかを調べない
+    /// (下調べはそれぞれの開き方が待ちの札を出して行う)。
+    /// - Parameter destination: nil ならこの窓で(`AppState.open(urls:)` ―― ドロップと同じ入口)。新しいタブ・ウインドウなら、
+    ///   「新規ウインドウで開く…」と同じ下調べ(`ExternalOpenPreparation.prepareForNewWindow`)を待ってから、本が無ければ窓を作らずに
+    ///   この窓に知らせる。
+    func openAsBook(_ entry: FileBrowserEntry, in destination: BookOpenDestination?) {
+        guard canOpenAsBook([entry]), let appState else { return UserFeedback.beep() }
+        let url = effective(entry).url
+        guard let destination else {
+            appState.open(urls: [url])
+            return
+        }
+        guard let openWindow, let launchCoordinator else { return UserFeedback.beep() }
+        let order = preferences?.siblingBookOrder ?? .byName
+        let locale = preferences?.effectiveLocale ?? AppLanguage.currentLocale
+        // 新しいタブ・ウインドウはこの窓の本と競わないので、開く意図は取らない(SidePanelView.resolve と同じ)。札の「中止」だけを見る。
+        let wait = appState.beginOpenWait()
+        Task { @MainActor [weak appState, weak launchCoordinator] in
+            let answer = await FileIO.perform {
+                ExternalOpenPreparation.prepareForNewWindow([url], order: order, locale: locale)
+            }
+            appState?.endOpenWait(wait)
+            guard appState?.isOpenWaitCancelled(wait) != true, let launchCoordinator else { return }
+            switch answer {
+            case .open(let request):
+                BookWindowOpener.open(
+                    request, to: destination, from: appState, launchCoordinator: launchCoordinator, openWindow: openWindow
+                )
+            case .refuse(let message):
+                if let appState { appState.postViewerNotice(message) } else { UserFeedback.beep() }
+            }
+        }
     }
 
     func showInFinder(_ entries: [FileBrowserEntry]) {
@@ -517,7 +612,7 @@ final class FileBrowserActions {
         }
         if target.opensAsBook {
             guard let appState, let intent, appState.isStillWanted(intent) else { return nil }
-            appState.open(url: target.url, intent: intent)
+            openBookFile(target, intent: intent)
         } else {
             NSWorkspace.shared.open(target.url)
         }
@@ -537,7 +632,8 @@ final class FileBrowserActions {
     func openTreeRow(_ entry: FileBrowserEntry, otherwise: @escaping @MainActor () -> Void) -> Task<Void, Never>? {
         guard state != nil else { return nil }
         let action = preferences?.fileBrowserImageFolderOpenAction ?? .openFolder
-        guard action.opensAsBook(fromMenu: false) else {
+        // ボリューム(根の行)・マウントポイントは本にしない(`openFolder` と同じ。2026-10-24)。
+        guard action.opensAsBook, !Self.isVolumeOrMountPoint(entry) else {
             otherwise()
             return nil
         }
@@ -545,7 +641,7 @@ final class FileBrowserActions {
         // 操作なので、待ち始めるここで開く意図を進める。AppState.OpenIntent)。
         let intent = appState?.beginOpenIntent()
         return Task { [weak self] in
-            let isBook = await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(entry.url) }
+            let isBook = await Self.isImageFolder(entry.url)
             guard let self, self.state != nil else { return }
             if isBook {
                 guard let appState = self.appState, let intent, appState.isStillWanted(intent) else { return }
@@ -556,11 +652,12 @@ final class FileBrowserActions {
         }
     }
 
-    /// 画像フォルダ(それ自体が1冊の本)か。棚への登録と同じ規則を、子フォルダの中を全部読まず、保護下の場所にも入らずに
-    /// FileIOの上で(ShelfFolderResolver.isSingleBookFolder。2026-09-14 の 2 回目の監査 15 ―― 以前は `role` がホームで
-    /// 「書類」などの中まで読み、ダブルクリックや右クリックの「開く」だけで許可のダイアログが出た)。
+    /// ダブルクリック / Return で本として開く画像フォルダか: **直下に画像があるか(規則 1)だけ**を、FileIO の上で名前の列挙だけで
+    /// 調べる(子フォルダの中は読まない)。2026-10-24 までは `ShelfFolderResolver.isSingleBookFolder`(規則 1・2)で、章ごとに画像
+    /// フォルダを分けた本も本としたが、画像入りのフォルダを 1 つ持つだけの棚のフォルダ・ボリュームまで本として開いた(ツリーの Return は
+    /// 2026-09-30 に同じ理由で規則 1 だけにしていた。`openTreeRow`)。章のフォルダの本は「本として開く」(⌥)で開く。
     private nonisolated static func isImageFolder(_ url: URL) async -> Bool {
-        await FileIO.perform { ShelfFolderResolver.isSingleBookFolder(url) }
+        await FileIO.perform { DirectoryBrowser.directlyContainsImageFile(url) }
     }
 }
 
@@ -762,6 +859,12 @@ enum FileBrowserMenuCommand {
     case openInNewTab
     case openInNewNormalWindow
     case openInNewPrivateWindow
+    /// ⌥ を押している間の「開く」「新規タブで開く」「新規ノーマルウインドウで開く」「新規シークレットウインドウで開く」
+    /// (フォルダだけ。`optionAlternate(for:actions:)`、2026-10-24)。
+    case openAsBook
+    case openAsBookInNewTab
+    case openAsBookInNewNormalWindow
+    case openAsBookInNewPrivateWindow
     case createCollection
     case addToCollection
     case openWith
@@ -881,11 +984,27 @@ enum FileBrowserMenuCommand {
     /// 右クリックメニューを開いたまま ⌥ を押している間、この項目と入れ替わる項目(Finder と同じ。2026-09-21)。
     /// AppKit の「代わりの項目」(`NSMenuItem.isAlternate`)で組むので、入れ替わっても**見えている項目の数は変わらない**。
     /// `groups(for:)` には載せない ―― 元の項目のすぐ後ろに、組む側(FileBrowserMenuBuilder)が足す。
-    var optionAlternate: FileBrowserMenuCommand? {
+    ///
+    /// 開く 4 項目は、フォルダ(リンクの先がフォルダでも)を 1 つ選んでいるときだけ「本として〜」に入れ替わる(2026-10-24、ユーザー決定。
+    /// 既定の開く 4 項目はフォルダを常にファイルブラウザで開く)。ファイルには入れ替わる項目が無い(本・画像はもとからビューアで開く)。
+    func optionAlternate(for entries: [FileBrowserEntry], actions: FileBrowserActions) -> FileBrowserMenuCommand? {
         switch self {
         case .copy: .copyPathname
         case .openWith: .alwaysOpenWith
         case .moveToTrash: .deleteImmediately
+        case .open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
+            actions.isSingleFolder(entries) ? asBookAlternate : nil
+        default: nil
+        }
+    }
+
+    /// 開く 4 項目それぞれの「本として〜」。
+    private var asBookAlternate: FileBrowserMenuCommand? {
+        switch self {
+        case .open: .openAsBook
+        case .openInNewTab: .openAsBookInNewTab
+        case .openInNewNormalWindow: .openAsBookInNewNormalWindow
+        case .openInNewPrivateWindow: .openAsBookInNewPrivateWindow
         default: nil
         }
     }
@@ -896,6 +1015,10 @@ enum FileBrowserMenuCommand {
         case .openInNewTab: "Open in New Tab"
         case .openInNewNormalWindow: "Open in New Normal Window"
         case .openInNewPrivateWindow: "Open in New Private Window"
+        case .openAsBook: "Open as Book"
+        case .openAsBookInNewTab: "Open as Book in New Tab"
+        case .openAsBookInNewNormalWindow: "Open as Book in New Normal Window"
+        case .openAsBookInNewPrivateWindow: "Open as Book in New Private Window"
         case .createCollection: "Create Collection"
         case .addToCollection: "Add to Collection"
         case .openWith: "Open With"
@@ -965,11 +1088,14 @@ enum FileBrowserMenuCommand {
         switch self {
         case .open:
             // Return・ダブルクリックと同じ判定(canOpen)。段階 4a では「ファイルは本と画像だけ」(要望)だったが、Return では
-            // ほかのファイルも既定のアプリで開けたので、2026-09-19 にユーザー判断でそちらへ揃えた。フォルダは中へ
-            // (画像フォルダはダブルクリックの反対。openFromMenu)。
+            // ほかのファイルも既定のアプリで開けたので、2026-09-19 にユーザー判断でそちらへ揃えた。フォルダは常に中へ
+            // (本として開くのは ⌥ の「本として開く」。openFromMenu)。
             return actions.canOpen(entries)
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)
+        case .openAsBook, .openAsBookInNewTab, .openAsBookInNewNormalWindow, .openAsBookInNewPrivateWindow:
+            // ボリューム・マウントポイントは淡色(ボリュームを 1 冊の本として読ませない。canOpenAsBook)。
+            return actions.canOpenAsBook(entries)
         case .createCollection, .addToCollection:
             // 保存データへの書き込みなので、シークレットウインドウでは淡色(決定事項 Q8)。ライブラリ機能がOFFなら項目ごと出ない。
             // シークレットフォルダの本だけなら淡色(入れられない。FileBrowserActions.canAddToCollections)。
@@ -1037,6 +1163,10 @@ enum FileBrowserMenuCommand {
         case .openInNewTab: entries.first.map { actions.open($0, in: .newTab) }
         case .openInNewNormalWindow: entries.first.map { actions.open($0, in: .newNormalWindow) }
         case .openInNewPrivateWindow: entries.first.map { actions.open($0, in: .newPrivateWindow) }
+        case .openAsBook: entries.first.map { actions.openAsBook($0, in: nil) }
+        case .openAsBookInNewTab: entries.first.map { actions.openAsBook($0, in: .newTab) }
+        case .openAsBookInNewNormalWindow: entries.first.map { actions.openAsBook($0, in: .newNormalWindow) }
+        case .openAsBookInNewPrivateWindow: entries.first.map { actions.openAsBook($0, in: .newPrivateWindow) }
         case .createCollection: actions.createCollection(from: entries)
         case .editMetadata:
             if context.kind == .tree, let entry = entries.first {
@@ -1104,7 +1234,7 @@ final class FileBrowserMenuBuilder: NSObject {
                 menu.addItem(fullMenuItem(for: command, locale: locale, actions: actions))
                 // ⌥ を押している間だけ入れ替わる項目(Finder と同じ)。AppKit の決まり: 元の項目の**すぐ後ろ**に置き、
                 // キーは同じ(どちらも無し)で修飾キーだけ違える。メニューを開いたまま ⌥ を押す・離すと、その場で入れ替わる。
-                if let alternate = command.optionAlternate {
+                if let alternate = command.optionAlternate(for: context.entries, actions: actions) {
                     let item = fullMenuItem(for: alternate, locale: locale, actions: actions)
                     item.isAlternate = true
                     item.keyEquivalentModifierMask = [.option]

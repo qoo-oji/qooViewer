@@ -93,6 +93,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserReadOnly.toggle()
     p.fileBrowserWarnsBeforeChangingExtension.toggle()
     p.fileBrowserImageFolderOpenAction = otherCase(p.fileBrowserImageFolderOpenAction)
+    p.fileBrowserImageFileOpenAction = otherCase(p.fileBrowserImageFileOpenAction)
 
     // MARK: 外観(揃いごとの設定は mutateEveryAppearanceSetting。シークレットの揃いは AppearanceSettingsTests が見る)
     mutateEveryAppearanceSetting(p.appearance)

@@ -175,6 +175,8 @@ struct HomeMenuState: Equatable {
 struct FileBrowserMenuSelection: Equatable {
     var selectionRevision = 0
     var canOpen = false
+    /// ⌥ を押している間の「本として開く」(フォルダ 1 つ・ボリュームでない。FileBrowserActions.canOpenAsBook。2026-10-24)。
+    var canOpenAsBook = false
     var canOpenWith = false
     var canRename = false
     /// 名前の変更の題に出す件数(複数なら「N 項目の名前を変更…」)。

@@ -535,6 +535,7 @@ struct ContentView: View {
         return FileBrowserMenuSelection(
             selectionRevision: fileBrowser.selectionRevision,
             canOpen: enabled(.open),
+            canOpenAsBook: enabled(.openAsBook),
             canOpenWith: enabled(.openWith),
             canRename: enabled(.rename),
             renameCount: entries.count,

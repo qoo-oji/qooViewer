@@ -344,7 +344,7 @@ struct FileBrowserFileMenuItems: View {
             ) else { return }
             // **⌘↓ はダブルクリック / Return と同じ開き方**(2026-09-15 の 4 回目の監査)。メニューのキーが一覧の keyDown より先に受けるように
             // なって、⌘↓ が右クリックの「開く」(画像フォルダではダブルクリックと反対)になっていた。Finder の ⌘↓ も「開く」= ダブルクリック。
-            // メニューの項目を選んだときは右クリックの「開く」と同じ。
+            // メニューの項目を選んだときは右クリックの「開く」と同じ(フォルダは常に中へ。2026-10-24)。
             let fromKey = NSApp.currentEvent?.type == .keyDown
             Self.perform(appState) { actions, entries in
                 if fromKey { actions.open(entries) } else { actions.openFromMenu(entries) }
@@ -352,6 +352,20 @@ struct FileBrowserFileMenuItems: View {
         }
         .homeMenuShortcut(.downArrow, modifiers: .command, isActive: isShown)
         .disabled(selection?.canOpen != true)
+        // ⌥ を押している間は「本として開く」(右クリックの「開く」と同じ入れ替わり。2026-10-24、ユーザー決定)。キーは元の項目の ⌘↓ に
+        // ⌥ を足したもの(「すぐに削除…」と同じく、元の項目と同じ条件で明示する)。インスペクタの欄を編集中の ⌥⌘↓(値を下へ)は
+        // 欄のボタンが先に受ける(キーウインドウの performKeyEquivalent。HomeMenuKeyRouting の型コメント)が、届いても一覧に焦点が
+        // 無ければ何もしない。
+        .modifierKeyAlternate(.option) {
+            Button("Open as Book") { [weak appState] in
+                guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil) else { return }
+                Self.perform(appState, refusingUnless: { $0.canOpenAsBook($1) }) { actions, entries in
+                    entries.first.map { actions.openAsBook($0, in: nil) }
+                }
+            }
+            .homeMenuShortcut(.downArrow, modifiers: [.command, .option], isActive: isShown)
+            .disabled(selection?.canOpenAsBook != true)
+        }
 
         // 淡色のときは中身を作らない(監査 X-1。「コレクションに登録」と同じ)。
         MenuBarSubmenu("Open With", isEnabled: selection?.canOpenWith == true) {

@@ -186,57 +186,218 @@ struct FileBrowserIntegrationTests {
 
     // MARK: - 画像フォルダをダブルクリックで開く
 
-    @Test("画像フォルダを本として開くのは、ダブルクリックなら「ビューアで開く」のとき、右クリックの「開く」ならその反対。既定はフォルダを開く")
-    func imageFolderOpenActionDecidesDoubleClickAndMenu() {
-        #expect(!FileBrowserImageFolderOpenAction.openFolder.opensAsBook(fromMenu: false))
-        #expect(FileBrowserImageFolderOpenAction.openFolder.opensAsBook(fromMenu: true))
-        #expect(FileBrowserImageFolderOpenAction.openInViewer.opensAsBook(fromMenu: false))
-        #expect(!FileBrowserImageFolderOpenAction.openInViewer.opensAsBook(fromMenu: true))
+    @Test("画像フォルダを本として開くのはダブルクリック / Return が「ビューアで開く」のときだけ。既定はフォルダを開く。画像ファイルの既定はフォルダ全体を本として")
+    func imageFolderOpenActionDecidesDoubleClick() {
+        #expect(!FileBrowserImageFolderOpenAction.openFolder.opensAsBook)
+        #expect(FileBrowserImageFolderOpenAction.openInViewer.opensAsBook)
         let suite = PreferencesSuite(label: "fb-image-folder-open-default")
-        #expect(suite.makePreferences().fileBrowserImageFolderOpenAction == .openFolder)
+        let preferences = suite.makePreferences()
+        #expect(preferences.fileBrowserImageFolderOpenAction == .openFolder)
+        #expect(preferences.fileBrowserImageFileOpenAction == .wholeFolder)
     }
 
-    /// 本として開く側(`appState.open`)はテストでは通さない(本を読み込むと共有の履歴に触れうる)。ここで確かめるのは
-    /// 「中へ移動する側は調べずにすぐ移動する」「本として開く側でも、本でないフォルダは中へ移動する」の 2 つ。
-    @Test("中へ移動する側は画像フォルダでもすぐ移動し、本として開く側でも本でないフォルダは調べた後に中へ移動する")
+    /// 本として開く側(`appState.open`)はここでは通さない(読み込みは下の画像ファイルのテストで見る)。ここで確かめるのは
+    /// 「右クリックの「開く」はどの設定でも調べずに中へ移動する」「ダブルクリックで本として開く側でも、直下に画像の無いフォルダ
+    /// (棚・章ごとに画像フォルダを分けたフォルダ)とボリュームは中へ移動する」こと(2026-10-24、ユーザー決定)。
+    @Test("右クリックの「開く」は常に中へ移動し、ダブルクリックで本として開く側でも直下に画像の無いフォルダ・ボリュームは中へ移動する")
     func openingFoldersFollowsImageFolderOpenAction() async throws {
         let fixture = try Fixture("fb-image-folder-open")
         defer { fixture.close() }
         let imageFolder = try fixture.imageFolder("root/Pictures")
         let shelf = fixture.temporary.file("root/Shelf")
         _ = try fixture.archive("root/Shelf/book.cbz")
+        // 章ごとに画像フォルダを分けたフォルダ(規則 2)。直下に画像も書庫も無い。
+        let chapters = fixture.temporary.file("root/Chapters")
+        _ = try fixture.imageFolder("root/Chapters/ch1")
 
         // 既定(フォルダを開く): ダブルクリックは画像フォルダでも調べずに移動する。
         #expect(fixture.actions.open([fixture.entry(imageFolder)]) == nil)
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
 
-        // 既定: 右クリックの「開く」は調べる側。本でないフォルダ(棚)なら中へ移動する。
-        let menuTask = fixture.actions.openFromMenu([fixture.entry(shelf)])
-        #expect(menuTask != nil)
-        await menuTask?.value
-        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
+        // 右クリックの「開く」はどちらの設定でも、画像フォルダでも調べずに移動する。
+        for action in FileBrowserImageFolderOpenAction.allCases {
+            fixture.preferences.fileBrowserImageFolderOpenAction = action
+            fixture.state.navigate(to: shelf)
+            #expect(fixture.actions.openFromMenu([fixture.entry(imageFolder)]) == nil)
+            #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
+        }
 
-        // ビューアで開く: 右クリックの「開く」は画像フォルダでも調べずに移動する。
+        // ビューアで開く: ダブルクリックは調べる側。棚・章のフォルダは本にせず中へ移動する。
         fixture.preferences.fileBrowserImageFolderOpenAction = .openInViewer
-        #expect(fixture.actions.openFromMenu([fixture.entry(imageFolder)]) == nil)
-        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
+        for folder in [shelf, chapters] {
+            let task = fixture.actions.open([fixture.entry(folder)])
+            #expect(task != nil)
+            await task?.value
+            #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: folder))
+        }
+        #expect(fixture.appState.openTask == nil)
 
-        // ビューアで開く: ダブルクリックは調べる側。本でないフォルダなら中へ移動する。
-        let doubleClickTask = fixture.actions.open([fixture.entry(shelf)])
-        #expect(doubleClickTask != nil)
-        await doubleClickTask?.value
-        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
+        // ボリュームの行(根に画像があっても)とマウントポイントは調べずに中へ移動する。
+        let volume = FileBrowserEntry(
+            url: imageFolder, displayName: "Volume", isDirectory: true, isPackage: false, isSymbolicLink: false,
+            isVolume: true, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        fixture.state.navigate(to: shelf)
+        #expect(fixture.actions.open([volume]) == nil)
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
+        #expect(fixture.appState.openTask == nil)
+    }
+
+    @Test("右クリックの開く 4 項目は、フォルダ 1 つのときだけ ⌥ で「本として〜」に入れ替わる。ボリューム・マウントポイントでは淡色")
+    func openItemsTurnIntoOpenAsBookWithOption() throws {
+        let fixture = try Fixture("fb-menu-open-as-book")
+        defer { fixture.close() }
+        let folder = try fixture.imageFolder("Pictures")
+        let book = try fixture.archive("book.cbz")
+        let english = Locale(identifier: "en")
+        let builder = FileBrowserMenuBuilder()
+
+        func alternates(_ kind: FileBrowserMenuKind, _ entries: [FileBrowserEntry]) -> [String: NSMenuItem] {
+            let menu = NSMenu()
+            builder.rebuild(
+                menu, for: FileBrowserMenuContext(kind: kind, entries: entries, folder: nil),
+                actions: fixture.actions, locale: english
+            )
+            var result: [String: NSMenuItem] = [:]
+            for (index, item) in menu.items.enumerated() where item.isAlternate {
+                #expect(item.keyEquivalentModifierMask == [.option])
+                result[menu.items[index - 1].title] = item
+            }
+            return result
+        }
+        let expected = [
+            "Open": "Open as Book", "Open in New Tab": "Open as Book in New Tab",
+            "Open in New Normal Window": "Open as Book in New Normal Window",
+            "Open in New Private Window": "Open as Book in New Private Window",
+        ]
+        for kind in [FileBrowserMenuKind.folder, .tree] {
+            let found = alternates(kind, [fixture.entry(folder)])
+            for (primary, alternate) in expected {
+                let item = try #require(found[primary], "\(primary)")
+                #expect(item.title == alternate)
+                #expect(item.isEnabled)
+            }
+        }
+        // ファイル・複数のフォルダには入れ替わる項目が無い(本・画像はもとからビューアで開く)。
+        let other = try fixture.imageFolder("Other")
+        for entries in [[fixture.entry(book)], [fixture.entry(folder), fixture.entry(other)]] {
+            let found = alternates(entries.count == 1 ? .file : .folder, entries)
+            #expect(expected.keys.allSatisfy { found[$0] == nil })
+        }
+        // ボリュームの行・マウントポイント(`/`)は淡色(ボリュームを 1 冊の本として読ませない)。
+        let volume = FileBrowserEntry(
+            url: folder, displayName: "Volume", isDirectory: true, isPackage: false, isSymbolicLink: false,
+            isVolume: true, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        let root = FileBrowserEntry(
+            url: URL(filePath: "/", directoryHint: .isDirectory), displayName: "/", isDirectory: true, isPackage: false,
+            isSymbolicLink: false, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        for entry in [volume, root] {
+            let found = alternates(.tree, [entry])
+            #expect(expected.keys.allSatisfy { found[$0]?.isEnabled == false })
+            #expect(!fixture.actions.canOpenAsBook([entry]))
+            // 既定の項目は押せる(ファイルブラウザで開く)。
+            #expect(fixture.actions.canOpenInNewWindow([entry]))
+        }
+        #expect(fixture.actions.canOpenAsBook([fixture.entry(folder)]))
+        #expect(!fixture.actions.canOpenAsBook([fixture.entry(book)]))
+    }
+
+    @Test("画像ファイルを 1 つ開くとき: 設定が「フォルダ全体を本として」なら、許可があり、ボリュームの直下でなければフォルダをその画像から")
+    func imageFileOpeningTarget() {
+        let image = URL(filePath: "/tmp/qoo-image-open/Pictures/p02.png")
+        let folder = image.deletingLastPathComponent()
+        let mounts = MountTable.current()
+        #expect(FileBrowserImageFileOpening.target(for: image, action: .onlyThatImage, mounts: mounts) { _ in true }
+                == .image(image))
+        #expect(FileBrowserImageFileOpening.target(for: image, action: .wholeFolder, mounts: mounts) { _ in true }
+                == .folder(folder, landingOn: image))
+        // 許可が無い・確かめた相手はそのフォルダ。
+        var asked: [String] = []
+        #expect(FileBrowserImageFileOpening.target(for: image, action: .wholeFolder, mounts: mounts) {
+            asked.append($0.path)
+            return false
+        } == .image(image))
+        #expect(asked == [folder.path])
+        // マウントポイントの直下(`/` は常にマウントされている)、ホーム・その標準のフォルダの直下、隠しファイル。
+        let home = FileBrowserListing.realHomeDirectory()
+        for alone in [
+            URL(filePath: "/qoo-image-open.png"), home.appendingPathComponent("qoo-image-open.png"),
+            home.appendingPathComponent("Pictures/qoo-image-open.png"), folder.appendingPathComponent(".qoo-hidden.png"),
+        ] {
+            #expect(FileBrowserImageFileOpening.target(for: alone, action: .wholeFolder, mounts: mounts) { _ in true }
+                    == .image(alone), "\(alone.lastPathComponent)")
+        }
+        // 標準のフォルダの中のフォルダはふつうのフォルダ。
+        let inPictures = home.appendingPathComponent("Pictures/Trip/qoo-image-open.png")
+        #expect(FileBrowserImageFileOpening.target(for: inPictures, action: .wholeFolder, mounts: mounts) { _ in true }
+                == .folder(inPictures.deletingLastPathComponent(), landingOn: inPictures))
+    }
+
+    @Test("画像をダブルクリックすると、既定ではそのフォルダが本としてその画像から開き、「その画像だけ」なら 1 枚の本。控える要求には着地の指定を残さない")
+    func openingAnImageFileFollowsImageFileOpenAction() async throws {
+        let fixture = try Fixture("fb-image-file-open")
+        defer { fixture.close() }
+        fixture.appState.bookmarkStore = fixture.library.bookmarks
+        fixture.appState.layoutStore = fixture.library.layouts
+        fixture.appState.metadataStore = fixture.library.metadata
+        fixture.actions.folderAccessCheck = { _ in true }
+        let folder = try fixture.imageFolder("Pictures")
+        let image = fixture.entry(folder.appendingPathComponent("p02.png"))
+
+        // 既定: フォルダ全体を本として、その画像のページから。
+        #expect(fixture.actions.open([image]) == nil)
+        await fixture.appState.openTask?.value
+        let book = try #require(fixture.appState.currentBook)
+        #expect(book.id == folder.path)
+        #expect(book.pages.count == 2)
+        #expect(fixture.appState.pendingInitialPage == AppState.PendingInitialPage(bookID: folder.path, pageID: image.url.path))
+        // 「直前の本へ戻る」・ウインドウの値は読書位置から開き直す。
+        let shown = try #require(fixture.appState.lastOpenedBook?.request)
+        #expect(shown.urls.map(\.path) == [folder.path])
+        #expect(shown.initialPagePath == nil)
+        fixture.appState.clearPendingInitialPage()
+
+        // フォルダを読む許可が無ければ、その画像だけ。
+        fixture.actions.folderAccessCheck = { _ in false }
+        #expect(fixture.actions.imageFileTarget(for: image) == .image(image.url))
+
+        // その画像だけ: 1 枚の本(その場限り)。
+        fixture.actions.folderAccessCheck = { _ in true }
+        fixture.preferences.fileBrowserImageFileOpenAction = .onlyThatImage
+        #expect(fixture.actions.open([image]) == nil)
+        await fixture.appState.openProbeTask?.value
+        await fixture.appState.openTask?.value
+        let single = try #require(fixture.appState.currentBook)
+        #expect(single.pages.count == 1)
+        #expect(single.isTransient)
+        #expect(fixture.appState.pendingInitialPage == nil)
+        // 本・画像でないものは対象外。
+        #expect(fixture.actions.imageFileTarget(for: fixture.entry(folder)) == nil)
+    }
+
+    @Test("着地の指定は新しいウインドウへも運べる(Codable で往復する)。指定の無い要求とは別の値")
+    func bookOpenRequestCarriesInitialPage() throws {
+        let folder = URL(filePath: "/tmp/qoo-image-open/Pictures", directoryHint: .isDirectory)
+        let request = BookOpenRequest(folder, initialPagePath: folder.appendingPathComponent("p02.png").path)
+        let decoded = try JSONDecoder().decode(BookOpenRequest.self, from: JSONEncoder().encode(request))
+        #expect(decoded == request)
+        #expect(decoded.initialPagePath == request.initialPagePath)
+        #expect(request != BookOpenRequest(folder))
     }
 
     /// 2026-10-04 のレビューの RC-1。リンクの先がフォルダのとき、リンクを解き始めたときの開く意図を引き継がずに `openFolder` で新しく
     /// 取っていたので、リンクを解く間に後から頼まれた本に勝った(確かめを待っているその本を捨てさせ、先が画像フォルダならその本を
-    /// 置き換えた)。本を読み込む前の照合で落ちる形で確かめる(本として開く側は読み込まない ―― 上のテストのコメント)。
-    @Test("リンクの先のフォルダを開く「開く」は、リンクを解く間に後から頼まれた本に勝たない")
+    /// 置き換えた)。本を読み込む前の照合で落ちる形で確かめる。調べる側はダブルクリックで「ビューアで開く」のとき(右クリックの「開く」は
+    /// 2026-10-24 から常に中へ移動する)。
+    @Test("リンクの先のフォルダをダブルクリックで開くと、リンクを解く間に後から頼まれた本に勝たない")
     func aLinkToAFolderKeepsTheIntentTakenWhenResolvingStarted() async throws {
         let fixture = try Fixture("fb-link-intent")
         defer { fixture.close() }
         fixture.state.linkTargetProtectedPrefixes = []
         fixture.state.linkTargetCategoryPrefixes = []
+        fixture.preferences.fileBrowserImageFolderOpenAction = .openInViewer
         let root = try fixture.temporary.directory("root")
         let shelf = fixture.temporary.file("shelf")
         _ = try fixture.archive("shelf/book.cbz")
@@ -249,9 +410,8 @@ struct FileBrowserIntegrationTests {
         let toShelf = try #require(fixture.state.entries.first { $0.url.lastPathComponent == "to-shelf" })
         let toPictures = try #require(fixture.state.entries.first { $0.url.lastPathComponent == "to-pictures" })
 
-        // 既定の設定の右クリックの「開く」は、画像フォルダを本として開く側(調べる)。先が本でないフォルダなら中へ移るだけだが、
-        // リンクを解く間に頼まれた本(確かめを待っている)を捨てさせない。
-        let shelfTask = fixture.actions.openFromMenu([toShelf])
+        // 先が本でないフォルダなら中へ移るだけだが、リンクを解く間に頼まれた本(確かめを待っている)を捨てさせない。
+        let shelfTask = fixture.actions.open([toShelf])
         let later = fixture.appState.beginOpenIntent()
         await shelfTask?.value
         #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
@@ -260,7 +420,7 @@ struct FileBrowserIntegrationTests {
         // 先が画像フォルダでも、後から頼まれた本があれば開かない。
         fixture.state.navigate(to: root)
         await fixture.state.settle()
-        let picturesTask = fixture.actions.openFromMenu([toPictures])
+        let picturesTask = fixture.actions.open([toPictures])
         _ = fixture.appState.beginOpenIntent()
         await picturesTask?.value
         #expect(fixture.appState.openTask == nil)

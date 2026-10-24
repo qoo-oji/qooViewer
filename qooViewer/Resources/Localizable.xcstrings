@@ -33041,22 +33041,6 @@
         }
       }
     },
-    "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リスト表示・アイコン表示で、画像フォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」はもう一方をするので、どちらの開き方もすぐ使えます。本ではないフォルダは常にフォルダとして開き、左のツリーには影響しません。"
-          }
-        }
-      }
-    },
     "What may come right after a volume number" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -36226,6 +36210,166 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "Open as Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open as Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として開く"
+          }
+        }
+      }
+    },
+    "Open as Book in New Tab" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open as Book in New Tab"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として新規タブで開く"
+          }
+        }
+      }
+    },
+    "Open as Book in New Normal Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open as Book in New Normal Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として新規ノーマルウインドウで開く"
+          }
+        }
+      }
+    },
+    "Open as Book in New Private Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open as Book in New Private Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本として新規シークレットウインドウで開く"
+          }
+        }
+      }
+    },
+    "Only That Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only That Image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その画像だけ"
+          }
+        }
+      }
+    },
+    "Whole Folder as a Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whole Folder as a Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ全体を本として"
+          }
+        }
+      }
+    },
+    "What to Open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What to Open"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開くもの"
+          }
+        }
+      }
+    },
+    "Opening Image Files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening Image Files"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像ファイルを開くとき"
+          }
+        }
+      }
+    },
+    "What happens when you double-click a folder with images directly inside, or select it and press Return. Open in the right-click menu always opens the folder; hold Option to change it to Open as Book. Other folders and volumes always open as folders. Return in the tree on the left follows this setting too." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What happens when you double-click a folder with images directly inside, or select it and press Return. Open in the right-click menu always opens the folder; hold Option to change it to Open as Book. Other folders and volumes always open as folders. Return in the tree on the left follows this setting too."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直下に画像があるフォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」は常にフォルダを開き、option キーを押すと「本として開く」に変わります。そのほかのフォルダとボリュームは常にフォルダとして開きます。左のツリーのリターンキーもこの設定に従います。"
+          }
+        }
+      }
+    },
+    "What opens when you open one image file in the file browser, by double-clicking, pressing Return, or choosing Open or an Open in New item from the right-click menu. Whole Folder as a Book opens the folder the image is in as a book, starting at that image; like opening the folder itself, it includes images in its subfolders and pages of archives in it. Selecting several images and opening them always makes one book of just those images. Images directly on a volume, directly in your home folder or its standard folders such as Desktop, Downloads and Pictures, or in a folder qooViewer has no access to open on their own, as do hidden images." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What opens when you open one image file in the file browser, by double-clicking, pressing Return, or choosing Open or an Open in New item from the right-click menu. Whole Folder as a Book opens the folder the image is in as a book, starting at that image; like opening the folder itself, it includes images in its subfolders and pages of archives in it. Selecting several images and opening them always makes one book of just those images. Images directly on a volume, directly in your home folder or its standard folders such as Desktop, Downloads and Pictures, or in a folder qooViewer has no access to open on their own, as do hidden images."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザで画像ファイルを 1 つ開いたとき(ダブルクリック・リターンキー・右クリックの「開く」や「新規…で開く」)に開くものです。「フォルダ全体を本として」は、その画像が入っているフォルダを、その画像のページから本として開きます。フォルダそのものを開いたときと同じく、サブフォルダの画像やフォルダの中の書庫のページも含みます。複数の画像を選んで開くと、常にそれらの画像だけで 1 冊にまとめます。ボリュームの直下・ホームフォルダやその標準のフォルダ(デスクトップ・ダウンロード・ピクチャなど)の直下・qooViewer にアクセス権の無いフォルダの画像と、隠しファイルの画像は、その画像だけで開きます。"
           }
         }
       }

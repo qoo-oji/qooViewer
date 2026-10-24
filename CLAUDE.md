@@ -339,7 +339,12 @@ Tab / ⇧Tab moves keyboard focus between the tree and the list/icon view throug
 (the AppKit lists never reached each other through the key view loop; a Tab from the right pane reveals the current folder's row through
 the same `reveal` as "expand to current folder"), and Return in the tree toggles the selected row — an image folder (rule 1 only,
 `directlyContainsImageFile`, never `isSingleBookFolder`: a shelf folder holding one image subfolder would open as a book) follows
-`fileBrowserImageFolderOpenAction` (2026-09-30, verified on a disposable volume). Inline rename (list and icon view) is started only by the app, never by AppKit: name
+`fileBrowserImageFolderOpenAction` (2026-09-30, verified on a disposable volume). **The right pane's double-click/Return uses the same
+rule 1, and volumes/mount points never open as a book** (`FileBrowserActions.isVolumeOrMountPoint`); the right-click "Open" / "Open in New
+Tab/Window" items always open a folder in the file browser, and only with Option held turn into "Open as Book…" (folders only,
+`optionAlternate(for:actions:)`, opened like a drop — `AppState.open(urls:)` / `ExternalOpenPreparation.prepareForNewWindow`) — 2026-10-24,
+after a volume opened as one book from "Open in New Tab". Opening one image file follows `fileBrowserImageFileOpenAction` (default: the whole
+folder as a book, landing on that image via `BookOpenRequest.initialPagePath`, which `lastOpenedBook` drops; docs/15「移動の規則」). Inline rename (list and icon view) is started only by the app, never by AppKit: name
 fields are not editable at rest (NSTableView's own click-to-edit ran from a private delayed perform that ignored drags and
 started editing a file that had just been moved, 2026-09-19); every start goes through `FileBrowserNameEditing.canBegin`
 (item still listed and on disk), clicks wait in `FileBrowserNameClickRename`, and an edit whose item vanishes is cancelled.

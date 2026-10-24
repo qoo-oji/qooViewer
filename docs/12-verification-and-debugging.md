@@ -77,6 +77,15 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     「サイドパネルを隠す」)/ `contextClick '{"windowNumber":N,"x":…,"y":…}'`(窓の内容の左上からの pt を右クリックした形にして
     右クリックメニューを開く。中身は AX の `menu 1 of window …` などで読み、AX の `AXCancel` で閉じる。プロセスを名指しした CGEvent の
     右クリックは窓に届かなかった ―― 2026-10-19)。どれも既存の入口を通す。
+  - ファイルブラウザの「開く」系(2026-10-24。どれも `windowNumber` で窓を名指しでき、無ければ前面の窓): `fileBrowserNavigate '{"path":…}'`
+    (そのフォルダへ移る)/ `fileBrowserSelect '{"paths":[…]}'`(一覧の選択 ―― メニューバーの「ファイル」の項目の相手)/
+    `fileBrowserOpen '{"paths":[…]}'`(ダブルクリック / Return と同じ `FileBrowserActions.open`)/
+    `fileBrowserContextMenu '{"path":…,"kind":"tree","isVolume":true}'`(右クリックメニューを AppKit の一覧と同じ `FileBrowserMenuBuilder`
+    で組んで、題・淡色・⌥ で入れ替わる項目を返す。`kind` は folder / file / tree、`isVolume` はボリュームの行)/
+    `fileBrowserMenuCommand '{"command":"openAsBookInNewTab","path":…,"kind":"folder"}'`(その項目を選んだのと同じ。淡色なら断る。開く 8 項目だけ)/
+    `setFileBrowserOpenActions '{"imageFolder":"openInViewer","imageFile":"onlyThatImage"}'`(環境設定「画像フォルダを開くとき」「画像ファイルを
+    開くとき」)。`state` の窓ごとの中身には `viewerNotice`(画面の下の知らせ)も載る。`closeBook` も `windowNumber` を取る。
+    メニューバーの淡色は、アプリが前面にいないと選択が届かず全部淡色に見える ―― `osascript … to activate` と `focusWindow` の後で AX で読む。
   - 合成データを用意する頼み(2026-10-24、実機で確認・報告を出すため): `rememberExportFolder '{"format":"cbz","path":…}'`(本の書き出しの
     「決まったフォルダ」をパネルを通さずに覚えさせる)/ `makeGrantBookmark '{"path":…}'`(フォルダの許可のブックマークをアプリ自身に作らせて
     base64 で返す。外で作ったセキュリティスコープ付きのブックマークはこのアプリでは解けないため。defaults へ書くのは頼む側)/

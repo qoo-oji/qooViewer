@@ -59,15 +59,27 @@ struct FileBrowserSettingsView: View {
                 Text("Drag and Drop")
             }
 
-            // 2026-09-14、ユーザー要望。右クリックの「開く」は常にこの反対(FileBrowserImageFolderOpenAction)。
+            // 2026-09-14、ユーザー要望。右クリックの「開く」はこの設定に関係なく常にフォルダを開き、⌥ で「本として開く」
+            // (2026-10-24 から。それまではこの反対をした。FileBrowserImageFolderOpenAction)。
             Section {
                 SettingsPicker(
                     "Double-Click or Return",
                     selection: $preferences.fileBrowserImageFolderOpenAction,
-                    help: "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected."
+                    help: "What happens when you double-click a folder with images directly inside, or select it and press Return. Open in the right-click menu always opens the folder; hold Option to change it to Open as Book. Other folders and volumes always open as folders. Return in the tree on the left follows this setting too."
                 )
             } header: {
                 Text("Opening Image Folders")
+            }
+
+            // 2026-10-24、ユーザー決定(FileBrowserImageFileOpenAction)。
+            Section {
+                SettingsPicker(
+                    "What to Open",
+                    selection: $preferences.fileBrowserImageFileOpenAction,
+                    help: "What opens when you open one image file in the file browser, by double-clicking, pressing Return, or choosing Open or an Open in New item from the right-click menu. Whole Folder as a Book opens the folder the image is in as a book, starting at that image; like opening the folder itself, it includes images in its subfolders and pages of archives in it. Selecting several images and opening them always makes one book of just those images. Images directly on a volume, directly in your home folder or its standard folders such as Desktop, Downloads and Pictures, or in a folder qooViewer has no access to open on their own, as do hidden images."
+                )
+            } header: {
+                Text("Opening Image Files")
             }
 
             Section {
