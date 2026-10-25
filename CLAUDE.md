@@ -84,7 +84,9 @@ the label is drawn as-is, so the reserved width left short options stuck at the 
 `WindowPlacement`, so never return one out of `MainActor.assumeIsolated`: a local Xcode 27 build passes and CI fails, 2026-09-27; `.labelStyle(.titleAndIcon)` in SwiftUI), and a two-axis `ScrollView`
 now puts smaller content top-leading (the Actual Size window centers it itself). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
-capture explicit, never by dropping the inner `weak`.
+capture explicit and **weak** (`[weak x]` on the outer closure), never by dropping the inner `weak` — an explicit strong `[x]` on the
+outer closure keeps `x` alive wherever that outer closure is stored (a menu's `ForEach` content kept a closed window's AppState,
+2026-10-25).
 
 **One known clean-build warning is left alone** (2026-10-24, user decision): `'StackNestViewerKit' is missing a dependency on
 'StackNestViewerKitCore'` is a swift-build false positive for the package's dynamic variant (swiftlang/swift-build #1801). Do not "fix" it by
@@ -580,8 +582,11 @@ through the `\.collectionAdding` environment value — never observe `Collection
 library tree draws from its own value copy, `SidePanelLibraryTreeModel`, which publishes only when the visible rows change; 2026-10-04).
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
-the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in
-AppState.swift). The active `ViewerView` registers closures on `AppState` (`performViewerAction`,
+the menu bar via `FocusedValue` (see the `qooViewerAppStateReference`/`qooViewerMenuCheckmarkState` extension in
+AppState.swift). **The menu bar holds window objects only weakly** (2026-10-25, measured with `leaks --traceTree`): the focused value is a
+`FocusedAppStateReference` box, not the AppState, because menu closures capture the whole App struct and kept a closed window's AppState
+until the next focus change; menu helper views keep per-window objects (`AppState`, `FileBrowserState`) in `weak var` and capture them
+`[weak …]` — never a strong `let`, an `if let` local, or a `[x]` capture list in a menu closure. The active `ViewerView` registers closures on `AppState` (`performViewerAction`,
 `jumpToBookmark`, `performLayoutStateChange`, etc.) on appear and clears them on disappear, using a
 disposable UUID token (`activeViewerToken`) to resolve ordering races when switching books in the same
 window. Menu checkmark/enabled state is pushed into `AppState` as plain `Equatable` value fields (not read

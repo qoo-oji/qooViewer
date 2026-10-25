@@ -657,7 +657,8 @@ struct ContentView: View {
         .environment(\.windowNotice, WindowNoticeAction(appState: appState))
         // メニューバー(アプリ全体で1つ)から「今アクティブなウインドウ」のAppStateを
         // 参照できるようにする(詳細はAppState.swiftのFocusedValues拡張のコメント参照)。
-        .focusedSceneValue(\.qooViewerAppState, appState)
+        // 渡すのは AppState を弱く持つ箱(メニューの閉包が閉じたウインドウの AppState を掴まないように。AppState.swift のコメント)。
+        .focusedSceneValue(\.qooViewerAppStateReference, appState.focusReference)
         // メニューバーのチェックマーク表示専用に、値型でも同じ内容を公開する
         // (AppStateというクラス参照だけではチェックマークの更新が効かなかったための対処。
         // 詳細はAppState.swiftのMenuCheckmarkStateのコメント参照)。

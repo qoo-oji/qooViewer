@@ -16,7 +16,8 @@ import UniformTypeIdentifiers
 /// そのうえ TCC の確認が出る)。**開く前に触って確かめない**(触ること自体がダイアログの引き金になる)。
 struct FileBrowserGoMenuItems: View {
     let navigation: FileBrowserMenuNavigation
-    let browser: FileBrowserState?
+    /// フォーカス中のウインドウのファイルブラウザ。**弱く持つ**(メニューバーの部品なので。HomeMenuItems.appState のコメント)。
+    weak var browser: FileBrowserState?
 
     var body: some View {
         Button("Back") { browser?.goBack() }

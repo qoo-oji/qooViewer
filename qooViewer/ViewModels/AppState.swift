@@ -138,6 +138,8 @@ final class AppState: ObservableObject {
     }
 
     @Published var currentBook: MangaBook?
+    /// メニューバーへ自分を弱く渡す箱(`FocusedAppStateReference`。ウインドウごとに 1 つ)。
+    lazy var focusReference = FocusedAppStateReference(self)
     @Published var errorMessage: String?
 
     /// このウインドウ(タブ)で**直前に開いていた本**(2026-09-28、利用者の要望「ホームから前の本に戻るボタン」)。
@@ -2729,23 +2731,40 @@ final class AppState: ObservableObject {
 /// ウインドウごとに独立したAppStateを持つ(ContentViewが自身の@StateObjectとして生成する)。
 /// 一方でメニューバーはアプリ全体で1つしかないため、「Open…」や「Viewer」メニューの各操作は、
 /// 常に「今アクティブな(キーウインドウの)AppState」を参照する必要がある。
-/// ContentViewが`.focusedSceneValue(\.qooViewerAppState, appState)`で自分自身のAppStateを
-/// 公開し、QooViewerAppの`.commands`側は`@FocusedValue(\.qooViewerAppState)`でそれを読み取る。
+/// ContentViewが`.focusedSceneValue(\.qooViewerAppStateReference, appState.focusReference)`で自分自身のAppStateを
+/// 公開し、QooViewerAppの`.commands`側は`@FocusedValue(\.qooViewerAppStateReference)`でそれを読み取る。
+///
+/// **渡すのは AppState そのものではなく、AppState を弱く持つ箱**(`FocusedAppStateReference`。2026-10-25 のリークの点検、実測)。
+/// メニューバーはアプリで 1 つで、その項目の閉包は App の構造体(= フォーカスの値)ごと捕まえる。AppState を直に渡していた間は、
+/// フォーカスを持っていたウインドウを閉じた後、次にフォーカスが動いてメニューが組み直されるまで、メニューの閉包と SwiftUI の
+/// focusedValues の保存領域が閉じたウインドウの AppState を掴んでいた(後ろのタブを閉じたときに `leaks --traceTree` で確認。
+/// docs/13 の「AppState が 1 つ残る」の持ち主)。箱はウインドウごとに 1 つ(AppState が持つ)なので、フォーカスの移り変わりは
+/// 今までどおり箱が替わることで伝わる。
 private struct AppStateFocusedValueKey: FocusedValueKey {
-    typealias Value = AppState
+    typealias Value = FocusedAppStateReference
 }
 
 extension FocusedValues {
-    var qooViewerAppState: AppState? {
+    var qooViewerAppStateReference: FocusedAppStateReference? {
         get { self[AppStateFocusedValueKey.self] }
         set { self[AppStateFocusedValueKey.self] = newValue }
+    }
+}
+
+/// フォーカス中のウインドウの AppState を、メニューバーへ**弱く**渡す箱(上の FocusedValues のコメント)。
+@MainActor
+final class FocusedAppStateReference {
+    private(set) weak var appState: AppState?
+
+    init(_ appState: AppState) {
+        self.appState = appState
     }
 }
 
 /// メニューバーのチェックマーク表示(「ツールバーを隠す」「見開き」「右から左へ」など)専用に、
 /// 現在値だけをまとめた値型(Equatableな構造体)。
 ///
-/// 当初はAppState(クラス、つまり参照型)をqooViewerAppStateとして公開し、そこから
+/// 当初はAppState(クラス、つまり参照型)をqooViewerAppState(今の qooViewerAppStateReference の前身)として公開し、そこから
 /// `focusedAppState?.hideToolbar`のように読み取ってToggleのisOnに使っていたが、実機で
 /// 確認したところチェックマークが一切更新されない不具合が起きた。考えられる原因は、
 /// SwiftUIの@FocusedValueは「値そのもの」が変わったかどうかで再描画の要否を判断しており、
@@ -2760,7 +2779,7 @@ extension FocusedValues {
 /// この構造体のように値型(Equatable)として公開すれば、値そのものが変わるたびに
 /// SwiftUIが正しく変化を検知できるはずなので、チェックマークに関わる値はすべてここに
 /// まとめて値型として公開する。書き込み(実際にトグルする操作)は、これまでどおり
-/// qooViewerAppState(AppState)側のクロージャ/プロパティ経由で行う。
+/// qooViewerAppStateReference(AppState を弱く持つ箱)の先のクロージャ/プロパティ経由で行う。
 struct MenuCheckmarkState: Equatable {
     /// フォーカス中のウインドウのビューアに本が出ているか(`AppState.menuShownBook`。監査 M-6 ―― 以前メニューは `focusedAppState?.currentBook`
     /// を参照で読み、受け渡し中は新しい本、画面と操作の相手は前の本、とずれた)。メニューの「本を開いているか」はこれで見る。

@@ -100,6 +100,12 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
   ここに入れ、実行は `AppState.fileBrowser`(weak)を通す(→ [15](15-file-browser.md))。
   **メニューが読む値はすべてここへ入れる**(2026-10-04 の監査 §1-4、段 5 で決まりにした)。中身を `focusedAppState` の参照から
   読む一覧(同じフォルダのファイル・ブックマーク一覧)も、変わった印(`siblingBooksRevision` など)をここへ入れて作り直しの契機にする。
+- **メニューバーはウインドウのオブジェクトを弱くしか持たない**(2026-10-25、`leaks --traceTree` で実測)。フォーカス中の `AppState`
+  は、`AppState` そのものではなく、それを弱く持つ箱 `FocusedAppStateReference`(`AppState.focusReference`、ウインドウごとに 1 つ)
+  として `FocusedValue` で渡す。メニューの項目の閉包は App の構造体ごと捕まえるので、`AppState` を直に渡していた間は、フォーカスを
+  持っていたウインドウを閉じた後も、次にフォーカスが動くまでメニューと SwiftUI の focusedValues が閉じたウインドウの `AppState` を
+  掴んでいた。メニューの部品(`HomeMenuItems`・`FileBrowserGoMenuItems` など)も、ウインドウのオブジェクトは `weak var` で持ち、
+  閉包では `[weak …]` で捕まえる(強い `let`・`if let` の束縛・`[x]` の捕まえ方をメニューの閉包に持ち込まない)。
   値は `MenuBarMenuGate` で保留した**後**の値から作る(メニューを開いている間に中身が変わらないように)。本についての値は
   `ViewerHandoff.shown`(ビューアに出ている本)から作る(→ [09](09-ui-and-windows.md)「メニューバーの写しの決まり」)。
 

@@ -54,7 +54,10 @@ struct QooViewerApp: App {
     private var autoRenameLog: AutoRenameActivityLog { stores.autoRenameLog }
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
-    @FocusedValue(\.qooViewerAppState) private var focusedAppState
+    /// 受け取るのは AppState を弱く持つ箱(メニューの閉包はこの構造体ごと捕まえるので、AppState を直に持つと、閉じたウインドウの
+    /// AppState をメニューが組み直されるまで掴む。AppState.swift の FocusedValues のコメント)。
+    @FocusedValue(\.qooViewerAppStateReference) private var focusedAppStateReference
+    private var focusedAppState: AppState? { focusedAppStateReference?.appState }
     /// メニューバーのチェックマーク表示専用の値型。AppStateというクラス参照だけを
     /// FocusedValueとして公開していたときはチェックマークが更新されなかったため、
     /// 値型(Equatable)として別途公開したものをこちらで読む(書き込みはfocusedAppState経由の
@@ -907,7 +910,10 @@ struct QooViewerApp: App {
                 ) {
                     Group {
                         if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
-                            ForEach(focusedAppState.siblingBooks, id: \.self) { url in
+                            // 閉包は AppState を弱く掴む(2026-10-25 のリークの点検、実測: このサブメニューの ForEach と項目の閉包が、閉じた
+                            // ウインドウの AppState を、次にフォーカスが動いてメニューが組み直されるまで掴んでいた)。外側の閉包が強く掴むと
+                            // 内側を weak にしても同じなので、外側で弱くする(#ImplicitStrongCapture)。
+                            ForEach(focusedAppState.siblingBooks, id: \.self) { [weak focusedAppState] url in
                                 // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
                                 // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
                                 // 拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
@@ -916,11 +922,11 @@ struct QooViewerApp: App {
                                         baseName: BookFileName.displayName(forBookID: url.path), bookID: url.path
                                     )
                                 ) {
-                                    focusedAppState.open(url: url)
+                                    focusedAppState?.open(url: url)
                                 }
                             }
                         } else {
-                            Button("Grant Access to This Folder…") {
+                            Button("Grant Access to This Folder…") { [weak focusedAppState] in
                                 focusedAppState?.grantAccessToCurrentFolder()
                             }
                             .disabled(menuCheckmarkState?.hasBook != true)
@@ -1556,9 +1562,10 @@ struct QooViewerApp: App {
                 MenuBarSubmenu("Bookmark List", isEnabled: hasBook) {
                     Group {
                         if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
-                            ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
+                            // 「同じフォルダのファイルを開く」と同じく AppState を弱く掴む(外側の閉包で)。
+                            ForEach(focusedAppState.currentBookmarks, id: \.id) { [weak focusedAppState] bookmark in
                                 Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                                    focusedAppState.jumpToBookmark?(bookmark)
+                                    focusedAppState?.jumpToBookmark?(bookmark)
                                 }
                             }
                         } else {

@@ -183,6 +183,13 @@
   持っている)で、アプリ側から切る手は見つけていない。`AppState.deinit` が閉じるはずのセキュリティ
   スコープ付きアクセスは、赤い閉じるボタン(`forceCloseWindow`)でも Cmd+W と同じく `closeBook()` を
   先に通すようにして、deinit を待たずに閉じる(同日)。残るのは `AppState` の入れ物と弱参照だけ。
+  - **2026-10-25: メニューバーが閉じた窓の `AppState` を掴む経路を断った**(実測): 閉じたタブが最後にフォーカスを持っていた窓で、
+    その後フォーカスが動かないと(アプリが前面に無いなど)、その窓の `AppState` が次にフォーカスが動くまで残った(後ろのタブを閉じて
+    3 回中 3 回)。`leaks --traceTree` の持ち主は、メニューバーの項目の閉包(App の構造体ごと focusedValue の `AppState` を捕まえる。
+    「同じフォルダのファイルを開く」の `ForEach` など)と、SwiftUI の focusedValues の保存領域。focusedValue を `AppState` ではなく
+    `AppState` を弱く持つ箱(`FocusedAppStateReference`)にし、メニューの部品(`HomeMenuItems` ほか)が持つウインドウのオブジェクトを
+    `weak var`・`[weak …]` に揃えたところ、後ろのタブ 3 回・閉じるボタン・本の無い窓のどれでも、閉じた窓の `AppState` はその場で
+    解放された(`ViewerViewModel`・`PageLoader` も)。上の「残るのは `AppState` の入れ物」は、この測り方では再現しなくなった。
   - **経緯**: 当初は閉じるたびに `AppState`・`ViewerViewModel`・`PageLoader`・SwiftUI のビューグラフ・
     `NSWindow` とその描画面が1組ずつ残り、**1回ごとに約118MB**(Debug ビルドで5回開閉して +594MB)
     増えていた。ホームだけのウインドウでは増えない。真因は**ツールバーのボタン・右クリック

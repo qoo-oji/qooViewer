@@ -103,7 +103,9 @@ struct HomeMenuItems: View {
     let home: HomeMenuState
     let selection: FileBrowserMenuSelection?
     let directory: HomeMenuDirectory
-    let appState: AppState?
+    /// フォーカス中のウインドウの AppState。**弱く持つ**(メニューバーはアプリで 1 つで、この値と閉包を組み直すまで持ち続ける ――
+    /// 強く持つと、閉じたウインドウの AppState を次にフォーカスが動くまで掴む。2026-10-25 のリークの点検、AppState.swift の FocusedValues のコメント)。
+    weak var appState: AppState?
     let collectionStore: CollectionStore
     /// 既定のライブラリの名前・コレクションのサブメニューの文言を組み立てる言語。**メニューバーの言語**(`AppLanguage.menuBarLocale`
     /// = 起動時の言語)を渡す ―― 表示言語を渡すと、実行中に切り替えたときにこれらだけ新しい言語になって混ざる(監査 M-7)。
@@ -154,11 +156,11 @@ struct HomeMenuItems: View {
     @ViewBuilder
     private var libraryItems: some View {
         MenuBarSubmenu("Libraries", isEnabled: home.isShown) {
-            // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
-            // Swift 6.4(Xcode 27)は「中で弱く捕まえているのに、外側が暗黙に強く捕まえている」形を
-            // 警告する(#ImplicitStrongCapture)。捕まえ方は今までと同じ(暗黙の強参照を明示にしただけ)で、
-            // メニュー項目に残る閉包が弱いまま、という肝心の点は変わらない。
-            ForEach(directory.libraries) { [appState] library in
+            // 外側の閉包でも`appState`を**弱く**捕まえる。Swift 6.4(Xcode 27)は「中で弱く捕まえているのに、外側が暗黙に強く
+            // 捕まえている」形を警告する(#ImplicitStrongCapture)。以前は外側を `[appState]`(強い)と明示して黙らせていたが、
+            // `ForEach` の中身の閉包はメニューに残るので、それが閉じたウインドウの AppState を掴んでいた(2026-10-25 のリークの
+            // 点検、実測)。外側を弱くすれば、中の閉包は外側の弱い参照を使う。
+            ForEach(directory.libraries) { [weak appState] library in
                 Toggle(library.displayName(language: locale), isOn: Binding(
                     get: { [home] in home.isShelfShown && home.libraryID == library.id },
                     set: { [weak appState, home] _ in
@@ -208,7 +210,7 @@ struct HomeMenuItems: View {
         }
         .disabled(!home.canDeleteCollections)
         MenuBarSubmenu("Move to Library", isEnabled: home.canDeleteCollections && directory.libraries.count >= 2) {
-            ForEach(directory.libraries.filter { $0.id != home.libraryID }) { [appState] library in
+            ForEach(directory.libraries.filter { $0.id != home.libraryID }) { [weak appState] library in
                 let canMove = home.canMoveCollections(to: library.id, in: directory)
                 let name = library.displayName(language: locale)
                 Button { [weak appState, home, collectionStore] in
@@ -249,7 +251,7 @@ struct HomeMenuItems: View {
         // ライブラリが複数あるときは、作る先のライブラリを選ぶサブメニュー(右クリックと同じ。2026-09-21)。
         if directory.libraries.count > 1 {
             MenuBarSubmenu("Create Collection", isEnabled: selection?.canUseAsBooks == true) {
-                ForEach(directory.libraries) { [appState] library in
+                ForEach(directory.libraries) { [weak appState] library in
                     Button { [weak appState] in
                         guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
                         actions.createCollection(from: entries, libraryID: library.id)
@@ -329,7 +331,9 @@ private struct HomeMenuSubmenuIdentity: Hashable {
 /// ファイルメニューの「ファイルブラウザで選んだ項目」の群。右クリックと同じ口(FileBrowserActions)を通る。
 struct FileBrowserFileMenuItems: View {
     let selection: FileBrowserMenuSelection?
-    let appState: AppState?
+    /// フォーカス中のウインドウの AppState。**弱く持つ**(メニューバーはアプリで 1 つで、この値と閉包を組み直すまで持ち続ける ――
+    /// 強く持つと、閉じたウインドウの AppState を次にフォーカスが動くまで掴む。2026-10-25 のリークの点検、AppState.swift の FocusedValues のコメント)。
+    weak var appState: AppState?
     /// 題を組み立てる言語。**メニューバーの言語**(`AppLanguage.menuBarLocale`)を渡す(HomeMenuItems.locale と同じ。監査 M-7)。
     let locale: Locale
 
@@ -520,7 +524,9 @@ struct HomeViewMenuItems: View {
     let isFileBrowserFeatureEnabled: Bool
     let isSmartLibraryFeatureEnabled: Bool
     let home: HomeMenuState
-    let appState: AppState?
+    /// フォーカス中のウインドウの AppState。**弱く持つ**(メニューバーはアプリで 1 つで、この値と閉包を組み直すまで持ち続ける ――
+    /// 強く持つと、閉じたウインドウの AppState を次にフォーカスが動くまで掴む。2026-10-25 のリークの点検、AppState.swift の FocusedValues のコメント)。
+    weak var appState: AppState?
 
     private var isBrowser: Bool { home.isShown && home.mode == .browser }
     private var isSmart: Bool { home.isShown && home.mode == .smart }
@@ -537,9 +543,8 @@ struct HomeViewMenuItems: View {
             // ファイルブラウザとスマートライブラリの見せ方(2026-09-27 からスマートライブラリにも効く)。キーは Finder と同じ
             // アイコン ⌘1・リスト ⌘2(監査 21)。ビューアの表示モードの ⌘1〜⌘4 とは、ホームの間は表示メニューの中身ごと
             // 入れ替わっているのでぶつからない。本棚の間はキーを付けない(homeMenuShortcut)。
-            // 外側の閉包でも`appState`を明示的に捕まえる理由は HomeMenuItems の「ライブラリ」と同じ
-            // (Swift 6.4 の #ImplicitStrongCapture。捕まえ方そのものは変えていない)。
-            ForEach(Array(FileBrowserViewMode.allCases.enumerated()), id: \.element) { [appState] index, mode in
+            // 外側の閉包でも`appState`を弱く捕まえる理由は HomeMenuItems の「ライブラリ」と同じ(Swift 6.4 の #ImplicitStrongCapture)。
+            ForEach(Array(FileBrowserViewMode.allCases.enumerated()), id: \.element) { [weak appState] index, mode in
                 Toggle(String(localized: mode.menuTitle), isOn: Binding(
                     get: { [home, isBrowser, isSmart] in
                         (isBrowser && home.browserViewMode == mode) || (isSmart && Self.smartViewMode(for: mode) == home.smartViewMode)
@@ -562,14 +567,14 @@ struct HomeViewMenuItems: View {
         // スマートライブラリの並べ替えは画面の中のメニューだけ(ここの項目は本棚とファイルブラウザのもの)。
         MenuBarSubmenu("Sort By", isEnabled: home.isShown && home.mode != .smart) {
             if isBrowser {
-                ForEach(FolderBrowserSortKey.allCases) { [appState] key in
+                ForEach(FolderBrowserSortKey.allCases) { [weak appState] key in
                     Toggle(key.titleKey, isOn: Binding(
                         get: { [home] in home.browserSortKey == key },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortKey = key }
                     ))
                 }
                 Divider()
-                ForEach(FolderBrowserSortDirection.allCases) { [appState] direction in
+                ForEach(FolderBrowserSortDirection.allCases) { [weak appState] direction in
                     Toggle(direction.titleKey, isOn: Binding(
                         get: { [home] in home.browserSortDirection == direction },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortDirection = direction }
@@ -580,7 +585,7 @@ struct HomeViewMenuItems: View {
                 let fields: [ItemSortOption.Field] = home.openedCollectionID == nil
                     ? ItemSortOption.Field.withoutTitle
                     : [.name, .title, .dateAdded, .dateCreated, .dateModified]
-                ForEach(fields) { [appState] field in
+                ForEach(fields) { [weak appState] field in
                     Toggle(field.titleKey, isOn: Binding(
                         get: { [home] in home.shelfSort.field == field },
                         set: { [weak appState, home] _ in
@@ -589,7 +594,7 @@ struct HomeViewMenuItems: View {
                     ))
                 }
                 Divider()
-                ForEach([true, false], id: \.self) { [appState] ascending in
+                ForEach([true, false], id: \.self) { [weak appState] ascending in
                     Toggle(ascending ? LocalizedStringKey("Ascending") : LocalizedStringKey("Descending"), isOn: Binding(
                         get: { [home] in home.shelfSort.isAscending == ascending },
                         set: { [weak appState, home] _ in
@@ -651,7 +656,7 @@ struct HomeViewMenuItems: View {
 
     private var columnsMenu: some View {
         MenuBarSubmenu("Columns", isEnabled: isBrowser && home.browserViewMode == .list) {
-            ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { [appState] column in
+            ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { [weak appState] column in
                 Toggle(String(localized: column.title), isOn: Binding(
                     get: { [home] in !home.hiddenListColumns.contains(column.rawValue) },
                     set: { [weak appState] _ in

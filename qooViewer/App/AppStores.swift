@@ -761,7 +761,7 @@ final class AppStores: ObservableObject {
 /// revisionの値そのものは誰も読まない。@Publishedの発火だけが目的で、発火を受けた
 /// SwiftUIがAppのbodyを再評価し、.commandsが各ストアの**その時点の最新値**を読み直す。
 ///
-/// なおAppのbodyの再評価要因はこれで全てではなく、FocusedValues(qooViewerAppState /
+/// なおAppのbodyの再評価要因はこれで全てではなく、FocusedValues(qooViewerAppStateReference /
 /// qooViewerMenuCheckmarkState)の変化でも再評価される。そちらはAppState側で
 /// ゲート経由の値だけを公開することで同じ原則を守っている(MenuCheckmarkStateのコメント参照)。
 @MainActor
