@@ -255,6 +255,11 @@ final class AppStores: ObservableObject {
         smartLibraryStore = SmartLibraryStore(defaults: defaults)
         // テストの中では記録を保存しない(共有の状態に触らない。Dependencies.live())。
         metadataCorpusStore = MetadataCorpusStore(url: dependencies.metadataCorpusURL)
+        // ライブラリが OFF の間に表紙の作り直しを覚えるのは、記録したコレクションの本だけ(CollectionCoverExtractor の同名のコメント)。
+        let corpusForCovers = metadataCorpusStore
+        collectionCoverExtractor.isRecordedCollectionBook = { [weak corpusForCovers] bookID in
+            corpusForCovers?.recordsCollectionBook(bookID) ?? true
+        }
         let probeStores = (metadataStore, layoutStore, bookmarkStore, collectionStore, folderAccess, preferences)
         metadataGenerator = MetadataGenerator(
             metadataStore: metadataStore, rulesStore: metadataRulesStore, corpusStore: metadataCorpusStore,

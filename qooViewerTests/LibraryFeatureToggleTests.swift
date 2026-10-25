@@ -323,6 +323,41 @@ struct LibraryFeatureToggleTests {
         #expect(suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) == nil)
     }
 
+    /// 2026-10-25 の機能の ON/OFF の監査。以前はどのコレクションにも入っていない本のレイアウトの変更まで覚え、500 冊を超えると ON へ
+    /// 戻したときに全冊の表紙を作り直していた。
+    @Test("OFFの間に覚えるのは、記録したコレクションの本の変更だけ")
+    func changesWhileOffAreRememberedOnlyForCollectionBooks() async throws {
+        let library = try InMemoryLibrary(label: "library-toggle-remember-only-collection")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "library-toggle-remember-only-collection")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("library-toggle-remember-only-collection")
+        let url = try makeFolderBook(temporary, named: "book")
+        let item = try register(url, in: library)
+        let outside = try makeFolderBook(temporary, named: "outside")
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults,
+            isLibraryFeatureEnabled: false
+        )
+        defer { extractor.releaseResources() }
+        let corpus = MetadataCorpusStore(url: nil)
+        corpus.recordCollectionBooks([item.bookID])
+        extractor.isRecordedCollectionBook = { corpus.recordsCollectionBook($0) }
+
+        for (bookID, book) in [(item.bookID, url), (outside.path, outside)] {
+            library.layouts.setShelfCoverPageKey(
+                forBookID: bookID, anchors: .probe(book),
+                pageKey: book.appendingPathComponent("002.png").path, displayName: "002.png"
+            )
+        }
+        await extractor.waitUntilIdle()
+        // 通知はアプリ全体に飛ぶ(並行して走るほかのテストの本が混ざりうる)ので、このテストの 2 冊だけを見る。
+        let remembered = suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) ?? []
+        #expect(remembered.contains(item.bookID))
+        #expect(!remembered.contains(outside.path))
+    }
+
     /// 2026-09-21 の監査の L1(2 回目)。最初の版は ON へ戻した時点で控えを消していたので、作り直しの途中でもう一度 OFF にすると
     /// 残りの本は古い表紙のまま二度と拾われず、抽出に失敗していた本は指定を直しても灰色のままだった。
     @Test("OFFの間に変えた本の作り直しを途中でOFFにしても、残りの本は控えに残り、次にONへ戻したとき作り直す。失敗していた本も試し直す")

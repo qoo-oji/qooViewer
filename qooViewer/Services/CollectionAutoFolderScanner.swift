@@ -76,8 +76,9 @@ final class CollectionAutoFolderScanner: ObservableObject {
     /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は走査も監視もしない。
     private(set) var isLibraryFeatureEnabled = true
 
-    /// ライブラリ機能のON/OFF。OFFにしたら**監視(FSEvents)を下ろし**、見直しの予約も捨てる(走っている走査は終わらせる ――
-    /// 途中で止めても得が無く、結果を足すのは登録済みの自動登録フォルダの中身だけ)。ONへ戻ったらその場で1回走査する。
+    /// ライブラリ機能のON/OFF。OFFにしたら**監視(FSEvents)を下ろし**、見直しの予約も捨てる(走っている走査は終わらせるが、
+    /// **その結果は登録しない** ―― `finishScan` が捨てる。2026-10-25 の機能の ON/OFF の監査: 以前は OFF の後も、見つけた本の
+    /// ブックマークを作ってコレクションへ足していた)。ONへ戻ったらその場で1回走査する。
     func setLibraryFeatureEnabled(_ isEnabled: Bool) {
         guard isEnabled != isLibraryFeatureEnabled else { return }
         isLibraryFeatureEnabled = isEnabled
@@ -287,6 +288,9 @@ final class CollectionAutoFolderScanner: ObservableObject {
         }
         // 走査の最中に解放されていたら、結果は捨てる(scheduleScanの同じguardと同じ理由)。
         guard !didRelease else { return }
+        // 走査の最中にライブラリ機能をOFFにされていたら、結果は捨てる(setLibraryFeatureEnabled のコメント)。書き終わりを
+        // 見張る控え(observations)も前のまま ―― ONへ戻ったときの走査が続きから比べる。
+        guard isLibraryFeatureEnabled else { return }
 
         var stillWriting: [URL: CollectionAutoFolderScan.Observation] = [:]
         var stillWritingCollectionIDs: [URL: UUID] = [:]
@@ -333,6 +337,8 @@ final class CollectionAutoFolderScanner: ObservableObject {
                         .compactMap(CollectionStore.makePendingItem(for:)))
                 }
             }
+            // 待っている間にライブラリ機能をOFFにされていたら足さない(上の guard と同じ)。
+            guard isLibraryFeatureEnabled, !didRelease else { return }
             for registration in registrations where !registration.pending.isEmpty {
                 // 待っている間に消されたコレクションには足さない。
                 guard let collection = collectionStore.collection(withID: registration.id) else { continue }

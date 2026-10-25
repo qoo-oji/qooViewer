@@ -25,7 +25,11 @@ final class MetadataCorpusStore {
         static let currentVersion = 1
     }
 
-    private(set) var record: Record
+    private(set) var record: Record {
+        didSet { recordedCollectionBookIDs = nil }
+    }
+    /// `record.collectionBookIDs` の集合の控え(`recordsCollectionBook`。記録が変わったら作り直す)。
+    private var recordedCollectionBookIDs: Set<String>?
     /// 記録が変わった(メタデータ生成が母体を集め直す)。
     let changes = PassthroughSubject<Void, Never>()
     /// 保存先。nil なら保存しない(テスト)。
@@ -44,6 +48,14 @@ final class MetadataCorpusStore {
     }
 
     var collectionBookIDs: Set<String> { Set(record.collectionBookIDs) }
+
+    /// `bookID` が記録したコレクションの本か。**まだ何も記録していなければ true**(分からないものを「コレクションの本ではない」に
+    /// しない)。ライブラリが OFF の間に表紙の作り直しを覚える本を絞るのに使う(CollectionCoverExtractor.isRecordedCollectionBook)。
+    func recordsCollectionBook(_ bookID: String) -> Bool {
+        guard !record.collectionBookIDs.isEmpty else { return true }
+        if recordedCollectionBookIDs == nil { recordedCollectionBookIDs = Set(record.collectionBookIDs) }
+        return recordedCollectionBookIDs?.contains(bookID) ?? true
+    }
 
     var smartLibraryBookIDs: Set<String> { Set(record.smartLibrary.values.joined()) }
 

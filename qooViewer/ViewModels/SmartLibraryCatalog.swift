@@ -78,13 +78,45 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 捨てる(探し直しを頼む)ときは `invalidateScan()` を通す。**探し終えた結果は、その集め直しが後の集め直しに取り消されても
     /// 覚える**(2026-09-27 の監査): 以前は取り消された集め直しが探し終えた結果を捨て、後の集め直しがもう一度探していた。探すのは
     /// ネットワーク上のフォルダでは数十秒かかり、メタデータの更新の知らせ(400ms ごとにまとめる)が続く間は、探し終えることが無かった。
+    /// **覚えるのは探し終えた結果だけ**(2026-10-25 の機能の ON/OFF の監査): 探すのは集め直しとは別の仕事(`scanning`)にし、
+    /// 集め直しを取り消しても止めない。それまでは集め直しの取り消しが FileIO を通って探索まで届き(`FileIO.perform` は取り消しを
+    /// 中へ伝える)、途中で戻った一覧 ―― 探し終えた起点の本だけ、探していた起点の本は無し ―― を探し終えた結果として覚え、
+    /// 次の集め直しがそのまま並べ、corpus.json・catalog.json にも書いていた。
     private var scanned: (roots: [String], result: SmartLibraryScanner.Result)?
     /// `scanned` を捨てるたびに進める番号。探している間に探し直しを頼まれたら、その探した結果は覚えない(古い)。
     private var scanEpoch = 0
+    /// 探している最中の探索(`scan(roots:)`)。同じ場所・同じ `scanEpoch` を頼んだ集め直しは、新しく探さずにこれを待つ。
+    private var scanning: (roots: [String], epoch: Int, task: Task<SmartLibraryScanner.Result?, Never>)?
 
     private func invalidateScan() {
         scanned = nil
         scanEpoch &+= 1
+        // 探している最中のものは古い(探し直し・ボリュームの着脱・機能 OFF)。止める ―― 取り消しは FileIO を通って探索の中へ届く。
+        scanning?.task.cancel()
+        scanning = nil
+    }
+
+    /// `roots` を探し、探し終えたら `scanned` に覚える。同じ場所を探している最中ならそれを待つ。途中で止められたら nil
+    /// (`scanned` の型コメント。途中までの一覧は誰にも渡さない)。
+    ///
+    /// 待っている集め直しが取り消されても探索は止まらない(`Task.value` を待つことは、待たれる仕事を取り消さない)。
+    private func scan(roots: [String]) async -> SmartLibraryScanner.Result? {
+        let epoch = scanEpoch
+        if let scanning, scanning.roots == roots, scanning.epoch == epoch { return await scanning.task.value }
+        scanning?.task.cancel()
+        let task = Task<SmartLibraryScanner.Result?, Never> { [weak self] in
+            let result = await FileIO.perform { () -> SmartLibraryScanner.Result? in
+                let result = SmartLibraryScanner.scan(roots: roots)
+                // 探索は取り消されると途中で戻る(探し終えた起点の本だけを返す)。そうなった回は結果ごと捨てる。
+                return Cancellation.isRequestedInCurrentScope ? nil : result
+            }
+            guard let self, let result, epoch == self.scanEpoch else { return nil }
+            if roots == self.scanRoots() { self.scanned = (roots, result) }
+            if self.scanning?.epoch == epoch, self.scanning?.roots == roots { self.scanning = nil }
+            return result
+        }
+        scanning = (roots, epoch, task)
+        return await task.value
     }
     private var generation = 0
     /// 保存した前回の一覧の読み込みが古くなったかの番号(`restoreCacheIfNeeded`)。機能を OFF にしたときだけ進める。
@@ -290,9 +322,10 @@ final class SmartLibraryCatalog: ObservableObject {
             // 1. フォルダの中の本(同じ場所なら前の結果を使う)。
             var scan = cachedScan ?? SmartLibraryScanner.Result()
             if cachedScan == nil, !roots.isEmpty {
-                scan = await FileIO.perform { SmartLibraryScanner.scan(roots: roots) }
-                // 取り消されていても覚える(探している間に探し直しを頼まれていなければ)。
-                if let self, epoch == self.scanEpoch, roots == self.scanRoots() { self.scanned = (roots, scan) }
+                // 探し終えた結果は `scan(roots:)` が覚える(この集め直しが取り消されても)。途中で止められたら(探し直し・機能 OFF)
+                // 並べない ―― 止めた側が次の集め直しを頼んでいる。
+                guard let found = await self?.scan(roots: roots) else { return }
+                scan = found
             }
             guard let self, !Task.isCancelled, generation == self.generation else { return }
             // シークレットフォルダの本は並べない・記録しない・保存しない(catalog.json と corpus.json は本のパスを持つ。

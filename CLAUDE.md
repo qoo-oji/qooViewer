@@ -247,7 +247,8 @@ first page but keeps its direction/display/scaling and every bookmark whose `pag
 display settings only when that viewer changed them (two viewers can hold the same row). These rules fixed 1.71's "reading
 direction is not remembered"; `ReadingStateReplacementTests` / `FeatureTogglePersistenceTests` pin them.
 **Efficiency audit (2026-09-25; `docs/plans/efficiency-audit-2026-09-25.md`)**: per-window work that mirrors something only runs
-while it is on screen — the side panel's folder browser (`SidePanelBrowserState.setVisible`) and book-contents browser
+while it is on screen — the side panel's folder browser (`SidePanelBrowserState.setVisible`; in the app it reads even its first listing
+only once shown, `waitsUntilShown`) and book-contents browser
 (`ContentView.isBookContentsPaneOnScreen`) only mark themselves stale while hidden and catch up when shown, the export window's
 VM likewise (`setPresented`), the smart-library catalog counts per-screen clients (`activate(client:)`). Cells ask for thumbnails
 again only when their `FileBrowserThumbnailProvider.sourceKey` changes, never on the provider's global `revision` alone.
@@ -439,7 +440,10 @@ menu directory, collection reconciliation on book open. What stops and what deli
 saved-data import/export/cleanup, following a moved book on open — `reconcileBookIDIfMoved` on all four stores together —
 and the "books this app knows" lookups behind Edit Metadata / Export / cleanup) is listed on `AppStores.applyLibraryFeature`;
 **new library-only work must check the flag there too**, and must not fetch `CollectionItem`s while it is off — what stays on
-is only work that keeps saved data correct or a user action from failing. **Anything that can now be stopped at run time**
+is only work that keeps saved data correct or a user action from failing. Work already running when a flag goes off re-checks it after
+every await before writing or prompting (`CollectionAutoFolderScanner.finishScan`, the launch "remove missing books" offer), and per-window
+copies a feature holds are released when it goes off (`SmartLibraryViewState.releaseBooks`) — 2026-10-25 audit of dependent work, with
+on-device checks, in docs/plans/feature-toggle-audit.md. **Anything that can now be stopped at run time**
 (`AutoRenameService.stop()`, `CollectionCoverExtractor.cancelAll()`) must let itself be restarted: the stopped side checks
 cancellation *and a generation number* after every await, `stop` nils the Task variables it cancels, and every entry point
 callable from outside checks "am I stopped" (2026-09-21 audit, `docs/plans/feature-toggle-audit.md`). Data is never deleted; books whose layout changed
@@ -497,7 +501,9 @@ books under its own target folders** (`SmartLibraryStore.folders`, path only; pe
 never library or Favorite Locations books, since those features can be switched off independently. `SmartLibraryCatalog`
 (one app-wide) gathers only while a pane is on screen (`activate`/`deactivate`): scan on `FileIO` (`SmartLibraryScanner`) →
 record the found books in `MetadataCorpusStore` → assemble from DB values (it never writes metadata; rowless books borrow
-`MetadataGenerator`'s proposal until the row exists); rebuilds run one at a time (the next cancels and awaits the previous). The last list is saved to Application
+`MetadataGenerator`'s proposal until the row exists); rebuilds run one at a time (the next cancels and awaits the previous), but the folder scan is a separate task they share
+(`SmartLibraryCatalog.scanning`): cancelling a rebuild never reaches the scan, and only a finished scan is remembered — a scan cancelled
+through `FileIO.perform` returns a partial list, which was once remembered as complete (2026-10-25). The last list is saved to Application
 Support/SmartLibrary/catalog.json and shown first (the restore checks `restoreEpoch` + the current roots, **never the rebuild's
 `generation`** — the rebuild scheduled at the same time bumps it first, which silently dropped every restore from 2026-09-22 until
 2026-09-26), **with each book's thumbnail cache key** so covers come from the disk

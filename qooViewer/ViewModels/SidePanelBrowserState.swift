@@ -20,6 +20,8 @@ import Combine
 /// 覗く(DirectoryBrowser.makeEntry)ので、本の並ぶ棚では 1 回が数百回の readdir になる。以前はそれを、見えていないのに
 /// アクティブ化のたび・本を開くたびに、開いているウインドウ・タブの数だけ繰り返していた(共有の上ならネットワーク越しに)。
 /// 移動・付け替え(`currentDirectory` などパスで覚えているもの)は今までどおりその場で行う。
+/// **最初の一覧も、出るまで読まない**(2026-10-25 の機能の ON/OFF の監査): 以前は init で読み、サイドパネルが OFF・隠している・
+/// 別のモードでも、ウインドウ・タブを作るたびにボリューム一覧(付いている共有のルートの中まで)を読んでいた。
 @MainActor
 final class SidePanelBrowserState: ObservableObject {
     /// 現在表示中のフォルダ。nilのときは最上位(ボリューム一覧)を表す。
@@ -115,7 +117,8 @@ final class SidePanelBrowserState: ObservableObject {
     private var changeObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
     /// この節が画面に出ているか(型コメント「見えていない間は読み直さない」)。ContentView が `setVisible` で知らせる。
-    /// 既定は true(知らせる者のいないテストでは今までどおりその場で読み直す)。
+    /// アプリでは false から始め、ContentView の最初の知らせ(`onChange(…initial: true)`)で出たときに初めて読む(`waitsUntilShown`)。
+    /// 知らせる者のいないテストでは true から始め、今までどおり init で読む。
     private(set) var isVisible = true
     /// 見えていない間に読み直しを見送った。見えたら読み直す。
     private var needsReloadWhenVisible = false
@@ -127,8 +130,16 @@ final class SidePanelBrowserState: ObservableObject {
     /// - Parameter changeCenter: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの)。
     /// - Parameter observesSystem: アクティブ化・ボリュームの着脱で読み直すか。**テストは false**(放送の通知なので、並んで走る
     ///   ほかのテストの契機で読み直される)。
-    init(changeCenter: FileSystemChangeCenter? = nil, observesSystem: Bool = !RuntimeEnvironment.isRunningTests) {
-        reload()
+    /// - Parameter waitsUntilShown: 最初の一覧を、出ると知らされるまで読まない(`isVisible`。型コメント「見えていない間は読み直さない」)。
+    ///   テストの既定は false(知らせる者がいない)。
+    init(changeCenter: FileSystemChangeCenter? = nil, observesSystem: Bool = !RuntimeEnvironment.isRunningTests,
+         waitsUntilShown: Bool = !RuntimeEnvironment.isRunningTests) {
+        if waitsUntilShown {
+            isVisible = false
+            needsReloadWhenVisible = true
+        } else {
+            reload()
+        }
         changeObservation = (changeCenter ?? .defaultForState()).changes.sink { [weak self] change in
             MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
         }

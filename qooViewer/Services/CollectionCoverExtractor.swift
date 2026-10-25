@@ -147,6 +147,11 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 取り消されずに終わった抽出は、結果に関わらず(見つからない・書けなかったも含めて)済みと数える ―― 数えないと、届かない本の
     /// ぶんだけ起動や切り替えのたびに作り直しが繰り返される。
     private(set) var isLibraryFeatureEnabled: Bool
+    /// OFF の間に覚える本を、コレクションの本に絞る問い(AppStores が MetadataCorpusStore の記録を渡す。nil なら全部覚える)。
+    /// 2026-10-25 の機能の ON/OFF の監査: 以前はどのコレクションにも入っていない本のレイアウトの変更まで覚え、500 冊を超えると
+    /// ON へ戻したときに全冊の表紙を作り直していた。OFF の間は `CollectionItem` を読まない約束なので、行ではなく最後に写した記録で
+    /// 判定する(OFF の間に顔ぶれが変わるのは保存データの読み込みだけで、その本はまだ表紙が無く ON へ戻した `refill` が拾う)。
+    var isRecordedCollectionBook: ((String) -> Bool)?
     private var didPrepare = false
     static let booksChangedWhileDisabledKey = "qooViewer.collections.booksChangedWhileLibraryDisabled"
     static let changedTooManyWhileDisabledKey = "qooViewer.collections.changedTooManyWhileLibraryDisabled"
@@ -289,7 +294,8 @@ final class CollectionCoverExtractor: ObservableObject {
             redoBookIDByItemID[item.id] = item.bookID
             redoRemainingByBookID[item.bookID, default: 0] += 1
         }
-        // 作り直す登録が 1 つも無い本(どのコレクションにも入っていない本。OFF の間はそれも覚えている)は、ここで済みにする。
+        // 作り直す登録が 1 つも無い本(どのコレクションにも入っていない本。記録がまだ無かった・この版より前に覚えた本は、
+        // OFF の間もそれを覚えている。`isRecordedCollectionBook`)は、ここで済みにする。
         let finished = targets.filter { redoRemainingByBookID[$0] == nil }
         removeFromChangedWhileDisabled(finished)
         enqueue(ready)
@@ -331,6 +337,7 @@ final class CollectionCoverExtractor: ObservableObject {
         // テストの中で走る実物のアプリの抽出役には、テストのストアが出す通知も届く(通知はアプリ全体に飛ぶ)。
         // 開発機の本物の保存先へテストの本を書かない。
         guard !(RuntimeEnvironment.isRunningTests && defaults === UserDefaults.standard) else { return }
+        if let isRecordedCollectionBook, !isRecordedCollectionBook(bookID) { return }
         guard !defaults.bool(forKey: Self.changedTooManyWhileDisabledKey) else { return }
         var bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) ?? []
         guard !bookIDs.contains(bookID) else { return }

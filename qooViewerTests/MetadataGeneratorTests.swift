@@ -208,6 +208,19 @@ struct MetadataCorpusStoreTests {
         #expect(corpus.smartLibraryBookIDs == ["/b/3.zip"])
     }
 
+    @Test("記録したコレクションの本かを答える。まだ何も記録していなければ、どの本も「そうかもしれない」(true)")
+    func recordsCollectionBook() {
+        let corpus = MetadataCorpusStore(url: nil)
+        #expect(corpus.recordsCollectionBook("/a/1.zip"))
+        corpus.recordCollectionBooks(["/a/1.zip"])
+        #expect(corpus.recordsCollectionBook("/a/1.zip"))
+        #expect(!corpus.recordsCollectionBook("/a/2.zip"))
+        // 記録が変わったら答えも変わる(控えを作り直す)。
+        corpus.recordCollectionBooks(["/a/2.zip"])
+        #expect(!corpus.recordsCollectionBook("/a/1.zip"))
+        #expect(corpus.recordsCollectionBook("/a/2.zip"))
+    }
+
     @Test("アプリ自身の移動に付いていき、消えた本は外す。保存して読み直せる")
     func relocatesAndPersists() async throws {
         let temporary = try TemporaryDirectory("metadata-corpus")

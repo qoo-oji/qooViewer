@@ -1100,6 +1100,34 @@ struct SmartLibraryTests {
         #expect(!catalog.hasLoaded)
     }
 
+    /// 2026-10-25 の機能の ON/OFF の監査。以前はペインを出していないウインドウでは誰も空にせず、全冊の写しをウインドウを閉じるまで
+    /// 持ち続けた。
+    @Test("機能を OFF にしたら本の写しを手放す。選んだ棚・絞り込み・並べ方は残り、本が届き直せば元の絞り込みで並ぶ")
+    func releaseBooksKeepsTheChoices() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        let shelf = SmartShelf(name: "架空の棚", conditions: SmartShelfConditions(rules: [
+            SmartShelfRule(field: .genre, op: .equals, text: "架空ジャンル"),
+        ]))
+        let books = [book("/b/1.zip", genre: "架空ジャンル"), book("/b/2.zip", genre: "架空ジャンル"), book("/b/3.zip")]
+        state.update(books: books, shelves: [shelf])
+        state.selectedShelfID = shelf.id
+        state.sortAscending = false
+        state.recompute(now: now)
+        #expect(state.visibleBooks.map(\.id) == ["/b/2.zip", "/b/1.zip"])
+
+        state.releaseBooks()
+        #expect(state.visibleBooks.isEmpty)
+        #expect(state.gridItems.isEmpty)
+        #expect(state.shelfCounts[nil] == 0)
+        #expect(state.selectedShelfID == shelf.id)
+        #expect(!state.sortAscending)
+
+        state.update(books: books, shelves: [shelf])
+        #expect(state.visibleBooks.map(\.id) == ["/b/2.zip", "/b/1.zip"])
+    }
+
     /// 2026-10-04 の監査 O-5。以前は在るかどうかだけを見て、外したボリュームも消えた本も同じ「本が見つかりません」だった。
     @Test("開く前の確かめ: 在る・無い・繋がっていないボリュームを見分ける(繋がっていないボリュームは触らずに綴りで)")
     func openProbeTellsWhyABookIsMissing() async throws {

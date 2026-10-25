@@ -303,6 +303,22 @@ final class SmartLibraryViewState: ObservableObject {
         recompute()
     }
 
+    /// スマートライブラリ機能を OFF にした(ContentView)。本の一覧の写しと作り直しの控えを手放す(2026-10-25 の機能の ON/OFF の監査:
+    /// 以前は、ペインを出していないウインドウでは誰も空にせず、全冊の写しを数通り ―― 集めたまま・著者の設定を当てたもの・並べる本・
+    /// 枠 ―― と検索の文字列・ブラウザの冊数・並びの控えを、ウインドウを閉じるまで持ち続けた)。
+    ///
+    /// 選んだ棚・絞り込み・並べ方・ブラウザのボタンは残す(ON へ戻せばペインの onAppear がまた本を渡す)。`update(books: [], shelves: [])`
+    /// は使わない ―― 空のシェルフの一覧は「消されたシェルフ」として選んだ棚を「すべての本」へ戻してしまう。グリッドの選択は並びに
+    /// 合わせて外れる(`recompute` → `pruneSelection`。選択は並んでいるものだけ)。
+    func releaseBooks() {
+        recomputeTask?.cancel()
+        recomputeTask = nil
+        guard !sourceBooks.isEmpty || !books.isEmpty else { return }
+        sourceBooks = []
+        books = []
+        recompute()
+    }
+
     var selectedShelf: SmartShelf? { selectedShelfID.flatMap { id in shelves.first { $0.id == id } } }
 
     /// 絞り込み・ブラウザ・検索のどれかが効いているか(「すべて解除」を出すか)。

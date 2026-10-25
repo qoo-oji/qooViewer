@@ -409,6 +409,9 @@ struct ContentView: View {
             .onChange(of: preferences.libraryFeatureEnabled, initial: true) { _, isEnabled in
                 let isEnabled = isEnabled || RuntimeEnvironment.isRunningTests
                 if !isEnabled, welcomeLibrary.isLibraryFeatureEnabled { welcomeLibrary.endEditing() }
+                // 起動時の「見つからなくなった本をコレクションから外しますか」も畳む(ライブラリの行を消すシート。
+                // offerRemovingMissingCollectionBooksIfNeeded)。
+                if !isEnabled { pendingMissingBookSweep = nil }
                 welcomeLibrary.isLibraryFeatureEnabled = isEnabled
             }
             // 「ファイルブラウザを有効にする」も同じ。
@@ -418,6 +421,9 @@ struct ContentView: View {
             // 「スマートライブラリを有効にする」も同じ(2026-09-22)。
             .onChange(of: preferences.smartLibraryFeatureEnabled, initial: true) { _, isEnabled in
                 welcomeLibrary.isSmartLibraryFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
+                // OFF の間は、このウインドウが持つ本の一覧の写しを手放す(SmartLibraryViewState.releaseBooks。ペインを出していない
+                // ウインドウ ―― 本を開いている・別のモード ―― にも届くのはここだけ)。
+                if !isEnabled, !RuntimeEnvironment.isRunningTests { smartLibrary.releaseBooks() }
             }
             // ホームのモードが変わって、本を開いていないのにサイドパネルを出さない側へ移ったら(3つともOFFの画面から、どれかの機能を
             // ONにした)、ホバーで浮いていたパネルを下ろす(isSidePanelSuppressedForWelcome参照。本を閉じたときの後始末と同じ理由)。
@@ -1111,6 +1117,9 @@ struct ContentView: View {
         guard preferences.libraryFeatureEnabled, preferences.offersRemovingMissingCollectionBooks, !isPrivateWindow else { return }
         Task { @MainActor in
             await collectionStore.settleExistenceRefresh()
+            // 待っている間にライブラリ機能・この設定を OFF にされていたら尋ねない(2026-10-25 の機能の ON/OFF の監査。OFF にすると
+            // 存在確認が取り消されて待ちが明け、OFF の後に削除のシートを出していた)。
+            guard preferences.libraryFeatureEnabled, preferences.offersRemovingMissingCollectionBooks else { return }
             let sweep = collectionStore.missingBookSweep()
             guard !sweep.isEmpty else { return }
             pendingMissingBookSweep = sweep

@@ -455,6 +455,20 @@ struct SidePanelBrowserStateTests {
         #expect(Set(fixture.state.entries.map(\.url.lastPathComponent)) == ["images"])
     }
 
+    /// 2026-10-25 の機能の ON/OFF の監査。以前は init で読み、サイドパネルが OFF・隠している・別のモードでも、ウインドウ・タブを
+    /// 作るたびにボリューム一覧(付いている共有のルートの中まで)を読んでいた。
+    @Test("アプリでは、出ると知らされるまで最初の一覧を読まない。隠れたままの知らせでも読まず、出たら読む")
+    func waitsUntilShownBeforeTheFirstListing() async {
+        let state = SidePanelBrowserState(changeCenter: FileSystemChangeCenter(), observesSystem: false, waitsUntilShown: true)
+        #expect(!state.isVisible)
+        #expect(state.reloadTask == nil)
+        state.setVisible(false)
+        #expect(state.reloadTask == nil)
+        state.setVisible(true)
+        #expect(state.reloadTask != nil)
+        await state.settle()
+    }
+
     @Test("アプリ自身がファイルを動かした知らせで、表示中のフォルダに関わるときだけ読み直す。フォルダの名前が変わったら付いていく")
     func fileSystemChangesReloadAndFollow() async throws {
         let temporary = try TemporaryDirectory("browser-changes")

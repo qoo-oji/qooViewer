@@ -193,7 +193,8 @@ final class DebugControlPort {
             guard let raw = arguments["mode"] as? String, let mode = WelcomeMode(rawValue: raw) else {
                 throw Failure("unknown mode: \(arguments["mode"] ?? "nil")")
             }
-            guard let library = try frontmost().welcomeLibrary else { throw Failure("Home is not shown") }
+            // `windowNumber` があればその窓(実機で、後ろのタブ・しまった窓のホームを切り替えるため)。
+            guard let library = try appState(arguments).welcomeLibrary else { throw Failure("Home is not shown") }
             library.selectMode(mode)
             return ["mode": library.mode.rawValue]
         case "setPreference":
@@ -220,6 +221,27 @@ final class DebugControlPort {
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
             return ["isKey": window.isKeyWindow]
+        case "mergeAllWindows":
+            // 窓をすべて 1 つのタブの組へまとめる(ウインドウメニューの「すべてのウインドウを結合」。実機で、後ろのタブの振る舞いを確かめるため)。
+            guard let window = NSApp.windows.first(where: { window in
+                stores.launchCoordinator.allOpenAppStates.contains { $0.hostWindow === window }
+            }) else { throw Failure("no content window") }
+            window.mergeAllWindows(nil)
+            return ["tabbedWindows": window.tabbedWindows?.map(\.windowNumber) ?? []]
+        case "selectTab":
+            // タブの組の中でその窓を選ぶ(アプリを前へ出さずに。実機で、後ろのタブを前のタブへ切り替えるため)。
+            guard let number = arguments["windowNumber"] as? Int,
+                  let window = NSApp.windows.first(where: { $0.windowNumber == number }), let group = window.tabGroup
+            else { throw Failure("no tabbed window \(arguments["windowNumber"] ?? "nil")") }
+            group.selectedWindow = window
+            return [:] as [String: Any]
+        case "setMiniaturized":
+            // 窓を Dock へしまう・戻す(実機で、しまった窓の振る舞いを確かめるため)。
+            guard let number = arguments["windowNumber"] as? Int, let value = arguments["value"] as? Bool,
+                  let window = NSApp.windows.first(where: { $0.windowNumber == number })
+            else { throw Failure("setMiniaturized needs windowNumber and a Bool value") }
+            if value { window.miniaturize(nil) } else { window.deminiaturize(nil) }
+            return [:] as [String: Any]
         case "contextClick":
             // 窓の中の点(内容の左上を原点とする pt)を右クリックした形にして、右クリックメニューを開く(実機の検証で、メニューの中身を
             // AX で読むため。2026-10-19: プロセスを名指しした CGEvent の右クリックは窓へ届かず、HID の段から流すとポインタが動く)。
@@ -530,6 +552,8 @@ enum DebugStateDump {
                 "isKey": window.isKeyWindow,
                 "isMain": window.isMainWindow,
                 "isSheet": window.isSheet,
+                "isMiniaturized": window.isMiniaturized,
+                "isOcclusionVisible": window.occlusionState.contains(.visible),
                 "attachedSheet": window.attachedSheet.map { $0.title } ?? NSNull(),
                 "tabbingIdentifier": window.tabbingIdentifier,
                 "tabbedWindows": window.tabbedWindows?.map(\.windowNumber) ?? [],
@@ -558,6 +582,8 @@ enum DebugStateDump {
             ],
             // ツリーの「ネットワーク」に並んでいるサーバ(探していなければ空)。
             "networkServers": stores.networkServers.servers,
+            // ツリーのどれかが「ネットワーク」を探させているか(画面に出ているツリーが 1 つでもあれば true)。
+            "isBrowsingNetwork": stores.networkServers.isBrowsing,
         ]
     }
 
@@ -572,6 +598,8 @@ enum DebugStateDump {
             "viewerNotice": state.viewerNotice?.message ?? NSNull(),
             "homeMode": state.currentBook == nil ? (state.welcomeLibrary?.mode.rawValue ?? NSNull()) : NSNull(),
             "fileBrowserFolder": state.fileBrowser?.currentFolder?.path ?? NSNull(),
+            // ファイルブラウザのペインが出ている(FileBrowserState.activate 済み)か。
+            "isFileBrowserPaneActive": state.fileBrowser?.isVisible ?? false,
             "isSidePanelRevealed": state.isSidePanelRevealed,
             "hideToolbar": state.hideToolbar,
             "hideProgressBar": state.hideProgressBar,
