@@ -1,0 +1,24 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSLocalNetworkUsageDescription": {
+      "comment": "Shown when macOS asks for local network access (the file browser's Network section).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "qooViewer looks for file servers on your local network to show them in the file browser’s Network section."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルブラウザの「ネットワーク」に表示するため、ローカルネットワーク上のファイルサーバを探します。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

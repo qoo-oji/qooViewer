@@ -51,6 +51,8 @@ extension AppStores {
         var startsMetadataGeneration: Bool
         /// 自動リネームと、動画のサムネイルの先回り(よく使う項目の中のファイルに触る裏の仕事)を始める。
         var startsBackgroundServices: Bool
+        /// LAN のサーバ探しとマウントを運ぶ道(XPC サービス NetworkVolumeConnector)。nil なら探さない(テストホストとして起動したアプリ)。
+        var networkVolumeConnector: (any NetworkVolumeConnectorTransport)? = nil
 
         /// アプリ本体が使う値。テストホストとして起動したときは、共有の状態に触る配線を外す(以前の `init()` と同じ)。
         static func live() -> Dependencies {
@@ -85,7 +87,9 @@ extension AppStores {
                 metadataDraftStore: isRunningTests ? nil : MetadataDraftStore(),
                 startsMetadataGeneration: !isRunningTests,
                 // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、名前を変え、本物のキャッシュに書くため)。
-                startsBackgroundServices: !isRunningTests
+                startsBackgroundServices: !isRunningTests,
+                // テストの中で走る実物のアプリでは LAN を探さない(ローカルネットワークの許可の確認を出さない)。
+                networkVolumeConnector: isRunningTests ? nil : NetworkVolumeConnectorClient.fromMainBundle()
             )
         }
     }

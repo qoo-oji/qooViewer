@@ -23,6 +23,8 @@ struct UnobservedStores: Equatable {
     weak var autoRenameService: AutoRenameService?
     weak var smartLibraryStore: SmartLibraryStore?
     weak var secretFolderStore: SecretFolderStore?
+    /// ファイルブラウザのツリーの「ネットワーク」(無くてもよい ―― 無ければグループを出さない)。
+    weak var networkServers: NetworkServerDirectory?
 
     /// 同じストアを指していれば同じ(App の body が組み直されるたびに作り直されても、読む側を描き直させない)。
     static func == (lhs: UnobservedStores, rhs: UnobservedStores) -> Bool {
@@ -32,6 +34,7 @@ struct UnobservedStores: Equatable {
             && lhs.folderAccess === rhs.folderAccess && lhs.launchCoordinator === rhs.launchCoordinator
             && lhs.autoRenameStore === rhs.autoRenameStore && lhs.autoRenameService === rhs.autoRenameService
             && lhs.smartLibraryStore === rhs.smartLibraryStore && lhs.secretFolderStore === rhs.secretFolderStore
+            && lhs.networkServers === rhs.networkServers
     }
 
     /// 必ずある前提で取り出す(型コメント)。

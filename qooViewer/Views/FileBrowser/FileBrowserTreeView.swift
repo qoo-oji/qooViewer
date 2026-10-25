@@ -1,10 +1,23 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// ファイルブラウザの左のツリー(改善要望7 段階3、2026-09-13)。`NSOutlineView`を包む。
 ///
 /// 3つのグループ: **ボリューム**(マウント表から。着脱で作り直す)/ **ホーム**(実際のホーム1行)/
 /// **よく使う項目**(FavoriteLocationStore。見出しの右に「＋」)。
+///
+/// ■ ネットワーク(2026-10-25、利用者の要望)
+/// LAN で SMB のサーバが見つかっている間だけ、ボリュームとホームの間に **ネットワーク** のグループを出し、サーバを 1 行ずつ並べる
+/// (`NetworkServerDirectory`。探すのはツリーが画面に出ている間だけ)。サーバの行は選べず、子も無い。**クリックすると繋ぐ**:
+/// macOS が認証(要れば)とマウントする共有の選択のダイアログを出し、マウントされたら右ペインがそのボリュームへ移る
+/// (Finder を通さない ―― NetworkVolumeConnectorWire.swift の冒頭のコメント)。繋いでいる間は行に回転表示を出す。
+/// 選べないのは、矢印キーで通りかかっただけで認証のダイアログが出ないようにするため。
+///
+/// ■ アンマウント(2026-10-25、利用者の要望)
+/// ネットワーク越し・外付けのボリュームの行の右端に取り出しの印のボタンを出し、押すとそのボリュームをアンマウントする
+/// (`VolumeUnmounting`。どの行に付けるかもそちら)。ビューアで開いている本がそのボリュームにあれば断り、使用中で失敗したら理由を出す。
+/// 右ペインがそのボリュームの中を見ていたら、外したあとはコンピュータへ移る。
 ///
 /// ■ 子は開いたときだけ読み、たたんだら捨てる
 /// 子を読むとき、**それぞれの子に直下のサブフォルダがあるかも 1 回だけ調べ**、無ければその行に三角を出さない
@@ -111,6 +124,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
     /// 先頭に「最近の項目」の行を出すか(環境設定「ツリーの先頭に「最近の項目」を表示」。シークレットウインドウでは false。
     /// FileBrowserLocation の型コメント)。
     let showsRecents: Bool
+    /// 「ネットワーク」のグループに並べるサーバ(型コメント「ネットワーク」)。nil なら出さない。
+    let networkServers: NetworkServerDirectory?
 
     /// ホイール1ノッチで動かす行数(リスト表示と共通の設定。HomeWheelScroll参照)。
     /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
@@ -150,6 +165,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
         outline.onReturnKey = { [weak coordinator] in coordinator?.handleReturn() }
         outline.canPerformEdit = { [weak coordinator] command in coordinator?.canPerformEdit(command) ?? false }
         outline.onEdit = { [weak coordinator] command in coordinator?.performEdit(command) }
+        // サーバの行のクリック(選べない行なので選択の変化では受けられない。型コメント「ネットワーク」)。
+        outline.target = coordinator
+        outline.action = #selector(Coordinator.rowClicked(_:))
         let menu = NSMenu()
         menu.delegate = coordinator
         outline.menu = menu
@@ -193,6 +211,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             outline.onReturnKey = nil
             outline.canPerformEdit = nil
             outline.onEdit = nil
+            outline.target = nil
+            outline.action = nil
             outline.menu?.delegate = nil
             outline.menu = nil
         }
@@ -214,14 +234,17 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case home
             case favorite(UUID)
             case folder
+            /// 「ネットワーク」のグループのサーバ(Bonjour のサービス名。url は無く、子も無い。クリックで繋ぐ)。
+            case networkServer(String)
         }
 
         enum Group: CaseIterable {
-            case volumes, home, favorites
+            case volumes, network, home, favorites
 
             var title: String.LocalizationValue {
                 switch self {
                 case .volumes: "Volumes"
+                case .network: "Network"
                 case .home: "Home Folder"
                 case .favorites: "Favorite Locations"
                 }
@@ -270,7 +293,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         /// 読み込んで子を出す行か(グループは自前で持つ)。
-        var loadsChildren: Bool { !isGroup && kind != .recents }
+        var loadsChildren: Bool { !isGroup && kind != .recents && serverName == nil }
+
+        /// サーバの行の名前(サーバの行でなければ nil)。
+        var serverName: String? {
+            if case .networkServer(let name) = kind { return name }
+            return nil
+        }
 
         /// 右ペインの場所と突き合わせる鍵(`FileBrowserLocation.selectionKey` と同じ規則)。
         var selectionKey: String? {
@@ -339,7 +368,20 @@ struct FileBrowserTreeView: NSViewRepresentable {
             )
         }()
         private let favoritesGroup = Node(kind: .group(.favorites), url: nil, name: "", children: [])
-        private var groups: [Node] { [volumesGroup, homeGroup, favoritesGroup] }
+        /// 「ネットワーク」(型コメント)。サーバが 1 つも見つかっていない間は出さない。
+        private let networkGroup = Node(kind: .group(.network), url: nil, name: "", children: [])
+        private var showsNetworkGroup: Bool { !(networkGroup.children ?? []).isEmpty }
+        private var groups: [Node] {
+            [volumesGroup] + (showsNetworkGroup ? [networkGroup] : []) + [homeGroup, favoritesGroup]
+        }
+        private weak var networkServers: NetworkServerDirectory?
+        /// `NetworkServerDirectory.activate(client:)` に渡す、このツリーの番号。
+        private let networkClientID = UUID()
+        private var networkSubscriptions: [AnyCancellable] = []
+        /// アンマウントのボタンを付けるボリューム(`VolumeUnmounting.unmountableMountPoints`。ボリュームの一覧と一緒に読む)。
+        private var unmountableMountPoints: Set<String> = []
+        /// アンマウントしている最中のボリューム(ボタンを押し重ねさせない)。
+        private var unmountingMountPoints: Set<String> = []
         /// 先頭の「最近の項目」(三角なし・子なし)。出すかどうかは `showsRecents`。
         private let recentsNode = Node(kind: .recents, url: nil, name: "", hasSubfolders: false)
         private var showsRecents = false
@@ -352,6 +394,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // グループの見出しは開いた状態で始める(中の行は閉じている ―― 型コメント)。
             for group in groups { outline.expandItem(group) }
             reloadVolumes()
+            startNetworkServers()
             watcher = FolderChangeWatcher(onEvents: { [weak self] events in
                 // ファイルの書き換えだけの知らせでは読み直さない(ツリーにはフォルダしか出ないので何も変わらない。
                 // `FolderChangeWatcher.Event.isFileModificationOnly`。2026-10-05 の効率の監査 B13)。
@@ -375,6 +418,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         func stop() {
+            networkSubscriptions.removeAll()
+            networkServers?.deactivate(client: networkClientID)
             let center = NSWorkspace.shared.notificationCenter
             volumeObservers.forEach(center.removeObserver)
             volumeObservers.removeAll()
@@ -527,6 +572,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         func update(from view: FileBrowserTreeView) {
             guard let outline else { return }
             state = view.state
+            if networkServers == nil, let directory = view.networkServers { networkServers = directory }
             actions = view.actions
             favoriteLocations = view.favoriteLocations
             var needsRedraw = false
@@ -688,7 +734,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case .volume: rootKey = "volume:" + (root.url.map { FileBrowserState.id(for: $0) } ?? "")
             case .home: rootKey = "home"
             case .favorite(let id): rootKey = "favorite:" + id.uuidString
-            case .group, .folder, .recents: return nil
+            case .group, .folder, .recents, .networkServer: return nil
             }
             return rootKey + "|" + FileBrowserState.id(for: url)
         }
@@ -896,8 +942,14 @@ struct FileBrowserTreeView: NSViewRepresentable {
             volumeLoadGeneration += 1
             let mine = volumeLoadGeneration
             Task { [weak self] in
-                let volumes = await FileIO.perform { FileBrowserListing.volumeEntries(mountTable: .current()) }
+                let (volumes, unmountable) = await FileIO.perform {
+                    let mounts = MountTable.current()
+                    let volumes = FileBrowserListing.volumeEntries(mountTable: mounts)
+                    return (volumes, VolumeUnmounting.unmountableMountPoints(of: volumes.map(\.url), mountTable: mounts))
+                }
                 guard let self, let outline = self.outline, self.volumeLoadGeneration == mine else { return }
+                self.unmountableMountPoints = unmountable
+                self.unmountingMountPoints.formIntersection(unmountable)
                 let sorted = volumes.sorted { lhs, rhs in
                     // 起動ボリュームを先頭に、残りは名前順(Finderのサイドバーと同じ)。
                     if (lhs.url.path == "/") != (rhs.url.path == "/") { return lhs.url.path == "/" }
@@ -1193,7 +1245,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            !((item as? Node)?.isGroup ?? true)
+            // サーバの行は選ばせない(クリックで繋ぐ ―― 型コメント「ネットワーク」)。
+            guard let node = item as? Node else { return false }
+            return !node.isGroup && node.serverName == nil
         }
 
         /// グループの見出し(ボリューム・ホーム・よく使う項目)には開閉の印を出さない(2026-09-14、ユーザー報告)。
@@ -1261,12 +1315,25 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case .volume:
                 cell.icon?.image = FileBrowserIconProvider.volumeIcon
                 cell.configure(text: node.name, outlineWidth: outlineWidth)
+            case .networkServer(let name):
+                cell.icon?.image = FileBrowserIconProvider.networkServerIcon
+                cell.configure(text: name, outlineWidth: outlineWidth)
             default:
                 cell.icon?.image = FileBrowserIconProvider.folderIcon
                 cell.configure(text: node.name, outlineWidth: outlineWidth)
             }
+            if node.kind == .volume, let path = node.url?.standardizedFileURL.path, unmountableMountPoints.contains(path) {
+                cell.setAccessory(
+                    symbol: "eject",
+                    help: String(format: String(localized: "Unmount “%@”", language: locale), node.name),
+                    outlineWidth: outlineWidth, target: self, action: #selector(unmountVolume(_:))
+                )
+                cell.accessoryButton?.isEnabled = !unmountingMountPoints.contains(path)
+            } else {
+                cell.setAccessory(symbol: nil, help: "", outlineWidth: outlineWidth, target: nil, action: nil)
+            }
             cell.alphaValue = isDimmed(node) ? 0.5 : 1
-            cell.setBusy(node.showsBusy)
+            cell.setBusy(node.showsBusy || isBusyServer(node) || isUnmounting(node))
             return cell
         }
 
@@ -1458,11 +1525,183 @@ struct FileBrowserTreeView: NSViewRepresentable {
             actions?.addFavoriteLocation()
         }
 
+        // MARK: ネットワーク
+
+        /// 見つかっているサーバの購読を始める(型コメント「ネットワーク」)。ツリーが画面にある間だけ探す。
+        private func startNetworkServers() {
+            guard let directory = networkServers else { return }
+            networkSubscriptions = [
+                directory.$servers.removeDuplicates().sink { [weak self] names in
+                    MainActor.assumeIsolated { self?.applyNetworkServers(names) }
+                },
+                directory.$connectingServers.removeDuplicates().dropFirst().sink { [weak self] _ in
+                    // 回転表示は次のランループで(publish は値が入る前に届く)。
+                    DispatchQueue.main.async { self?.refreshNetworkServerRows() }
+                },
+            ]
+            directory.activate(client: networkClientID)
+        }
+
+        /// サーバの行を一覧に合わせる(残るサーバの行は同じ Node を使い回す)。グループは 1 つ目が見つかったら出し、
+        /// 全部消えたら引っ込める。
+        private func applyNetworkServers(_ names: [String]) {
+            guard let outline else { return }
+            let wasShown = showsNetworkGroup
+            let previous = networkGroup.children ?? []
+            let rows = names.map { name in
+                previous.first { $0.serverName == name }
+                    ?? Node(kind: .networkServer(name), url: nil, name: name, hasSubfolders: false)
+            }
+            guard rows.map(\.serverName) != previous.map(\.serverName) else { return }
+            networkGroup.children = rows
+            switch (wasShown, showsNetworkGroup) {
+            case (false, true):
+                // ボリュームのグループのすぐ後ろ。
+                outline.insertItems(at: IndexSet(integer: roots.firstIndex { $0 === networkGroup } ?? 0), inParent: nil)
+                outline.expandItem(networkGroup)
+            case (true, false):
+                let index = (showsRecents ? 1 : 0) + 1
+                outline.removeItems(at: IndexSet(integer: index), inParent: nil)
+            case (true, true):
+                outline.reloadItem(networkGroup, reloadChildren: true)
+                outline.expandItem(networkGroup)
+            case (false, false):
+                break
+            }
+            // 行が増減すると選択の行番号がずれる。いまのフォルダの行を選び直す。
+            applySelection(folderID: appliedFolderID ?? nil)
+        }
+
+        private func refreshNetworkServerRows() {
+            guard let outline else { return }
+            for node in networkGroup.children ?? [] {
+                let row = outline.row(forItem: node)
+                guard row >= 0, let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileBrowserCellView
+                else { continue }
+                cell.setBusy(isBusyServer(node))
+            }
+        }
+
+        private func isBusyServer(_ node: Node) -> Bool {
+            guard let server = node.serverName else { return false }
+            return networkServers?.isConnecting(to: server) ?? false
+        }
+
+        private func isUnmounting(_ node: Node) -> Bool {
+            guard node.kind == .volume, let path = node.url?.standardizedFileURL.path else { return false }
+            return unmountingMountPoints.contains(path)
+        }
+
+        /// 行のクリック(`outline.action`)。サーバの行だけを扱う(ほかの行は選択の変化で右ペインが移る)。
+        @objc func rowClicked(_ sender: Any?) {
+            guard let outline, outline.clickedRow >= 0,
+                  let node = outline.item(atRow: outline.clickedRow) as? Node, let server = node.serverName
+            else { return }
+            connect(to: server)
+        }
+
+        @objc private func connectFromMenu(_ sender: NSMenuItem) {
+            guard let server = sender.representedObject as? String else { return }
+            connect(to: server)
+        }
+
+        /// サーバに繋ぐ(macOS が認証と共有の選択のダイアログを出す)。マウントされたら右ペインをそのボリュームへ移す。
+        /// 取り消したら何もしない。繋げなかったら理由を出す(CLAUDE.md「断る・失敗した入口は言う」)。
+        private func connect(to server: String) {
+            guard let directory = networkServers else { return UserFeedback.beep() }
+            Task { [weak self] in
+                guard let result = await directory.connect(serverName: server) else {
+                    // 同じサーバへ繋いでいる最中(認証や共有の選択のダイアログが出ている)。
+                    return UserFeedback.beep()
+                }
+                guard let self else { return }
+                switch result {
+                case .mounted(let mountPoints):
+                    guard let first = mountPoints.first else { return }
+                    self.state?.navigate(to: URL(filePath: first, directoryHint: .isDirectory))
+                case .cancelled:
+                    break
+                case .failed(let status):
+                    self.showProblem(
+                        title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
+                        message: Self.message(forNetFSStatus: status)
+                    )
+                case .unavailable:
+                    self.showProblem(
+                        title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
+                        message: String(localized: "The network connection service isn’t available.", language: self.locale)
+                    )
+                }
+            }
+        }
+
+        /// NetFS の値(正 = errno、負 = OSStatus)を文にする(OS の言語。システムの文言)。
+        private static func message(forNetFSStatus status: Int32) -> String {
+            let domain = status > 0 ? NSPOSIXErrorDomain : NSOSStatusErrorDomain
+            return NSError(domain: domain, code: Int(status)).localizedDescription
+        }
+
+        private func showProblem(title: String, message: String) {
+            guard let presenter = state?.operations.presenter else { return UserFeedback.beep() }
+            presenter.showProblem(FileBrowserProblem(title: title, message: message))
+        }
+
+        // MARK: アンマウント
+
+        /// ボリュームの行の取り出しの印(型コメント「アンマウント」)。
+        @objc private func unmountVolume(_ sender: NSButton) {
+            guard let outline, let node = outline.item(atRow: outline.row(for: sender)) as? Node, node.kind == .volume,
+                  let url = node.url
+            else { return UserFeedback.beep() }
+            let path = url.standardizedFileURL.path
+            guard !unmountingMountPoints.contains(path) else { return UserFeedback.beep() }
+            // ビューアで開いている本がこのボリュームにある(ファイルブラウザの操作と同じ判定 ―― 本そのもの・祖先・中身)。
+            if FileBrowserOperations.openBookConflict(among: [url], openBookPaths: state?.operations.openBookPaths() ?? []) != nil {
+                return showProblem(
+                    title: String(
+                        format: String(localized: "“%@” can’t be unmounted while a book on it is open.", language: locale), node.name
+                    ),
+                    message: String(localized: "Close the book, then try again.", language: locale)
+                )
+            }
+            unmountingMountPoints.insert(path)
+            outline.reloadItem(node)
+            let name = node.name
+            Task { [weak self] in
+                let error = await VolumeUnmounting.unmount(url)
+                guard let self else { return }
+                self.unmountingMountPoints.remove(path)
+                if let error {
+                    if let outline = self.outline, outline.row(forItem: node) >= 0 { outline.reloadItem(node) }
+                    return self.showProblem(
+                        title: String(format: String(localized: "“%@” couldn’t be unmounted.", language: self.locale), name),
+                        message: error.localizedDescription
+                    )
+                }
+                // 右ペインが外したボリュームの中にいたらコンピュータへ(行はボリュームの一覧の読み直しで消える)。
+                if let folder = self.state?.currentFolder, MountTable.path(folder.standardizedFileURL.path, isAtOrUnder: path) {
+                    self.state?.navigate(to: nil as URL?)
+                }
+            }
+        }
+
         // MARK: 右クリック
 
         func menuNeedsUpdate(_ menu: NSMenu) {
             guard let outline else { return }
             let row = outline.clickedRow
+            if row >= 0, let node = outline.item(atRow: row) as? Node, let server = node.serverName {
+                // サーバの行は「接続」だけ(ファイルの項目は無い)。
+                menu.removeAllItems()
+                let item = NSMenuItem(
+                    title: String(localized: "Connect", language: locale), action: #selector(connectFromMenu(_:)), keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = server
+                item.isEnabled = !(networkServers?.isConnecting(to: server) ?? true)
+                menu.addItem(item)
+                return
+            }
             guard row >= 0, let node = outline.item(atRow: row) as? Node, let entry = node.entry else {
                 menu.removeAllItems()
                 return
@@ -1525,7 +1764,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
                 field.centerYAnchor.constraint(equalTo: centerYAnchor),
                 field.trailingAnchor.constraint(lessThanOrEqualTo: button.leadingAnchor, constant: -4),
-                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+                // ボリュームの行の取り出しの印と同じ列(行の右端から `FileBrowserCellView.accessoryTrailingInset`)。見出しのセルは
+                // 行の右端の 2pt 内側で終わる(2026-10-25 実測)。以前はセルの右端から 4pt で、選択の帯より右にあった。
+                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(FileBrowserCellView.accessoryTrailingInset - 2)),
                 button.centerYAnchor.constraint(equalTo: centerYAnchor),
                 button.widthAnchor.constraint(equalToConstant: 18),
                 button.heightAnchor.constraint(equalToConstant: 18),

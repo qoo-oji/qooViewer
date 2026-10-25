@@ -157,6 +157,52 @@ print(sorted(d.items()) if isinstance(d, dict) else d)' "$connector_info")
     fi
 fi
 
+# ── NetworkVolumeConnector.xpc(LAN の SMB サーバを探し、そのマウントを NetFS に頼むだけ。docs/10「ネットワークのサーバとボリュームの接続」)
+netconn="$app/Contents/XPCServices/NetworkVolumeConnector.xpc"
+netconn_info="$netconn/Contents/Info.plist"
+if [ ! -d "$netconn" ]; then
+    fail "Contents/XPCServices/NetworkVolumeConnector.xpc が無い"
+else
+    netconn_id=$(plutil -extract CFBundleIdentifier raw -o - "$netconn_info" 2>/dev/null || true)
+    netconn_service=$(value QOONetworkVolumeConnectorService)
+    if [ -n "$netconn_id" ] && [ "$netconn_id" = "$netconn_service" ] && [ "$netconn_id" = "$bundle_id.NetworkVolumeConnector" ]; then
+        ok "NetworkVolumeConnector のバンドル ID = QOONetworkVolumeConnectorService = $netconn_id"
+    else
+        fail "NetworkVolumeConnector のバンドル ID '$netconn_id' が QOONetworkVolumeConnectorService '$netconn_service'・'$bundle_id.NetworkVolumeConnector' と合わない"
+    fi
+    netconn_archs=$(lipo -archs "$netconn/Contents/MacOS/NetworkVolumeConnector" 2>/dev/null || true)
+    if [[ " $netconn_archs " == *" arm64 "* && " $netconn_archs " == *" x86_64 "* ]]; then
+        ok "NetworkVolumeConnector は universal($netconn_archs)"
+    else
+        fail "NetworkVolumeConnector が universal ではない: '$netconn_archs'"
+    fi
+    netconn_entitlements=$(mktemp)
+    if ! codesign -d --entitlements - --xml "$netconn" > "$netconn_entitlements" 2>/dev/null || [ ! -s "$netconn_entitlements" ]; then
+        fail "NetworkVolumeConnector の entitlements を読めない"
+    else
+        # 持ってよいのは App Sandbox と外への接続だけ(StackNestConnector と同じ。get-task-allow は数えない)。
+        keys=$(python3 -I -c 'import plistlib, sys
+print(",".join(sorted(k for k in plistlib.load(open(sys.argv[1], "rb")) if k != "com.apple.security.get-task-allow")))' "$netconn_entitlements")
+        allowed="com.apple.security.app-sandbox,com.apple.security.network.client"
+        if [ "$keys" = "$allowed" ]; then
+            ok "NetworkVolumeConnector の entitlements は App Sandbox と外への接続だけ"
+        else
+            fail "NetworkVolumeConnector の entitlements が '$keys'(期待: $allowed)"
+        fi
+        values=$(python3 -I -c 'import plistlib, sys
+d = plistlib.load(open(sys.argv[1], "rb"))
+print(d.get("com.apple.security.app-sandbox") is True and d.get("com.apple.security.network.client") is True)' "$netconn_entitlements")
+        if [ "$values" = "True" ]; then ok "NetworkVolumeConnector の App Sandbox と外への接続は true"; else fail "NetworkVolumeConnector の entitlements の値が true でない"; fi
+    fi
+    rm -f "$netconn_entitlements"
+    # URLSession を使わないので ATS の例外は持たない。
+    if plutil -extract NSAppTransportSecurity xml1 -o - "$netconn_info" >/dev/null 2>&1; then
+        fail "NetworkVolumeConnector の Info.plist に NSAppTransportSecurity がある(URLSession は使わない)"
+    else
+        ok "NetworkVolumeConnector の Info.plist に NSAppTransportSecurity は無い"
+    fi
+fi
+
 # 依存ライブラリのライセンス文(「qooViewer について」に出る。docs/11「ライセンス表記」)。配布物に表記を持たせるために入れている。
 if [ -s "$app/Contents/Resources/Credits.rtf" ]; then ok "Credits.rtf(依存ライブラリのライセンス文)がある"; else fail "Credits.rtf が無い"; fi
 
@@ -168,7 +214,7 @@ done
 sparkle_version=$(plutil -extract CFBundleShortVersionString raw -o - "$sparkle/Resources/Info.plist" 2>/dev/null || true)
 note "Sparkle $sparkle_version"
 if codesign --verify --deep --strict "$app" 2>/dev/null; then
-    ok "署名は有効(入れ子の Sparkle の部品・StackNestConnector を含む)"
+    ok "署名は有効(入れ子の Sparkle の部品・StackNestConnector・NetworkVolumeConnector を含む)"
 else
     fail "codesign --verify --deep --strict が通らない"
 fi

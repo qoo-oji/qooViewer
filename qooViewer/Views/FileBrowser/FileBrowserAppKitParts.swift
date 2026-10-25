@@ -175,10 +175,115 @@ final class FileBrowserCellView: NSTableCellView {
         } else {
             field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2).isActive = true
         }
+        fieldTrailing = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2)
         NSLayoutConstraint.activate([
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            fieldTrailing,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    /// 名前の右端の制約(右端のボタンを出すと、名前はボタンの左までになる)。
+    private var fieldTrailing: NSLayoutConstraint!
+    private var accessoryConstraints: [NSLayoutConstraint] = []
+    private var showsAccessory = false
+    /// 行の右端のボタン(ツリーのボリュームの行のアンマウント。2026-10-25)。出していなければ nil か、どこにも付いていない。
+    private(set) var accessoryButton: FileBrowserOutlinedIconButton?
+
+    /// 右端のボタンの右端と、行(`NSTableRowView`)の右端の間(2026-10-25 実測)。`.sourceList` の選択の帯は AppKit が行の左右 10pt
+    /// 内側に描く(この一覧では `FileBrowserRowView.drawSelection` は呼ばれない)ので、帯の右端からさらに 4pt 内側に置き、選んだ行の
+    /// 帯がボタンを覆うようにする(利用者の指摘「ハイライトの青がボタン全体を覆っていない」。行の右端から 4pt では帯の外へはみ出た)。
+    /// 見出しの「＋」(`FileBrowserTreeView.GroupCellView`)も同じ列に置く。
+    static let accessoryTrailingInset: CGFloat = 14
+
+    /// 行の右端に記号だけのボタンを出す / 消す(`symbol` が nil なら消す)。見出しの「＋」(ツリーの `GroupCellView`)と同じ作り:
+    /// 輪郭はボタン自身が描き(すりガラス面の決まり)、後ろのウインドウでは自分で薄くする(`.sourceList` はセルに足したボタンを
+    /// 薄くしない ―― `GroupCellView.applyWindowDimming` のコメント)。
+    ///
+    /// **ボタンはセルではなく行(セルの親の `NSTableRowView`)に付け、行の右端から寄せる**(2026-10-25、利用者の指定「＋ボタンくらいの
+    /// 位置」)。`.sourceList` のふつうの行のセルは行の右端より 16pt 内側で終わり(実測: 行 220pt・セル 25〜204pt)、見出しの行のセルは
+    /// 2pt 内側まで届く(14〜218pt)ので、セルの右端に寄せると「＋」より左に並んだ。セルの外へはみ出させると当たり判定に入らない(親の枠の外の点は子へ届かない)ので、
+    /// 行に付ける。セルが行から外れたら(使い回し)ボタンも外す。
+    func setAccessory(symbol: String?, help: String, outlineWidth: CGFloat, target: AnyObject?, action: Selector?) {
+        guard let symbol else {
+            showsAccessory = false
+            detachAccessory()
+            return
+        }
+        let button = accessoryButton ?? {
+            let button = FileBrowserOutlinedIconButton(frame: .zero)
+            button.imagePosition = .imageOnly
+            button.isBordered = false
+            button.bezelStyle = .regularSquare
+            button.translatesAutoresizingMaskIntoConstraints = false
+            accessoryButton = button
+            defer { observeKeyWindowForAccessory() }
+            return button
+        }()
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)
+        button.toolTip = help
+        button.setAccessibilityLabel(help)
+        button.outlineWidth = outlineWidth
+        button.target = target
+        button.action = action
+        showsAccessory = true
+        attachAccessory()
+        applyAccessoryDimming()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if showsAccessory { attachAccessory() } else { detachAccessory() }
+    }
+
+    /// ボタンをいまの行に付ける(付いていれば何もしない)。行が無ければ外す。
+    private func attachAccessory() {
+        guard let button = accessoryButton, let row = superview else { return detachAccessory() }
+        guard button.superview !== row || accessoryConstraints.isEmpty else { return }
+        NSLayoutConstraint.deactivate(accessoryConstraints)
+        button.removeFromSuperview()
+        row.addSubview(button)
+        fieldTrailing.isActive = false
+        accessoryConstraints = [
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: button.leadingAnchor, constant: -4),
+            // 行の右端から `FileBrowserCellView.accessoryTrailingInset`(見出しの「＋」と同じ列。選択の帯の内側)。
+            button.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Self.accessoryTrailingInset),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 18),
+            button.heightAnchor.constraint(equalToConstant: 18),
+        ]
+        NSLayoutConstraint.activate(accessoryConstraints)
+    }
+
+    private func detachAccessory() {
+        guard !accessoryConstraints.isEmpty || accessoryButton?.superview != nil else { return }
+        NSLayoutConstraint.deactivate(accessoryConstraints)
+        accessoryConstraints = []
+        accessoryButton?.removeFromSuperview()
+        fieldTrailing.isActive = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeKeyWindowForAccessory()
+    }
+
+    /// 右端のボタンを持つセルだけがウインドウのキーの出入りを購読する(リストの数千のセルには購読を足さない)。
+    /// セレクタ形式(解放時に自動で外れる。`GroupCellView.viewDidMoveToWindow` と同じ)。
+    private func observeKeyWindowForAccessory() {
+        guard accessoryButton != nil else { return }
+        let center = NotificationCenter.default
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            center.removeObserver(self, name: name, object: nil)
+            if let window {
+                center.addObserver(self, selector: #selector(applyAccessoryDimming), name: name, object: window)
+            }
+        }
+        applyAccessoryDimming()
+    }
+
+    @objc private func applyAccessoryDimming() {
+        accessoryButton?.alphaValue = window?.isKeyWindow ?? true ? 1 : InactiveWindowDimming.opacity
     }
 
     @available(*, unavailable)
@@ -297,6 +402,14 @@ enum FileBrowserIconProvider {
         if let cached = cache["volume"] { return cached }
         let image = NSWorkspace.shared.icon(for: .volume)
         cache["volume"] = image
+        return image
+    }
+
+    /// ツリーの「ネットワーク」のサーバ(Finder のサイドバーが SMB のサーバに使う汎用の機器の絵)。
+    static var networkServerIcon: NSImage {
+        if let cached = cache["networkServer"] { return cached }
+        let image = UTType("public.generic-pc").map { NSWorkspace.shared.icon(for: $0) } ?? NSWorkspace.shared.icon(for: .volume)
+        cache["networkServer"] = image
         return image
     }
 

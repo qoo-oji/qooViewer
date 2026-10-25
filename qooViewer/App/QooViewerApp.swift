@@ -674,7 +674,8 @@ struct QooViewerApp: App {
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor, bookmarkStore: bookmarkStore,
             layoutStore: layoutStore, metadataStore: metadataStore, recentFiles: recentFiles, folderAccess: folderAccess,
             launchCoordinator: launchCoordinator, autoRenameStore: autoRenameStore, autoRenameService: autoRenameService,
-            smartLibraryStore: smartLibraryStore, secretFolderStore: secretFolderStore
+            smartLibraryStore: smartLibraryStore, secretFolderStore: secretFolderStore,
+            networkServers: stores.networkServers
         )
     }
 

@@ -98,6 +98,9 @@ final class AppStores: ObservableObject {
     /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
     /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
+    /// ファイルブラウザのツリーの「ネットワーク」: LAN で見つかっている SMB のサーバと、その共有への接続(2026-10-25)。
+    /// 探すのはツリーが画面にある間だけ。メニューバーに現れないので allObjectWillChangePublishers には足さない。
+    let networkServers: NetworkServerDirectory
     /// ホームのメモリキャッシュの、リソースモニタへの届け出(init)。アプリが終わるまで持つ。
     private let homeCacheMemoryRegistration = MemoryUsageRegistration()
     /// よく使う項目の中の動画の絵を裏で先に作る役(段階 7b)。ウインドウに配らない(誰も直接は読まない)。
@@ -211,6 +214,7 @@ final class AppStores: ObservableObject {
             collectionStore: collectionStore, coverStore: collectionCoverStore, layoutStore: layoutStore
         )
         fileBrowserThumbnails.connect(preferences: preferences)
+        networkServers = NetworkServerDirectory(transport: dependencies.networkVolumeConnector)
         fileBrowserThumbnails.setLibraryFeatureEnabled(isLibraryEnabled)
         // ホームのアプリで 1 つのメモリキャッシュを、リソースモニタの「メモリ」の内訳へ届け出る(MemoryUsageRegistry。
         // 2026-10-11 のリソースモニタの点検 ―― 以前はどこにも出ていなかった)。テストの中では届け出ない。

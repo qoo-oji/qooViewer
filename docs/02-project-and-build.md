@@ -16,6 +16,8 @@ qooViewer/
 │   └── Info.plist                書類の型・自動アップデートの設定(下記)
 ├── StackNestConnector/           StackNest の本の API への要求だけを出す XPC サービス(App Sandbox + 外への接続。→ 10)。
 │                                 Wire と Policy の 2 ファイルはアプリにも入る(project.pbxproj のフォルダの例外)
+├── NetworkVolumeConnector/       LAN の SMB サーバを探し、そのマウントを NetFS に頼むだけの XPC サービス(App Sandbox + 外への接続。→ 10)。
+│                                 Wire のファイルはアプリにも入る
 ├── qooViewerTests/               単体テスト(Swift Testing、下記)。Fixtures/ に本のフィクスチャと台帳、Support/ にビルダー
 ├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
 ├── Configurations/qooViewer.entitlements  Release だけが使う entitlement(Sparkle の XPC サービス用。下記)

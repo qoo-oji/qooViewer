@@ -303,6 +303,38 @@ Sparkle の値の変化(KVO)は、届いたスレッドがメインならその�
 | 「インストールできます」でボタンを押さずに終了 | 終了時に 1.83 へ入れ替わり、起動し直さない |
 | 環境設定「アップデートを自動的にダウンロードしてインストール」ON(コンテナの defaults)で起動 | `AppUpdater` が Sparkle の `SUAutomaticallyUpdate` を 1 にし、起動直後に何も出さずに appcast と zip を取得、終了時に何も聞かずに 1.83 へ入れ替わった |
 
+## ネットワークのサーバとボリュームの接続(2026-10-25)
+
+ファイルブラウザのツリーの「ネットワーク」(docs/15「ツリーのネットワークとアンマウント」)。LAN で Bonjour(`_smb._tcp`)に名乗り出ている
+サーバを並べ、クリックで macOS にマウントしてもらう。**Finder は通さない**(利用者の指定)。
+
+### 実測で分かったこと(2026-10-25、検証用の小さなアプリで)
+- **探す**: App Sandbox だけのプロセスでは `NWBrowser` も `DNSServiceBrowse` も起動直後に `-65563 ServiceNotRunning`(mDNSResponder への
+  接続が断られる。ダイアログも出ない)。`com.apple.security.network.client` があれば通り、macOS 15 以降は**ローカルネットワークの許可**の
+  確認が出る。許可の返事の前は**失敗もせず結果が 1 件も来ない**(`NWBrowser` は ready のまま黙る)―― 「NAS がいない」と区別できない。
+- **マウント**: `NetFSMountURLAsync` は `network.client` 無しのプロセスからは `EPERM`。あれば通り、マウント先は `/Volumes` の下に限られる
+  (NetAuthSysAgent のログ「Process … is sandboxed and no path was supplied; allowing NetFS to mount under /Volumes」)。マウントは
+  `quarantine` 付き。共有を指定しない URL では、macOS が共有の選択のダイアログを出す(NetFS.h)。
+- **認証**: アプリ自身から頼むとキーチェーンに保存済みの資格情報がそのまま使われたが、**XPC サービスから頼むと NetAuthAgent が
+  パスワード欄のダイアログを毎回出し**、入れたパスワードの保存も失敗した(NetAuthSysAgent の資格情報の段階 4 = キーチェーンが通らず
+  段階 5 = UI へ進む。保存は「Failed to create keychain item … -25308 ユーザの操作は許可されていません」)。原因は **XPC サービスが既定で
+  自分だけの監査セッションに置かれること**: サービスの Info.plist の `XPCService` に `JoinExistingSession = true`(Apple の説明では
+  キーチェーンなどセッション単位のものを使うサービスに要る)を入れると、NetAuthSysAgent は利用者のセッション(Finder から頼んだときと
+  同じ番号)に加わり、段階 4 で通ってパスワードを聞かずにマウントした(同日、実機で確認)。
+- **読む**: マウントした直後の中身は App Sandbox の中から `EPERM`(ほかのボリュームと同じく、フォルダの許可が要る)。
+- **アンマウント**: `FileManager.unmountVolume` は App Sandbox だけのプロセスから、権限もダイアログも無しに通る(SMB の共有を 0.17 秒)。
+
+### 形
+- 探すのとマウントを頼むのは XPC サービス `NetworkVolumeConnector.xpc`(App Sandbox + `network.client` だけ。ファイルへのアクセス無し。
+  呼び出し元のセッションで動く ―― `JoinExistingSession`。上の「認証」)。
+  `scripts/release/check-release-app.sh` が entitlement とバンドル ID を確かめる)。頼めるのは**いま見つかっているサーバ**だけで、URL は
+  `smb://<名前>._smb._tcp.local` の形に限る(`NetworkVolumeConnectorPolicy`。アプリとサービスが同じ判定をする)。この Mac 自身
+  (ループバックで見えるもの)は外す。サービスは SMB を話さない ―― マウント・認証・共有の選択は macOS の NetAuthSysAgent / NetAuthAgent。
+- アプリの側は `NetworkServerDirectory`(アプリで 1 つ、`AppStores.networkServers`)。探すのはツリーが画面にある間だけ。テストの中で走る
+  実物のアプリでは道を繋がない(`AppStores.Dependencies.networkVolumeConnector` が nil)。
+- アンマウントはアプリ本体(`VolumeUnmounting`)。
+- ローカルネットワークの許可の確認の文は、アプリ本体の Info.plist の `NSLocalNetworkUsageDescription`(日本語は `InfoPlist.xcstrings`)。
+
 ## StackNest の本と通信
 
 StackNest(画像の本のライブラリ管理アプリ)は、外部ビューアに本そのものではなく**参照ファイル**(`.stacknestbook`。この Mac の

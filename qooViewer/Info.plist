@@ -49,6 +49,19 @@
 	-->
 	<key>QOOStackNestConnectorService</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER).StackNestConnector</string>
+	<!--
+	  LAN の SMB サーバを探し、その共有のマウントを NetFS に頼む XPC サービス(Contents/XPCServices/NetworkVolumeConnector.xpc)の
+	  バンドル ID(NetworkVolumeConnectorClient)。ファイルブラウザのツリーの「ネットワーク」が使う。外への接続を持つのはサービスだけ。
+	  探すのは Bonjour の _smb._tcp だけで、ローカルネットワークの許可の確認にはこの説明の文が出る(日本語は InfoPlist.xcstrings)。
+	-->
+	<key>QOONetworkVolumeConnectorService</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER).NetworkVolumeConnector</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>qooViewer looks for file servers on your local network to show them in the file browser’s Network section.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

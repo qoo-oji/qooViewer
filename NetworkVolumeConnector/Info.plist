@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>XPCService</key>
+	<dict>
+		<key>ServiceType</key>
+		<string>Application</string>
+		<!--
+		  呼び出し元(アプリ)のセキュリティセッションで動く。既定の XPC サービスは自分だけのセッションに置かれ、その中から NetFS に
+		  マウントを頼むと、仲介する NetAuthSysAgent がキーチェーンを読めず(保存済みのパスワードを使えず毎回ダイアログ)、書けもしなかった
+		  (「Failed to create keychain item … -25308 ユーザの操作は許可されていません」。2026-10-25 実測)。Apple の説明では、キーチェーン
+		  などセッション単位のものを使うサービスはこれを true にする(docs/10「ネットワークのサーバとボリュームの接続」)。
+		-->
+		<key>JoinExistingSession</key>
+		<true/>
+	</dict>
+	<!--
+	  Bonjour で探すのは SMB のサーバだけ(NetworkVolumeConnectorPolicy.serviceType)。ローカルネットワークの許可の確認は
+	  アプリ(qooViewer)の名前で出る見込みなので、説明の文はアプリ本体の Info.plist にも置いてある。
+	  URLSession は使わないので NSAppTransportSecurity は置かない(scripts/release/check-release-app.sh)。
+	-->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp</string>
+	</array>
+</dict>
+</plist>
