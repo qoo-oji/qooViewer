@@ -85,7 +85,7 @@ struct MetadataEditorWindow: View {
             await model.open()
         }
         .onDisappear {
-            model?.close()
+            model?.closeWindow()
             model = nil
             // 開かないまま残った頼みを次に持ち越さない(MetadataEditorReveal)。
             MetadataEditorReveal.shared.take()
@@ -473,8 +473,14 @@ final class MetadataEditorModel {
         cancelExistenceChecks()
         if MetadataEditorUndoRouter.shared.workspace === workspace { MetadataEditorUndoRouter.shared.workspace = nil }
         workspace = nil
-        // 規則の窓へ渡した一覧の全冊の名前も手放す(2026-10-25 のリークの点検。以前はアプリで 1 つの置き場に、閉じた後も残した ――
-        // 規則の窓の知らせも「メタデータの編集を開くと名前が出る」)。開き直せば `open` が入れ直す。
+    }
+
+    /// ウインドウが閉じた(View の onDisappear)。`close` に加えて、規則の窓へ渡した一覧の全冊の名前も手放す(2026-10-25 のリークの
+    /// 点検。以前はアプリで 1 つの置き場に、閉じた後も残した ―― 規則の窓の知らせも「メタデータの編集を開くと名前が出る」)。開き直せば
+    /// `open` が入れ直す。**`close` の中ではしない**: `reopen`(シークレットフォルダの変更・行の付け替えの待ち)も `close` を通り、そこで
+    /// 空にすると、規則の窓が一度空になってから全冊を読み直していた(レビューで指摘。`set` は同じ名前なら何もしない作り)。
+    func closeWindow() {
+        close()
         rulesPicked.set([])
     }
 }

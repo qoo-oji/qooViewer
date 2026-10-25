@@ -1664,7 +1664,7 @@ struct ViewerView: View {
         // シートの選択肢・完了の閉包も relay だけを掴む(ViewerActionRelay の型コメント。2026-10-25 のリークの点検で、確認アラートと
         // 違いここだけ ViewerView の写しを直に掴んでいた。ChoiceListSheet のボタンは AppKit 側の部品に閉包を渡す)。
         let relay = actionRelay
-        return content
+        content
             // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、
             // 当時の「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
             // (Window("Edit Bookmarks", id: "editBookmarks"))へ変更した。表示自体は

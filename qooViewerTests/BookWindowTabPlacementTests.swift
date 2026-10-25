@@ -9,11 +9,9 @@ import Testing
 @MainActor
 struct BookWindowTabPlacementTests {
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true
+        let window = TestWindows.window(
+            size: NSSize(width: 480, height: 320), styleMask: [.titled, .closable, .resizable], defer: true
         )
-        window.isReleasedWhenClosed = false
         window.tabbingIdentifier = "BookWindowTabPlacementTests-\(UUID().uuidString)"
         return window
     }

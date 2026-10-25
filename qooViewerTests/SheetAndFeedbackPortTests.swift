@@ -66,8 +66,7 @@ struct SheetAndFeedbackPortTests {
 
     @Test("テストホストの中では、答える役も出す先も無いシートは出さずにキャンセルで終わる(誰も閉じないシートを残さない)")
     func unscriptedSheetWithoutWindowIsRefusedInTheTestHost() async {
-        let alert = NSAlert()
-        alert.messageText = "unscripted"
+        let alert = TestWindows.alert(messageText: "unscripted")
         #expect(await WindowSheet.run(alert) == .cancel)
         #expect(await WindowSheet.chooseURLs(NSOpenPanel()) == nil)
     }
@@ -125,16 +124,9 @@ struct SheetAndFeedbackPortTests {
 
     @Test("同じウインドウにシートが出ている間のパネルは、ビープしてキャンセルになる")
     func panelOverABusyWindowBeepsAndCancels() async throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.orderFront(nil)
+        let window = TestWindows.window(size: NSSize(width: 320, height: 200), isShown: true)
         defer { window.close() }
-        let sheet = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false
-        )
-        sheet.isReleasedWhenClosed = false
+        let sheet = TestWindows.window(size: NSSize(width: 200, height: 100))
         let presented = Task { await WindowSheet.run(sheetWindow: sheet, for: window) }
         #expect(await eventually { @MainActor in WindowSheet.placement(for: window) == .busy })
 

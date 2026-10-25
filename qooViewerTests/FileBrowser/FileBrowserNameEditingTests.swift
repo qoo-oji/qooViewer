@@ -228,7 +228,7 @@ struct FileBrowserNameEditingTests {
         let view: FileBrowserListView
         let coordinator = FileBrowserListView.Coordinator()
         let table = FileBrowserTableView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = TestWindows.window(size: NSSize(width: 400, height: 300))
 
         init(fixture: Fixture) throws {
             view = FileBrowserListView(
@@ -242,7 +242,6 @@ struct FileBrowserNameEditingTests {
             table.dataSource = coordinator
             table.delegate = coordinator
             table.editResponder = fixture.actions
-            window.isReleasedWhenClosed = false
             window.contentView = table
             coordinator.table = table
             coordinator.update(from: view)
@@ -268,7 +267,7 @@ struct FileBrowserNameEditingTests {
         let view: FileBrowserIconView
         let coordinator = FileBrowserIconView.Coordinator()
         let collection = FileBrowserCollectionView()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = TestWindows.window(size: NSSize(width: 600, height: 400))
 
         init(fixture: Fixture) throws {
             let provider = FileBrowserThumbnailProvider(
@@ -291,7 +290,6 @@ struct FileBrowserNameEditingTests {
             collection.handler = coordinator
             let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
             scroll.documentView = collection
-            window.isReleasedWhenClosed = false
             window.contentView = scroll
             collection.frame = scroll.contentView.bounds
             coordinator.collection = collection

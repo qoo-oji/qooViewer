@@ -15,18 +15,12 @@ struct WindowSheetTests {
     func closingTheHostEndsTheSheet() async throws {
         // 2026-09-27 の監査: シートの付いたウインドウに close() を呼ぶと AppKit は完了ハンドラを呼ばず、`run` の continuation が
         // 再開しなかった(ファイル操作の列が止まり、終了のたびに「作業中」の確認が出続けた)。
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.orderFront(nil)
+        let window = TestWindows.window(size: NSSize(width: 480, height: 320), styleMask: [.titled, .closable], isShown: true)
         defer { window.orderOut(nil) }
         // シートにならない(見えていない)と runModal でテストが止まるので、先に確かめる。
         try #require(WindowSheet.placement(for: window) == .sheet(window))
 
-        let alert = NSAlert()
-        alert.messageText = "probe"
+        let alert = TestWindows.alert(messageText: "probe")
         let box = ResponseBox()
         Task { box.response = await WindowSheet.run(alert, for: window) }
         _ = await eventuallyHere { window.attachedSheet != nil }
@@ -42,20 +36,11 @@ struct WindowSheetTests {
     func closingTheHostEndsAHandBuiltSheet() async throws {
         // 2026-10-04 の監査 FBA-2: 一括リネームのシートは `beginSheet` を直に呼んでいて、「すべてを閉じる」でウインドウが閉じると
         // 完了ハンドラが呼ばれず、ファイル操作の列が止まった。
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.orderFront(nil)
+        let window = TestWindows.window(size: NSSize(width: 480, height: 320), styleMask: [.titled, .closable], isShown: true)
         defer { window.orderOut(nil) }
         try #require(WindowSheet.placement(for: window) == .sheet(window))
 
-        let sheet = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
-            styleMask: [.titled, .docModalWindow], backing: .buffered, defer: true
-        )
-        sheet.isReleasedWhenClosed = false
+        let sheet = TestWindows.panel(size: NSSize(width: 300, height: 120))
         let box = ResponseBox()
         Task { box.response = await WindowSheet.run(sheetWindow: sheet, for: window) }
         _ = await eventuallyHere { window.attachedSheet != nil }

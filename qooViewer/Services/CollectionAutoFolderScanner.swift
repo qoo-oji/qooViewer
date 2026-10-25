@@ -180,6 +180,8 @@ final class CollectionAutoFolderScanner: ObservableObject {
         guard !targets.isEmpty else {
             observations = [:]
             pendingCollectionIDByURL = [:]
+            // 期限を過ぎた列挙も、待ち直す相手がもう無い(下の「今回の対象でなくなった組」と同じ。レビューで指摘)。
+            runningFolderScans = [:]
             return
         }
 

@@ -387,6 +387,10 @@ actor PageLoader {
         for task in inFlightPageSizeTasks.values {
             task.cancel()
         }
+        // releaseAllResources を呼ばずに手放される PageLoader(書き出しの 3 つ)のぶん(2026-10-25 のリークの点検):
+        // rar の読み通しと、StackNest の本へのメモリの届け出(残すと、同じセッションのビューアがページのメモリを出さなくなる)。
+        rarScanCancellation?.request()
+        cachedStackNestReader?.book.endMemoryReport(for: memoryOwnerID)
     }
 
     /// 本を閉じた(または同じウインドウで別の本へ切り替えた)ときに、ViewerViewModelから呼ぶ。
@@ -511,7 +515,9 @@ actor PageLoader {
         if let derived = await thumbnailDerivedFromPageImage(
             pageID: page.id, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
         ) {
-            thumbnailCache.store(derived, forKey: key)
+            // 待っている間に手放された(本を閉じた)なら、キャッシュへ戻さない(2026-10-25 のリークの点検。`pixels(at:)` と同じ。
+            // 以前はここと下のディスクからの 3 か所だけ見ておらず、古い世代の PageLoader が残る間、閉じた本の絵を持ち続けた)。
+            if !isReleased { thumbnailCache.store(derived, forKey: key) }
             return derived.makeImage()
         }
 
@@ -526,7 +532,7 @@ actor PageLoader {
         let diskKey = await thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
         if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
            let buffer = await Self.renderBuffer(from: fromDisk) {
-            thumbnailCache.store(buffer, forKey: key)
+            if !isReleased { thumbnailCache.store(buffer, forKey: key) }
             return buffer.makeImage()
         }
 
@@ -577,7 +583,7 @@ actor PageLoader {
             return cached.makeImage()
         }
         if let derived = await thumbnailDerivedFromPageImage(pageID: page.id, maxPixelSize: maxPixelSize) {
-            gridThumbnailCache.store(derived, forKey: key)
+            if !isReleased { gridThumbnailCache.store(derived, forKey: key) }
             return derived.makeImage()
         }
         // ディスクキャッシュが OFF(環境設定の既定)なら読みにも書きにも行かない(thumbnail(at:)と同じ)。
@@ -589,7 +595,7 @@ actor PageLoader {
             let diskKey = await thumbnailDiskKey(maxPixelSize: maxPixelSize)
             if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
                let buffer = await Self.renderBuffer(from: fromDisk) {
-                gridThumbnailCache.store(buffer, forKey: key)
+                if !isReleased { gridThumbnailCache.store(buffer, forKey: key) }
                 return buffer.makeImage()
             }
         }

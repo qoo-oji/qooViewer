@@ -154,9 +154,7 @@ final class MetadataGenerator {
     func noteBookOpened(_ bookID: String, anchors: BookRowAnchors? = nil) {
         verified.insert(bookID)
         absent.remove(bookID)
-        // 手がかりは行を作るときにしか使わないので、行がまだ無い本のぶんだけ持つ(2026-10-25 のリークの点検。以前は 2 度目以降に
-        // 開いた本 ―― 行がある本 ―― のぶんも、起動の間ずっと持っていた)。作った後は `write` が捨てる。
-        if let anchors, !metadataStore.isRegistered(bookID: bookID) { sourceAnchors[bookID] = anchors }
+        if let anchors { rememberSourceAnchors(anchors, for: bookID) }
         // もう並べていて行もある本(2 度目以降に開いた本のほとんど)なら、回を頼まない(2026-09-25 の監査)。この本が加わっても
         // 母体・並び・入力・書くものは変わらない(並べている本は「確かめた」かどうかに関わらず並ぶ。行の中身が変われば
         // `bookMetadataDidChange` が回を頼む)のに、1 回ぶん(DB の全行の読み出し 2〜3 回・知っている本の収集・書く前の全冊の
@@ -203,6 +201,23 @@ final class MetadataGenerator {
 
     /// 開いた本の場所の手がかり(行を作るときに渡す)。
     private var sourceAnchors: [String: BookRowAnchors] = [:]
+    /// 持っておく手がかりの数の上限(`rememberSourceAnchors`)。
+    static let sourceAnchorsLimit = 256
+
+    /// 開いた本の手がかりを覚える。**数に上限を設ける**(2026-10-25 のリークの点検。以前は開いた本ごとに、起動の間ずっと増えた ――
+    /// 1 冊につきセキュリティスコープ付きのブックマーク 0.5〜2KB)。手がかりは行が無い本の行を作るときに使い、行のある本でも
+    /// 「メタデータを削除」の後にメタデータの編集ウインドウから作り直すときに使う(レビューで指摘 ―― 行のある本の分を持たないと、
+    /// 作り直した行が手がかり無しになり、次に開くまで外での改名に付いていけない)ので、上限を超えたら、まず行のある本の分から捨てる。
+    private func rememberSourceAnchors(_ anchors: BookRowAnchors, for bookID: String) {
+        sourceAnchors[bookID] = anchors
+        guard sourceAnchors.count > Self.sourceAnchorsLimit else { return }
+        let registered = sourceAnchors.keys.filter { $0 != bookID && metadataStore.isRegistered(bookID: $0) }
+        for id in registered.prefix(sourceAnchors.count - Self.sourceAnchorsLimit) { sourceAnchors.removeValue(forKey: id) }
+        while sourceAnchors.count > Self.sourceAnchorsLimit,
+              let id = sourceAnchors.keys.first(where: { $0 != bookID }) {
+            sourceAnchors.removeValue(forKey: id)
+        }
+    }
     /// この起動で利用者が消した本のうち、次の回で登録し直す本(開き直した・メタデータの編集ウインドウを開き直した)。
     /// ほかの契機(知らせ・規則の変更)では、消した本を作り直さない(消したそばから戻らないように)。
     private var reregistering: Set<String> = []
@@ -358,8 +373,6 @@ final class MetadataGenerator {
     /// ルールセット)が変わった本は書かない**(その変化で次の回が走り、新しい形で読み直す)。
     private func write(listed: [String], snapshot: [String: BookMetadataRecord], deleted: Set<String>) async {
         let current = metadataStore.allRecords()
-        // 行がもうある本の手がかりは要らない(下で作る本のぶんは、作るときに取り出す。noteBookOpened のコメント)。
-        sourceAnchors = sourceAnchors.filter { current[$0.key] == nil }
         var entries: [BookMetadataStore.BatchEntry] = []
         for id in listed {
             guard let proposal = proposals[id] else { continue }
@@ -373,7 +386,7 @@ final class MetadataGenerator {
             switch (snapshot[id], current[id]) {
             case (nil, nil):
                 guard !values.isEmpty, !deleted.contains(id) else { continue }
-                entries.append(.init(bookID: id, values: values, anchors: sourceAnchors.removeValue(forKey: id),
+                entries.append(.init(bookID: id, values: values, anchors: sourceAnchors[id],
                                      state: BookMetadataRowState(isLocked: false)))
             case let (before?, now?):
                 // 読みが空になっても行は消さない(空の値の書き込みは行の削除になり、直した欄・ルールセット・取り込みの印まで消えた。

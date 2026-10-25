@@ -17,8 +17,14 @@ import AppKit
 final class TableFlexibleColumnFitter {
     private weak var table: NSTableView?
     private var flexibleColumn: NSUserInterfaceItemIdentifier?
-    private var observers: [NSObjectProtocol] = []
+    /// deinitから外すためにnonisolated(unsafe)(触るのはメインスレッドだけ)。
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private var isFitting = false
+
+    /// detach(dismantleNSView から)が来ないまま手放されたときの保険(2026-10-25 のリークの点検)。
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    }
 
     /// 一覧と、その伸び縮みする列を受け持つ。一覧は `NSScrollView` に入れてから渡すこと。
     func attach(to table: NSTableView, flexibleColumn identifier: NSUserInterfaceItemIdentifier) {

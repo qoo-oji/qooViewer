@@ -108,6 +108,13 @@ final class SidePanelBrowserState: ObservableObject {
 
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
+
+    /// 戻る先へ積む。深さはファイルブラウザと同じ(`FileBrowserState.historyDepth`。2026-10-25 のリークの点検 ―― 以前は上限が無く、
+    /// 1 つのウインドウで本を開くたび・フォルダを行き来するたびに増え、ファイル操作の知らせのたびに全部を付け替え直していた)。
+    private func pushBack(_ directory: URL?) {
+        backStack.append(directory)
+        if backStack.count > FileBrowserState.historyDepth { backStack.removeFirst() }
+    }
     /// 一覧の読み込み。`private(set)`なのは**テストが待ち合わせるため**で、アプリ側は
     /// 触らない(AppState.openTaskと同じ口)。**時間で待つ形は書かないこと。**
     private(set) var reloadTask: Task<Void, Never>?
@@ -243,7 +250,7 @@ final class SidePanelBrowserState: ObservableObject {
         }
         let directoryChanged = anchor.directory != currentDirectory
         if directoryChanged {
-            backStack.append(currentDirectory)
+            pushBack(currentDirectory)
             forwardStack.removeAll()
             currentDirectory = anchor.directory
         }
@@ -297,7 +304,7 @@ final class SidePanelBrowserState: ObservableObject {
 
     /// フォルダ行のシングルクリック。
     func navigate(into folder: URL) {
-        backStack.append(currentDirectory)
+        pushBack(currentDirectory)
         forwardStack.removeAll()
         currentDirectory = folder
         highlightedURL = nil
@@ -310,7 +317,7 @@ final class SidePanelBrowserState: ObservableObject {
     /// フォーカスされる)。
     func goUp() {
         guard let leaving = currentDirectory else { return }
-        backStack.append(currentDirectory)
+        pushBack(currentDirectory)
         forwardStack.removeAll()
         if DirectoryBrowser.isVolumeRoot(leaving) {
             currentDirectory = nil
@@ -331,7 +338,7 @@ final class SidePanelBrowserState: ObservableObject {
 
     func goForward() {
         guard let next = forwardStack.popLast() else { return }
-        backStack.append(currentDirectory)
+        pushBack(currentDirectory)
         currentDirectory = next
         highlightedURL = nil
         reload()
@@ -368,8 +375,9 @@ final class SidePanelBrowserState: ObservableObject {
         reloadTask?.cancel()
         let directory = currentDirectory
         let sort = preferences?.folderBrowserSort ?? .default
+        // 読む間は self を掴まない(2026-10-25 のリークの点検。以前は待つ前に強く取り直していて、応答しない共有の上の一覧を
+        // 待つ間 ―― hard NFS なら戻らない ―― 閉じたウインドウのこの状態を手放さなかった)。
         reloadTask = Task { [weak self] in
-            guard let self else { return }
             do {
                 let result: [DirectoryBrowser.Entry]
                 var hasImages = false
@@ -382,7 +390,7 @@ final class SidePanelBrowserState: ObservableObject {
                 } else {
                     result = await DirectoryBrowser.mountedVolumeEntriesAsync(sort: sort)
                 }
-                guard !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.entries = result
                 if self.isListingStale, self.currentDirectory == directory { self.isListingStale = false }
                 self.currentDirectoryHasImages = hasImages
@@ -406,7 +414,7 @@ final class SidePanelBrowserState: ObservableObject {
                         let ancestor = await FileIO.perform(qos: .utility) {
                             FileBrowserListing.nearestExistingAncestor(of: directory)
                         }
-                        guard !Task.isCancelled, self.currentDirectory == directory else { return }
+                        guard let self, !Task.isCancelled, self.currentDirectory == directory else { return }
                         self.currentDirectory = ancestor
                         self.highlightedURL = nil
                         self.reload()
@@ -417,6 +425,7 @@ final class SidePanelBrowserState: ObservableObject {
                         otherFailure = message
                     }
                 }
+                guard let self else { return }
                 self.entries = []
                 if self.isListingStale, self.currentDirectory == directory { self.isListingStale = false }
                 self.currentDirectoryHasImages = false

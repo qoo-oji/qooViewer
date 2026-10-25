@@ -32,6 +32,7 @@ run check-credits.sh
 run check-eol.sh
 run check-docs-links.sh
 run check-test-waits.sh
+run check-test-windows.sh
 run check-workflows.sh
 
 printf '\n'

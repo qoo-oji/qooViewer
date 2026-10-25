@@ -74,8 +74,7 @@ struct FileOperationPromptTests {
     @Test("持ち主のウインドウが閉じたら、閉じたときの答えで片付く(OK だけの報告は残る)")
     func rowsAnswerWhenTheirOwnerCloses() async {
         let center = FileOperationPromptCenter(showsWindow: false)
-        let owner = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.titled], backing: .buffered, defer: true)
-        owner.isReleasedWhenClosed = false
+        let owner = TestWindows.window(size: NSSize(width: 10, height: 10), defer: true)
         let prompt = FileOperationPrompt(
             icon: NSImage(), message: "m", buttons: ["中止", "置き換える"], checkboxTitle: nil, answerWhenOwnerCloses: 0, windowTitle: "t"
         )

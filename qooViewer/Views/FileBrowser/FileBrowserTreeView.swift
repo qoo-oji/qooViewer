@@ -1568,6 +1568,19 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 },
             ]
             directory.activate(client: networkClientID)
+            activatedNetworkServers = directory
+        }
+
+        /// 探させているサーバの一覧(`startNetworkServers` が印を付けた相手)。deinit の保険が外すためだけに持つ。
+        nonisolated(unsafe) private weak var activatedNetworkServers: NetworkServerDirectory?
+
+        /// 後始末は `stop`(dismantleNSView から)が正。それが来ないまま手放されたときの保険として、探索の印だけは外す(2026-10-25 の
+        /// リークの点検。印が残ると、ツリーが無いのに Bonjour の探索が XPC で続く)。購読・FSEvents はそれぞれ自分の後始末で止まる
+        /// (閉包は weak)。deinit はメインの上とは限らないので、外すのはメインへ回す。
+        deinit {
+            guard let directory = activatedNetworkServers else { return }
+            let id = networkClientID
+            Task { @MainActor in directory.deactivate(client: id) }
         }
 
         /// 見つかっているサーバの購読をやめ、グループを引っ込める(環境設定で OFF にした・ツリーが消える)。
@@ -1575,6 +1588,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard !networkSubscriptions.isEmpty else { return }
             networkSubscriptions.removeAll()
             networkServers?.deactivate(client: networkClientID)
+            activatedNetworkServers = nil
             applyNetworkServers([], isDenied: false)
         }
 

@@ -22,7 +22,14 @@ final class WindowTabGroupObserver: ObservableObject {
     private weak var window: NSWindow?
     private weak var observedGroup: NSWindowTabGroup?
     private var groupObservation: NSKeyValueObservation?
-    private var becomeKeyObserver: NSObjectProtocol?
+    /// deinitから外すためにnonisolated(unsafe)(触るのはメインスレッドだけ)。
+    nonisolated(unsafe) private var becomeKeyObserver: NSObjectProtocol?
+
+    /// detach が来ないまま手放されたときの保険(2026-10-25 のリークの点検。閉包は weak self だが、購読の登録だけが残り続けた)。
+    /// KVO の `groupObservation` は自分の deinit で外れる。
+    deinit {
+        if let becomeKeyObserver { NotificationCenter.default.removeObserver(becomeKeyObserver) }
+    }
 
     /// 見張るウインドウを決める(nilなら見張りをやめる)。ViewerViewのsetUpWindowObserversから呼ぶ。
     func attach(to window: NSWindow?) {

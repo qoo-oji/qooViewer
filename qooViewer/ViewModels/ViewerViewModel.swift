@@ -1247,6 +1247,10 @@ final class ViewerViewModel: ObservableObject {
         startupTasks = []
         reloadTask?.cancel()
         reloadTask = nil
+        // 走っている途中のページ送りのアニメーションも止める(2026-10-25 の点検)。Task の取り消しだけでは内側のループは止まらず
+        // (`Task.sleep` が取り消しですぐ戻るだけ)、閉じた後も目的のページまで回り切って、着地のコマで読書状態の行
+        // (`persistState`)を書き換えていた。待ち行列を空にし、世代を進めて内側のループにも伝える(cancelPendingPageFlip)。
+        cancelPendingPageFlip()
         pageFlipTask?.cancel()
         pageFlipTask = nil
         highResolutionSourceLoadTask?.cancel()

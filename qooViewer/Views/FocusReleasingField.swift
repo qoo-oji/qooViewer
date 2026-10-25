@@ -54,7 +54,14 @@ private struct FocusReleasingField: ViewModifier {
 @MainActor
 private final class FieldAnchor {
     weak var view: NSView?
-    private var clickMonitor: Any?
+    /// deinitから外すためにnonisolated(unsafe)(HomeWheelScroll の WheelMonitor と同じ)。触るのはメインスレッドだけ。
+    nonisolated(unsafe) private var clickMonitor: Any?
+
+    /// onDisappear も背景のビューが外れた知らせも来ないまま手放されたときの保険(2026-10-25 のリークの点検。閉包は weak self で
+    /// 中身は空になるが、モニタの登録だけがアプリに残り、クリックのたびに呼ばれていた)。
+    deinit {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+    }
 
     /// 欄が見えている間ずっと張っておく(フォーカスの有無で張り替える方式は、
     /// `@FocusState`の変化がAppKit側のフォーカス移動に追随しないことがあり、実機で

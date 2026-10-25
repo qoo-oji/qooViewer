@@ -1333,6 +1333,7 @@ struct ContentView: View {
                 if launchCoordinator.primaryAppState === appState {
                     launchCoordinator.primaryAppState = nil
                 }
+                launchCoordinator.bookWindowWillClose(appState)
                 // NSEventのモニタとメニュー追跡の購読も、ここで確実に外す(監査で指摘)。
                 // 通常は.onDisappearが外すが、ウインドウごと閉じられたときに.onDisappearが
                 // 呼ばれないことがある(ViewerView.setUpWindowObservers末尾のコメント参照)。

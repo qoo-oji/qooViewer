@@ -86,6 +86,14 @@ final class LaunchCoordinator: ObservableObject {
     /// `activeBookAppState` の今の本の変化の購読(`setActiveBookAppState`)。
     private var activeBookSubscription: AnyCancellable?
 
+    /// 本のウインドウが閉じる(ContentView の willClose)。その窓が「今読んでいる本」の窓なら、本の変化の購読を外す(2026-10-25 の
+    /// リークの点検)。購読は AppState の `@Published currentBook` の中身(今の値 = 表示していた本のページ一覧)を掴むので、
+    /// AppState が解放された後も、別の本のウインドウがキーになるまで閉じた窓の本が残った。
+    func bookWindowWillClose(_ appState: AppState) {
+        guard activeBookAppState === appState else { return }
+        activeBookSubscription = nil
+    }
+
     /// 「今読んでいる本」のうち、**記録を残してよいもの**(シークレットウインドウと、記録を残さない本 ―― その場限りの本・
     /// 一時フォルダに書き出した入れ子の書庫 ―― を除く)。保存データを書く独立ウインドウ(「ブックマーク・レイアウトの編集」)は、`activeBookAppState` ではなくこちらを見る。
     ///

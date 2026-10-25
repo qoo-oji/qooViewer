@@ -43,8 +43,7 @@ struct FileBrowserListEditingTests {
         table.dataSource = coordinator
         table.delegate = coordinator
         table.editResponder = actions
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let window = TestWindows.window(size: NSSize(width: 400, height: 300))
         window.contentView = table
         defer {
             table.dataSource = nil

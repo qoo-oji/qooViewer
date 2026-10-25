@@ -60,7 +60,8 @@ enum FileBrowserNameEditing {
 @MainActor
 final class FileBrowserNameClickRename {
     private var pending: Task<Void, Never>?
-    private var monitor: Any?
+    /// deinitから外すためにnonisolated(unsafe)(HomeWheelScroll の WheelMonitor と同じ)。触るのはメインスレッドだけ。
+    nonisolated(unsafe) private var monitor: Any?
     /// 待つ(ダブルクリックの間隔。テストはすぐ戻る待ちに差し替える)。
     var wait: @MainActor () async -> Void = { try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval)) }
 
@@ -100,5 +101,11 @@ final class FileBrowserNameClickRename {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+    }
+
+    /// 待っている間に持ち主が手放されると、Task の `guard let self` が `stop()` より先に抜け、モニタだけがアプリに残った
+    /// (2026-10-25 のリークの点検。ふだんはリスト・アイコン表示の dismantleNSView が `cancel()` を呼ぶので、その保険)。
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
     }
 }

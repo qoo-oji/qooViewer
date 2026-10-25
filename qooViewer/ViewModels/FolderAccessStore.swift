@@ -359,7 +359,7 @@ final class FolderAccessStore: ObservableObject {
     /// 消しうる。答えが変わるのを待ちたい所は `waitForPendingResolutions(covering:)` を、やり直したい所は `accessGained` を使う。
     /// 解決している最中の FileIO の仕事(ブックマークごと。`reloadInBackground` が同じブックマークで重ねて始めないため)と、
     /// それを始めた回(`resolutionGeneration`)。
-    private var inFlightResolutions: [Data: (generation: Int, task: Task<Entry?, Never>)] = [:]
+    private var inFlightResolutions: [Data: (generation: Int, task: Task<Entry?, Never>, startedAt: ContinuousClock.Instant)] = [:]
 
     private func reloadInBackground() {
         resolutionGeneration &+= 1
@@ -425,15 +425,24 @@ final class FolderAccessStore: ObservableObject {
     }
 
     /// `data` を FileIO の上で解決する仕事。同じブックマークの解決がまだ走っていればそれを返す(`inFlightResolutions`)。
+    ///
+    /// 使い回すのは始めてから `resolutionReuseWindow` までのものだけ(レビューで指摘)。それより長く戻らない解決は、止まった共有の
+    /// 上で SMB の期限を待っているか、hard NFS で戻らないもの ―― 繋ぎ直した後の知らせでもそれを待ち続けると、直った共有の許可が
+    /// いつまでも開かない。古いものは待たずに新しく始める(止まった糸は、多くても期限ごとに 1 本しか増えない)。
     private func backgroundResolution(of data: Data, generation: Int) -> (generation: Int, task: Task<Entry?, Never>) {
-        if let running = inFlightResolutions[data] { return running }
+        let now = ContinuousClock.now
+        if let running = inFlightResolutions[data], now - running.startedAt < Self.resolutionReuseWindow {
+            return (running.generation, running.task)
+        }
         // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
         // 名前(Entry.displayName)も同じ糸の上で求める(ネットワークの上では問い合わせない ―― Entry のコメント)。
-        let started = (generation: generation,
-                       task: Task<Entry?, Never> { await FileIO.perform { BookmarkResolution.resolve(data).map { Entry(url: $0) } } })
-        inFlightResolutions[data] = started
-        return started
+        let task = Task<Entry?, Never> { await FileIO.perform { BookmarkResolution.resolve(data).map { Entry(url: $0) } } }
+        inFlightResolutions[data] = (generation, task, now)
+        return (generation, task)
     }
+
+    /// 走っている解決を使い回す長さ(`backgroundResolution`)。SMB が応答しない共有で返るまでの期限(約 30 秒)に合わせる。
+    static let resolutionReuseWindow: Duration = .seconds(30)
 
     private func finishBackgroundResolution(of data: Data, _ task: Task<Entry?, Never>) {
         if inFlightResolutions[data]?.task == task { inFlightResolutions[data] = nil }

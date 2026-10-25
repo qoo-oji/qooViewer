@@ -98,6 +98,11 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     `osascript -e 'tell application id "com.qooProject.qooViewer.debug" to quit'`。
   - **ウインドウを閉じた後のリーク**は `state` の `liveInstances` で数えられる(下の「閉じたウインドウが解放されるかの測り方」の
     `heap` の代わりの最初の当たり)。CI の起動の確かめも同じ口を使う(`scripts/ci/smoke-control-port.sh`)。
+    数えるのは `AppState`・`ViewerViewModel`・`PageLoader`・`BookLayoutEditorViewModel`(ブックマーク・レイアウトの編集の右ペイン。
+    2026-10-25 に足した)。シークレットの窓どうしをタブにまとめて後ろのタブを閉じる経路は `mergeAllWindows` に `windowNumber` を
+    渡す(タブの組は tabbingIdentifier ごとなので、名指ししないと通常の窓の組へまとめようとする)。2026-10-25 の点検の実測:
+    閉じるボタン・後ろのタブを閉じる、のどちらでも `ViewerViewModel`・`PageLoader` は 0 に戻る。後ろのタブを閉じたときだけ、その窓の
+    `AppState` が残りのタブを閉じるまで 1 つ残る(閉じれば戻る)。
   - 見た目(色・縁取り・位置の 1 フレームの乱れ)と、ファイル選択パネル・ドラッグ・トラックパッドの実物は、この口では確かめられない。
   - **入力を合成して送るとき**(2026-10-11 の実機検証): キーは `CGEvent.postToPid` でプロセスを名指しすれば、最前面のアプリへ漏れずに
     ビューアのイベントモニタまで届いた(矢印・⌘=・Esc。窓を `focusWindow` で前に出してキーにしてから)。**スクロール(ホイールも

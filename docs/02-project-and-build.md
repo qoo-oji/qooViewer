@@ -345,6 +345,22 @@ CI(`xcode-27` も `macos-26` も 3 vCPU の仮想マシン。テストはスキ�
   - FSEvents の遅れ ―― 順序で決める口が無いもの(`FolderChangeWatcherTests` の入れ替えの前提の 1 秒だけ)
   印の無い sleep の後で「起きたこと」を確かめる形は、負荷で落ちます。条件で待つ形にしてください。
 
+### テストのウインドウ(2026-10-25)
+
+テストはアプリの中(TEST_HOST)で走るので、テストが `orderFront` したウインドウやシートは利用者の画面にそのまま出る。出ている長さは
+並行に走るほかのテストの混み具合で変わり(単独で 1.4 秒、全部を並べると 2 秒超)、手元の見張り(本物の確認ダイアログが出たらテストを
+止める)が試験用のウインドウを確認ダイアログと取り違えて、全テストを続けて止めた。
+
+- **テストのウインドウ・シート・アラートは `qooViewerTests/Support/TestWindows.swift` で作る**(`TestWindows.window(size:…, isShown:)` /
+  `.panel(size:)` / `.alert(messageText:)`)。どれも透明(`alphaValue = 0`)で、クリックを受けない(`ignoresMouseEvents`)。シートは親が
+  透明でも自分は不透明で出るので、シートにする窓・アラートの窓にもそれぞれ 0 を入れる(シートを出す動きの後も 0 のまま。単独の試し
+  書きで実測)。透明でも `isVisible` は true で、シートを付ける・閉じる振る舞いはそのまま確かめられる。
+  - 画面の外に置く方法は使えなかった: タイトルバーのあるウインドウは作った時点で AppKit が画面の中へ移し(`constrainFrameRect` を
+    止めても)、シートは親が画面の外にあっても画面の左下に出た(同じく実測)。
+- `scripts/ci/check-test-windows.sh`(`check-all.sh` の一部)が、ほかの場所での `NSWindow(` / `NSPanel(` / `NSAlert(` / `orderFront` /
+  `makeKeyAndOrderFront` を断る。
+- 手元の見張りは、透明なウインドウと、どの画面にも掛からないウインドウを見ない(本物のダイアログは不透明で画面の上に出る)。
+
 ### テストと cfprefsd
 
 テスト用の suite は `TestDefaultsPool` が決まった名前(`qooViewerTests.pool.<n>`)で貸し出し、使い回します。
@@ -503,7 +519,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認したうえで、**Debug の制御口で動かして確かめる**(`scripts/ci/smoke-control-port.py`: フィクスチャの本 5 形式が manifest どおりのページ数で開く・ページ送り・メニューの木・本を閉じたら `ViewerViewModel`/`PageLoader` が残らない・機能の ON/OFF 8 通りのホームのモード・Finder から渡す経路・シークレットの窓の開閉。2026-10-11)、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
 | `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認し、制御口の確かめ(同じスクリプト)を通す。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
-| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、テストの待ち方(`check-test-waits.sh`、上の「テストの待ち方」)、actionlint |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、テストの待ち方(`check-test-waits.sh`、上の「テストの待ち方」)、テストのウインドウ(`check-test-windows.sh`、上の「テストのウインドウ」)、actionlint |
 
 決めごと:
 
