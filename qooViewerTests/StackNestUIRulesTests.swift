@@ -102,7 +102,7 @@ struct StackNestUIRulesTests {
         // 応答は少し後に流す(送り切りはメインで待つので、流すのはメインの外から)。
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { held.open() }
         let started = ContinuousClock.now
-        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(3)) == 1)
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: TestPatience.condition) == 1)
         let waited = ContinuousClock.now - started
         // 飛んでいた送信の終わり(応答を流した 0.3 秒後)まで待った。
         #expect(waited >= .milliseconds(250) && waited < .seconds(3))

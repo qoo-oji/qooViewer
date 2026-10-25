@@ -94,6 +94,30 @@ struct StackNestRequestGateTests {
         #expect(gate.inUseCount(.background) == 0)
     }
 
+    /// 2026-10-25(CI の macOS 27 で実測した競合)。空きが出た瞬間に渡された待ちは、もう並んでいないので `onCancel` からは止められない。
+    /// 待つ側をメインアクターで動かし、許可を渡してから動き出すまでの間に取り消す(メインを手放すまで待つ側は動かない ―― 順序が決まる)。
+    @Test("許可を渡された後、受け取る前に取り消された待ちは、許可を返して CancellationError で抜ける")
+    @MainActor
+    func cancelledAfterBeingGrantedReturnsThePermit() async throws {
+        let gate = StackNestRequestGate()
+        var held: [StackNestRequestGate.Permit] = []
+        for _ in 0..<StackNestRequestGate.backgroundLimit {
+            held.append(try await gate.acquire(.background))
+        }
+        let waiting = Task { @MainActor in try await gate.acquire(.background) }
+        #expect(await Self.waitUntil { gate.waiterCount(.background) == 1 })
+        // 1 つ返すと、門はその場で待ちへ渡す(数は 4 のまま)。待つ側はまだ動いていない。
+        held.removeFirst().release()
+        #expect(gate.waiterCount(.background) == 0)
+        #expect(gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit)
+        waiting.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await waiting.value }
+        // 渡された許可は返っている。
+        #expect(gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit - 1)
+        held.forEach { $0.release() }
+        #expect(gate.inUseCount(.background) == 0)
+    }
+
     @Test("許可は 1 度だけ返る(release を 2 度呼んでも、手放しても数は 1 つだけ減る)")
     func permitReleasesOnce() async throws {
         let gate = StackNestRequestGate()
@@ -109,12 +133,7 @@ struct StackNestRequestGateTests {
 
     /// 条件が成り立つまで(最長 5 秒)待つ。
     private static func waitUntil(_ condition: @escaping @Sendable () -> Bool) async -> Bool {
-        let limit = Date().addingTimeInterval(5)
-        while !condition() {
-            if Date() >= limit { return false }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return true
+        await eventually { condition() }
     }
 }
 

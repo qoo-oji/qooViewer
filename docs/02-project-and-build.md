@@ -320,6 +320,31 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 触れません。テスト用の保存先を渡したインスタンスは、**保存先の外へ出ていく副作用**
 ――サムネイルのディスクキャッシュの設定・`NSApp.appearance`・2 つの通知――を行いません。
 
+### テストの待ち方(2026-10-25)
+
+CI(`xcode-27` も `macos-26` も 3 vCPU の仮想マシン。テストはスキームの `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH` = 8 本ずつ並ぶ)では、
+手元では起きない遅れと順序が出ます。2026-09-25〜10-25 の Build の失敗と再実行を仕分けると、テストに問題がないのに落ちたのは 5 回で、
+どれもスレッド・プロセスをまたぐテスト(XPC と通信・窓の開け閉め・FSEvents・ディスクイメージ)でした。原因は 2 通りです:
+**製品の競合が本当に表に出た**(StackNest の門が、渡した後の取り消しを誰にも見させていなかった → [10](10-sandbox-and-security.md))と、
+**テストが「起きたこと」を短い締め切りで待っていた**(自動リネームを既定 5 秒で待った ―― 製品は書き込みが落ち着くのを待ってから
+名前を変える)。「遅い実行のせい」と見て待ちを足しても直らなかった回もあります(10-04 のカットの記憶のテストは、本当は `/var` と
+`/private/var` の綴りの違いで毎回落ちていた)。ログの「17 秒で合格」は実行時間ではありません(xcresult では CI も手元も中央値 0.03 秒)。
+
+約束(`scripts/ci/check-test-waits.sh` が見る):
+
+- **「成り立つまで待つ」は `Support/Eventually.swift` の `eventually`(Sendable な条件)/ `eventuallyHere`(呼び出し側のアクターの上で
+  見る。メインアクターの値や手元の `var` もそのまま)/ `OneShotSignal.wait` を使う。** 締め切りは `TestPatience.condition`(30 秒)で、
+  テストの中で短く書かない。通る回は成り立った時点で抜けるので、長くしても速さは変わりません(全体で 45 秒 → 40 秒、2026-10-25)。
+  製品の待ちの関数に締め切りを渡すときも同じ値を渡します(`flushAllBlocking(timeout: TestPatience.condition)`)。
+  待ち合わせる口があるならそちらが先です(`settle()`・`waitUntilIdle()`・`SmartLibraryCatalog.waitForPendingSaves()` など)。
+- **それでも `Task.sleep` / `Task.yield` を書くときは、その行か直前の行に理由の印 `// 待ち: …` を付ける。** 印の種類:
+  - 起きないこと ―― 何も起きないのを確かめる間(負荷が高いと誤って通ることはあっても、誤って落ちはしない)
+  - 周回 ―― メインの順番で決まる待ち(時間では決まらない)
+  - 時刻 ―― 更新日時の分解能などを跨ぐ(負荷で短くはならない)
+  - 間隔・見立て ―― 刺激を間を空けて与える・作り物の中の動き
+  - FSEvents の遅れ ―― 順序で決める口が無いもの(`FolderChangeWatcherTests` の入れ替えの前提の 1 秒だけ)
+  印の無い sleep の後で「起きたこと」を確かめる形は、負荷で落ちます。条件で待つ形にしてください。
+
 ### テストと cfprefsd
 
 テスト用の suite は `TestDefaultsPool` が決まった名前(`qooViewerTests.pool.<n>`)で貸し出し、使い回します。
@@ -478,7 +503,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認したうえで、**Debug の制御口で動かして確かめる**(`scripts/ci/smoke-control-port.py`: フィクスチャの本 5 形式が manifest どおりのページ数で開く・ページ送り・メニューの木・本を閉じたら `ViewerViewModel`/`PageLoader` が残らない・機能の ON/OFF 8 通りのホームのモード・Finder から渡す経路・シークレットの窓の開閉。2026-10-11)、Release は universal(arm64 + x86_64)と署名、自動アップデートの約束(`scripts/release/check-release-app.sh`)を検品して zip を artifact(14 日)に残す |
 | `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認し、制御口の確かめ(同じスクリプト)を通す。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
-| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、actionlint |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークと Sparkle のピン、「qooViewer について」のライセンス表記(`Credits.rtf`)と依存の版の一致、改行コード、`docs/` のリンク切れ、テストの待ち方(`check-test-waits.sh`、上の「テストの待ち方」)、actionlint |
 
 決めごと:
 
@@ -517,6 +542,10 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
   取り出せなければ失敗**にします(添付の仕組みが静かに壊れて「0 件を検品して合格」に
   なるのを防ぐため)。手元で同じことをするなら、jar を落として
   `EPUBCHECK_JAR=… scripts/ci/validate-exports.sh <結果バンドル>`(java が要る)。
+- **失敗した回の結果一式は 30 日残す**(2026-10-25。それまで 7 日)。xcresult・整形前のテストのログ・スモークのログ・クラッシュレポート。
+  整形したログ(xcbeautify)は `Issue.record` のメッセージを落とすことがあり、10 月初めの使い捨てボリュームのテストの失敗は、中身を読む前に
+  消えていた。**再実行で通った回**は Actions の一覧には成功としか出ないので、`scripts/dev/ci-flaky-runs.py` で拾う(試みが 2 回以上ある回の、
+  失敗した試みのジョブ・段・メッセージ)。再実行で済ませた失敗も、ここで見て原因を仕分ける(上の「テストの待ち方」)。
 - 検査の本体はリポジトリ内のスクリプトで、手元でも同じものが走ります(→ [12](12-verification-and-debugging.md#基本))。
 - **個人情報の流出防止**(改善要望7、2026-09-13。`scripts/ci/check-private-terms.sh` + `check-private-terms.py`)。蔵書の
   フォルダ名・ファイル名がリポジトリに入っていないことを 2 層で見ます: ①手元の禁止語リスト

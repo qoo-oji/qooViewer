@@ -32,7 +32,8 @@ struct FileIOTests {
                 let started = ContinuousClock.now
                 let ran = DispatchSemaphore(value: 0)
                 FileIO.submit { ran.signal() }
-                let startedWithin: Duration? = ran.wait(timeout: .now() + 1) == .success ? ContinuousClock.now - started : nil
+                // 協調プールで走る作りなら、塞いだスレッドを放すまで走らない。締め切りは TestPatience と同じ考えで長くとる(走ればすぐ抜ける)。
+                let startedWithin: Duration? = ran.wait(timeout: .now() + 30) == .success ? ContinuousClock.now - started : nil
                 for _ in 0..<blockerCount { release.signal() }
                 continuation.resume(returning: (blocked, startedWithin))
             }

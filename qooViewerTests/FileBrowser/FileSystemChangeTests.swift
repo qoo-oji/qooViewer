@@ -318,12 +318,10 @@ struct FileSystemChangeTests {
         await state.operations.rename(text, to: "b.txt").value
         await state.settle()
         // 知らせは箱で最大 80ms まとめてから配られ、記憶の写し(`cutPaths`)はその購読の先でもう 1 回メインへ回る。
-        // 箱を今すぐ配らせ、写しが届くまで少しだけ待つ(期限つき。届かなければ下の #expect が落ちる)。
+        // 箱を今すぐ配らせ、写しが届くまで待つ(届かなければ下の #expect が落ちる)。
         // CI で落ちたのは時間ではなく `/var` と `/private/var` の書き方の食い違いだった(下の `cutMemoryMatchesThePrivateSpelling`)。
         fixture.center.flush()
-        for _ in 0..<100 where !(state.cutPaths.isEmpty && fixture.clipboard.paths.isEmpty) {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        _ = await eventuallyHere { state.cutPaths.isEmpty && fixture.clipboard.paths.isEmpty }
         #expect(state.cutPaths.isEmpty, "動かしていない項目が淡色のまま残った")
         #expect(fixture.clipboard.paths.isEmpty)
     }

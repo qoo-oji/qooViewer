@@ -81,6 +81,7 @@ struct FileOperationPromptTests {
         )
         let asked = Task { await center.ask(prompt, owner: owner) }
         center.report(FileOperationPrompt(icon: NSImage(), message: "r", buttons: ["OK"], checkboxTitle: nil, answerWhenOwnerCloses: nil, windowTitle: "t"), owner: owner)
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         await Task.yield()
         #expect(center.pendingCount == 2)
         owner.close()

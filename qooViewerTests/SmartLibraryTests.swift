@@ -943,12 +943,7 @@ struct SmartLibraryTests {
     /// 上限を長めにしてあるのは、全体を流すと同じテストホストで並列に走るほかのテストに押されて、単独では 1 秒の集め直しが
     /// 12 秒ほどかかったため(止まってはいない。2026-09-22 に実測)。
     private func wait(_ timeout: Duration = .seconds(60), until condition: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            guard ContinuousClock.now < deadline else { return false }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return true
+        await eventuallyHere(timeout: timeout, condition)
     }
 
     @Test("OFF にすると集めた一覧・索引を手放し、入り口は何もしない。ON へ戻して画面を出せば集め直す")
@@ -979,6 +974,7 @@ struct SmartLibraryTests {
         // 画面が消える(deactivate)・出ようとしても(activate)、何も始まらない。
         catalog.deactivate()
         catalog.activate()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(catalog.books.isEmpty && !catalog.isLoading)
 
@@ -1005,7 +1001,7 @@ struct SmartLibraryTests {
 
         catalog.activate()
         #expect(await wait { catalog.hasLoaded })
-        try await Task.sleep(for: .milliseconds(200))
+        await catalog.waitForPendingSaves()
         #expect(try Data(contentsOf: cacheURL) == Data("saved".utf8))
         catalog.deactivate()
     }
@@ -1021,6 +1017,7 @@ struct SmartLibraryTests {
         first.activate()
         #expect(await wait { first.hasLoaded && first.books.count == 3 })
         #expect(await wait { FileManager.default.fileExists(atPath: cacheURL.path) })
+        await first.waitForPendingSaves()
         first.deactivate()
     }
 
@@ -1064,14 +1061,13 @@ struct SmartLibraryTests {
         let store = SmartLibraryStore(defaults: suite.defaults)
         store.addFolder(root)
         try await writeSavedCatalog(root: root, store: store, library: library, cacheURL: cacheURL)
-        try await Task.sleep(for: .milliseconds(200))
         let written = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
 
         let second = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
                                          modelContext: library.context, cacheURL: cacheURL)
         second.activate()
         #expect(await wait { second.hasLoaded && second.books.count == 3 })
-        try await Task.sleep(for: .milliseconds(300))
+        await second.waitForPendingSaves()
         let after = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
         #expect(written != nil && after == written)
         second.deactivate()
@@ -1095,6 +1091,7 @@ struct SmartLibraryTests {
         catalog.activate()
         #expect(catalog.isLoading)
         catalog.setFeatureEnabled(false)
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .seconds(1))
         #expect(catalog.books.isEmpty)
         #expect(!catalog.hasLoaded)

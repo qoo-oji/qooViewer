@@ -100,6 +100,7 @@ private final class FakeNetworkVolumeConnector: NetworkVolumeConnectorTransport,
 struct NetworkServerDirectoryTests {
     /// メインの次の周回まで待つ(知らせは `Task { @MainActor }` で一覧に入る)。
     private func settle() async {
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         for _ in 0..<5 { await Task.yield() }
     }
 

@@ -27,11 +27,7 @@ struct CollectionStoreTests {
 
     /// 非同期に走る後始末(カバー画像の削除)を待つ。時間ではなく条件で待つ。
     private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<500 {
-            if condition() { return }
-            await Task.yield()
-        }
-        Issue.record("条件が満たされない")
+        if !(await eventuallyHere(condition)) { Issue.record("条件が満たされない") }
     }
 
     // MARK: - ライブラリ
@@ -306,10 +302,7 @@ struct CollectionStoreTests {
 
         library.collections.sweepOrphanedCovers()
         // 掃除は保管庫の actor へ非同期に渡る。消えたことを条件に待つ(時間では待たない)。
-        for _ in 0..<500 {
-            if await library.collectionCovers.image(for: orphanID) == nil { break }
-            await Task.yield()
-        }
+        _ = await eventually { await library.collectionCovers.image(for: orphanID) == nil }
 
         #expect(await library.collectionCovers.image(for: living.id) != nil)
         #expect(await library.collectionCovers.image(for: orphanID) == nil)

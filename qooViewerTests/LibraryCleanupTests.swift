@@ -204,18 +204,12 @@ struct LibraryCleanupTests {
     private func waitForExistence(
         of bookID: String, in viewModel: LibraryCleanupViewModel, toBe expected: LibraryCleanupViewModel.FileExistence
     ) async -> Bool {
-        let deadline = Date().addingTimeInterval(10)
-        func matches() -> Bool {
+        await eventuallyHere {
             guard !viewModel.isCheckingExistence, let row = viewModel.rows.first(where: { $0.bookID == bookID }) else {
                 return false
             }
             return row.existence == expected
         }
-        while Date() < deadline {
-            if matches() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return matches()
     }
 
     @Test("閉じて開き直すと、一覧も実在の判定も作り直す(見つからなかった本が戻っていれば「ある」になる)")

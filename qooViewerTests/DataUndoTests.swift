@@ -24,15 +24,12 @@ struct DataUndoTests {
 
     /// 非同期に走る後始末(表紙のファイルの削除)を待つ。時間ではなく条件で待つ。
     private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<500 {
-            if condition() { return }
-            await Task.yield()
-        }
-        Issue.record("条件が満たされない")
+        if !(await eventuallyHere(condition)) { Issue.record("条件が満たされない") }
     }
 
     /// 消えないことを確かめるために、裏の後始末が走る機会を与える。
     private func settle() async {
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         for _ in 0..<50 { await Task.yield() }
     }
 

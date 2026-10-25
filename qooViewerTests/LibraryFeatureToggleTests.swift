@@ -509,12 +509,13 @@ struct LibraryFeatureToggleTests {
         let temporary = try TemporaryDirectory("library-toggle-directory")
         let store = HomeMenuDirectoryStore(collectionStore: library.collections, isLibraryFeatureEnabled: false)
         _ = try register(try makeFolderBook(temporary, named: "book"), in: library)
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(store.directory.libraries.isEmpty)
         #expect(store.rebuildCount == 0)
 
         store.setLibraryFeatureEnabled(true)
-        for _ in 0..<200 where store.directory.libraries.isEmpty { try? await Task.sleep(for: .milliseconds(5)) }
+        _ = await eventuallyHere { !store.directory.libraries.isEmpty }
         #expect(store.directory.libraries.first?.collections.map(\.name) == ["Shelf"])
     }
 

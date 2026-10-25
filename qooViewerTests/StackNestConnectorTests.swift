@@ -211,13 +211,11 @@ struct StackNestConnectorURLProtocolTests {
         var request = URLRequest(url: Self.manifestURL)
         request.setValue("Bearer test-token-0123456789", forHTTPHeaderField: "Authorization")
         let task = Task { try await session.data(for: request) }
-        let limit = Date().addingTimeInterval(5)
-        while stallingTransport.sentRequests.isEmpty, Date() < limit { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventually { !stallingTransport.sentRequests.isEmpty }
         task.cancel()
         _ = try? await task.value
         let sentID = try #require(stallingTransport.sentRequests.first?.id)
-        let cancelLimit = Date().addingTimeInterval(5)
-        while !stallingTransport.cancelledIDs.contains(sentID), Date() < cancelLimit { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventually { stallingTransport.cancelledIDs.contains(sentID) }
         #expect(stallingTransport.cancelledIDs.contains(sentID))
     }
 

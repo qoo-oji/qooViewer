@@ -635,9 +635,7 @@ struct FileCommandsTests {
                 relay.push(FileOperationProgress(completedItems: index, totalItems: 5000)) { delivered.values.append($0.completedItems) }
             }
         }
-        for _ in 0..<100 where delivered.values.last != 5000 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        _ = await eventuallyHere { delivered.values.last == 5000 }
         #expect(delivered.values.last == 5000)
         #expect(delivered.values == delivered.values.sorted())
         #expect(delivered.values.count < 100, "報告の数だけ渡さない")

@@ -192,8 +192,7 @@ struct FileBrowserStateTests {
 
         fixture.preferences.fileBrowserFoldersFirst = false
         // 設定の変更は次のランループで反映される(FileBrowserState.observePreferences)。
-        await Task.yield()
-        for _ in 0..<20 where fixture.names().first != "c.txt" { await Task.yield() }
+        _ = await eventuallyHere { fixture.names().first == "c.txt" }
         #expect(fixture.names() == ["c.txt", "B.cbz", "b-folder", "a-folder"])
     }
 
@@ -266,7 +265,7 @@ struct FileBrowserStateTests {
         fixture.preferences.folderBrowserSortDirection = .ascending
         #expect(fixture.state.sortKey == .name)
         #expect(fixture.state.sortDirection == .ascending)
-        for _ in 0..<20 where fixture.names() != ["a-folder", "b-folder", "B.cbz", "c.txt"] { await Task.yield() }
+        _ = await eventuallyHere { fixture.names() == ["a-folder", "b-folder", "B.cbz", "c.txt"] }
         #expect(fixture.names() == ["a-folder", "b-folder", "B.cbz", "c.txt"])
 
         // 同じ設定を見ている 2 つ目のウインドウ。
@@ -275,7 +274,7 @@ struct FileBrowserStateTests {
         #expect(other.sortKey == .name)
         other.sortDirection = .descending
         #expect(fixture.state.sortDirection == .descending)
-        for _ in 0..<20 where fixture.names().first != "b-folder" { await Task.yield() }
+        _ = await eventuallyHere { fixture.names().first == "b-folder" }
         #expect(fixture.names() == ["b-folder", "a-folder", "c.txt", "B.cbz"])
         other.releaseResources()
     }
@@ -561,12 +560,13 @@ struct FileBrowserStateTests {
         state.requestRename(ids[1])
         // 古い依頼を済ませても、新しい依頼は下ろさない。
         state.finishRenameRequest(first)
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         for _ in 0..<5 { await Task.yield() }
         #expect(state.renameRequest?.id == ids[1])
 
         let second = try #require(state.renameRequest)
         state.finishRenameRequest(second)
-        for _ in 0..<20 where state.renameRequest != nil { await Task.yield() }
+        _ = await eventuallyHere { state.renameRequest == nil }
         #expect(state.renameRequest == nil)
 
         state.requestRename(ids[0])
@@ -674,7 +674,7 @@ struct FileBrowserStateTests {
 
         // 履歴が変われば読み直す。
         await recent.recordInBackground(url: fixture.bFolder).value
-        try await Task.sleep(for: .milliseconds(100))
+        _ = await eventuallyHere { fixture.names() == ["b-folder", "a-folder", "B.cbz"] }
         await state.settle()
         #expect(fixture.names() == ["b-folder", "a-folder", "B.cbz"])
 
@@ -696,7 +696,7 @@ struct FileBrowserStateTests {
 
         // OFF にされたら、表示していた最近の項目から離れてホームへ。
         fixture.preferences.fileBrowserShowsRecents = false
-        try await Task.sleep(for: .milliseconds(100))
+        _ = await eventuallyHere { !state.isShowingRecents }
         await state.settle()
         #expect(!state.isShowingRecents)
         #expect(state.currentFolder?.path == FileBrowserListing.realHomeDirectory().path)
@@ -719,7 +719,7 @@ struct FileBrowserStateTests {
         await state.settle()
         #expect(state.isShowingRecents)
         fixture.preferences.fileBrowserShowsRecents = false
-        try await Task.sleep(for: .milliseconds(100))
+        _ = await eventuallyHere { state.currentFolder?.path == home.path }
         await state.settle()
         #expect(state.currentFolder?.path == home.path)
         state.goBack()

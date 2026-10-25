@@ -439,6 +439,12 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 最後に頼まれた保存(次の保存はこれの後に始める)。
     private var saving: Task<Void, Never>?
 
+    /// 頼まれた保存がすべて終わるまで待つ(**テストのための口**。保存は前のものの後に 1 本ずつ走るので、最後のものを待てば足りる)。
+    /// 「書かなかったこと」も、集め直しが一覧を出した時点で保存を頼むかは決まっているので、これを待てば時間で待たずに確かめられる。
+    func waitForPendingSaves() async {
+        await saving?.value
+    }
+
     private func saveCache(roots: [String], books: [SmartBook], isTruncated: Bool) {
         guard let cacheURL else { return }
         let cached = CachedCatalog(roots: roots, books: books, isTruncated: isTruncated)

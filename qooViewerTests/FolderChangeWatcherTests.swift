@@ -65,6 +65,7 @@ struct FolderChangeWatcherTests {
         // 入れ替えの前からある変更(履歴になるもの)。
         try Self.createEmptyFile(at: second.appendingPathComponent("old.txt"))
         // フォルダを作った知らせが、最初のストリームへ生の知らせとして届かないところまで待つ(履歴には残る)。
+        // 待ち: FSEvents の遅れ(順序で決める口が無い。ここで落ちたら、まず fseventsd の遅れを疑う)
         try await Task.sleep(for: .seconds(1))
 
         let (changes, continuation) = AsyncStream<[String]>.makeStream()

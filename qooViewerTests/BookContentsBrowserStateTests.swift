@@ -10,10 +10,7 @@ import Testing
 struct BookContentsBrowserStateTests {
     /// 一覧に `names` の行がそろうまで待つ(裏の一覧の作り直しを待つ口が無いので、期限つきで見に行く)。
     private func waitForRows(_ browser: BookContentsBrowserState, _ names: Set<String>) async throws {
-        let deadline = Date().addingTimeInterval(10)
-        while !names.isSubset(of: Set(browser.entries.map(\.displayName))), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        _ = await eventuallyHere { names.isSubset(of: Set(browser.entries.map(\.displayName))) }
         try #require(names.isSubset(of: Set(browser.entries.map(\.displayName))), "一覧が出そろわなかった")
     }
 
@@ -108,10 +105,7 @@ struct BookContentsBrowserStateTests {
 
         // 渡さなかった(開かなかった)一時ファイルは、ブラウザを手放すと消える。
         browser.releaseResources()
-        let deadline = Date().addingTimeInterval(10)
-        while FileManager.default.fileExists(atPath: url.path), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        _ = await eventuallyHere { !FileManager.default.fileExists(atPath: url.path) }
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 

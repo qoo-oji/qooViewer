@@ -178,11 +178,7 @@ struct MetadataGeneratorTests {
     }
 
     private func wait(_ condition: () -> Bool) async -> Bool {
-        for _ in 0..<200 {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
+        await eventuallyHere(condition)
     }
 }
 
@@ -237,9 +233,9 @@ struct MetadataCorpusStoreTests {
         #expect(corpus.record.smartLibrary == ["/c": ["/c/3.zip"]])
         // 保存は画面の外で。書き終わるのを待って読み直す。
         var reloaded = MetadataCorpusStore(url: url).record
-        for _ in 0..<100 where reloaded != corpus.record {
-            try await Task.sleep(for: .milliseconds(20))
+        _ = await eventuallyHere {
             reloaded = MetadataCorpusStore(url: url).record
+            return reloaded == corpus.record
         }
         #expect(reloaded == corpus.record)
     }

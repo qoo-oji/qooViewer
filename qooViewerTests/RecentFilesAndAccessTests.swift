@@ -99,9 +99,7 @@ struct RecentFilesAndAccessTests {
 
         store.scheduleRefresh()
         // 消えたファイルが落ちたら確かめ直しは済んでいる(待ち合わせの口が無いので、結果で待つ)。
-        for _ in 0..<200 where store.entries.contains(where: { $0.path == gone.path }) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        _ = await eventuallyHere { !store.entries.contains(where: { $0.path == gone.path }) }
         #expect(store.entries.map(\.path) == [offline])
     }
 

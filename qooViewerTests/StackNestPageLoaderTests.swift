@@ -106,12 +106,7 @@ struct StackNestPageLoaderTests {
 
     /// 条件が成り立つまで(最長 5 秒)待つ。
     private static func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async -> Bool {
-        let limit = Date().addingTimeInterval(5)
-        while !(await condition()) {
-            if Date() >= limit { return false }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return true
+        await eventually(condition)
     }
 
     @Test("寸法を読んでから表示しても、そのページを取りに行くのは 1 回")
@@ -205,6 +200,7 @@ struct StackNestPageLoaderTests {
         let thumbnail = await loader.thumbnail(at: 0)
         #expect(thumbnail.flatMap { PageColorReader.number(in: $0) } == 1)
         // 書き込みは待たない作りなので、少し待ってから何も書かれていないことを見る。
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(await caches.thumbnails.totalBytes() == 0)
         await loader.releaseAllResources()
@@ -223,8 +219,9 @@ struct StackNestPageLoaderTests {
         let shared = try StackNestSessions.shared.book(for: reference, at: book.sourceURL)
         #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 4 })
         #expect(shared.gate.inUseCount(.background) == StackNestRequestGate.backgroundLimit)
-        // 門を通った 4 件だけが見立てに届く。
-        try await Task.sleep(for: .milliseconds(200))
+        // 門を通った 4 件だけが見立てに届く(残りの 4 件は門で待っているので、届かないことは門の数で決まる ―― 時間では待たない)。
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.count == 4 })
+        #expect(shared.gate.waiterCount(.background) == 4)
         #expect(fixture.pageRequestIndices.count == 4)
         gates.forEach { $0.open() }
         for task in thumbnails { _ = await task.value }
@@ -262,6 +259,7 @@ struct StackNestPageLoaderTests {
         let dropped = Task { await loader.thumbnail(at: 11) }
         #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(11) })
         dropped.cancel()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(100))
         gates[11].open()
         #expect(await kept.value != nil)
@@ -346,6 +344,7 @@ struct StackNestPageLoaderTests {
         let kept = Task { await loader.pageImage(at: 4) }
         #expect(await Self.waitUntil { fixture.pageRequestIndices.contains(4) })
         kept.cancel()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(100))
         gates[4].open()
         #expect(await Self.waitUntil { await loader.cachedPageImage(at: 4) != nil })

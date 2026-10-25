@@ -20,16 +20,13 @@ struct SidePanelLibraryTreeModelTests {
 
     /// 写しの作り直しは 1 ランループ待ってから。時間ではなく条件で待つ。
     private func waitUntil(_ condition: () -> Bool) async {
-        for _ in 0..<200 {
-            if condition() { return }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("条件が満たされない")
+        if !(await eventuallyHere(condition)) { Issue.record("条件が満たされない") }
     }
 
     /// 後から来る知らせが無いことを確かめるために、少しだけ待つ(知らせからの作り直しは前の作り直しから間を空ける ――
     /// `minimumRebuildInterval`。2026-10-05 の監査 A7-1 ―― ので、その分も待つ)。
     private func settle() async {
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try? await Task.sleep(for: SidePanelLibraryTreeModel.minimumRebuildInterval + .milliseconds(50))
     }
 
@@ -75,6 +72,7 @@ struct SidePanelLibraryTreeModelTests {
         let rebuildsBefore = model.rebuildCount
         for _ in 0..<20 {
             library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
+            // 待ち: 間隔(刺激を間を空けて与える)
             try? await Task.sleep(for: .milliseconds(5))
         }
         await settle()

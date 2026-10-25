@@ -21,7 +21,10 @@ import Foundation
 /// 背景の列で待っている読み込みに表示の要求が合流したら(PageLoader の先読みに表示が追いついた)、`promote(key:)` でその待ちを
 /// 表示の列へ移す(PageLoader の `promoteDecodeWaiter` と同じ考え)。
 ///
-/// 待っている間に取り消されたら `CancellationError` で抜ける(許可は取らない)。
+/// 待っている間に取り消されたら `CancellationError` で抜ける(許可は取らない)。**許可を渡された後、受け取る前に取り消されたときも
+/// 同じ**(許可は返す)。空きが出た瞬間に渡された待ちの取り消しは `onCancel` からは止められない(もう並んでいない)ので、受け取る側の
+/// `acquire` が見る ―― 以前は「許可を持った呼び出し側が見る」として誰も見ておらず、取り消されたサムネイルの取り寄せが StackNest へ
+/// 飛んだ(2026-10-25、CI の macOS 27 で実測: 先に飛んでいた 4 件の取り消しで枠が空き、取り消し待ちの 2 件が門を通った)。
 nonisolated final class StackNestRequestGate: @unchecked Sendable {
     enum Lane: Sendable {
         /// いま表示するページ・利用者の操作(書き出し・情報など)。
@@ -123,14 +126,20 @@ nonisolated final class StackNestRequestGate: @unchecked Sendable {
                     waitStates[id] = .cancelledEarly
                     return nil
                 case .cancelledEarly?, nil:
-                    // もう許可を受け取った(pump が渡した)。取り消しは、許可を持った呼び出し側が見る。
+                    // もう許可を渡された(pump が渡した)。取り消しは、受け取った側(下の `Task.isCancelled`)が見る。
                     return nil
                 }
             }
             waiter?.continuation.resume(throwing: CancellationError())
         }
         // 並んでいた人は、渡した側(`pumpLocked`)が数え済み。
-        return Permit(gate: self, lane: granted)
+        let permit = Permit(gate: self, lane: granted)
+        // 渡された後に取り消されていたら、許可を返して抜ける(型コメント)。
+        if Task.isCancelled {
+            permit.release()
+            throw CancellationError()
+        }
+        return permit
     }
 
     /// 背景の列で `key` の待ちがあれば表示の列へ移す(空いていればその場で許可を渡す)。

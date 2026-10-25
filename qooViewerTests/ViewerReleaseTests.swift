@@ -30,6 +30,7 @@ struct ViewerReleaseTests {
         center.post(name: .bookmarksDidChange, object: nil, userInfo: userInfo)
         center.post(name: .bookMetadataDidChange, object: nil, userInfo: userInfo)
         // レイアウトの読み直しは約 1 フレームまとめてから走る(scheduleLayoutDataReload)。走ってしまえばここで落ちる。
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(200))
 
         #expect(viewer.book.id == book.id)

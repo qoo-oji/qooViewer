@@ -131,6 +131,7 @@ struct LayoutStoreTests {
         library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
 
         // 同じページ数の別の書庫で置き換える(大きさ・更新日時が変わる)。
+        // 待ち: 時刻(更新日時の分解能などを跨ぐ。負荷で短くはならない)
         try await Task.sleep(for: .milliseconds(1100))
         let reopened = try await makeArchive(in: temporary, variant: 50)
         #expect(reopened.pages.count == book.pages.count)
@@ -160,6 +161,7 @@ struct LayoutStoreTests {
         let book = try await makeArchive(in: temporary)
         library.layouts.setPageLayoutState(for: book, pageKey: book.pages[0].sortKey, state: .single)
 
+        // 待ち: 時刻(更新日時の分解能などを跨ぐ。負荷で短くはならない)
         try await Task.sleep(for: .milliseconds(1100))
         let reopened = try await makeArchive(in: temporary, variant: 50)
         #expect(library.layouts.checkContentReplacement(book: reopened) != .unaffected)

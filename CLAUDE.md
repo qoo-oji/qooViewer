@@ -26,7 +26,11 @@ its own that touches shared state or makes noise is switched off under `RuntimeE
 screen starts on the bookshelf instead of listing the real home folder, file-operation sounds are silent); the window
 still shows a spinning cursor while main-actor tests run, which is expected. Tests must never touch shared state — open books through
 `FixtureBook.load` (`cachesPageList: false`), build stores on `InMemoryLibrary`'s own container, never
-`UserDefaults.standard` / `*.shared` caches / `QooViewerApp.modelContainer.mainContext`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
+`UserDefaults.standard` / `*.shared` caches / `QooViewerApp.modelContainer.mainContext`. **Tests wait for conditions, not time**
+(2026-10-25 CI audit; docs/02「テストの待ち方」): use `eventually` / `eventuallyHere` / `OneShotSignal.wait` with the shared deadline
+`TestPatience.condition` (never a shorter one — CI's 3-vCPU VMs ran 8 tests at a time and short deadlines failed correct tests), and every
+`Task.sleep`/`Task.yield` in a test carries a `// 待ち: …` reason (`scripts/ci/check-test-waits.sh`). Before calling a CI failure "slow", look
+for a product race or a deterministic environment difference first; reruns that passed are listed by `scripts/dev/ci-flaky-runs.py`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
 host triggers a macOS removable-volume permission dialog on every launch). Fixture regeneration is
 `scripts/fixtures/build-fixtures.sh` (local only; needs `7zz` and `rar`); details in
 `docs/02-project-and-build.md`. Everything about the UI is still verified by running the app.

@@ -34,6 +34,7 @@ struct BookExportViewModelTests {
                 try Data("partial".utf8).write(to: destinationURL)
                 isWaitingInExport = true
                 // 取り消されると Task.sleep が CancellationError を投げる(Exporter のページのループの checkCancellation と同じ)。
+                // 待ち: 見立て(作り物の中の動き)
                 while true { try await Task.sleep(for: .milliseconds(5)) }
             }
             if let sourceURLToWatch {
@@ -127,12 +128,14 @@ struct BookExportViewModelTests {
         // 確かめている途中(メインの外で数えている間)に閉じる。確かめの結果はメインへ戻ってから読むので、淡色になったのを見て
         // 同じ周回の中で閉じれば、必ず「確かめている間」になる。
         let closed = Task { await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) }
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         while !viewModel.isBusy { await Task.yield() }
         viewModel.setPresented(false)
         #expect(await closed.value == .abandoned)
 
         // 閉じて開き直した場合も同じ。
         let reopened = Task { await viewModel.exportAfterCheckingDiskSpace(destinationFolder: destination) }
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         while !viewModel.isBusy { await Task.yield() }
         viewModel.setPresented(true)
         viewModel.setPresented(false)
@@ -377,9 +380,7 @@ struct BookExportViewModelTests {
         let book = MangaBook(id: folder.path, title: "book", sourceURL: folder, pages: [])
 
         let run = Task { await viewModel.exportOpenBook(book, displayState: nil, to: output) }
-        for _ in 0..<2000 where !viewModel.isWaitingInExport {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        _ = await eventuallyHere { viewModel.isWaitingInExport }
         #expect(viewModel.isWaitingInExport)
         viewModel.cancel()
         let failure = await run.value
@@ -429,9 +430,7 @@ struct BookExportViewModelTests {
         let book = MangaBook(id: folder.path, title: "book", sourceURL: folder, pages: [])
 
         let first = Task { await viewModel.exportOpenBook(book, displayState: nil, to: output) }
-        for _ in 0..<2000 where !viewModel.isWaitingInExport {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        _ = await eventuallyHere { viewModel.isWaitingInExport }
         #expect(viewModel.isWaitingInExport)
 
         // 2 本目はすぐ戻り、1 本目は書き出し中のまま(以前は状態を初めに戻して並んで走った)。

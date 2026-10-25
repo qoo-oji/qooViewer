@@ -282,6 +282,7 @@ struct BookLayoutEditorTests {
 
         // 「一括操作… ▸ レイアウトをすべて削除」(ほかに保存データの読み込みの上書きなど)。知らせは `.main` の上で届く。
         layouts.discardPageLayout(forBookID: book.id)
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         await Task.yield()
         #expect(editor.rows.map(\.pageKey) == keys)
 

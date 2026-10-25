@@ -56,6 +56,7 @@ struct ReadingStateReplacementTests {
     func aFolderTouchedByFinderKeepsTheReadingState() async throws {
         let (toggled, reopened, harness) = try await reopenAfter { _, book in
             // 更新日時の分解能(秒)を跨いでから書く。
+            // 待ち: 時刻(更新日時の分解能などを跨ぐ。負荷で短くはならない)
             try await Task.sleep(for: .milliseconds(1100))
             try Data([0]).write(to: book.sourceURL.appendingPathComponent(".DS_Store"))
         }
@@ -227,6 +228,7 @@ struct ReadingStateReplacementTests {
         // ループが回っている。
         var sourceURL = replaced.sourceURL
         sourceURL.removeAllCachedResourceValues()
+        // 待ち: 周回(メインの順番で決まる。時間では決まらない)
         try await Task.sleep(nanoseconds: 50_000_000)
         #expect(ContentFingerprint.current(for: replaced).modificationDate != openedDate, "前提: 更新日時が動いて見える")
         viewer.resolveLayoutReplacement(applyExisting: false)

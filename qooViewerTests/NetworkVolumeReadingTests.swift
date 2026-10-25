@@ -301,8 +301,7 @@ struct NetworkVolumeReadingTests {
         source?.startBackgroundFill()
         // 裏の取り寄せは最初の前景の読みの後に始まる。
         _ = try source?.read(at: 0, count: 10)
-        let deadline = Date().addingTimeInterval(20)
-        while source?.isComplete == false, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { source?.isComplete != false }
         #expect(source?.isComplete == true)
         #expect((source?.backgroundFetchCount ?? 0) > 0)
 
@@ -314,10 +313,7 @@ struct NetworkVolumeReadingTests {
         #expect(FileManager.default.fileExists(atPath: cacheURL.path))
         source = nil
         // 裏のスレッドは 1 回の取り寄せの間しか強参照しないので、手放せばすぐ解放される。
-        let gone = Date().addingTimeInterval(5)
-        while FileManager.default.fileExists(atPath: cacheURL.path), Date() < gone {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        _ = await eventuallyHere { !FileManager.default.fileExists(atPath: cacheURL.path) }
         #expect(!FileManager.default.fileExists(atPath: cacheURL.path), "一時ファイルが残った")
     }
 
@@ -333,13 +329,14 @@ struct NetworkVolumeReadingTests {
         _ = lease
         lease = nil
         _ = try source.read(at: 0, count: 100)
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(source.backgroundFetchCount == 0)
         #expect(!source.isComplete)
 
         // 頼み直せば、また取り寄せる(スレッドを作り直す)。
         let again = StagedFillLease(source)
-        for _ in 0..<300 where !source.isComplete { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { source.isComplete }
         #expect(source.isComplete)
         _ = again
     }
@@ -357,7 +354,7 @@ struct NetworkVolumeReadingTests {
             let lease = StagedFillLease(source)
             #expect(try lease.read(at: 0, count: 10).isEmpty)
         }
-        for _ in 0..<100 where weakSource != nil { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { weakSource == nil }
         #expect(weakSource == nil)
     }
 

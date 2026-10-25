@@ -31,7 +31,8 @@ struct StackNestPageTurnTests {
 
         viewer.jump(toPageIndex: 20)
         // 1 枚目(20)の応答を止めたまま、相方(21)も届く。
-        let bothArrived = await eventually(timeout: .seconds(3)) {
+        // 1 枚目の応答は止めたままなので、1 枚目を待つ作りなら相方はいつまでも届かない(締め切りは TestPatience)。
+        let bothArrived = await eventually {
             let indices = fixture.pageRequestIndices
             return indices.contains(20) && indices.contains(21)
         }
@@ -61,7 +62,8 @@ struct StackNestPageTurnTests {
         viewer.advance(forward: true)
         viewer.advance(forward: true)
         viewer.advance(forward: true)
-        let landed = await eventually(timeout: .seconds(3)) {
+        // 通過するページの応答は止めたままなので、それを待つ作りならいつまでも着地しない(締め切りは TestPatience)。
+        let landed = await eventually {
             await MainActor.run {
                 viewer.currentIndex == 6 && viewer.currentImages.compactMap { PageColorReader.number(in: $0) } == [7, 8]
             }

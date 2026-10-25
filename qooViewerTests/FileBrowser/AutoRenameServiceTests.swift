@@ -84,14 +84,9 @@ struct AutoRenameServiceTests {
         }
     }
 
-    /// 条件がそろうまで待つ(FSEvents と見直しは時間で届く)。
-    private func eventually(_ timeout: TimeInterval = 10, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return condition()
+    /// 条件がそろうまで待つ(FSEvents と見直しは時間で届く。締め切りは TestPatience)。
+    private func eventually(_ condition: () -> Bool) async -> Bool {
+        await eventuallyHere(condition)
     }
 
     // MARK: - 計画
@@ -194,6 +189,7 @@ struct AutoRenameServiceTests {
 
         #expect(await eventually { harness.service.targetsAwaitingConfirmation == [targetID] })
         #expect(await eventually { harness.store.rule(withID: quiet.id)?.targets.first.map { $0.isConfirmed(for: quiet) } == true })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(400))
         #expect(harness.exists("shelf/one [tag].zip"), "確認する前に変えた")
 
@@ -236,6 +232,7 @@ struct AutoRenameServiceTests {
         #expect(harness.service.confirm(fresh))
         #expect(await eventually { harness.exists("shelf/one [x].zip") })
         // 見せていない対象は確認していないので、その中の今ある項目は変えない。
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(600))
         #expect(harness.exists("later/two [tag].zip"), "プレビューに出ていない対象の項目を変えた")
         let added = try #require(harness.store.rule(withID: rule.id)?.targets.first { $0.path == AutoRename.canonicalPath(later.path) })
@@ -281,6 +278,7 @@ struct AutoRenameServiceTests {
         harness.service.refreshAvailability()
         #expect(await eventually { harness.service.availability[laterID] == .available })
         #expect(await eventually { harness.service.targetsAwaitingConfirmation.contains(laterID) })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(600))
         #expect(harness.exists("later/two [tag].zip"), "見せていない対象の項目を変えた")
     }
@@ -300,6 +298,7 @@ struct AutoRenameServiceTests {
 
         #expect(await eventually { harness.service.targetsAwaitingConfirmation == [target.id] })
         try harness.file("imported/new [tag].zip")
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(800))
         #expect(harness.exists("imported/new [tag].zip"), "確認する前に、取り込んだ規則が名前を変えた")
         #expect(harness.store.rules.first?.targets.first?.awaitsReviewAfterImport == true)
@@ -345,6 +344,7 @@ struct AutoRenameServiceTests {
 
         #expect(await eventually { harness.exists("shelf/dir/page.jpg") })
         #expect(await eventually { harness.exists("flat/top.zip") })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(harness.exists("flat/deep/inner [tag].zip"))
     }
@@ -358,6 +358,7 @@ struct AutoRenameServiceTests {
         harness.addRule(find: " [tag]", replace: "", target: shelf)
         harness.service.start()
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(harness.exists("shelf/dir [tag]/page.jpg"))
     }
@@ -384,6 +385,7 @@ struct AutoRenameServiceTests {
         harness.store.confirm(targetIDs: Set(harness.store.rules.flatMap(\.targets).map(\.id)))
         harness.service.start()
         #expect(await eventually { harness.exists("shelf/[x] book.cbz") })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(400))
         #expect(!harness.exists("shelf/[x] [x] book.cbz"), "付け直し続けた")
     }
@@ -412,6 +414,7 @@ struct AutoRenameServiceTests {
         #expect(await eventually { !harness.log.entries.isEmpty })
         harness.service.refreshAvailability(thenScanEverything: true)
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(harness.exists("shelf/a.zip"))
         #expect(harness.log.entries.count == 1)
@@ -449,6 +452,7 @@ struct AutoRenameServiceTests {
         // 規則をもう一度走らせても戻した名前は変えない。
         harness.service.refreshAvailability(thenScanEverything: true)
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(400))
         #expect(harness.exists("shelf/one [tag].zip"))
     }
@@ -537,6 +541,7 @@ struct AutoRenameServiceTests {
         harness.addRule(find: " [tag]", replace: "", target: shelf)
         harness.service.start()
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(300))
         #expect(harness.service.isPausedForReadOnly)
         #expect(harness.exists("shelf/one [tag].zip"))
@@ -571,6 +576,7 @@ struct AutoRenameServiceTests {
         harness.addRule(find: " [tag]", replace: "", target: shelf)
         harness.service.start()
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(500))
         #expect(harness.exists("shelf/one [tag].zip"))
         harness.inUse = []
@@ -588,6 +594,7 @@ struct AutoRenameServiceTests {
         harness.favorites.add(shelf)
         harness.addRule(find: " [tag]", replace: "", target: shelf)
         harness.service.start()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(700))
         #expect(harness.exists("shelf/one [tag].zip"))
         #expect(removexattr(file.path, "com.apple.FinderInfo", 0) == 0)
@@ -654,6 +661,7 @@ struct AutoRenameServiceTests {
         harness.store.add(target: target, toRule: rule.id)
         harness.service.start()
         #expect(await eventually { harness.service.availability[target.id] == .volumeNotConnected })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(500))
         harness.service.refreshAvailability()
         await harness.service.waitUntilIdle()
@@ -671,6 +679,7 @@ struct AutoRenameServiceTests {
         harness.service.start()
         let targetID = try #require(rule.targets.first?.id)
         #expect(await eventually { harness.service.availability[targetID] == .noAccess })
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(400))
         #expect(harness.exists("shelf/one [tag].zip"))
         #expect(harness.store.rule(withID: rule.id)?.targets.first?.state == .enabled)
@@ -705,6 +714,7 @@ struct AutoRenameServiceTests {
         harness.service.handle([.init(path: shelf.appendingPathComponent("new [tag].zip").path, mustScanSubdirectories: false)])
         harness.service.handle([.init(path: shelf.path, mustScanSubdirectories: true)])
         await harness.service.waitUntilIdle()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(400))
         #expect(harness.exists("shelf/new [tag].zip"), "止まっている間に名前を変えた")
         #expect(harness.service.availability.isEmpty)
@@ -729,6 +739,7 @@ struct AutoRenameServiceTests {
         try harness.file("shelf/one [tag].zip")
         harness.service.handle([.init(path: shelf.appendingPathComponent("one [tag].zip").path, mustScanSubdirectories: false)])
         harness.service.stop()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(700))
         #expect(harness.exists("shelf/one [tag].zip"), "止めた後に予約が走った")
 
@@ -752,6 +763,7 @@ struct AutoRenameServiceTests {
         // start の直後は最初のパスが FileIO の上で待っている。
         harness.service.start()
         harness.service.stop()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try await Task.sleep(for: .milliseconds(500))
         #expect(harness.exists("shelf/one [tag].zip"), "止めた後に名前を変えた")
         #expect(harness.service.availability.isEmpty)

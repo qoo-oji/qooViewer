@@ -112,7 +112,7 @@ struct FileBrowserNameEditingTests {
         await fixture.state.settle()
         list.update()
         // 取りやめは次のランループで(SwiftUI の更新の最中に状態を変えない)。
-        try await Task.sleep(for: .milliseconds(50))
+        _ = await eventuallyHere { !(list.window.firstResponder is NSTextView) }
         await fixture.state.operations.settle()
 
         #expect(!(list.window.firstResponder is NSTextView), "消えた項目の編集が残った")
@@ -176,7 +176,7 @@ struct FileBrowserNameEditingTests {
         fixture.state.reload()
         await fixture.state.settle()
         icons.update()
-        try await Task.sleep(for: .milliseconds(50))
+        _ = await eventuallyHere { !(icons.window.firstResponder is NSTextView) }
         await fixture.state.operations.settle()
 
         #expect(!(icons.window.firstResponder is NSTextView), "消えた項目の編集が残った")

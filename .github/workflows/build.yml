@@ -264,6 +264,8 @@ jobs:
           if-no-files-found: error
 
       # テストホストが落ちたときのクラッシュレポート(qooViewer*.ips)も上げる ―― どこで落ちたかのバックトレースは xcresult に残らない(2026-10-11)。
+      # 30 日残す(2026-10-25): 再実行で通った回の 1 回目を後から調べるため(scripts/dev/ci-flaky-runs.py)。7 日では、10 月初めの
+      # 使い捨てボリュームのテストの失敗の中身(整形した表示ではメッセージが落ちる)を読む前に消えていた。
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -276,7 +278,7 @@ jobs:
             ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log
             ~/Library/Logs/DiagnosticReports/qooViewer*
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
 
   # macOS 27 + Xcode 27(ファイル冒頭の注意書きを参照)。上のジョブと違い、
@@ -390,6 +392,8 @@ jobs:
           fi
 
       # テストホストが落ちたときのクラッシュレポート(qooViewer*.ips)も上げる ―― どこで落ちたかのバックトレースは xcresult に残らない(2026-10-11)。
+      # 30 日残す(2026-10-25): 再実行で通った回の 1 回目を後から調べるため(scripts/dev/ci-flaky-runs.py)。7 日では、10 月初めの
+      # 使い捨てボリュームのテストの失敗の中身(整形した表示ではメッセージが落ちる)を読む前に消えていた。
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -402,5 +406,5 @@ jobs:
             ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log
             ~/Library/Logs/DiagnosticReports/qooViewer*
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore

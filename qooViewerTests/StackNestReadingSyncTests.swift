@@ -142,13 +142,13 @@ struct StackNestQuitFlushTests {
         #expect(fixture.progressPages.isEmpty)
         // このテストはメインアクター(= メインキューの仕事)の上: ここで待つ作りなら、送りがメインを要るときに止まる。
         let started = ContinuousClock.now
-        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(2)) == 1)
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: TestPatience.condition) == 1)
         #expect(ContinuousClock.now - started < .seconds(2))
         #expect(fixture.progressPages == [3])
         // 送り切りへ渡した役は、以後は送らない(送るものが無いので待たない)。
         #expect(!progress.hasUnsentWork)
         let idleStarted = ContinuousClock.now
-        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: .seconds(2)) == 0)
+        #expect(harness.stackNestProgressRegistry.flushAllBlocking(timeout: TestPatience.condition) == 0)
         #expect(ContinuousClock.now - idleStarted < .seconds(1))
     }
 }

@@ -581,10 +581,8 @@ struct FileBrowserThumbnailTests {
 
         await cache.configure(isEnabled: false, maxTotalBytes: 1024 * 1024, generation: 1)
         #expect(await cache.data(for: key) == nil)
-        // 削除は裏で走るので、消えるまで少し待つ。
-        for _ in 0..<100 where FileManager.default.fileExists(atPath: directory.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // 削除は裏で走るので、消えるまで待つ。
+        _ = await eventuallyHere { !FileManager.default.fileExists(atPath: directory.path) }
         #expect(!FileManager.default.fileExists(atPath: directory.path))
         await cache.store(data, for: key)
         #expect(!FileManager.default.fileExists(atPath: directory.path))

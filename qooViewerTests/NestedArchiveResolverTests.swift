@@ -133,6 +133,7 @@ struct NestedArchiveResolverTests {
         // 解決役が全部手放しても、このファイルは消えない(削除の責任は呼び出し側)。
         // 内部の一時ファイルなら deinit の Task.detached がこの間に消しているはずの間隔を置く。
         resolver.purgeAll()
+        // 待ち: 起きないこと(何も起きないのを確かめる間。負荷が高いと誤って通ることはあっても、誤って落ちはしない)
         try? await Task.sleep(for: .milliseconds(200))
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(try makeArchiveReader(for: url).listFilePaths().count == 3)
@@ -153,14 +154,7 @@ struct NestedArchiveResolverTests {
     }
 
     /// `condition` が真になるまで少しだけ待つ(削除は `deinit` から Task.detached へ逃がしてあるため)。
-    private func eventually(
-        timeout: Duration = .seconds(3), _ condition: () -> Bool
-    ) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return condition()
+    private func eventually(_ condition: @escaping @Sendable () -> Bool) async -> Bool {
+        await qooViewerTests.eventually { condition() }
     }
 }

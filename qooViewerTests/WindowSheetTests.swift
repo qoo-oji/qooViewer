@@ -29,11 +29,11 @@ struct WindowSheetTests {
         alert.messageText = "probe"
         let box = ResponseBox()
         Task { box.response = await WindowSheet.run(alert, for: window) }
-        for _ in 0..<200 where window.attachedSheet == nil { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { window.attachedSheet != nil }
         try #require(window.attachedSheet != nil)
 
         window.close()
-        for _ in 0..<200 where box.response == nil { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { box.response != nil }
         #expect(box.response == .cancel)
         #expect(window.attachedSheet == nil)
     }
@@ -58,13 +58,13 @@ struct WindowSheetTests {
         sheet.isReleasedWhenClosed = false
         let box = ResponseBox()
         Task { box.response = await WindowSheet.run(sheetWindow: sheet, for: window) }
-        for _ in 0..<200 where window.attachedSheet == nil { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { window.attachedSheet != nil }
         try #require(window.attachedSheet === sheet)
         // 出している間は「ここで出したもの」に数え、同じウインドウへ 2 つ目のパネルを重ねさせない。
         #expect(WindowSheet.placement(for: window) == .busy)
 
         window.close()
-        for _ in 0..<200 where box.response == nil { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await eventuallyHere { box.response != nil }
         #expect(box.response == .cancel)
         #expect(window.attachedSheet == nil)
     }
