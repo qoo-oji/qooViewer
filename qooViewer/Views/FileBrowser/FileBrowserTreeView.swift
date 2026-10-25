@@ -1694,19 +1694,21 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     break
                 case .failed(let status) where status == EEXIST:
                     // もうマウントしてある共有だけを選んだ。そのボリュームへ移る(2026-10-25 のレビュー)。
+                    // マウント先が見つからなければ何もしない(失敗の知らせは下の `.failed` と同じく macOS が出す)。
                     if let existing = NetworkMountLookup.mountPoints(ofServer: server, in: .current()).first {
                         self.state?.navigate(to: URL(filePath: existing, directoryHint: .isDirectory))
-                    } else {
-                        self.showProblem(
-                            title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
-                            message: Self.message(forNetFSStatus: status)
-                        )
                     }
-                case .failed(let status):
+                case .failed(let status) where status == NetworkVolumeConnectorPolicy.refusedStatus:
+                    // サービスが送らずに断った(一覧に無い名前など)。macOS は何も出していないので、ここで知らせる。
                     self.showProblem(
                         title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
                         message: Self.message(forNetFSStatus: status)
                     )
+                case .failed:
+                    // 認証・共有の選択のダイアログを許して頼んだ(`kNAUIOptionAllowUI`)ので、接続・マウントの失敗は macOS の
+                    // NetAuthAgent が自分のダイアログ(「サーバ“…”への接続で問題が起きました。」)で知らせ終えている。重ねて出さない
+                    // (2026-10-25 の実機: 共有の選択を 4 分待たせたらマウントが EPIPE で失敗し、macOS と qooViewer のアラートが続けて出た)。
+                    break
                 case .unavailable:
                     self.showProblem(
                         title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),

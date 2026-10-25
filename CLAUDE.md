@@ -157,6 +157,18 @@ itself rather than filename sort). All of this runs off the main actor via `Task
 scanning/extracting can be slow. The result is a `MangaBook` (Models/MangaBook.swift), whose `pages: [PageRef]`
 array is mutable so the viewer can reorder/exclude pages live without reopening the book.
 
+**Network servers in the file browser tree (2026-10-25; docs/10「ネットワークのサーバとボリュームの接続」, docs/15)**: the tree's
+"Network" group (setting `fileBrowserShowsNetwork`, default OFF — default ON would show the Local Network prompt to every updating user)
+lists Bonjour `_smb._tcp` servers and mounts by NetFS **without Finder**. Browsing and the NetFS request live in the XPC service
+`NetworkVolumeConnector.xpc` (sandbox + `network.client` only; the app process still has no network entitlement — a sandboxed process without it
+gets `ServiceNotRunning` from mDNSResponder and EPERM from NetFS, measured). The service **must keep `JoinExistingSession`** in its Info.plist: in
+its own audit session NetAuthSysAgent could neither read nor save keychain passwords (asked every time, `-25308`). It mounts only names it
+currently sees (`NetworkVolumeConnectorPolicy`); auth and share choice are macOS's NetAuthAgent dialogs, which also report mount failures — never
+add a second alert for those. Local Network denial arrives as `PolicyDenied` only when a browse starts, and a running browse never recovers when
+access is turned back on, so `NetworkServerDirectory` re-browses on every app activation (at most every 3 s) and keeps the last list across tree
+rebuilds. Unmount (eject on network/external volume rows) is `VolumeUnmounting` in the app (`FileManager.unmountVolume(.withoutUI)` works in the
+sandbox) after releasing `StagedFileRegistry` holds; it refuses while a viewer has a book on the volume or `RunningWorkRegistry` has work. The eject
+button sits inside the name cell: a button added to the `NSTableRowView` was invisible to accessibility.
 **Network volumes (2026-09-24/25)**: archives and PDFs on a volume without `MNT_LOCAL` (`NetworkVolumeReading`, via
 `MountTable`) are read through `StagedFileSource` — 64 KB blocks copied into a temp file (`TemporaryFileStore`), one large read
 per missing run, read-ahead scaled by bytes actually read sequentially, and (for books opened in a page-turning screen — the viewer

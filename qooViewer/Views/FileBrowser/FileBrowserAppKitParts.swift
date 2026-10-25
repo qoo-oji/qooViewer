@@ -182,31 +182,33 @@ final class FileBrowserCellView: NSTableCellView {
         ])
     }
 
+    /// 右端のボタンの右端と、行(`NSTableRowView`)の右端の間(2026-10-25 実測)。ふつうの行のセルは行の右端より 16pt 内側で終わる
+    /// (行 220pt・セル 25〜204pt)ので、ボタンはセルの右端に置く。`.sourceList` の選択の帯は AppKit が行の左右 10pt 内側に描くので
+    /// (この一覧では `FileBrowserRowView.drawSelection` は呼ばれない)、その内側に収まる(利用者の指摘「ハイライトの青がボタン全体を
+    /// 覆っていない」 ―― 行の右端から 4pt に置いた版では帯からはみ出た)。見出しの「＋」(`FileBrowserTreeView.GroupCellView`)も
+    /// 同じ列に置く。
+    static let accessoryTrailingInset: CGFloat = 16
+
     /// 名前の右端の制約(右端のボタンを出すと、名前はボタンの左までになる)。
     private var fieldTrailing: NSLayoutConstraint!
     private var accessoryConstraints: [NSLayoutConstraint] = []
-    private var showsAccessory = false
-    /// 行の右端のボタン(ツリーのボリュームの行のアンマウント。2026-10-25)。出していなければ nil か、どこにも付いていない。
+    /// 行の右端のボタン(ツリーのボリュームの行のアンマウント。2026-10-25)。出していなければ nil か隠れている。
     private(set) var accessoryButton: FileBrowserOutlinedIconButton?
-
-    /// 右端のボタンの右端と、行(`NSTableRowView`)の右端の間(2026-10-25 実測)。`.sourceList` の選択の帯は AppKit が行の左右 10pt
-    /// 内側に描く(この一覧では `FileBrowserRowView.drawSelection` は呼ばれない)ので、帯の右端からさらに 4pt 内側に置き、選んだ行の
-    /// 帯がボタンを覆うようにする(利用者の指摘「ハイライトの青がボタン全体を覆っていない」。行の右端から 4pt では帯の外へはみ出た)。
-    /// 見出しの「＋」(`FileBrowserTreeView.GroupCellView`)も同じ列に置く。
-    static let accessoryTrailingInset: CGFloat = 14
 
     /// 行の右端に記号だけのボタンを出す / 消す(`symbol` が nil なら消す)。見出しの「＋」(ツリーの `GroupCellView`)と同じ作り:
     /// 輪郭はボタン自身が描き(すりガラス面の決まり)、後ろのウインドウでは自分で薄くする(`.sourceList` はセルに足したボタンを
     /// 薄くしない ―― `GroupCellView.applyWindowDimming` のコメント)。
     ///
-    /// **ボタンはセルではなく行(セルの親の `NSTableRowView`)に付け、行の右端から寄せる**(2026-10-25、利用者の指定「＋ボタンくらいの
-    /// 位置」)。`.sourceList` のふつうの行のセルは行の右端より 16pt 内側で終わり(実測: 行 220pt・セル 25〜204pt)、見出しの行のセルは
-    /// 2pt 内側まで届く(14〜218pt)ので、セルの右端に寄せると「＋」より左に並んだ。セルの外へはみ出させると当たり判定に入らない(親の枠の外の点は子へ届かない)ので、
-    /// 行に付ける。セルが行から外れたら(使い回し)ボタンも外す。
+    /// **ボタンはセルの中に置く**: 行(`NSTableRowView`)に付けるとセルの外の行の右端まで寄せられるが、アクセシビリティの木に出なくなり
+    /// (AppKit は行の下のセルの中身しかたどらない。セルの `accessibilityChildren` を上書きしても載らなかった)、VoiceOver から押せなかった
+    /// (2026-10-25 実測)。
     func setAccessory(symbol: String?, help: String, outlineWidth: CGFloat, target: AnyObject?, action: Selector?) {
         guard let symbol else {
-            showsAccessory = false
-            detachAccessory()
+            if let accessoryButton, !accessoryButton.isHidden {
+                accessoryButton.isHidden = true
+                NSLayoutConstraint.deactivate(accessoryConstraints)
+                fieldTrailing.isActive = true
+            }
             return
         }
         let button = accessoryButton ?? {
@@ -215,8 +217,16 @@ final class FileBrowserCellView: NSTableCellView {
             button.isBordered = false
             button.bezelStyle = .regularSquare
             button.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(button)
             accessoryButton = button
             defer { observeKeyWindowForAccessory() }
+            accessoryConstraints = [
+                label.trailingAnchor.constraint(lessThanOrEqualTo: button.leadingAnchor, constant: -4),
+                button.trailingAnchor.constraint(equalTo: trailingAnchor),
+                button.centerYAnchor.constraint(equalTo: centerYAnchor),
+                button.widthAnchor.constraint(equalToConstant: 18),
+                button.heightAnchor.constraint(equalToConstant: 18),
+            ]
             return button
         }()
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)
@@ -225,42 +235,12 @@ final class FileBrowserCellView: NSTableCellView {
         button.outlineWidth = outlineWidth
         button.target = target
         button.action = action
-        showsAccessory = true
-        attachAccessory()
+        if button.isHidden || !(accessoryConstraints.first?.isActive ?? false) {
+            button.isHidden = false
+            fieldTrailing.isActive = false
+            NSLayoutConstraint.activate(accessoryConstraints)
+        }
         applyAccessoryDimming()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        if showsAccessory { attachAccessory() } else { detachAccessory() }
-    }
-
-    /// ボタンをいまの行に付ける(付いていれば何もしない)。行が無ければ外す。
-    private func attachAccessory() {
-        guard let button = accessoryButton, let row = superview else { return detachAccessory() }
-        guard button.superview !== row || accessoryConstraints.isEmpty else { return }
-        NSLayoutConstraint.deactivate(accessoryConstraints)
-        button.removeFromSuperview()
-        row.addSubview(button)
-        fieldTrailing.isActive = false
-        accessoryConstraints = [
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: button.leadingAnchor, constant: -4),
-            // 行の右端から `FileBrowserCellView.accessoryTrailingInset`(見出しの「＋」と同じ列。選択の帯の内側)。
-            button.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Self.accessoryTrailingInset),
-            button.centerYAnchor.constraint(equalTo: centerYAnchor),
-            button.widthAnchor.constraint(equalToConstant: 18),
-            button.heightAnchor.constraint(equalToConstant: 18),
-        ]
-        NSLayoutConstraint.activate(accessoryConstraints)
-    }
-
-    private func detachAccessory() {
-        guard !accessoryConstraints.isEmpty || accessoryButton?.superview != nil else { return }
-        NSLayoutConstraint.deactivate(accessoryConstraints)
-        accessoryConstraints = []
-        accessoryButton?.removeFromSuperview()
-        fieldTrailing.isActive = true
     }
 
     override func viewDidMoveToWindow() {
