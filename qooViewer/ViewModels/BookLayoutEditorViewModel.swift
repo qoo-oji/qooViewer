@@ -201,9 +201,15 @@ final class BookLayoutEditorViewModel: ObservableObject {
                 self?.reloadLastShownReadingDirection()
             }
         }
+        #if DEBUG
+        DebugLiveInstances.didCreate("BookLayoutEditorViewModel")
+        #endif
     }
 
     deinit {
+        #if DEBUG
+        DebugLiveInstances.didRelease("BookLayoutEditorViewModel")
+        #endif
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }

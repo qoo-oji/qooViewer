@@ -473,6 +473,9 @@ final class MetadataEditorModel {
         cancelExistenceChecks()
         if MetadataEditorUndoRouter.shared.workspace === workspace { MetadataEditorUndoRouter.shared.workspace = nil }
         workspace = nil
+        // 規則の窓へ渡した一覧の全冊の名前も手放す(2026-10-25 のリークの点検。以前はアプリで 1 つの置き場に、閉じた後も残した ――
+        // 規則の窓の知らせも「メタデータの編集を開くと名前が出る」)。開き直せば `open` が入れ直す。
+        rulesPicked.set([])
     }
 }
 

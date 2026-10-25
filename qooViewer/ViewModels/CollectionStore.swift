@@ -172,12 +172,24 @@ final class CollectionStore: ObservableObject {
     }
 
     private func invalidateLookupCaches() {
-        itemOrderRevision &+= 1
+        advanceItemOrderRevision()
         cachedLibraries = nil
         cachedCollections = nil
         cachedItems = nil
         cachedItemsByBookID = nil
         cachedItemsByID = nil
+    }
+
+    /// 並び・出し入れが変わった(`itemOrderRevision` を進める)。古い番号の控えはその場で捨てる(2026-10-25 のリークの点検)。
+    /// 控えはどれも読むときに番号を見て捨て直すので答えは変わらないが、以前は次に読まれるまで ―― ホームが出ていない間ずっと ――
+    /// 消した行(CollectionItem・BookCollection)への参照を持ち続けた。
+    private func advanceItemOrderRevision() {
+        itemOrderRevision &+= 1
+        leadingItemsMemo.removeAll()
+        itemsMemo.removeAll()
+        collectionsMemo.removeAll()
+        itemCountMemo.removeAll()
+        registeredBookIDsMemo = nil
     }
 
     private func allLibraries() -> [BookLibrary] {
@@ -1485,6 +1497,9 @@ final class CollectionStore: ObservableObject {
             scheduleExistenceRefresh()
         } else {
             existenceRefreshTask?.cancel()
+            // 全行の写し・控えも手放す(2026-10-25 のリークの点検)。OFF の間も保存データを正しく保つ仕事(BookRecordRelocator・
+            // KnownBooks)は `allItems()` を引くので、そのときにまた読む。
+            invalidateLookupCaches()
         }
     }
 
@@ -1613,6 +1628,12 @@ final class CollectionStore: ObservableObject {
             }
         }
         reportBooksFoundAtNewPaths(result, recordedPaths: recordedPaths)
+        // 消えた登録の「表紙を作り直した回数」は捨てる(2026-10-25 のリークの点検。消す所が無く、起動の間ずっと増えた)。
+        // 確かめは全登録をなめるので、ここが全体を見直すのに合う。
+        if !coverRevisionByItemID.isEmpty {
+            let liveIDs = Set(allItems().map(\.id))
+            coverRevisionByItemID = coverRevisionByItemID.filter { liveIDs.contains($0.key) }
+        }
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
         // 日付を先に入れる ―― locationByItemIDの購読者(抽出の待ち行列)より、並びに使う値が
         // 先に揃っているほうが、描き直しが1回で済む。
@@ -2202,7 +2223,7 @@ final class CollectionStore: ObservableObject {
         try? modelContext.save()
         // 抽出の結果(状態と比だけ)は本の並びを変えない。それ以外はすべて並びを変えうるものとして札の先頭の控えを捨てる
         // (`leadingItems` のコメント)。
-        if !isCoverResult { itemOrderRevision &+= 1 }
+        if !isCoverResult { advanceItemOrderRevision() }
         // コレクションの名前・中身の変更は`libraries`配列そのものを変えないため、@Publishedの
         // 再代入だけでは画面が追随しない(SwiftDataのモデルはクラス=参照型で、SwiftUIから見た
         // 値は同じまま)。「何かが変わった」ことだけを表す通し番号を進めて描き直させる

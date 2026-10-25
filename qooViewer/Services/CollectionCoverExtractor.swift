@@ -452,8 +452,13 @@ final class CollectionCoverExtractor: ObservableObject {
         })
     }
 
-    /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。
+    /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。`bookIDs` が登録してある本の全部なので、
+    /// もう登録されていない本(コレクションから外した・移動や改名で bookID が変わった)の控えはここで捨てる(2026-10-25 の
+    /// リークの点検。捨てる所が無く、表紙を指定していない本ではページ鍵の全リストまで、起動の間ずっと残った)。
     private func seedSignatures(for bookIDs: Set<String>) {
+        if signatures.keys.contains(where: { !bookIDs.contains($0) }) {
+            signatures = signatures.filter { bookIDs.contains($0.key) }
+        }
         for bookID in bookIDs where signatures[bookID] == nil {
             signatures[bookID] = signature(forBookID: bookID)
         }

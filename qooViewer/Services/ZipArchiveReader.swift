@@ -37,9 +37,41 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     /// バッファ全体を参照し続けるため、この小さな書庫を1つ開いているだけで**親の全バイトが
     /// 道連れで常駐する**。取り出した結果をそのまま渡すぶんには問題ない
     /// (ArchiveReading.data(at:)はどの実装も新しいDataを組み立てて返す)。
+    ///
+    /// **開けない Data は ZIPFoundation へ渡す前に自分で断る**(2026-10-25 のリークの点検、MemoryArchiveReleaseTests)。
+    /// ZIPFoundation 0.9.20 の `Archive(data:)` は、終端レコード(EOCD)が見つからないと `funopen` した FILE* を閉じずに投げる
+    /// (URL 版は `fclose` している)。`passRetained` した `MemoryFile` を手放すのは FILE* の close のコールバックだけなので、
+    /// 名前だけ .cbz の RAR や壊れた入れ子の zip を開くたびに、その書庫のバイト列(入れ子の書庫の予算、既定で最大 256MB)が
+    /// 二度と解放されなかった。判定は ZIPFoundation の `scanForEndOfCentralDirectoryRecord` と同じ答えを返す
+    /// (`hasReadableEndOfCentralDirectory`)。
     init(data: Data) throws {
+        guard Self.hasReadableEndOfCentralDirectory(data) else {
+            throw Archive.ArchiveError.missingEndOfCentralDirectoryRecord
+        }
         self.archive = try Archive(data: data, accessMode: .read)
         indexEntries()
+    }
+
+    /// ZIPFoundation の `Archive.scanForEndOfCentralDirectoryRecord` が成功するか(init(data:) のコメント)。
+    ///
+    /// 同じ探し方: 末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名(先頭まで探す)。見つかった終端レコードの
+    /// コメントを読み切れなければ、前を探し直さずに失敗(ZIPFoundation もそこで nil を返す)。ZIP64 の部分はあっても無くても
+    /// 成功するので見ない。ZIPFoundation はこれを fseek + fread で 1 バイトずつ行うので、ここで先に断るほうが速くもある。
+    static func hasReadableEndOfCentralDirectory(_ data: Data) -> Bool {
+        let recordSize = 22
+        guard data.count >= recordSize else { return false }
+        return data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> Bool in
+            let bytes = buffer.bindMemory(to: UInt8.self)
+            var position = bytes.count - recordSize
+            while position >= 0 {
+                if bytes[position] == 0x50, bytes[position + 1] == 0x4B, bytes[position + 2] == 0x05, bytes[position + 3] == 0x06 {
+                    let commentLength = Int(bytes[position + 20]) | Int(bytes[position + 21]) << 8
+                    return position + recordSize + commentLength <= bytes.count
+                }
+                position -= 1
+            }
+            return false
+        }
     }
 
     private func indexEntries() {

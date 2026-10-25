@@ -244,9 +244,23 @@ struct StackNestPageLoaderTests {
         let thumbnails = (0..<8).map { index in Task { await loader.thumbnail(at: index) } }
         let sizes = (8..<10).map { index in Task { await loader.pageSize(at: index) } }
         #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 6 })
-        // セルが画面から消えた(呼び出し側の取り消し)。
-        thumbnails.forEach { $0.cancel() }
-        sizes.forEach { $0.cancel() }
+        #expect(await Self.waitUntil { fixture.pageRequestIndices.count == StackNestRequestGate.backgroundLimit })
+        // セルが画面から消えた(呼び出し側の取り消し)。**門で待っている側を先に**取り消す: 待ちの取り消しは取り消した瞬間に
+        // 読み込みと門の待ちまで届く(PageLoader.remoteWaiters)ので、この順なら、飛んでいる側の取り消しで枠が空いたときに受け取る
+        // 待ちは残っていない。飛んでいる側を先にすると、その取り消しの合間に別のスレッドで枠が返り、まだ取り消していない待ちが
+        // 受け取りうる(どの作りでも残る一瞬で、テストが測りたいものではない。2026-10-25)。
+        let inFlight = Set(fixture.pageRequestIndices)
+        let waiting: [(Int, () -> Void)] = zip(0..<8, thumbnails).map { index, task in (index, { task.cancel() }) }
+            + zip(8..<10, sizes).map { index, task in (index, { task.cancel() }) }
+        var stillWaiting = shared.gate.waiterCount(.background)
+        for (index, cancel) in waiting where !inFlight.contains(index) {
+            cancel()
+            // 取り消した瞬間に(何も待たずに)門の待ちから抜ける。以前は取り消しが actor の順番を待ってから届いた。
+            stillWaiting -= 1
+            #expect(shared.gate.waiterCount(.background) == stillWaiting, "取り消したページ \(index) が門で待ち続けた")
+        }
+        for (index, task) in zip(0..<8, thumbnails) where inFlight.contains(index) { task.cancel() }
+        for (index, task) in zip(8..<10, sizes) where inFlight.contains(index) { task.cancel() }
         // 門で待っていた分は抜ける。飛んでいた 4 件も部品の要求ごと取り消される。
         #expect(await Self.waitUntil { shared.gate.waiterCount(.background) == 0 })
         #expect(await Self.waitUntil { shared.gate.inUseCount(.background) == 0 })

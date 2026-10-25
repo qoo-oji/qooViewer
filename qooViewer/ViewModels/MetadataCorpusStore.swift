@@ -131,22 +131,37 @@ final class MetadataCorpusStore {
         changes.send()
     }
 
-    /// 書き込みは画面の外で、**頼んだ順に 1 つずつ**(並べて走らせると、古い中身が後から書き終えて残ることがある)。
+    /// 書き込みは画面の外で、**1 つずつ**(並べて走らせると、古い中身が後から書き終えて残ることがある)。
     private var saving: Task<Void, Never>?
+    /// 書いている間にまた変わった(書き終えたら、そのときの中身でもう 1 回書く)。
+    private var needsSave = false
 
+    /// **書くのはそのときの最新の中身だけ**(2026-10-25 のリークの点検)。以前は頼まれるたびに中身の写し(全冊のパス)を捕まえた
+    /// 書き込みを前の書き込みの後ろへ並べ、後から頼まれた分に追い越された古い写しも 1 つずつ符号化して書いていた ―― ディスクが
+    /// 遅いときに変化が続くと、並んだ数だけ写しを持った。いまは書き込みが走っている間の頼みを 1 回にまとめる。
     private func save() {
         guard let url else { return }
-        let record = record
-        let previous = saving
-        saving = Task.detached(priority: .utility) {
-            await previous?.value
-            guard let data = try? JSONEncoder().encode(record) else { return }
-            // 書き込みは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
-            await FileIO.perform(qos: .utility) {
-                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? data.write(to: url, options: .atomic)
+        needsSave = true
+        guard saving == nil else { return }
+        saving = Task { [weak self] in
+            while let record = self?.takeRecordToSave() {
+                // 符号化と書き込みは FileIO の上で(CLAUDE.md「ブロックするファイル I/O は FileIO を通す、Task.detached は使わない」。
+                // アプリの領域だが決まりに揃えた。2026-10-11 の規約監査)。
+                await FileIO.perform(qos: .utility) {
+                    guard let data = try? JSONEncoder().encode(record) else { return }
+                    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? data.write(to: url, options: .atomic)
+                }
             }
+            self?.saving = nil
         }
+    }
+
+    /// 書くべき変化が残っていれば、その中身(`save`)。
+    private func takeRecordToSave() -> Record? {
+        guard needsSave else { return nil }
+        needsSave = false
+        return record
     }
 
     private nonisolated static func load(from url: URL) -> Record? {

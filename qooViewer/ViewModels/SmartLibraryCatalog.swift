@@ -312,7 +312,6 @@ final class SmartLibraryCatalog: ObservableObject {
         let previous = building
         previous?.cancel()
         isLoading = true
-        let snapshot = gatherOnMain()
         let roots = scanRoots()
         building = Task { [weak self] in
             await previous?.value
@@ -328,6 +327,11 @@ final class SmartLibraryCatalog: ObservableObject {
                 scan = found
             }
             guard let self, !Task.isCancelled, generation == self.generation else { return }
+            // DB の値はここで集める(2026-10-25 のリークの点検)。以前は Task を作る前に集めて閉包に持たせていた。前の集め直しは
+            // 取り消されても探索(`scan(roots:)`)を待ち続けるので、ネットワーク上の対象フォルダを探している間にメタデータの変更が
+            // 続くと、集め直しの連鎖(各々が `previous` を持つ)ごとに全行・全読書状態の写しが 1 つずつ探し終えるまで残った。
+            // 待った後なら、取り消された回は集めずに抜ける。
+            let snapshot = self.gatherOnMain()
             // シークレットフォルダの本は並べない・記録しない・保存しない(catalog.json と corpus.json は本のパスを持つ。
             // SecretFolderStore)。探した結果(`scanned`)には残し、一覧が変わったら探し直さずにここで絞り直す。
             let unfilteredScan = scan

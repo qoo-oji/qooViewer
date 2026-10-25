@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import os
 import StackNestViewerKit
 
 /// 1ページ分の画像ファイル情報(コンテキストメニュー「情報を見る」、ユーザー要望)。
@@ -73,6 +74,8 @@ actor PageLoader {
     private struct PrefetchEntry {
         let task: Task<Void, Never>
         let inFlightKey: String
+        /// どの先読みの控えか(`clearPrefetchTask`。同じページの控えを、取り消した前の先読みが消さないため)。
+        let token: UUID
     }
     private var prefetchTasks: [Int: PrefetchEntry] = [:]
     /// 進行中の読み込み(アーカイブ展開+デコード)を、ページ+キャッシュの組ごとに覚えておく。
@@ -154,7 +157,13 @@ actor PageLoader {
     private var inFlightPageSizeTasks: [String: Task<(width: Int, height: Int)?, Never>] = [:]
 
     /// 網越しの読み込み(StackNest の本のサムネイルと寸法)を待っている人の札(`awaitRemote`)。鍵は読み込みの鍵。
-    private var remoteWaiters: [String: Set<UUID>] = [:]
+    ///
+    /// **actor の状態ではなく、ロックで守る帳簿**(`RemoteWaitBook`。2026-10-25)。取り消しの閉包はその場で(取り消した側のスレッドで)
+    /// 札を返し、最後の 1 人なら読み込みを取り消す。以前は閉包が `Task { await leaveRemoteWait(…) }` で actor の順番を待ってから
+    /// 取り消していたので、取り消しから読み込みの取り消しまでの間がスケジューラ次第で空き、その間に、先に飛んでいた取り寄せの取り消しで
+    /// 空いた門の枠を、まだ取り消しの届いていない待ちが受け取って StackNest へ要求を送った(CI で、取り消した 10 件のうち 6〜7 件が
+    /// 届いた。StackNestRequestGate の型コメント)。
+    private nonisolated let remoteWaiters = RemoteWaitBook()
 
     /// 画像のヘッダー解析のために読む先頭バイト数。JPEGのSOFマーカー・PNGのIHDRチャンクなどは
     /// ファイル先頭のごく近くにあるが、EXIF/ICCプロファイルが大きい画像ではSOFがその後ろへ
@@ -1511,12 +1520,13 @@ actor PageLoader {
 
             // image(at:cache:maxPixelSize:isPrefetch:)へ渡すキーの組み立て方と揃えること。
             let inFlightKey = "\(ObjectIdentifier(imageCache))#\(page.id)"
+            let token = UUID()
             let task = Task { [weak self] in
                 guard let self else { return }
                 _ = await self.prefetchImage(at: pageIndex)
-                await self.clearPrefetchTask(for: pageIndex)
+                await self.clearPrefetchTask(for: pageIndex, token: token)
             }
-            prefetchTasks[pageIndex] = PrefetchEntry(task: task, inFlightKey: inFlightKey)
+            prefetchTasks[pageIndex] = PrefetchEntry(task: task, inFlightKey: inFlightKey, token: token)
         }
     }
 
@@ -1559,7 +1569,11 @@ actor PageLoader {
         )
     }
 
-    private func clearPrefetchTask(for index: Int) {
+    /// 先読みが終わった控えを消す。**自分の控えのときだけ**(2026-10-25 の点検)。範囲外になって取り消した先読みの後に、同じページで
+    /// 新しい先読みを始めると、取り消した方が終わるときに新しい方の控えを消していた ―― 新しい方は範囲から外れても取り消されず
+    /// (デコード・StackNest の取り寄せが最後まで走る)、`isPrefetching` も早く false になった。
+    private func clearPrefetchTask(for index: Int, token: UUID) {
+        guard prefetchTasks[index]?.token == token else { return }
         prefetchTasks.removeValue(forKey: index)
     }
 
@@ -2015,21 +2029,17 @@ actor PageLoader {
     private func awaitRemote<Value: Sendable>(_ task: Task<Value?, Never>, key inFlightKey: String) async -> Value? {
         let key = "\(inFlightKey)#\(task.hashValue)"
         let token = UUID()
-        remoteWaiters[key, default: []].insert(token)
+        let waiters = remoteWaiters
+        waiters.enter(key: key, token: token)
         let value = await withTaskCancellationHandler {
             await task.value
-        } onCancel: { [weak self] in
-            Task { await self?.leaveRemoteWait(key: key, token: token, cancel: { task.cancel() }) }
+        } onCancel: {
+            // 取り消しで返した最後の 1 人なら、その場で読み込みを取り消す(`remoteWaiters` のコメント)。
+            if waiters.leave(key: key, token: token) { task.cancel() }
         }
-        leaveRemoteWait(key: key, token: token, cancel: nil)
+        // 終わって返す札(取り消しで返していれば、もう無いので何もしない)。
+        _ = waiters.leave(key: key, token: token)
         return value
-    }
-
-    /// 札を返す。取り消しで返した最後の 1 人なら、読み込みを取り消す(終わって返した札はもう無いので、何もしない)。
-    private func leaveRemoteWait(key: String, token: UUID, cancel: (@Sendable () -> Void)?) {
-        guard var waiters = remoteWaiters[key], waiters.remove(token) != nil else { return }
-        remoteWaiters[key] = waiters.isEmpty ? nil : waiters
-        if waiters.isEmpty { cancel?() }
     }
 
     private func remoteReader(for source: PageSource) -> (any RemoteArchiveReading)? {
@@ -2250,4 +2260,22 @@ nonisolated struct PageCacheStatistics: Equatable, Sendable {
     /// 「設定より広く先読みしていないか」の判定に使う。残留しているページとは別物
     /// (残留は上限内ならいくらあっても正常)。
     var prefetchingIndices: Set<Int>
+}
+
+/// 網越しの読み込みを待っている人の札(`PageLoader.remoteWaiters`)。取り消しの閉包からその場で触れるよう、actor の外でロックで守る。
+nonisolated final class RemoteWaitBook: Sendable {
+    private let waiters = OSAllocatedUnfairLock(initialState: [String: Set<UUID>]())
+
+    func enter(key: String, token: UUID) {
+        waiters.withLock { _ = $0[key, default: []].insert(token) }
+    }
+
+    /// 札を返す。返したのがその鍵の最後の 1 枚なら true(返す札が無かったら false)。
+    func leave(key: String, token: UUID) -> Bool {
+        waiters.withLock { table in
+            guard var tokens = table[key], tokens.remove(token) != nil else { return false }
+            table[key] = tokens.isEmpty ? nil : tokens
+            return tokens.isEmpty
+        }
+    }
 }

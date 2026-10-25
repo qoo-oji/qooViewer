@@ -11,9 +11,10 @@ import SwiftUI
 /// (`FileCommandStack` と同じ考え方)。ブックマーク・レイアウトの編集と履歴の削除のウインドウは、それぞれ自分のものを持つ
 /// (`DataUndoRouter`)。どの画面からも環境値 `\.dataUndoStack` で受け取る。
 ///
-/// ウインドウを閉じると積んだものは消える。本のウインドウではこの積み場所ごと(`AppState` と一緒に)手放され、そのとき削除した
-/// ままになっていたコレクションの表紙のファイルは、次の起動の掃除(`CollectionStore.sweepOrphanedCovers`)が消す。道具のウインドウ
-/// (`Window` シーン)は閉じても積み場所が残るので、閉じたときに `removeAll()` で空にする(2026-10-04 の監査 BE-11)。
+/// ウインドウを閉じると積んだものは消える。本のウインドウでは ContentView の willClose が `removeAll()` で空にし、削除したまま
+/// になっていたコレクションの表紙のファイルもそこで消す(2026-10-25。以前は積み場所ごと `AppState` と一緒に手放し、表紙は次の起動の
+/// 掃除 ―― `CollectionStore.sweepOrphanedCovers` ―― まで残した)。道具のウインドウ(`Window` シーン)は閉じても積み場所が残るので、
+/// 閉じたときに `removeAll()` で空にする(2026-10-04 の監査 BE-11)。
 @MainActor @Observable
 final class DataUndoStack {
     /// 積む深さ。超えたら古いものから捨てる(`FileCommandStack.depth` と同じ)。

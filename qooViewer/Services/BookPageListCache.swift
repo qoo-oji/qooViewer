@@ -190,9 +190,12 @@ actor BookPageListCache {
     private nonisolated let directory: URL?
     /// 保存先(容量の走査用。StorageUsageScanner参照)。作れなかった場合はnil。
     nonisolated var directoryURL: URL? { directory }
-    /// 起動後に一度だけ容量の刈り込みを行うためのフラグ。
-    /// 実際にactorの隔離が要るのはこれだけなので、ここだけをactor上に残す。
+    /// 起動後に容量の刈り込みを行ったか。実際にactorの隔離が要るのはこれと下の帳簿だけなので、ここだけをactor上に残す。
     private var hasTrimmed = false
+    /// 前回の点検から書き足した量。上限の 1 割を超えたらもう一度点検する(2026-10-25 のリークの点検。以前は起動後の最初の
+    /// 書き込みで 1 回だけで、長く起動したままだと上限の 50MB を超えて溜まり、次の起動まで刈られなかった ――
+    /// ThumbnailDiskCache は書いた量ごとに点検している)。
+    private var bytesWrittenSinceTrim = 0
 
     private init() {
         directory = Self.makeDefaultDirectory()
@@ -268,18 +271,19 @@ actor BookPageListCache {
         // 中身が前と同じなら書き直さない(2026-09-25 の監査。本を開くたび・隣の本へ移るたびに、同じ中身の数十 KB を
         // 書き直していた)。刈り込み(trimIfNeeded)は更新日時で古いものから捨てるので、触った印だけ付ける(古いときだけ ――
         // DiskCacheAccessStamp)。
+        var written = 0
         if data == previousData {
             DiskCacheAccessStamp.touchIfStale(url.path)
         } else {
             try? data.write(to: url, options: .atomic)
+            written = data.count
         }
 
-        // 起動後の最初の書き込みのタイミングで一度だけ容量を点検する(ThumbnailDiskCacheと
-        // 同じ考え方)。1冊あたり数十KB程度と小さいが、二度と開かない本のぶんが際限なく
-        // 積もらないようにしておく。
-        // 「一度だけ」の判定はhasTrimmedの読み書きを伴うのでactor上で行い、実際の走査は
-        // その外で行う(走査中に他のページ一覧の読み出しを待たせないため)。
-        guard await claimTrim(), let directory else { return }
+        // 起動後の最初の書き込みと、その後は一定量書き足すたびに容量を点検する(ThumbnailDiskCacheと同じ考え方)。
+        // 1冊あたり数十KB程度と小さいが、二度と開かない本のぶんが際限なく積もらないようにしておく。
+        // 判定はhasTrimmedと帳簿の読み書きを伴うのでactor上で行い、実際の走査はその外で行う(走査中に他のページ一覧の
+        // 読み出しを待たせないため)。
+        guard await claimTrim(afterWriting: written), let directory else { return }
         Self.trimIfNeeded(in: directory)
     }
 
@@ -346,10 +350,12 @@ actor BookPageListCache {
         try? encoded.write(to: url, options: .atomic)
     }
 
-    /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。
-    private func claimTrim() -> Bool {
-        guard !hasTrimmed else { return false }
+    /// 起動後まだ容量点検を行っていないか、前回から上限の 1 割を書き足していれば、行う権利を1つだけ取得する。
+    private func claimTrim(afterWriting bytes: Int) -> Bool {
+        bytesWrittenSinceTrim += bytes
+        guard !hasTrimmed || bytesWrittenSinceTrim >= Self.maxTotalBytes / 10 else { return false }
         hasTrimmed = true
+        bytesWrittenSinceTrim = 0
         return true
     }
 
@@ -417,5 +423,6 @@ actor BookPageListCache {
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         hasTrimmed = false
+        bytesWrittenSinceTrim = 0
     }
 }

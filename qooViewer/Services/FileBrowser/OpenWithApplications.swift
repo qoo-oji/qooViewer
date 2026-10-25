@@ -40,7 +40,11 @@ final class OpenWithApplications {
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cache.removeAll() }
+            // アイコンも忘れる(2026-10-25 のリークの点検。アプリを入れ替えたら絵も変わるのに、起動の間ずっと最初の絵を持っていた)。
+            MainActor.assumeIsolated {
+                self?.cache.removeAll()
+                self?.iconCache.removeAll()
+            }
         }
     }
 

@@ -204,8 +204,11 @@ struct ProgressBarView: View {
             // バーの左側のボタン。「右から左へ」がONのときは末尾へ、OFFのときは先頭へ移動する
             // (見開き/1ページ送りの左右ボタンと同じ、読み方向に応じて左右の意味を切り替える
             // 考え方)。
-            Button {
-                viewModel.jump(toPageIndex: isRightToLeft ? viewModel.pageCount - 1 : 0)
+            // ボタンの閉包は viewModel を弱く掴む(.borderless の Button は AppKit のボタンに閉包を渡し、閉じた後も残ることがある ――
+            // ViewerActionRelay の型コメント。2026-10-25 のリークの点検)。向きも閉包の中で viewModel から読む(self を掴まない)。
+            Button { [weak viewModel] in
+                guard let viewModel else { return }
+                viewModel.jump(toPageIndex: viewModel.readingDirection == .rightToLeft ? viewModel.pageCount - 1 : 0)
             } label: {
                 Image(systemName: "arrow.left.to.line")
                     .panelIconButtonLabel()
@@ -217,8 +220,9 @@ struct ProgressBarView: View {
 
             // バーの右側のボタン。左側とは逆に、「右から左へ」がONのときは先頭へ、
             // OFFのときは末尾へ移動する。
-            Button {
-                viewModel.jump(toPageIndex: isRightToLeft ? 0 : viewModel.pageCount - 1)
+            Button { [weak viewModel] in
+                guard let viewModel else { return }
+                viewModel.jump(toPageIndex: viewModel.readingDirection == .rightToLeft ? 0 : viewModel.pageCount - 1)
             } label: {
                 Image(systemName: "arrow.right.to.line")
                     .panelIconButtonLabel()

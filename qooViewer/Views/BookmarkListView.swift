@@ -234,6 +234,11 @@ struct BookmarkEditorView: View {
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
     private var editorWindow: NSWindow? { editorWindowBox.window }
+    /// このウインドウが出ているか(`auxiliaryWindowPresence`)。閉じている間は右ペインを外す(2026-10-25、実測)。
+    /// `Window` シーンは閉じても View の @State を保つ(AuxiliaryWindowPresence のコメント)ので、右ペインの
+    /// BookLayoutEditorViewModel ―― 本の行・ページ一覧・PageLoader・セキュリティスコープ・DB の変更の購読 ―― が、閉じた後も
+    /// 最後に選んでいた本のぶん残り、閉じたウインドウのぶんまで DB を読み直していた。開き直せば作り直す。
+    @State private var isEditorWindowPresented = true
     /// 場所の解決を待っている「開く」(PendingBookOpens。R7-3・RC-3)。
     @State private var pendingOpen = PendingBookOpens()
     @State private var openErrorBookName: String?
@@ -803,7 +808,7 @@ struct BookmarkEditorView: View {
                 }
                 }
             } detail: {
-                if let bookID = selectedID {
+                if isEditorWindowPresented, let bookID = selectedID {
                     BookmarkDetailPane(
                         bookID: bookID,
                         bookmarkStore: bookmarkStore,
@@ -970,6 +975,7 @@ struct BookmarkEditorView: View {
                 editorWindowBox.window = window
                 observeWindowClose(window)
             })
+            .auxiliaryWindowPresence { isEditorWindowPresented = $0 }
             .alert(
                 "Could Not Open Book",
                 isPresented: Binding(
@@ -1580,6 +1586,12 @@ private struct BookmarkDetailPane: View {
             // 走っている読み込みを明示的に手放す(BookLayoutEditorViewModel.releaseResourcesの
             // コメント参照。ViewerView.handleOnDisappearと同じ考え方)。
             viewModel.releaseResources()
+            // ウインドウが閉じるときの購読も外す(2026-10-25、実測)。右ペインは本・呼び直しのたびに .id(...) で作り直され、
+            // 新しいペインは空の @State から同じウインドウへ購読を足す。外していなかったので、古いペインの写し(=
+            // BookLayoutEditorViewModel と PageLoader、セキュリティスコープ)が NotificationCenter に掴まれたままウインドウを
+            // 閉じるまで残った(「ブックマークの編集」を 5 回呼び直して VM 5 個・PageLoader 5 個)。
+            windowCloseTokens.removeAll()
+            closeObservedWindowBox.window = nil
         }
         .background(WindowAccessor { window in
             editorWindowBox.window = window

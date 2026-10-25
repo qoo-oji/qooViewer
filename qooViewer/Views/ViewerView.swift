@@ -793,16 +793,7 @@ struct ViewerView: View {
         clickZoneArmTask = nil
         // ボタン・メニューの閉包の届く先を空にする(ViewerActionRelayの型コメント参照)。
         actionRelay.target = nil
-        if let scrollMonitor {
-            NSEvent.removeMonitor(scrollMonitor)
-        }
-        scrollMonitor = nil
-        if let contextClickMonitor {
-            NSEvent.removeMonitor(contextClickMonitor)
-        }
-        contextClickMonitor = nil
-        removeThumbnailGridDismissMonitor()
-        removeThumbnailGridEventMonitor()
+        removeEventMonitors()
         clearAppStateBridgesIfStillOwner()
         // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
         // (handleOnAppearのonPageBoundaryRequestのコメント参照。appState側と違い、この
@@ -830,6 +821,24 @@ struct ViewerView: View {
         }
         windowObservers = []
         tabGroupObserver.detach()
+    }
+
+    /// このビューアが付けた NSEvent のローカルモニタを外す(handleOnDisappear と、ウインドウが閉じるときの willClose の両方から)。
+    /// モニタの閉包はこの ViewerView の写し(= viewModel・appState)を掴むので、外し損ねると閉じた本が丸ごと残る。onDisappear が
+    /// 閉じた後まで来ないことがある(setUpWindowObservers 末尾のコメント)ので、ContentView の willClose と同じく窓の側からも外す
+    /// (2026-10-25 のリークの点検。実測した閉じ方 ―― 閉じるボタン・後ろのタブ ―― ではどれも onDisappear が来ていたので保険)。
+    /// 2 度呼んでも何もしない。
+    private func removeEventMonitors() {
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
+        if let contextClickMonitor {
+            NSEvent.removeMonitor(contextClickMonitor)
+        }
+        contextClickMonitor = nil
+        removeThumbnailGridDismissMonitor()
+        removeThumbnailGridEventMonitor()
     }
 
     /// handleOnAppearでappStateへ登録した橋渡し(メニューバー・サイドパネル・編集ウインドウ
@@ -1652,7 +1661,10 @@ struct ViewerView: View {
     /// (mainZStack/applyLifecycleHandlersのコメント参照)。
     @ViewBuilder
     private func applySheets<Content: View>(to content: Content) -> some View {
-        content
+        // シートの選択肢・完了の閉包も relay だけを掴む(ViewerActionRelay の型コメント。2026-10-25 のリークの点検で、確認アラートと
+        // 違いここだけ ViewerView の写しを直に掴んでいた。ChoiceListSheet のボタンは AppKit 側の部品に閉包を渡す)。
+        let relay = actionRelay
+        return content
             // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、
             // 当時の「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
             // (Window("Edit Bookmarks", id: "editBookmarks"))へ変更した。表示自体は
@@ -1666,14 +1678,14 @@ struct ViewerView: View {
                 case .backward:
                     PageBoundaryChoiceSheet<FirstPageBehavior>(
                         titleKey: "This is the first page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
-                    ) {
-                        viewModel.performFirstPageBehavior($0)
+                    ) { choice in
+                        relay.send { $0.viewModel.performFirstPageBehavior(choice) }
                     }
                 case .forward:
                     PageBoundaryChoiceSheet<LastPageBehavior>(
                         titleKey: "This is the last page.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
-                    ) {
-                        viewModel.performLastPageBehavior($0)
+                    ) { choice in
+                        relay.send { $0.viewModel.performLastPageBehavior(choice) }
                     }
                 }
             }
@@ -1696,7 +1708,7 @@ struct ViewerView: View {
                     // (指定がDBに残ってしまうため。OpenBookExportSheet参照)。
                     allowsCoverSelection: !viewModel.skipsPersistence
                 ) { didExport in
-                    openBookExport = nil
+                    relay.send { $0.openBookExport = nil }
                     guard didExport else { return }
                     // 保存先を設定済みだと書き出しは何も尋ねずに進み、この完了はユーザーの
                     // 操作と無関係なタイミングで届く。その瞬間にメニューバーのメニューが
@@ -1705,10 +1717,13 @@ struct ViewerView: View {
                     // タイトルやFocusedValueの変化)が、開いている最中のメニューの再構築を
                     // 引き起こすため、閉じるまで保留する(MenuBarMenuGateの型コメント参照)。
                     // キーは境界動作と同様にウインドウ(viewModel)ごとに分ける。
-                    MenuBarMenuGate.shared.run(
-                        "ViewerView.exportCompletion-\(ObjectIdentifier(viewModel))"
-                    ) {
-                        finishOpenBookExport(format: request.format)
+                    let format = request.format
+                    relay.send { view in
+                        MenuBarMenuGate.shared.run(
+                            "ViewerView.exportCompletion-\(ObjectIdentifier(view.viewModel))"
+                        ) {
+                            relay.send { $0.finishOpenBookExport(format: format) }
+                        }
                     }
                 }
             }
@@ -1718,8 +1733,10 @@ struct ViewerView: View {
                 PageBoundaryChoiceSheet<BookExportCompletionBehavior>(
                     titleKey: "The book has been exported.", dimsAdjacentBookChoices: !viewModel.book.hasBrowsableLocation
                 ) { choice in
-                    isShowingExportCompletionPrompt = false
-                    performExportCompletionBehavior(choice, chosenByUser: true)
+                    relay.send { view in
+                        view.isShowingExportCompletionPrompt = false
+                        view.performExportCompletionBehavior(choice, chosenByUser: true)
+                    }
                 }
             }
     }
@@ -3735,6 +3752,8 @@ struct ViewerView: View {
                 // ボタン・メニューの閉包の届く先を空にする(ViewerActionRelayの型コメント参照)。
                 // onDisappearはウインドウが閉じた後に来ることがあるので、ここでも。
                 actionRelay.target = nil
+                removeEventMonitors()
+                tabGroupObserver.detach()
                 clearAppStateBridgesIfStillOwner()
                 viewModel.onPageBoundaryRequest = nil
                 // handleOnDisappearと同じ理由で、資源の解放もここから先に行っておく

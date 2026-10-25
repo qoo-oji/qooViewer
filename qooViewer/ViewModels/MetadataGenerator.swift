@@ -154,7 +154,9 @@ final class MetadataGenerator {
     func noteBookOpened(_ bookID: String, anchors: BookRowAnchors? = nil) {
         verified.insert(bookID)
         absent.remove(bookID)
-        if let anchors { sourceAnchors[bookID] = anchors }
+        // 手がかりは行を作るときにしか使わないので、行がまだ無い本のぶんだけ持つ(2026-10-25 のリークの点検。以前は 2 度目以降に
+        // 開いた本 ―― 行がある本 ―― のぶんも、起動の間ずっと持っていた)。作った後は `write` が捨てる。
+        if let anchors, !metadataStore.isRegistered(bookID: bookID) { sourceAnchors[bookID] = anchors }
         // もう並べていて行もある本(2 度目以降に開いた本のほとんど)なら、回を頼まない(2026-09-25 の監査)。この本が加わっても
         // 母体・並び・入力・書くものは変わらない(並べている本は「確かめた」かどうかに関わらず並ぶ。行の中身が変われば
         // `bookMetadataDidChange` が回を頼む)のに、1 回ぶん(DB の全行の読み出し 2〜3 回・知っている本の収集・書く前の全冊の
@@ -356,6 +358,8 @@ final class MetadataGenerator {
     /// ルールセット)が変わった本は書かない**(その変化で次の回が走り、新しい形で読み直す)。
     private func write(listed: [String], snapshot: [String: BookMetadataRecord], deleted: Set<String>) async {
         let current = metadataStore.allRecords()
+        // 行がもうある本の手がかりは要らない(下で作る本のぶんは、作るときに取り出す。noteBookOpened のコメント)。
+        sourceAnchors = sourceAnchors.filter { current[$0.key] == nil }
         var entries: [BookMetadataStore.BatchEntry] = []
         for id in listed {
             guard let proposal = proposals[id] else { continue }
@@ -369,7 +373,7 @@ final class MetadataGenerator {
             switch (snapshot[id], current[id]) {
             case (nil, nil):
                 guard !values.isEmpty, !deleted.contains(id) else { continue }
-                entries.append(.init(bookID: id, values: values, anchors: sourceAnchors[id],
+                entries.append(.init(bookID: id, values: values, anchors: sourceAnchors.removeValue(forKey: id),
                                      state: BookMetadataRowState(isLocked: false)))
             case let (before?, now?):
                 // 読みが空になっても行は消さない(空の値の書き込みは行の削除になり、直した欄・ルールセット・取り込みの印まで消えた。

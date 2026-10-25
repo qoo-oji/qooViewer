@@ -117,6 +117,16 @@ final class NameCheck {
     private var beforeKey: Int?
     private var beforeOutcomes: [FormatOutcome] = []
 
+    /// 数えたものを捨てる(規則の窓を閉じたとき。NameCheckPane の `isWindowPresented`)。
+    func clear() {
+        task?.cancel()
+        task = nil
+        rows = []; now = Counts(); before = Counts(); better = 0; worse = 0; isWorking = false
+        last = nil
+        beforeKey = nil
+        beforeOutcomes = []
+    }
+
     /// 下書きか、選んだ名前が変わったら読み直す。中身が同じなら何もしない(画面は何度も描き直されるため)。
     func update(now: FilenameFormats, before: FilenameFormats, names: [String], token: Int) {
         var hasher = Hasher()
@@ -190,6 +200,10 @@ struct NameCheckPane: View {
     @State private var check = NameCheck()
     @State private var filter: Filter = .problems
     @State private var picked = MetadataRulesPicked.shared
+    /// 規則の窓が出ているか(`auxiliaryWindowPresence`)。閉じたら数えた行を捨て、閉じている間は数え直さない(2026-10-25 の
+    /// リークの点検。`Window` シーンは閉じても @State を保つので、全冊ぶんの読めぐあいが閉じた後も残り、メタデータの編集ウインドウの
+    /// 一覧が変わるたびに閉じた窓のぶんまで全冊を読み直しえた)。
+    @State private var isWindowPresented = true
 
     enum Filter: String, CaseIterable, Identifiable {
         case problems, changed, all
@@ -245,6 +259,10 @@ struct NameCheckPane: View {
         .onChange(of: picked.token) { recompute() }
         .onChange(of: presetName) { recompute() }
         .onAppear { recompute() }
+        .auxiliaryWindowPresence { presented in
+            isWindowPresented = presented
+            if presented { recompute() } else { check.clear() }
+        }
     }
 
     /// 読めぐあいの表(数えた本があるとき)。
@@ -332,6 +350,7 @@ struct NameCheckPane: View {
     }
 
     private func recompute() {
+        guard isWindowPresented else { return }
         // 印にはルールセットの名前も混ぜる(選び直すと数える本が替わる。「直す前」の控えを取り違えない)。
         var token = Hasher()
         token.combine(picked.token)

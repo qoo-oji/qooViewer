@@ -968,28 +968,32 @@ struct ContentView: View {
             )
         ) {
             if let sweep = pendingMissingBookSweep {
+                // 閉包は ContentView の写しを掴まない(AppKit のダイアログの部品が閉じた後も最後の閉包を持つことがある ――
+                // docs/12「閉じたウインドウが解放されるかの測り方」の `AppKitDialogBridge.lastDialogValues`。写しは AppState・
+                // FileBrowserState などを掴む)。2026-10-25 のリークの点検。
                 MissingBooksCleanupSheet(
                     sweep: sweep,
-                    onRemove: {
+                    onRemove: { [collectionStore, pending = $pendingMissingBookSweep] in
                         collectionStore.applyMissingBookSweep(sweep)
-                        pendingMissingBookSweep = nil
+                        pending.wrappedValue = nil
                     },
-                    onCancel: { pendingMissingBookSweep = nil }
+                    onCancel: { [pending = $pendingMissingBookSweep] in pending.wrappedValue = nil }
                 )
             }
         }
         // 題は何ができなかったか(Finder の「“…”を開けません。」と同じく、汎用の「エラー」にしない ―― ダイアログの作法、docs/09)。
         // 本文は理由。理由が題と同じ(理由の分からない失敗)なら本文は付けない。
+        // 閉包は AppState を弱く掴む(上の MissingBooksCleanupSheet と同じ理由。よく出るアラート)。
         .alert(
             "The book couldn’t be opened.",
             isPresented: Binding(
-                get: { appState.errorMessage != nil },
-                set: { isPresented in
-                    if !isPresented { appState.errorMessage = nil }
+                get: { [weak appState] in appState?.errorMessage != nil },
+                set: { [weak appState] isPresented in
+                    if !isPresented { appState?.errorMessage = nil }
                 }
             )
         ) {
-            Button("OK") { appState.errorMessage = nil }
+            Button("OK") { [weak appState] in appState?.errorMessage = nil }
         } message: {
             let message = appState.errorMessage ?? ""
             Text(message == String(localized: "The book could not be opened.", language: preferences.effectiveLocale) ? "" : message)
@@ -1350,6 +1354,9 @@ struct ContentView: View {
                 smartLibrary.releaseCatalogActivation()
                 // 最初の見開きを待っている本があれば、そのビューモデルの資源も手放す(ViewerHandoff)。
                 viewerHandoff.discardPending()
+                // 削除の取り消しはこのウインドウと一緒に消えるので、積んだものの後始末(削除したままのコレクションの表紙のファイル)を
+                // ここで済ませる(2026-10-25 の点検。以前は次の起動の掃除まで残した ―― DataUndoStack の型コメント)。
+                appState.dataUndo.removeAll()
                 tokens.removeAll()
             }
         })
@@ -1653,7 +1660,9 @@ struct ContentView: View {
             // 前の本の値のまま固まる(サイドパネルのモードを切り替えて節を作り直すと直る、
             // という形で再現を確認した)。呼ばれた時点でappStateを引き直すワンクッションを
             // 挟むことで、ループが古いコピーを持っていても常に「今表示している本」を指す。
-            fetchResourceSnapshot: { [appState] in await appState.fetchResourceSnapshot?() },
+            // AppState は弱く掴む(2026-10-25 のリークの点検): 1 秒ごとのループ(ResourceMonitorView.tickLoop)は `.task` の取り消しだけで
+            // 止まるので、ウインドウを閉じてもその取り消しが来なければ、強く掴んだ閉包が閉じた窓の AppState を毎秒動かし続ける。
+            fetchResourceSnapshot: { [weak appState] in await appState?.fetchResourceSnapshot?() },
             // 右クリックの「Finderで開く」「画像をエクスポート」用(ユーザー要望)。
             // どちらもViewerViewが持つ実装への橋渡し(AppState.exportPageImage参照)。
             bookSourceURL: appState.currentBook?.sourceURL,

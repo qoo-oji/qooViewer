@@ -820,9 +820,22 @@ final class AutoRenameService: ObservableObject {
         }
     }
 
+    /// 書き終わりを見ている項目の観測を、これより長く見直していなければ捨てる(`process`)。
+    static let observationLifetime: TimeInterval = 10 * 60
+    /// 同じ見送りを書かないための控え(`loggedSkips`)の上限。超えたら空にする(同じ見送りがもう 1 度だけ実行ログに出る)。
+    static let loggedSkipsLimit = 5000
+
     private func process(_ result: AutoRenameScanner.Result, plan: AutoRenamePlan, generation: UInt64) async {
         let currentLocale = locale()
         var entries: [AutoRenameActivityLog.Entry] = []
+        // 動いている間に増え続けないようにする(2026-10-25 のリークの点検)。観測は書き終わりを待つ項目を見直すたび(1 秒ごと)に
+        // 新しくなるので、長く見直されていないものは候補でなくなった項目(規則を変えた・除外した・名前を変える必要が無くなった)。
+        // フォルダの観測は配下の写しを持ち、1 つで数 MB になりうる。以前は書き終えたか消えたときにしか外れなかった。
+        let staleBefore = Date().addingTimeInterval(-Self.observationLifetime)
+        if observations.values.contains(where: { $0.at < staleBefore }) {
+            observations = observations.filter { $0.value.at >= staleBefore }
+        }
+        if loggedSkips.count > Self.loggedSkipsLimit { loggedSkips.removeAll() }
         for skip in result.skips {
             let key = skip.path + "\u{0}" + skip.reason.result
             guard loggedSkips.insert(key).inserted else { continue }

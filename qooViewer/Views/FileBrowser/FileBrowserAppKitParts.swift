@@ -324,7 +324,12 @@ final class FileBrowserCellView: NSTableCellView {
 /// (システムのバンドルの中の 1 ファイル。利用者の場所にもネットワークにも触らない)を 1 回だけ読む。
 @MainActor
 enum FileBrowserIconProvider {
-    private static var cache: [String: NSImage] = [:]
+    /// 鍵は種類(拡張子)ごと。**上限を超えたら丸ごと忘れる**(2026-10-25 のリークの点検。拡張子の無い名前に点があると ――
+    /// 「… Vol.12 (2019)」の形 ―― 名前ごとに別の鍵になり、上限が無いので起動の間ずっと増えた。引き直すだけで害は無い)。
+    private static var cache: [String: NSImage] = [:] {
+        didSet { if cache.count > cacheLimit { cache.removeAll() } }
+    }
+    private static let cacheLimit = 1000
 
     static func icon(for entry: FileBrowserEntry) -> NSImage {
         let key: String

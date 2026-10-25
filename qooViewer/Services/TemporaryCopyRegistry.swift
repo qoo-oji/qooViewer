@@ -15,8 +15,10 @@ import Foundation
 final class TemporaryCopyRegistry {
     static let shared = TemporaryCopyRegistry()
 
-    /// 渡されたが、まだどの窓も引き受けていないもの。
-    private var handedOff: Set<String> = []
+    /// 渡されたが、まだどの窓も引き受けていないもの(渡した回ごとの印付き。`handOff` の後始末が、後から渡し直された同じ鍵を消さないため)。
+    private var handedOff: [String: UUID] = [:]
+    /// 渡したまま引き受けられなかった一時コピーを消すまでの時間(`handOff`)。
+    static let unclaimedLifetime: Duration = .seconds(10 * 60)
     /// 引き受けた窓の数。
     private var ownerCounts: [String: Int] = [:]
 
@@ -28,14 +30,26 @@ final class TemporaryCopyRegistry {
     }
 
     /// 本の中身ブラウザが書き出した一時コピーを、開く側へ渡す(`BookContentsBrowserState.handOffTemporaryFile`)。
+    ///
+    /// **引き受けられないまま残ったものは、しばらくしたら消す**(2026-10-25 のリークの点検)。開く側が下調べで断った・後から頼まれた
+    /// 本に負けた、などで窓が引き受けないと、鍵がここに残り、一時コピー(入れ子の書庫 1 本ぶん、最大 4GB)も終了まで残った。
+    /// 開く前の下調べは一時フォルダの中のファイルを読むだけなので、`unclaimedLifetime` は十分に長い。
     func handOff(_ url: URL) {
-        handedOff.insert(Self.key(url))
+        let key = Self.key(url)
+        let token = UUID()
+        handedOff[key] = token
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.unclaimedLifetime)
+            guard let self, self.handedOff[key] == token, self.ownerCounts[key] == nil else { return }
+            self.handedOff.removeValue(forKey: key)
+            await FileIO.perform(qos: .utility) { try? FileManager.default.removeItem(atPath: key) }
+        }
     }
 
     /// 窓が `key` の一時コピーを引き受ける。渡されたもの・ほかの窓が持っているものなら持ち主を 1 つ増やして true、どちらでもなければ
     /// false(その窓は持たない ―― 消さない)。
     func adopt(_ key: String) -> Bool {
-        guard handedOff.remove(key) != nil || ownerCounts[key] != nil else { return false }
+        guard handedOff.removeValue(forKey: key) != nil || ownerCounts[key] != nil else { return false }
         ownerCounts[key, default: 0] += 1
         return true
     }

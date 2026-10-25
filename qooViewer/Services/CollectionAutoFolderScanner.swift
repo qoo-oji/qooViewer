@@ -220,6 +220,11 @@ final class CollectionAutoFolderScanner: ObservableObject {
             runningFolderScans[key] = task
             return (key, task)
         }
+        // 今回の対象でなくなった組(コレクションを消した・自動登録フォルダを替えた・許可を外した)の列挙は、もう誰も待ち直さない。
+        // 控えから外す(2026-10-25 のリークの点検。外す所が無く、遅い共有で期限を過ぎた列挙の結果 ―― まだ登録していない本ごとの
+        // URL と大きさ・更新日時 ―― が終了まで残った)。列挙そのものは止められないが、終われば結果ごと手放される。
+        let targetedKeys = Set(scans.map(\.key))
+        runningFolderScans = runningFolderScans.filter { targetedKeys.contains($0.key) }
         scanTask = Task { [weak self] in
             var found: [CollectionAutoFolderScan.FolderResult] = []
             for scan in scans {

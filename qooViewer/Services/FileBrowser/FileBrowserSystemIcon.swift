@@ -187,8 +187,19 @@ final class FileBrowserListSystemIcons {
             render = { FileBrowserSystemIcon.render(at: url, pixelSize: pixelSize).map { .made($0) } ?? .unavailable }
         }
         waiting.append((key, refusedKey, render, completion))
+        // 待ちが長くなったら古い頼み(画面の外へ流れた行)から捨てる(2026-10-25 のリークの点検)。始めるのは後から頼まれたものからなので、
+        // 1 万件のフォルダを流すと、誰も見ていない行の頼みが全部 FileIO の上で描かれるまで並び続けた。捨てた行は、また画面に入って
+        // 頼み直されたときに読む(`loading` からも外す)。
+        if waiting.count > Self.waitingLimit {
+            let dropped = waiting.prefix(waiting.count - Self.waitingLimit)
+            for item in dropped { loading.remove(item.key) }
+            waiting.removeFirst(dropped.count)
+        }
         startWaitingLoads()
     }
+
+    /// 待たせておく頼みの上限(`load`)。リストの画面に入る行の数より十分多く。
+    private static let waitingLimit = 256
 
     private func startWaitingLoads() {
         while runningCount < Self.maxConcurrentLoads, let next = waiting.popLast() {
@@ -213,6 +224,8 @@ final class FileBrowserListSystemIcons {
                     return
                 }
                 guard let image else {
+                    // 上限を超えたら忘れる(`cache`・`refused` と同じ。以前は上限が無く、起動の間ずっと増えた)。
+                    if self.failed.count >= Self.countLimit { self.failed.removeAll() }
                     self.failed.insert(key)
                     return
                 }

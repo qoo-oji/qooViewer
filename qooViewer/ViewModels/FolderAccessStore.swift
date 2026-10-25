@@ -357,6 +357,10 @@ final class FolderAccessStore: ObservableObject {
     /// そのフォルダは一覧に無い(`isPathCovered` は false)。**先に「ある」と答えてはいけない**: 許可済みの配下なのに見えない
     /// パスを「無い」と言い切る判定(BookExistenceProbe)が、スコープを開く前の `fileExists` の失敗を「消えた」と読んで保存データを
     /// 消しうる。答えが変わるのを待ちたい所は `waitForPendingResolutions(covering:)` を、やり直したい所は `accessGained` を使う。
+    /// 解決している最中の FileIO の仕事(ブックマークごと。`reloadInBackground` が同じブックマークで重ねて始めないため)と、
+    /// それを始めた回(`resolutionGeneration`)。
+    private var inFlightResolutions: [Data: (generation: Int, task: Task<Entry?, Never>)] = [:]
+
     private func reloadInBackground() {
         resolutionGeneration &+= 1
         let generation = resolutionGeneration
@@ -394,10 +398,20 @@ final class FolderAccessStore: ObservableObject {
                 continue
             }
             let key = path
+            // 同じブックマークの解決がまだ走っていれば、新しく始めずにその答えを待つ(2026-10-25 のリークの点検)。以前は知らせの
+            // たびに前の待ちを捨てて解決し直し、応答しない共有の上の許可があると、ボリュームの着脱の知らせごとに FileIO の糸を
+            // 1 本ずつ SMB の期限(約 30 秒。hard NFS なら戻らない)まで塞いだ。
+            let resolution = backgroundResolution(of: data, generation: generation)
             pendingResolutions[key] = Task { [weak self] in
-                // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
-                // 名前(Entry.displayName)も同じ糸の上で求める(ネットワークの上では問い合わせない ―― Entry のコメント)。
-                let entry = await FileIO.perform { BookmarkResolution.resolve(data).map { Entry(url: $0) } }
+                var entry = await resolution.task.value
+                self?.finishBackgroundResolution(of: data, resolution.task)
+                // 前の回に始めた解決が「解けなかった」なら、この回の状態で解き直す(待っている間にボリュームが付いた等。以前どおり
+                // 知らせのたびに解き直したのと同じ答えにする)。
+                if entry == nil, resolution.generation != generation, self?.resolutionGeneration == generation,
+                   let fresh = self?.backgroundResolution(of: data, generation: generation) {
+                    entry = await fresh.task.value
+                    self?.finishBackgroundResolution(of: data, fresh.task)
+                }
                 // 待つ間に取り消された許可(`remove(_:)` が pendingResolutions から外す)は開かない。
                 guard let self, self.resolutionGeneration == generation,
                       self.pendingResolutions.removeValue(forKey: key) != nil else { return }
@@ -408,6 +422,21 @@ final class FolderAccessStore: ObservableObject {
                 self.adoptResolvedFolder(entry.url, from: data, entry: entry)
             }
         }
+    }
+
+    /// `data` を FileIO の上で解決する仕事。同じブックマークの解決がまだ走っていればそれを返す(`inFlightResolutions`)。
+    private func backgroundResolution(of data: Data, generation: Int) -> (generation: Int, task: Task<Entry?, Never>) {
+        if let running = inFlightResolutions[data] { return running }
+        // 起動時・ボリュームの知らせで裏で解決するので、繋ぎに行かない(BookmarkResolution)。
+        // 名前(Entry.displayName)も同じ糸の上で求める(ネットワークの上では問い合わせない ―― Entry のコメント)。
+        let started = (generation: generation,
+                       task: Task<Entry?, Never> { await FileIO.perform { BookmarkResolution.resolve(data).map { Entry(url: $0) } } })
+        inFlightResolutions[data] = started
+        return started
+    }
+
+    private func finishBackgroundResolution(of data: Data, _ task: Task<Entry?, Never>) {
+        if inFlightResolutions[data]?.task == task { inFlightResolutions[data] = nil }
     }
 
     /// 解決したフォルダを開いて一覧へ足す。

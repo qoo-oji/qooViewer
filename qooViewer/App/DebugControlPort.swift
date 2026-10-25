@@ -223,8 +223,11 @@ final class DebugControlPort {
             return ["isKey": window.isKeyWindow]
         case "mergeAllWindows":
             // 窓をすべて 1 つのタブの組へまとめる(ウインドウメニューの「すべてのウインドウを結合」。実機で、後ろのタブの振る舞いを確かめるため)。
+            // `windowNumber` があればその窓の組へ(シークレットの窓どうしをまとめるため。タブの組は tabbingIdentifier ごと)。
+            let number = arguments["windowNumber"] as? Int
             guard let window = NSApp.windows.first(where: { window in
-                stores.launchCoordinator.allOpenAppStates.contains { $0.hostWindow === window }
+                (number == nil || window.windowNumber == number)
+                    && stores.launchCoordinator.allOpenAppStates.contains { $0.hostWindow === window }
             }) else { throw Failure("no content window") }
             window.mergeAllWindows(nil)
             return ["tabbedWindows": window.tabbedWindows?.map(\.windowNumber) ?? []]
