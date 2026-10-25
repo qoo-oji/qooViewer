@@ -41,7 +41,14 @@ nonisolated final class MemoryUsageRegistry: @unchecked Sendable {
     private struct State {
         var entries: [UUID: Entry] = [:]
         var nextOrder = 0
+        /// 答えを待っている届け出(`answer`)。前の問いに答えていない持ち主には、次の回は尋ねない。
+        var inFlight: Set<UUID> = []
+        /// 届け出ごとの最後の答え(答えが遅れた回はこれを使う)。
+        var lastAnswers: [UUID: [MemoryUsageItem]] = [:]
     }
+
+    /// 1 人の答えを待つ上限(`answer`)。
+    static let answerLimit: Duration = .milliseconds(1500)
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
@@ -55,7 +62,10 @@ nonisolated final class MemoryUsageRegistry: @unchecked Sendable {
     }
 
     fileprivate func remove(id: UUID) {
-        _ = state.withLock { $0.entries.removeValue(forKey: id) }
+        state.withLock { state in
+            state.entries.removeValue(forKey: id)
+            state.lastAnswers.removeValue(forKey: id)
+        }
     }
 
     /// いま届け出ている持ち主の数(テスト用)。
@@ -67,10 +77,14 @@ nonisolated final class MemoryUsageRegistry: @unchecked Sendable {
     /// **尋ねるのは同時に**(2026-10-11 のレビュー)。持ち主の多くは actor(PageLoader)で、PDF のページを描いている間などは答えが
     /// 遅れる。1 人ずつ待つと、開いている本の数だけ遅れが足し算になり、毎秒の計測(リソースモニタの表示・異常の連続回数)が止まった。
     func report() async -> [MemoryUsageOwner] {
-        let entries = state.withLock { Array($0.entries.values) }.sorted { $0.order < $1.order }
+        let pairs = state.withLock { state in state.entries.map { (id: $0.key, entry: $0.value) } }
+            .sorted { $0.entry.order < $1.entry.order }
+        let entries = pairs.map(\.entry)
         let answers = await withTaskGroup(of: (Int, [MemoryUsageItem]).self) { group in
-            for (index, entry) in entries.enumerated() {
-                group.addTask { (index, await entry.provider()) }
+            for (index, pair) in pairs.enumerated() {
+                let id = pair.id
+                let provider = pair.entry.provider
+                group.addTask { (index, await self.answer(id: id, provider: provider)) }
             }
             var answers = [[MemoryUsageItem]](repeating: [], count: entries.count)
             for await (index, items) in group { answers[index] = items }
@@ -92,6 +106,25 @@ nonisolated final class MemoryUsageRegistry: @unchecked Sendable {
             owner.items.append(contentsOf: extras[id] ?? [])
             return owner
         }
+    }
+
+    /// 1 人に尋ねる。**待つのは `answerLimit` まで**、前の問いにまだ答えていなければ尋ねずに最後の答えを使う
+    /// (2026-10-25 のハング・クラッシュの監査 A2-7)。持ち主の多くは actor(PageLoader)で、ネットワーク上の書庫を読んで止まって
+    /// いると答えが返らず、以前はリソースモニタの毎秒の計測がそこで止まった。尋ね直さないのは、止まった actor へ毎秒 1 件ずつ
+    /// 問いを積まないため。
+    private func answer(id: UUID, provider: @escaping Provider) async -> [MemoryUsageItem] {
+        let isFree = state.withLock { $0.inFlight.insert(id).inserted }
+        guard isFree else { return state.withLock { $0.lastAnswers[id] ?? [] } }
+        let asking = Task { () -> [MemoryUsageItem] in
+            let items = await provider()
+            state.withLock { state in
+                state.inFlight.remove(id)
+                if state.entries[id] != nil { state.lastAnswers[id] = items }
+            }
+            return items
+        }
+        if let items = try? await FileIO.withDeadline(Self.answerLimit, { await asking.value }) { return items }
+        return state.withLock { $0.lastAnswers[id] ?? [] }
     }
 }
 

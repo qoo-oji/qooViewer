@@ -367,11 +367,16 @@ enum LibraryImportExportService {
         var skipped: [String] = []
 
         for group in bookmarkStore.groups {
-            let bookmarks = bookmarkStore.bookmarks(forBookID: group.bookID).sorted { $0.pageIndex < $1.pageIndex }
+            // 行(SwiftData のモデル)は**待つ前に値へ写す**(2026-10-25 のハング・クラッシュの監査 A6-4)。下の loadBook は本を
+            // 読み込むので数秒待ちうる。その間にこの本のブックマークが消される(ビューアのトグル・編集ウインドウ・「差し替わった本」の
+            // 片付け)と、待った後に消えた行を読んで落ちうる。ほかの書き出し(読書位置・レイアウト・コレクション)は先に写していた。
+            let bookmarks = bookmarkStore.bookmarks(forBookID: group.bookID)
+                .sorted { $0.pageIndex < $1.pageIndex }
+                .map { (pageKey: $0.pageKey, pageIndex: $0.pageIndex, name: $0.name) }
             guard !bookmarks.isEmpty else { continue }
             // 同じbookIDのBookmark行はすべて同じファイルノード識別子を記録しているはずのため、
             // 最初に見つかった値をこの本の識別子として使う(1件も記録が無い場合はnilのまま)。
-            var fileNodeIdentifier = bookmarks.lazy.compactMap(\.fileNodeIdentifier).first
+            var fileNodeIdentifier = bookmarkStore.bookmarks(forBookID: group.bookID).lazy.compactMap(\.fileNodeIdentifier).first
             guard let book = await loadBook(
                 bookID: group.bookID, fileNodeIdentifier: fileNodeIdentifier,
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore,
@@ -858,6 +863,13 @@ enum LibraryImportExportService {
 
     // MARK: - 読書位置の取り込み(2026-09-23)
 
+    /// 取り込むページ番号(`applyReadingStates`)。0 以上、記録されたページ数があれば `0..<pageCount` に丸める。
+    static func clampedPageIndex(_ index: Int, pageCount: Int?) -> Int {
+        let nonNegative = max(index, 0)
+        guard let pageCount, pageCount > 0 else { return nonNegative }
+        return min(nonNegative, pageCount - 1)
+    }
+
     /// 読書位置を取り込む。メタデータと同じく、本を読み直す必要が無い(ページ番号も鍵もそのまま
     /// 写すだけ)ので、実ファイルが今そこに無い本の読書位置もそのまま取り込める。
     ///
@@ -892,9 +904,12 @@ enum LibraryImportExportService {
             let lastPageKey = entry.lastPageKey.map {
                 PageKeyRelocation.relocated($0, fromBookID: entry.bookID, toBookID: bookID) ?? $0
             }
+            // ページ番号は書かれた値をそのまま信じない(手で直した・壊れた JSON。Int.max がスマートライブラリの進み具合の計算で
+            // 溢れた ―― 2026-10-25 のハング・クラッシュの監査 #7)。0 以上、ページ数が分かればその範囲へ丸める。
+            let lastPageIndex = Self.clampedPageIndex(entry.lastPageIndex, pageCount: entry.recordedPageCount)
             if let row = byBookID[bookID] {
                 guard policy == .overwrite else { continue }
-                row.lastPageIndex = entry.lastPageIndex
+                row.lastPageIndex = lastPageIndex
                 row.lastPageKey = lastPageKey
                 row.displayModeRaw = entry.displayMode
                 row.readingDirectionRaw = entry.readingDirection
@@ -905,7 +920,7 @@ enum LibraryImportExportService {
                 row.recordedSourceFileSize = entry.recordedSourceFileSize
                 row.isAtLastPage = entry.isAtLastPage ?? false
             } else {
-                let row = BookReadingState(bookID: bookID, lastPageIndex: entry.lastPageIndex,
+                let row = BookReadingState(bookID: bookID, lastPageIndex: lastPageIndex,
                                            lastPageKey: lastPageKey)
                 // 生の rawValue で写す(知らない値でも落とさない。読む側が既定へ落とす)。
                 row.displayModeRaw = entry.displayMode
@@ -1106,6 +1121,8 @@ enum LibraryImportExportService {
         let resolved = await makePendingItems(for: hints)
 
         // (3) ここからメイン。
+        // 自動登録フォルダの確かめ方(applyAutoFolder)に使う。マウントの一覧は MNT_NOWAIT で、応答しない共有でも止まらない。
+        let mounts = MountTable.current()
         if policy == .overwrite {
             collectionStore.deleteAll()
         }
@@ -1186,14 +1203,14 @@ enum LibraryImportExportService {
                     // (まだ設定されていないときだけ入れる)。JSONを追加で取り込んだだけで、
                     // 手元で決めた自動登録フォルダが差し替わるのは筋が通らない。
                     if existing.autoFolderPath == nil {
-                        applyAutoFolder(exportedCollection, to: existing, collectionStore: collectionStore)
+                        applyAutoFolder(exportedCollection, to: existing, collectionStore: collectionStore, mounts: mounts)
                     }
                 } else if let created = collectionStore.createCollection(
                     name: collectionName, in: library, items: pending
                 ) {
                     summary.collectionsImportedCollections += 1
                     summary.collectionsImportedBooks += created.items.count
-                    applyAutoFolder(exportedCollection, to: created, collectionStore: collectionStore)
+                    applyAutoFolder(exportedCollection, to: created, collectionStore: collectionStore, mounts: mounts)
                 }
             }
 
@@ -1214,16 +1231,16 @@ enum LibraryImportExportService {
     }
 
     /// JSONに書かれていた自動登録フォルダを設定する(ExportedCollection.autoFolderPath参照)。
-    /// **その場所に実際にフォルダがあるときだけ**設定し、無ければ何もしない。
+    /// 登録してよいかは、ほかのパスだけのフォルダの設定と同じ `BackupFolderPaths.shouldImport` で決める: 繋がっているローカルの
+    /// ボリュームでフォルダが無いものだけを落とし、繋がっていないボリューム・ネットワークのボリュームの上は確かめずに登録する。
+    /// 以前は `fileExists` をメインでコレクションごとに呼んでいて、応答しない共有では 1 つあたり 30 秒〜無期限止まった
+    /// (2026-10-25 のハング・クラッシュの監査 #10)。
     private static func applyAutoFolder(
         _ exported: ExportedCollection, to collection: BookCollection,
-        collectionStore: CollectionStore
+        collectionStore: CollectionStore, mounts: MountTable
     ) {
         guard let path = exported.autoFolderPath, !path.isEmpty else { return }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else { return }
+        guard BackupFolderPaths.shouldImport(path, mounts: mounts) else { return }
         collectionStore.setAutoFolder(URL(fileURLWithPath: path, isDirectory: true), for: collection)
     }
 
@@ -1383,6 +1400,8 @@ enum LibraryImportExportService {
             let relocatedKey = { (key: String) in
                 PageKeyRelocation.relocated(key, fromBookID: entry.bookID, toBookID: bookID) ?? key
             }
+            // 重なった鍵はここでは落とさない(本の側に同じ sortKey のページが 2 枚ある本では正しい並びの一部。数は読む側の
+            // EffectivePageOrder がページ数までに抑える ―― 2026-10-25 の監査 A1-6)。
             let pageOrder = hasExistingBookLevelSettings
                 ? nil : layout.pageOrder.flatMap { $0.isEmpty ? nil : $0.map(relocatedKey) }
 

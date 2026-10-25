@@ -508,7 +508,9 @@ final class SmartLibraryCatalog: ObservableObject {
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         for state in states {
             let progress = state.recordedPageCount.flatMap { count -> Double? in
-                count > 0 ? min(1, Double(state.lastPageIndex + 1) / Double(count)) : nil
+                // `lastPageIndex + 1` は整数で足さない: 保存データの JSON から Int.max が入ると、スマートライブラリを出すたびに
+                // 溢れて落ちた(2026-10-25 のハング・クラッシュの監査 #7。取り込みでも丸めるようにした)。負の値は 0 に。
+                count > 0 ? min(1, (Double(max(state.lastPageIndex, 0)) + 1) / Double(count)) : nil
             }
             if let existing = snapshot.readings[state.bookID], existing.updatedAt >= state.updatedAt { continue }
             snapshot.readings[state.bookID] = .init(updatedAt: state.updatedAt, progress: progress,

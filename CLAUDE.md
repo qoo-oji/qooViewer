@@ -187,7 +187,9 @@ the background **only while a `StagedFillLease` is held** — the reader/PDF pro
 (2026-09-27 audit: before that every cover extraction fetched whole books and nothing ever stopped a fill). The fill also stops below 1 GB
 free, and a failed cache write falls back to the bytes read from the network. The switch is in one place: `makeArchiveReader(kind:url:stagesWholeFile:)` and
 `openPDFDocument(at:)` — **new code that opens an archive or a PDF file must go through them**, never `ZipArchiveReader(url:)` /
-`CGPDFDocument(url)` directly. zip uses `CentralDirectoryZipReader` (listing from the central directory only; kept answer-for-answer
+`CGPDFDocument(url)` directly. zip uses `CentralDirectoryZipReader` — **local and nested zips too since 2026-10-25** (ZIPFoundation's
+`Archive` scanned a file without an EOCD backwards byte by byte — ~100 s per 100 MB, uncancellable, reached by icon-view thumbnails — and
+trapped on crafted ZIP64 values; `ZipArchiveReader` is now only the reference the tests diff against) (listing from the central directory only; kept answer-for-answer
 identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the two intended differences are documented on the
 type — the EOCD search stops 22+65535 bytes from the end, because an unbounded search pulled a whole non-zip file over the network and
 into memory; values read from an archive are untrusted, never `a + b` / `Int64(x)` on them), rar/7z use the forks' positional-reader

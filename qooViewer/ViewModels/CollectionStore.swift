@@ -1171,7 +1171,19 @@ final class CollectionStore: ObservableObject {
     /// この本の登録をすべてのコレクションから外す(「本ごとの保存データを削除」から)。
     /// 1件ずつremove(_:)を呼ぶとそのたびにsave()が走るため、まとめて消して保存は1回にする。
     func removeItems(forBookID bookID: String) {
-        let targets = items(forBookID: bookID)
+        removeItems(forBookIDs: [bookID])
+    }
+
+    /// 何冊ぶんかの登録をまとめて外す(`BookSavedDataEraser.deleteAllData`)。保存と通知は 1 回。
+    ///
+    /// 1 冊ずつ `removeItems(forBookID:)` を呼ぶと、外すたびに索引(`invalidateLookupCaches`)が捨てられ、次の 1 冊が全登録を
+    /// 取り直した(冊数 × 登録数。掃除のウインドウの「表示中をすべて削除」・シークレットフォルダの「データを削除」・起動時の
+    /// NonBookFolderSweeper で、1000 冊 × 1 万件ならメインが数十秒止まりえた。2026-10-25 のハング・クラッシュの監査 #12)。
+    func removeItems(forBookIDs bookIDs: [String]) {
+        let wanted = Set(bookIDs)
+        guard !wanted.isEmpty else { return }
+        let index = itemsByBookID()
+        let targets = wanted.flatMap { index[$0] ?? [] }
         guard !targets.isEmpty else { return }
         let itemIDs = targets.map(\.id)
         let now = Date()
@@ -1184,7 +1196,8 @@ final class CollectionStore: ObservableObject {
         deleteItems(targets)
         for collection in touchedCollections.values { collection.updatedAt = now }
         invalidateLookupCaches()
-        saveAndNotify(bookID: bookID)
+        // 1 冊なら従来どおりその本の知らせ。何冊もなら本を限らない知らせ(受け手は全体を見直す)。
+        saveAndNotify(bookID: wanted.count == 1 ? wanted.first : nil)
         removeCovers(itemIDs)
         for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
     }

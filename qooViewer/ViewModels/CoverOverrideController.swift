@@ -160,7 +160,12 @@ final class CoverOverrideController: ObservableObject {
     /// (監査で指摘 2026-09-13。CollectionTileImageStore.maxConcurrentComposesと同じ考え方)。
     private static let maxConcurrentNameLoads = 2
     private var activeNameLoads = 0
-    private var nameLoadWaiters: [CheckedContinuation<Void, Never>] = []
+    /// 枠を待っている呼び出し。待っている間に取り消されたものは列から外して起こす(`acquireNameLoadSlot`)。
+    private var nameLoadWaiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
+
+    /// 枠を取った 1 冊の読み込みを待つ上限(2026-10-25 のハング・クラッシュの監査 #13)。応答しない共有の本 2 冊で枠が埋まると、
+    /// ほかの本の名前・表紙がいつまでも出なかった。過ぎたら待つのをやめて枠を返す(読み込みには中止を伝える。I/O 自体は止まらない)。
+    private static let bookLoadLimit: Duration = .seconds(60)
 
     init(
         target: Target, layoutStore: LayoutStore, preferences: AppPreferences,
@@ -353,14 +358,17 @@ final class CoverOverrideController: ObservableObject {
         // 本を開く読み込みは、表示名の読み込みと同じ枠(同時に 2 冊)で順番を待つ。待っている間にカーソルが離れた
         // (呼び出し元が取り消された)なら始めない(2026-09-23 の 3 回目の監査の低: 以前は枠も取り消しの確かめも無く、名前の列を
         // なぞるだけで本の読み込みが何冊も重なった)。
-        await acquireNameLoadSlot()
+        guard await acquireNameLoadSlot() else { return nil }
         defer { releaseNameLoadSlot() }
         guard !Task.isCancelled else { return nil }
-        return await CoverImageResolver.coverImage(
-            bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize,
-            cachesPageList: usesPageListCache && !(bookURL.map(SecretFolderStore.isSecretAppWide) ?? false),
-            caches: diskCaches
-        )
+        let cachesPageList = usesPageListCache && !(bookURL.map(SecretFolderStore.isSecretAppWide) ?? false)
+        let caches = diskCaches
+        return try? await FileIO.withDeadline(Self.bookLoadLimit) {
+            await CoverImageResolver.coverImage(
+                bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize,
+                cachesPageList: cachesPageList, caches: caches
+            )
+        }
     }
 
     // MARK: - 本の読み込み
@@ -401,15 +409,17 @@ final class CoverOverrideController: ObservableObject {
     /// 並びと名前だけで、読み込んだ後に元のファイルへは触らない)。同時に走る数は絞る
     /// (maxConcurrentNameLoadsのコメント参照)。
     private func loadBookForCoverName(bookID: String) async -> MangaBook? {
-        await acquireNameLoadSlot()
+        guard await acquireNameLoadSlot() else { return nil }
         defer { releaseNameLoadSlot() }
         // 順番を待っている間に行が画面外へ流れていたら、読まずに戻る(場所を解いている間に流れたときも)。
         guard !Task.isCancelled, let url = await resolveURL(bookID), !Task.isCancelled else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        return try? await BookLoader.load(
-            from: url, cachesPageList: cachesPageList(forBookID: url.path), caches: diskCaches
-        )
+        let cachesPageList = cachesPageList(forBookID: url.path)
+        let caches = diskCaches
+        return try? await FileIO.withDeadline(Self.bookLoadLimit) {
+            try await BookLoader.load(from: url, cachesPageList: cachesPageList, caches: caches)
+        }
     }
 
     /// その本でページ一覧のキャッシュを読み書きするか。シークレットフォルダの本は使わない(SecretFolderStore)。
@@ -417,21 +427,39 @@ final class CoverOverrideController: ObservableObject {
         usesPageListCache && !SecretFolderStore.isSecretAppWide(path: bookID)
     }
 
-    private func acquireNameLoadSlot() async {
+    /// - Returns: 枠を取れたか。**待っている間に取り消されたら false**(枠は取っていないので `releaseNameLoadSlot` を呼ばない)。
+    ///   以前は取り消されても列に残り、枠が空くまで起こされなかった(行が画面外へ流れるたびに待ちが積み上がった。2026-10-25 の監査 #13)。
+    private func acquireNameLoadSlot() async -> Bool {
         if activeNameLoads < Self.maxConcurrentNameLoads {
             activeNameLoads += 1
-            return
+            return true
         }
         // 起こされた時点で枠は自分のもの(releaseNameLoadSlotが数を減らさずに次を起こす)。
         // CollectionTileImageStore.acquireComposeSlotと同じ規約。
-        await withCheckedContinuation { continuation in
-            nameLoadWaiters.append(continuation)
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                nameLoadWaiters.append((id, continuation))
+            }
+        } onCancel: {
+            // 取り消しはどのスレッドからも届く。列はメインのものなので、メインで外す(列に入る前に届いたなら、入った後に外れる ――
+            // 列に入れるのはこのメインの周回の中)。
+            Task { @MainActor [weak self] in self?.cancelNameLoadWaiter(id) }
         }
+    }
+
+    private func cancelNameLoadWaiter(_ id: UUID) {
+        guard let index = nameLoadWaiters.firstIndex(where: { $0.id == id }) else { return }
+        nameLoadWaiters.remove(at: index).continuation.resume(returning: false)
     }
 
     private func releaseNameLoadSlot() {
         if !nameLoadWaiters.isEmpty {
-            nameLoadWaiters.removeFirst().resume()
+            nameLoadWaiters.removeFirst().continuation.resume(returning: true)
         } else {
             activeNameLoads -= 1
         }

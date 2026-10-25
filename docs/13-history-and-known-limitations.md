@@ -107,6 +107,9 @@
 | 古いアプリでストアを開く | 何もしない(SwiftData が黙って移行) | 開く前に世代を確かめ、新しいストアなら尋ねる(`StoreSchemaGuard`) | 1つ前の qooViewer を起動しただけで、1.55 で足した表紙の列が131冊ぶん消えた(→ [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策)) |
 | SwiftData のテスト | メモリ内のストアだけ | ディスク上の使い捨てストアで開き直しと移行も通す | メモリ内では「開き直したら何が残るか」を一度も通らず、上の事故に気づけなかった |
 | 表紙の元画像の掃除 | 参照が無ければ即削除 | 30日隔離し、参照が戻れば戻す | 参照のほうが間違って消えたとき、作り直せない画像まで消えた |
+| ローカルの zip の reader | ZIPFoundation(`ZipArchiveReader`) | ネットワーク上と同じ `CentralDirectoryZipReader`(`LocalFileSource` / 入れ子は `MemoryDataSource`)。`ZipArchiveReader` はテストの基準だけ | EOCD の無いファイルを末尾から 1 バイトずつ遡って止まり(100MB で約 100 秒)、細工された ZIP64 の値で trap した(→ [plans/hang-crash-audit-2026-10-25.md](plans/hang-crash-audit-2026-10-25.md)) |
+| rar の取り出し | フォークの `extract(_:) -> Data` | コールバック版で受け、確保は 64MB まで。`dataPrefix` も持つ | 申告どおりに先に確保するので、大きさ「不明」の項目で落ちた |
+| 名前の「同じ」の比べ方 | NFC + `lowercased()` | NFC + `.caseInsensitive` の畳み込み | APFS が同じ名前と見る `ß`/`ss` を別とみなし、自動リネームが止まらなかった |
 
 ## 既知の制限
 

@@ -152,11 +152,15 @@ final class NameCheck {
             // 打っている途中の型で何度も読み直さない(1 文字ごとに蔵書ぜんぶを読むことになる)。
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            let result = await Task.detached(priority: .userInitiated) {
+            // 外側の Task を取り消しても `Task.detached` には伝わらない。以前は打ち直すたびに、取り消された回の判定も全冊ぶん
+            // 最後まで走り(規則が遅いと 1 冊あたり qooMeta の予算 20ms)、協調スレッドを占める回が積み上がった(2026-10-25 の
+            // ハング・クラッシュの監査 #9)。取り消しを中へ伝え、中でも 64 冊ごとに見て打ち切る。
+            let work = Task.detached(priority: .userInitiated) { () -> (rows: [Row], now: Counts, before: Counts)? in
                 var rows: [Row] = []
                 rows.reserveCapacity(names.count)
                 var nowCounts = Counts(), beforeCounts = Counts()
                 for (index, name) in names.enumerated() {
+                    if index % 64 == 0, Task.isCancelled { return nil }
                     let check = now.check(name)
                     let was = known?[index] ?? before.check(name).outcome
                     nowCounts.add(check.outcome)
@@ -164,8 +168,9 @@ final class NameCheck {
                     rows.append(Row(id: index, name: name, now: check, before: was))
                 }
                 return (rows, nowCounts, beforeCounts)
-            }.value
-            guard !Task.isCancelled else { return }
+            }
+            let finished = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard !Task.isCancelled, let result = finished else { return }
             self?.rows = result.0
             self?.beforeKey = newBeforeKey
             self?.beforeOutcomes = result.0.map(\.before)

@@ -50,7 +50,10 @@ nonisolated enum NetworkVolumeReading {
         let values = try? FileManager.default.temporaryDirectory.resourceValues(forKeys: [.volumeAvailableCapacityKey])
         guard let available = values?.volumeAvailableCapacity else { return true }
         let margin: Int64 = 1 << 30
-        return Int64(available) >= Int64(st.st_size) + margin
+        // 大きさはサーバーの答え(macFUSE などでは任意の値)。`st_size + margin` と足さない(Int64 の上限近くで溢れて trap した。
+        // 2026-10-25 のハング・クラッシュの監査 A2-5)。負の大きさは読み込み層では読めないので「空きが無い」側(直接開く)へ。
+        guard st.st_size >= 0 else { return false }
+        return Int64(available) - margin >= Int64(st.st_size)
     }
 
     // MARK: - テスト

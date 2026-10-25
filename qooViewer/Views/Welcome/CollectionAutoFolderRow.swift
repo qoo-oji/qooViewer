@@ -113,7 +113,7 @@ struct CollectionAutoFolderRow: View {
         // 1本ずつタイムアウトまで塞がれていた。そのスレッドは数に限りがあり(コア数程度)、
         // 十数文字でページの復号・実体確認・表紙の抽出までまとめて止まる。いまは入力が止まって
         // から確かめ、確かめる本体はスレッドプールの外の直列キューで1本ずつ走らせる
-        // (FolderExistenceProbe)。
+        // (FolderExistenceProbe。期限を過ぎたら「分からない」= nil のまま)。
         .task(id: folder?.path ?? "") {
             folderExists = nil
             guard let path = folder?.path else { return }
@@ -254,19 +254,26 @@ struct CollectionAutoFolderRow: View {
 /// フォルダの有無を、**Swift Concurrencyのスレッドプールの外で1本ずつ**確かめる
 /// (CollectionAutoFolderRowの`.task`のコメント参照)。
 ///
-/// 到達できないネットワーク上のパスでは`fileExists`がタイムアウトまで返ってこない。直列の
-/// DispatchQueueに載せておけば、塞がるのはこのキューの1本だけで、待っている側は
-/// continuationで待つのでスレッドを握らない。溜まった確認は順に片付く(`.task`が取り消された
-/// ぶんは結果を捨てるだけ)。
+/// 到達できないネットワーク上のパスでは`fileExists`がタイムアウトまで返ってこない(hard マウントの NFS では返らない)。直列の
+/// DispatchQueue に載せておけば、塞がるのはこのキューの 1 本だけ(打ち直すたびにスレッドが増えない)。待っている側は
+/// continuation で待つのでスレッドを握らない。
+///
+/// **待つのは `limit` まで**(2026-10-25 のハング・クラッシュの監査 A7-3)。以前は期限が無く、1 度キューが止まると、後のすべての
+/// 確かめ(どのコレクションの自動登録フォルダでも)が答えを待ち続けた。期限を過ぎたら nil(分からない)を返す ―― キューの
+/// 後ろに並んだ確かめも、止まっている間は期限で nil になる。
 nonisolated enum FolderExistenceProbe {
     private static let queue = DispatchQueue(label: "jp.qooViewer.folderExistenceProbe", qos: .userInitiated)
+    static let limit: Duration = .seconds(10)
 
-    static func isDirectory(atPath path: String) async -> Bool {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                var isDirectory: ObjCBool = false
-                let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                continuation.resume(returning: exists && isDirectory.boolValue)
+    /// - Returns: フォルダがあるか。期限までに答えが返らなければ nil。
+    static func isDirectory(atPath path: String) async -> Bool? {
+        try? await FileIO.withDeadline(limit) {
+            await withCheckedContinuation { continuation in
+                queue.async {
+                    var isDirectory: ObjCBool = false
+                    let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                    continuation.resume(returning: exists && isDirectory.boolValue)
+                }
             }
         }
     }

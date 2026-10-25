@@ -63,7 +63,7 @@ nonisolated enum FinderReveal {
 
     private static func performReveal(_ url: URL, isDirectory: Bool) {
         if isDirectory {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.openWithoutWaiting(url)
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
@@ -143,8 +143,28 @@ nonisolated enum PageFileAccess {
         !page.source.isFile
     }
 
+    /// パスの文字列だけで決める(2026-10-25 のハング・クラッシュの監査 A8-7)。以前は `standardizedFileURL` で揃えていて、これは
+    /// 先頭の `/private` を外すかどうかを決めるためにファイルに触る(docs/13)ので、ネットワーク上のページの「Finder で表示」で
+    /// メインが待たされえた。`/private` は両方の側で外して比べる。
     private static func isInTemporaryDirectory(_ url: URL) -> Bool {
-        let temporaryPath = FileManager.default.temporaryDirectory.standardizedFileURL.path
-        return url.standardizedFileURL.path.hasPrefix(temporaryPath)
+        func spelled(_ path: String) -> String {
+            MountTable.normalized(path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path)
+        }
+        let temporaryPath = spelled(FileManager.default.temporaryDirectory.path)
+        return MountTable.path(spelled(url.path), isAtOrUnder: temporaryPath)
+    }
+}
+
+extension NSWorkspace {
+    /// 利用者のファイル・フォルダを既定のアプリ(フォルダなら Finder)で開く。**呼んだスレッドで待たない**
+    /// (2026-10-25 のハング・クラッシュの監査 A7-2)。
+    ///
+    /// 同期の `open(_:)` は、開く先を決めるために LaunchServices がファイルを調べ終わるまで呼んだスレッド(メイン)で待つので、
+    /// 応答しない共有の上のファイルを開くと、SMB で約 30 秒・hard マウントの NFS では無期限にメインが止まった(複数選べばその数だけ
+    /// 続けて)。completionHandler 付きの版は Apple の文書で「非同期に開く・どのスレッドから呼んでもよい」とされている。
+    /// 結果は待たない(同期の版の答えも使っていなかった)ので、ハンドラは渡さない ―― 渡すとメインの外で呼ばれ、
+    /// 既定の MainActor に推論された閉包が実行時の隔離の確かめで落ちうる。
+    nonisolated func openWithoutWaiting(_ url: URL) {
+        open(url, configuration: OpenConfiguration(), completionHandler: nil)
     }
 }

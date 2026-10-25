@@ -92,7 +92,14 @@ nonisolated enum LayoutAutoCalculator {
         if anchor.pageKeys.count >= 2, let earlier = anchor.pageKeys.first, let later = anchor.pageKeys.dropFirst().first {
             let earlierState: PageLayoutState = isRightToLeft ? .spreadRight : .spreadLeft
             let laterState: PageLayoutState = isRightToLeft ? .spreadLeft : .spreadRight
-            return [earlier: earlierState, later: laterState]
+            // 辞書リテラルにしない: earlier と later が同じキー(入れ子の `a.zip` と `a.zip/` フォルダが同居する書庫などで
+            // sortKey が重なった本)だと実行時トラップ(duplicate keys)になり、「先頭を見開き」の自動配置では本を開いた瞬間に
+            // 落ちた(2026-10-25 のハング・クラッシュの監査 #2。ViewerViewModel / BookLayoutEditorViewModel の anchorPinStates は
+            // 先に同じ理由で直してあった)。1 件ずつ入れる。
+            var states: [String: PageLayoutState] = [:]
+            states[earlier] = earlierState
+            states[later] = laterState
+            return states
         } else if let only = anchor.pageKeys.first {
             return [only: .single]
         }

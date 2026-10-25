@@ -78,7 +78,7 @@ final class FileBrowserActions {
             appState?.open(urls: books)
         }
         for entry in entries where !entry.opensAsBook && !entry.isNavigableFolder {
-            NSWorkspace.shared.open(entry.url)
+            NSWorkspace.shared.openWithoutWaiting(entry.url)
         }
         return nil
     }
@@ -594,7 +594,7 @@ final class FileBrowserActions {
             guard let self else { return }
             self.state?.noteLinkTarget(target, for: entry)
             guard let target, target.exists else {
-                NSWorkspace.shared.open(link)
+                NSWorkspace.shared.openWithoutWaiting(link)
                 return
             }
             await self.openResolved(target.entry, fromMenu: fromMenu, intent: intent)?.value
@@ -614,7 +614,7 @@ final class FileBrowserActions {
             guard let appState, let intent, appState.isStillWanted(intent) else { return nil }
             openBookFile(target, intent: intent)
         } else {
-            NSWorkspace.shared.open(target.url)
+            NSWorkspace.shared.openWithoutWaiting(target.url)
         }
         return nil
     }

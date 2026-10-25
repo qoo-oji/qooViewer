@@ -527,6 +527,6 @@ final class SidePanelBrowserState: ObservableObject {
     /// ボリューム一覧(currentDirectory == nil)のときは対象が無いため何もしない。
     func openInFinder() {
         guard let directory = currentDirectory else { return }
-        NSWorkspace.shared.open(directory)
+        NSWorkspace.shared.openWithoutWaiting(directory)
     }
 }

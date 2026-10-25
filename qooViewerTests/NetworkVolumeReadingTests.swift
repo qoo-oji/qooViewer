@@ -436,10 +436,14 @@ struct NetworkVolumeReadingTests {
         let local = try? await FixtureBook.load(url)
         let isZip = archiveKind(forFileName: url.lastPathComponent) == .zip
         let opens = (try? makeArchiveReader(for: url)) != nil
-        if opens, isZip { #expect(!((try? makeArchiveReader(for: url)) is CentralDirectoryZipReader)) }
+        // zip はローカルでも CentralDirectoryZipReader(2026-10-25 のハング・クラッシュの監査 #1・#6)。ローカルとネットワーク上で
+        // 違うのは、読み込み層(StagedFileSource)を通すかどうかだけ。
+        if opens, isZip { #expect((try? makeArchiveReader(for: url)) is CentralDirectoryZipReader) }
+        #expect(!NetworkVolumeReading.usesStagedReading(for: url))
 
         NetworkVolumeReading.treatAsRemoteForTesting(folder.url)
         defer { NetworkVolumeReading.endTreatingAsRemoteForTesting(folder.url) }
+        #expect(NetworkVolumeReading.usesStagedReading(for: url))
         if opens, isZip { #expect((try? makeArchiveReader(for: url)) is CentralDirectoryZipReader) }
         let remote = try? await FixtureBook.load(url)
 

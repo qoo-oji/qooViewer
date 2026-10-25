@@ -108,8 +108,11 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
     /// 呼び出し側は、セキュリティスコープが要るURL(利用者が選んだファイル)については
     /// あらかじめ`startAccessingSecurityScopedResource()`を済ませておくこと。あの許可は
     /// プロセス全体に効くので、開いたままこの関数を待てばよい(LayoutStore.setShelfCoverImage)。
+    ///
+    /// ファイルを読むのは `FileIO` の上で(2026-10-25 のハング・クラッシュの監査 A6-6)。画像は利用者が選んだ任意の場所(ネットワーク上も)
+    /// にあり、協調スレッドの上で読むと応答しない共有で 1 本が塞がった。復号と書き出しはここ(協調スレッド)で。
     @concurrent func store(imageAt fileURL: URL) async throws -> String {
-        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        let data = try await FileIO.perform { try Data(contentsOf: fileURL, options: .mappedIfSafe) }
         return try store(imageData: data)
     }
 

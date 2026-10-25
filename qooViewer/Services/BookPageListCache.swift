@@ -326,8 +326,11 @@ actor BookPageListCache {
 
     /// 本のファイルに取り込むものが無かった記録(Entry.sourceProbe)。本体の今の指紋が保存時と一致するときだけ返す
     /// (指紋はここで読む ―― 呼び出し側のメインアクターでファイルに触らない)。
+    ///
+    /// 指紋(本のファイルの stat)は `FileIO` で読む(2026-10-25 のハング・クラッシュの監査 #11)。本はネットワーク上にありうるので、
+    /// 協調スレッドの上で直に読むと、応答しない共有で取り込みの経路(ViewerViewModel から 4 か所)ぶんのスレッドが塞がった。
     @concurrent nonisolated func sourceProbe(forBookID bookID: String, sourceURL: URL) async -> Entry.SourceProbe? {
-        guard let fingerprint = Entry.Fingerprint.current(for: sourceURL),
+        guard let fingerprint = await FileIO.perform(qos: .utility, { Entry.Fingerprint.current(for: sourceURL) }),
               let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint
         else { return nil }
         return entry.sourceProbe
@@ -336,7 +339,8 @@ actor BookPageListCache {
     /// 取り込むものが無かったことを書き足す(分かっている項目だけ上書き)。本体の今の指紋が保存時と一致する Entry があるときだけ
     /// 書く(Entry そのものは本の読み込みが作る。storePageSizes と同じ)。
     @concurrent nonisolated func storeSourceProbe(_ probe: Entry.SourceProbe, forBookID bookID: String, sourceURL: URL) async {
-        guard let fingerprint = Entry.Fingerprint.current(for: sourceURL),
+        // 指紋は FileIO で(sourceProbe と同じ理由)。
+        guard let fingerprint = await FileIO.perform(qos: .utility, { Entry.Fingerprint.current(for: sourceURL) }),
               let url = fileURL(forBookID: bookID),
               let data = try? Data(contentsOf: url),
               var entry = try? JSONDecoder().decode(Entry.self, from: data),

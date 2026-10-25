@@ -161,6 +161,10 @@ final class CollectionCoverExtractor: ObservableObject {
     private var redoRemainingByBookID: [String: Int] = [:]
 
     private var observers: [NSObjectProtocol] = []
+    /// `.collectionsDidChange` による積み直しを次のメインの周回へ予約済みか。同じ周回に届いた知らせは 1 回の積み直しにまとめる
+    /// (2026-10-25 のハング・クラッシュの監査 #12: 一括の削除・取り込みは 1 冊・1 コレクションごとに知らせ、そのたびに
+    /// 全登録を走査する積み直しが走って、冊数 × 登録数の仕事がメインで続いた)。
+    private var isRefillScheduled = false
     /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
     private var existenceCancellable: AnyCancellable?
 
@@ -208,7 +212,7 @@ final class CollectionCoverExtractor: ObservableObject {
             let isCoverResult = notification.userInfo?[Notification.Name.collectionsDidChangeIsCoverResultKey] as? Bool == true
             MainActor.assumeIsolated {
                 guard !isCoverResult else { return }
-                self?.refill()
+                self?.scheduleRefill()
             }
         }
         // 一時的な理由で見送ったitemを、戻ってきた時点で積み直す(deferredItemIDsのコメント参照)。
@@ -434,6 +438,22 @@ final class CollectionCoverExtractor: ObservableObject {
     func refill() {
         guard isLibraryFeatureEnabled else { return }
         refill(locations: collectionStore.locationByItemID)
+    }
+
+    /// `.collectionsDidChange` の積み直しを次のメインの周回で 1 回だけ行う(`isRefillScheduled`)。
+    private func scheduleRefill() {
+        guard !isRefillScheduled else { return }
+        isRefillScheduled = true
+        // 予約の後に止められた(cancelAll・releaseResources は runGeneration を進める)なら積み直さない。
+        let generation = runGeneration
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isRefillScheduled = false
+                guard self.runGeneration == generation else { return }
+                self.refill()
+            }
+        }
     }
 
     /// - Parameter locations: 判定に使う実体確認の結果(CollectionStore.locationByItemID、

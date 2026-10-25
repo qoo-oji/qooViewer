@@ -207,6 +207,22 @@ struct QooViewerApp: App {
         } catch {
             NSLog("qooViewer: ModelContainer creation failed, will ask the user whether to reset the store: \(error)")
 
+            // 空きが無い・保存データのフォルダへ書けないなら、消しても開けない(2026-10-25 のハング・クラッシュの監査 A4-4)。
+            // 以前はどんな失敗でも「削除して続行」を勧め、消した後の作り直しもやはり失敗して落ち、保存データは無駄に失われていた。
+            // その場合は消さずに理由を伝えて終わる。
+            if storeFolderCannotBeWritten(storeURL: modelConfiguration.url) {
+                let alert = NSAlert()
+                alert.alertStyle = .critical
+                alert.messageText = String(localized: "Your saved data can’t be opened.", language: AppLanguage.currentLocale)
+                alert.informativeText = String(
+                    localized: "There isn’t enough free space, or qooViewer can’t write to the folder that holds its saved data.",
+                    language: AppLanguage.currentLocale
+                )
+                alert.addButton(withTitle: String(localized: "Quit", language: AppLanguage.currentLocale))
+                alert.runModal()
+                exit(1)
+            }
+
             let alert = NSAlert()
             alert.alertStyle = .critical
             // 文は短く(ダイアログの作法 ―― docs/09。2026-10-24 に 197 字から縮めた)。何が起きるかだけを書く。
@@ -245,10 +261,27 @@ struct QooViewerApp: App {
                 )
                 failureAlert.addButton(withTitle: String(localized: "OK", language: AppLanguage.currentLocale))
                 failureAlert.runModal()
-                fatalError("Failed to create ModelContainer even after resetting the store: \(error)")
+                // 理由は伝えたので、クラッシュとしてではなく終わる(以前は fatalError で、起動のたびにクラッシュの報告が出た)。
+                NSLog("qooViewer: Failed to create ModelContainer even after resetting the store: \(error)")
+                exit(1)
             }
         }
     }()
+
+    /// 保存データの置き場所に書けないか(空きが 10MB 未満・フォルダかストアのファイルに書けない)。ストアを開けなかったときに、
+    /// 消しても直らない失敗かを見分ける(modelContainer)。空きの閾値は、消して作り直す空のストアすら書けない量(大きくすると、
+    /// 版が合わないなど空きと関係ない失敗でも、たまたま空きが少ないだけで「削除して続行」を出さなくなる ―― 直しのレビュー)。
+    /// 起動の最初の 1 回だけで、置き場所はアプリのコンテナ(ローカル)。
+    private static func storeFolderCannotBeWritten(storeURL: URL) -> Bool {
+        let fileManager = FileManager.default
+        let folder = storeURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: folder.path), !fileManager.isWritableFile(atPath: folder.path) { return true }
+        if fileManager.fileExists(atPath: storeURL.path), !fileManager.isWritableFile(atPath: storeURL.path) { return true }
+        let capacity = (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
+        if let capacity, capacity < 10 * 1024 * 1024 { return true }
+        return false
+    }
 
     /// 表示メニューの「サイドパネルを表示/隠す」⌃⌘S。本を開いている間の項目と、3つともOFF(ライブラリ・ファイルブラウザ・スマートライブラリ)のホームの項目で共用する(呼ぶ側が
     /// 環境設定「サイドパネルを有効にする」を見て、OFFなら丸ごと省く)。
@@ -3071,7 +3104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             tokens.add(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 MainActor.assumeIsolated {
-                    guard let self, let window = notification.object as? NSWindow else { return }
+                    // 起動時の警告(復旧の知らせなど)のアラート・パネルは主ウインドウではない。それを透明にすると、見えないモーダルの
+                    // アラートでアプリが止まって見えた(2026-10-25 のハング・クラッシュの監査 A4-2)。主ウインドウになりうる窓だけを見る。
+                    guard let self, let window = notification.object as? NSWindow,
+                          BookWindowOpener.isContentWindowCandidate(window) else { return }
                     tokens.removeAll()
                     self.launchWindowObserverTokens = nil
                     guard self.isLaunchingToOpenDocuments else { return }

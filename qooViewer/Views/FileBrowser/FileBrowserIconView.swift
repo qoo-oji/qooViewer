@@ -1167,8 +1167,17 @@ final class FileBrowserIconLayout: NSCollectionViewLayout {
     override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
         guard itemCount > 0 else { return [] }
         let rowHeight = itemSize.height + spacing
-        let firstRow = max(0, Int(((rect.minY - inset) / rowHeight).rounded(.down)))
-        let lastRow = min(rowCount - 1, Int(((rect.maxY - inset) / rowHeight).rounded(.down)))
+        guard rowHeight > 0 else { return [] }
+        // 行の番号は Double のまま範囲へ丸めてから Int にする(2026-10-25 のハング・クラッシュの監査 A7-1)。頼まれる矩形は普通は
+        // 見えている範囲だが、`CGRect.infinite` のような巨大・無限の矩形が来ると `Int(…)` がその場で trap しうる(max/min は後)。
+        let lastIndex = Double(rowCount - 1)
+        func clampedRow(_ y: CGFloat) -> Int {
+            let row = ((y - inset) / rowHeight).rounded(.down)
+            guard row.isFinite else { return row > 0 ? rowCount - 1 : 0 }
+            return Int(min(max(Double(row), -1), lastIndex + 1))
+        }
+        let firstRow = max(0, clampedRow(rect.minY))
+        let lastRow = min(rowCount - 1, clampedRow(rect.maxY))
         guard firstRow <= lastRow else { return [] }
         var result: [NSCollectionViewLayoutAttributes] = []
         for row in firstRow...lastRow {

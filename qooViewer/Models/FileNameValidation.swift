@@ -104,8 +104,13 @@ nonisolated enum FileNameValidation {
         )
     }
 
+    /// 名前が「同じ」かを比べる形。大文字小文字を区別しない APFS に合わせ、Unicode の大文字小文字の畳み込み(`ß` → `ss` も)をかける
+    /// (2026-10-25 のハング・クラッシュの監査 #8。`lowercased()` では `straße` と `STRASSE` が別の名前に見え、自動リネームが
+    /// 塞がった名前を選んで `EEXIST` の見直しを 1 秒ごとに繰り返した。大文字小文字の畳み方は `FileOperationService.comparisonKey`
+    /// と同じ ―― あちらは NFC にしないが、ここは両辺を NFC にしてから畳む)。
+    /// 広めに畳むので、外れても「空いている名前を塞がっているとみなして番号を付ける」側に倒れる。
     static func foldedForComparison(_ name: String) -> String {
-        name.precomposedStringWithCanonicalMapping.lowercased()
+        name.precomposedStringWithCanonicalMapping.folding(options: .caseInsensitive, locale: nil)
     }
 
     private static func split(_ name: String, isDirectory: Bool) -> (base: String, ext: String) {

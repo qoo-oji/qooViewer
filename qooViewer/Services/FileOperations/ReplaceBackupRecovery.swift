@@ -18,6 +18,11 @@ enum ReplaceBackupRecovery {
         Task { @MainActor in
             // 退避先が応答しない共有のことがあるので FileIO の上で。
             let outcomes = await FileIO.perform { journal.recoverAll() }
+            // 知らせはこの Task の中で runModal する(メインのキューは閉じるまで進まない ―― 起動で開く本の窓も、閉じてから作られる)。
+            // 2026-10-25 の監査の直しでいったんランループのブロックへ移したが、モーダルの間に作られた本の窓はキーにもメインにも
+            // なれず、窓の置き場所を当てる見張り(BookWindowOpener.prepareNextNewWindowOnceShown・起動の窓を隠す見張り)が働かずに
+            // 崩れて出るので戻した(同じ直しのレビュー)。見えないアラートで止まって見えた件は、見張りがアラートを窓と取り違えない
+            // ようにして直してある(BookWindowOpener.isContentWindowCandidate)。
             for notice in notices(for: outcomes) {
                 let alert = NSAlert()
                 alert.alertStyle = notice.isWarning ? .warning : .informational

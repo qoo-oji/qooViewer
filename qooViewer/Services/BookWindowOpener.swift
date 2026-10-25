@@ -362,6 +362,14 @@ enum BookWindowOpener {
         group.removeWindow(newWindow)
     }
 
+    /// 本・ホームのウインドウ(WindowGroup の窓)になりうるか。新しく出た窓を「いま開いたウインドウ」と見なす所
+    /// (`newlyOpenedWindow`・`prepareNextNewWindowOnceShown`・AppDelegate の起動の窓を隠す見張り)が、パネル・シート・アラート・
+    /// ツールチップ・文字入力の窓(TUINSWindow)を取り違えないように(2026-10-25 のハング・クラッシュの監査 A4-3)。取り違えると、
+    /// そのアラートに枠を当てて透明にしたうえタブへ入れ、本物の新しい窓は置き場所も決まらないまま残った。
+    static func isContentWindowCandidate(_ window: NSWindow) -> Bool {
+        !(window is NSPanel) && window.sheetParent == nil && window.styleMask.contains(.titled) && window.canBecomeMain
+    }
+
     /// `openWindow(id:)`で開いたばかりのウインドウのNSWindowを取り出す。openWindowが実際に
     /// NSWindowを作り終えるのは次以降のランループになるため、短い間隔で何度か確認し、新しく
     /// 増えたウインドウを見つける。
@@ -370,7 +378,9 @@ enum BookWindowOpener {
     static func newlyOpenedWindow(excluding existingWindowIDs: Set<ObjectIdentifier>) async -> NSWindow? {
         for _ in 0..<20 {
             try? await Task.sleep(nanoseconds: 25_000_000)
-            if let found = NSApp.windows.first(where: { !existingWindowIDs.contains(ObjectIdentifier($0)) }) {
+            if let found = NSApp.windows.first(where: {
+                !existingWindowIDs.contains(ObjectIdentifier($0)) && isContentWindowCandidate($0)
+            }) {
                 return found
             }
         }
@@ -481,7 +491,7 @@ enum BookWindowOpener {
             tokens.add(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { notification in
                 MainActor.assumeIsolated {
                     guard let window = notification.object as? NSWindow,
-                          !existing.contains(ObjectIdentifier(window)) else { return }
+                          !existing.contains(ObjectIdentifier(window)), isContentWindowCandidate(window) else { return }
                     tokens.removeAll()
                     applyPlacement(frame: frame, hides: hides, to: window)
                 }

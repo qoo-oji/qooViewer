@@ -226,8 +226,9 @@ struct BookSavedDataEraser {
     /// - Returns: ページ一覧のキャッシュを消している裏の仕事(キャッシュを持たないときは nil)。呼び出し側は待たなくてよい。
     @discardableResult
     func deleteAllData(forBookIDs bookIDs: [String]) -> Task<Void, Never>? {
+        // コレクションの登録はまとめて外す(1 冊ずつだと 1 冊ごとに全登録を取り直した。CollectionStore.removeItems(forBookIDs:))。
+        collectionStore.removeItems(forBookIDs: bookIDs)
         for bookID in bookIDs {
-            collectionStore.removeItems(forBookID: bookID)
             bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             // 行ごと(コレクション表紙なども)。この操作は「その本の保存データをすべて消す」(LayoutStore.deleteLayoutRow)。
             layoutStore.deleteLayoutRow(forBookID: bookID)

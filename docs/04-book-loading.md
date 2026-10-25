@@ -209,10 +209,17 @@ protocol ArchiveReading {
 }
 ```
 
-- `ZipArchiveReader`(ZIPFoundation)、`RarArchiveReader`(Unrar.swift フォーク)、
-  `SevenZipArchiveReader`(SevenZip.swift フォーク)。ネットワークボリューム上の zip は `CentralDirectoryZipReader`(下の
-  「ネットワークボリューム上の書庫」)。`ArchiveKind` と `makeArchiveReader(url:)` /
-  `makeArchiveReader(kind:data:)` で作る。
+- zip は `CentralDirectoryZipReader`(ローカル・ネットワーク上・入れ子のどれも。下の「ネットワークボリューム上の書庫」)、
+  `RarArchiveReader`(Unrar.swift フォーク)、`SevenZipArchiveReader`(SevenZip.swift フォーク)。`ArchiveKind` と
+  `makeArchiveReader(url:)` / `makeArchiveReader(kind:data:)` で作る。
+  - **ローカルの zip も 2026-10-25 から `CentralDirectoryZipReader`**(ハング・クラッシュの監査 #1・#6)。ZIPFoundation 0.9.20 の
+    `Archive` は、終端レコード(EOCD)の無いファイル(中身が RAR の .cbz・途中までのコピー)でファイル全体を末尾から 1 バイトずつ
+    遡り(100MB で約 100 秒、中止も効かない ―― フォルダをアイコン表示するだけでサムネイル作りから届いた)、ZIP64 の位置・大きさに
+    2^63 以上を書いた書庫で `off_t(…)` / `Int64(…)` が trap した。答えは ZIPFoundation と一致させてあり(`NetworkVolumeReadingTests`)、
+    違いは型コメントの 2 つ(途中のローカルヘッダーだけが壊れた書庫はページが増えて読めないページになる・末尾に 64KB を超える
+    ゴミが付いた zip は開けない)。`ZipArchiveReader`(ZIPFoundation)は突き合わせの基準としてテストからだけ使う。
+  - rar の取り出しはフォークの `extract(_:) -> Data` を使わない(申告の大きさで先に確保するので、大きさ「不明」の項目 ―― `rar a -si`
+    ―― で落ちた)。`dataPrefix` も持つ(以前は全体読み)。申告が Int64 を超える項目は読まずに断る(フォークの `Progress` が trap する)。
 - `imageExtensions`(Info.plist と一致させる)、`archiveExtensions`、`isExcludedArchiveEntry`。
   後者は 2 つの判定の OR で、書庫のエントリを数え上げる側(`BookLoader.collectPages`)と
   本の中身ブラウザ(`BookInternalBrowsing`)が**必ず同じものを使う**(片方だけに足すと、

@@ -66,8 +66,8 @@ protocol ArchiveReading {
     /// 打ち切る。
     ///
     /// 既定実装はdata(at:)による全体読みへのフォールバック。途中で伸長を打ち切れるかどうかは
-    /// 形式・ライブラリ依存のため、対応できる実装(ZipArchiveReader、SevenZipArchiveReader)だけが
-    /// 上書きする。
+    /// 形式・ライブラリ依存のため、対応できる実装(zip の 2 つ、SevenZipArchiveReader、RarArchiveReader ―― rar は
+    /// 2026-10-25 から)だけが上書きする。
     nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data
     /// 指定エントリの作成日時・更新日時(コンテキストメニュー「情報を見る」、ユーザー要望向け)。
     /// アーカイブ形式によって保持している情報が異なる: zip/7zは更新日時のみ(作成日時という
@@ -324,13 +324,21 @@ nonisolated func makeArchiveReader(for url: URL, stagesWholeFile: Bool = false) 
 /// 本の読み込み・ビューア・サイドパネル・ComicInfo・一覧の絵・表紙・展開は、どれもここ(か `makeArchiveReader(for:)`)で
 /// 書庫を開くので、呼び出し側は読み方の違いを知らなくてよい。ページのキー(`PageRef.id`/`sortKey`)は変わらない
 /// (読み込み層は reader の中の話で、`ArchiveLocator` はネットワーク上のパスのまま)。
+///
+/// **zip はローカルでも `CentralDirectoryZipReader` で読む**(2026-10-25 のハング・クラッシュの監査 #1・#6)。ZIPFoundation
+/// (`ZipArchiveReader`)は、(1) 終端レコード(EOCD)が無いファイル ―― 中身が RAR の .cbz・途中までのコピー ―― で、ファイル全体を
+/// 末尾から 1 バイトずつ fseek + fread で遡り(100MB で約 100 秒、中止も効かない。フォルダをアイコン表示するだけでサムネイル作りから
+/// 届いた)、(2) ZIP64 の位置・大きさに 2^63 以上の値を書いた書庫で `off_t(…)` / `Int64(…)` が trap した。どちらもネットワーク側の
+/// reader では直してあった(探す範囲は末尾 22+65535 バイト、書庫の値はあふれない形で比べる)。答えは ZIPFoundation と一致させてあり
+/// (`NetworkVolumeReadingTests` がフィクスチャ全件で突き合わせる)、違いは型コメントの 2 つ(途中のローカルヘッダーだけが壊れた
+/// 書庫ではページが増えて読めないページになる・末尾に 64KB を超えるゴミが付いた zip は開けない)だけ。
 nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL, stagesWholeFile: Bool = false) throws -> ArchiveReading {
     switch kind {
     case .zip:
         if let source = NetworkVolumeReading.stagedSource(for: url, startsBackgroundFill: stagesWholeFile) {
             return try CentralDirectoryZipReader(source: source)
         }
-        return try ZipArchiveReader(url: url)
+        return try CentralDirectoryZipReader(source: LocalFileSource(url: url))
     case .sevenZip:
         if let source = NetworkVolumeReading.stagedSource(for: url, startsBackgroundFill: stagesWholeFile) {
             return try SevenZipArchiveReader(source: source)
@@ -350,10 +358,13 @@ nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL, stagesWholeFile:
 /// 3つのreaderともDataを保持するか読み出しのたびに借りるので、親のバッファのスライスを渡すと
 /// 親の全バイトが道連れで常駐する)。`ArchiveReading.data(at:)`の返り値をそのまま渡すぶんには
 /// 問題ない。
+///
+/// zip は `CentralDirectoryZipReader` で読む(上の `makeArchiveReader(kind:url:stagesWholeFile:)` のコメント。入れ子の zip も
+/// 細工された ZIP64 の値で ZIPFoundation が trap した)。
 nonisolated func makeArchiveReader(kind: ArchiveKind, data: Data) throws -> ArchiveReading {
     switch kind {
     case .zip:
-        return try ZipArchiveReader(data: data)
+        return try CentralDirectoryZipReader(source: MemoryDataSource(data))
     case .sevenZip:
         return try SevenZipArchiveReader(data: data)
     case .rar:

@@ -170,47 +170,84 @@ nonisolated enum AutoRenameScanner {
     /// 1 回の走査で読むフォルダの上限(記号リンクは辿らないので輪にはならないが、巨大な木で止まらなくならないように)。
     static let maxFoldersPerExamination = 100_000
 
+    /// 1 つのフォルダの読み(`visit`)。配下のフォルダを全部見終えてから、このフォルダの項目を決める。
+    private struct VisitFrame {
+        let folder: String
+        let ruleIndices: [Int]
+        let existing: Set<String>
+        let subfolders: [String]
+        let items: [(name: String, isDirectory: Bool)]
+        var nextSubfolder = 0
+    }
+
+    /// `folder` から下を、**配下のフォルダを先に**(名前の順に)、その後でフォルダ自身の項目を決める。
+    ///
+    /// **再帰しない**(2026-10-25 のハング・クラッシュの監査 A3-3)。以前は 1 段ごとに自分を呼び直していて、短い名前の深い木
+    /// (`opendir` の PATH_MAX で約 500 段)で FileIO のスレッドのスタック(512KB)を使い切りえた。ほかの木の走査(`liftWriteProtection`・
+    /// `firstUnremovableFolder`)と同じく、明示の積み上げで辿る。辿る順と決める順は再帰のときと同じ。
     private static func visit(
         _ folder: String, recursive: Bool, plan: AutoRenamePlan, inUseKeys: [String], takesSnapshots: Bool,
         isRegistered: @escaping (String) -> Bool, isProtected: (String) -> Bool, result: inout Result, visited: inout Int
     ) {
-        guard visited < maxFoldersPerExamination, !Cancellation.isRequestedInCurrentScope,
-              let names = try? FileOperationService.directoryEntryNames(atPath: folder)
-        else { return }
-        visited += 1
-        let ruleIndices = plan.ruleIndices(forFolder: folder)
-        var existing = Set(names)
-        var subfolders: [String] = []
-        var items: [(name: String, isDirectory: Bool)] = []
-        for name in names {
-            // 隠し項目(ドットで始まる名前。qooViewer の作業用の `.qooViewer-*` もここで外れる)は扱わない。
-            guard !name.hasPrefix(".") else { continue }
-            let path = folder + "/" + name
-            var info = stat()
-            guard lstat(path, &info) == 0 else { continue }
-            let kind = info.st_mode & S_IFMT
-            guard kind != S_IFLNK, info.st_flags & UInt32(UF_HIDDEN) == 0 else { continue }
-            var isDirectory = kind == S_IFDIR
-            if isDirectory, isPackage(path) {
-                // パッケージ(.app など)は 1 つのファイルとして扱い、中へ降りない(ファイルブラウザの一覧と同じ)。
-                isDirectory = false
-            } else if isDirectory, recursive, plan.shouldDescend(into: path) {
-                subfolders.append(path)
+        func enter(_ folder: String) -> VisitFrame? {
+            guard visited < maxFoldersPerExamination, !Cancellation.isRequestedInCurrentScope,
+                  let names = try? FileOperationService.directoryEntryNames(atPath: folder)
+            else { return nil }
+            visited += 1
+            let ruleIndices = plan.ruleIndices(forFolder: folder)
+            var subfolders: [String] = []
+            var items: [(name: String, isDirectory: Bool)] = []
+            for name in names {
+                // 隠し項目(ドットで始まる名前。qooViewer の作業用の `.qooViewer-*` もここで外れる)は扱わない。
+                guard !name.hasPrefix(".") else { continue }
+                let path = folder + "/" + name
+                var info = stat()
+                guard lstat(path, &info) == 0 else { continue }
+                let kind = info.st_mode & S_IFMT
+                guard kind != S_IFLNK, info.st_flags & UInt32(UF_HIDDEN) == 0 else { continue }
+                var isDirectory = kind == S_IFDIR
+                if isDirectory, isPackage(path) {
+                    // パッケージ(.app など)は 1 つのファイルとして扱い、中へ降りない(ファイルブラウザの一覧と同じ)。
+                    isDirectory = false
+                } else if isDirectory, recursive, plan.shouldDescend(into: path) {
+                    subfolders.append(path)
+                }
+                if !ruleIndices.isEmpty, !plan.excludedPaths.contains(path) { items.append((name, isDirectory)) }
             }
-            if !ruleIndices.isEmpty, !plan.excludedPaths.contains(path) { items.append((name, isDirectory)) }
+            return VisitFrame(
+                folder: folder, ruleIndices: ruleIndices, existing: Set(names),
+                subfolders: recursive ? subfolders.sorted() : [], items: items
+            )
         }
-        if recursive {
-            for subfolder in subfolders.sorted() {
-                visit(
-                    subfolder, recursive: true, plan: plan, inUseKeys: inUseKeys, takesSnapshots: takesSnapshots,
-                    isRegistered: isRegistered, isProtected: isProtected, result: &result, visited: &visited
-                )
+
+        guard let root = enter(folder) else { return }
+        var stack = [root]
+        while var frame = stack.popLast() {
+            if frame.nextSubfolder < frame.subfolders.count {
+                let subfolder = frame.subfolders[frame.nextSubfolder]
+                frame.nextSubfolder += 1
+                stack.append(frame)
+                if let child = enter(subfolder) { stack.append(child) }
+                continue
             }
+            decideItems(
+                in: frame, plan: plan, inUseKeys: inUseKeys, takesSnapshots: takesSnapshots,
+                isRegistered: isRegistered, isProtected: isProtected, result: &result
+            )
         }
-        guard !ruleIndices.isEmpty else { return }
-        let rules = ruleIndices.map { plan.rules[$0] }
+    }
+
+    /// 1 つのフォルダの項目の新しい名前を決める(`visit`。配下のフォルダを見終えた後)。
+    private static func decideItems(
+        in frame: VisitFrame, plan: AutoRenamePlan, inUseKeys: [String], takesSnapshots: Bool,
+        isRegistered: @escaping (String) -> Bool, isProtected: (String) -> Bool, result: inout Result
+    ) {
+        let folder = frame.folder
+        guard !frame.ruleIndices.isEmpty else { return }
+        var existing = frame.existing
+        let rules = frame.ruleIndices.map { plan.rules[$0] }
         let texts = rules.map(\.text)
-        for item in items.sorted(by: { $0.name < $1.name }) {
+        for item in frame.items.sorted(by: { $0.name < $1.name }) {
             let applicable = rules.filter { !item.isDirectory || $0.text.appliesToFolders }
             let decision = AutoRename.decide(
                 name: item.name, isDirectory: item.isDirectory, rules: texts, existingNames: existing, isRegistered: isRegistered

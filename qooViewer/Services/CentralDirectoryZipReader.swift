@@ -1,7 +1,11 @@
 import Foundation
 import ZIPFoundation
 
-/// ネットワークボリューム上の zip / cbz / epub を読む ArchiveReading 実装。一覧を**中央ディレクトリだけから**作る。
+/// zip / cbz / epub を読む ArchiveReading 実装。一覧を**中央ディレクトリだけから**作る。
+///
+/// ネットワークボリューム上の書庫のために作り(2026-09-24)、2026-10-25 からはローカルの書庫・入れ子の zip もこれで読む
+/// (ZIPFoundation の経路は EOCD の無いファイルで全体を 1 バイトずつ遡り、細工された ZIP64 の値で trap した ――
+/// `makeArchiveReader(kind:url:stagesWholeFile:)` のコメント)。`ZipArchiveReader` は答えを突き合わせる基準として残してある。
 ///
 /// ■ なぜ ZipArchiveReader(ZIPFoundation)と別にあるのか(docs/plans/network-volume-study.md)
 /// ZIPFoundation 0.9.20 の一覧(`Archive.makeIterator`)は、エントリごとにローカルヘッダーへシークして読む(データ記述子付きの
@@ -76,6 +80,9 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
     /// EOCD の先頭がファイルの終わりから離れうる最大の距離(EOCD 22 バイト+コメント最大 65535 バイト)。これより前は探さない。
     /// 末尾の窓(`tailWindow`)に収まる。
     private static let maxEOCDDistance: UInt64 = 22 + 65_535
+
+    /// 中央ディレクトリを読む大きさの上限(256MB。1 項目 100 バイトほどなので約 250 万項目。本の書庫はこれに遠く及ばない)。
+    private static let maxCentralDirectoryBytes: UInt64 = 256 * 1024 * 1024
 
     /// 取り出しの 1 回の読みの上限。smbfs は 1 回の read を 256KB〜1MB の要求に分けて並べて送るので、1 回 ≒ 1 往復+転送。
     private static let readChunk = 4 * 1024 * 1024
@@ -155,7 +162,11 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
             }
         }
 
-        let cd = try bytes(cdOffset, Int(min(cdSize, fileSize)))
+        // 大きさも書庫の値。ファイルの終わりまでと `maxCentralDirectoryBytes` までに丸める(細工された・偶然それらしく見える
+        // 何 GB のファイルで、値どおりに確保して読まない ―― ローカルの書庫もこれで読むようになったので、フォルダをアイコン表示する
+        // だけで届く。直しのレビュー)。上限を超える中央ディレクトリは、そこまでの項目だけが並ぶ(下のループが切れたところで終える)。
+        let cdLimit = min(cdSize, fileSize > cdOffset ? fileSize - cdOffset : 0, Self.maxCentralDirectoryBytes)
+        let cd = try bytes(cdOffset, Int(cdLimit))
         var all: [Record] = []
         var cursor = 0
         var index: UInt64 = 0

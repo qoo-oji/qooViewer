@@ -1251,8 +1251,16 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            guard let node = item as? Node else { return roots[index] }
-            return node.children?[index] ?? Node(kind: .folder, url: nil, name: "")
+            // 数を答えた後に配列が変わっていても(1 回の update(from:) が roots を変え、reloadData の前に reloadItem する ――
+            // 2026-10-25 のハング・クラッシュの監査 A7-4)範囲外で落ちない。`node.children?[index]` の `?` は配列が nil のときだけで、
+            // 範囲は確かめない(以前の `?? Node(…)` は範囲外では効かなかった)。外れたら空の行を返し、続く読み直しで正される。
+            guard let node = item as? Node else {
+                return roots.indices.contains(index) ? roots[index] : Node(kind: .folder, url: nil, name: "")
+            }
+            guard let children = node.children, children.indices.contains(index) else {
+                return Node(kind: .folder, url: nil, name: "")
+            }
+            return children[index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {

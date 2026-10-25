@@ -64,7 +64,7 @@ enum EpubStructureError: Error {
 }
 
 /// EPUBの内部構造(container.xml・package document・spine)を解決するための処理をまとめたもの。
-/// zipコンテナとしての読み出し自体はArchiveReading(実体はZipArchiveReader)に委譲し、
+/// zipコンテナとしての読み出し自体はArchiveReading(実体はCentralDirectoryZipReader)に委譲し、
 /// ここではEPUB固有のXML構造の解釈だけを担当する。
 ///
 /// 対象を「固定レイアウトの画像ベースのコミックEPUB」に絞っているため、リフロー型
@@ -90,6 +90,9 @@ nonisolated enum EpubStructureResolver {
     /// のと同じ扱いになる(正常なファイルがこの大きさに達することはない)。
     private static let maxMarkupByteCount = 8 * 1024 * 1024
 
+    /// spine の項目を見る数の上限(resolve。細工された OPF への保険 ―― 2026-10-25 の監査 #16)。
+    private static let maxSpineItems = 100_000
+
     /// EPUB内部のマークアップを、解凍爆弾よけの上限つきで読む(maxMarkupByteCountのコメント参照)。
     private static func markupData(reader: ArchiveReading, at path: String) throws -> Data {
         try reader.dataPrefix(at: path, maxByteCount: maxMarkupByteCount)
@@ -103,18 +106,33 @@ nonisolated enum EpubStructureResolver {
         let packageDocument = try parsePackageDocument(data: opfData)
 
         let opfDirectory = directory(of: opfPath)
-        let allPaths = Set(try reader.listFilePaths())
+        let allPaths = ExistingPaths(try reader.listFilePaths())
 
+        // 同じ文書を指す itemref が何度出ても、XHTML を読み直さない(2026-10-25 のハング・クラッシュの監査 #16。8MB の OPF に
+        // 同じ文書を指す itemref を数十万並べると、1 つごとに最大 8MB の XHTML を伸長して解析し直した)。鍵は manifest の id ではなく
+        // **指している先**(種類 + 解決したパス): id を別々にして同じ文書を指す項目を並べても、読み直さない(直しのレビュー)。
+        var imagePathByItem: [String: String?] = [:]
         var pages: [EpubPageEntry] = []
-        for itemRef in packageDocument.spineItemRefs {
+        for (index, itemRef) in packageDocument.spineItemRefs.enumerated() {
             if let maxPages, pages.count >= maxPages { break }
+            // 実在のコミックの EPUB はこの数に遠く及ばない。細工された OPF で仕事が尽きないようにする保険。
+            guard index < maxSpineItems else { break }
+            if index % 64 == 0, Cancellation.isRequestedInCurrentScope { throw CancellationError() }
             guard let manifestItem = packageDocument.manifestItems[itemRef.idref] else { continue }
-            guard let entryPath = resolveImagePath(
-                for: manifestItem,
-                baseDirectory: opfDirectory,
-                reader: reader,
-                allPaths: allPaths
-            ) else { continue }
+            let itemKey = manifestItem.mediaType + "\u{0}" + resolvedPath(base: opfDirectory, relative: manifestItem.href)
+            let resolvedImagePath: String?
+            if let known = imagePathByItem[itemKey] {
+                resolvedImagePath = known
+            } else {
+                resolvedImagePath = resolveImagePath(
+                    for: manifestItem,
+                    baseDirectory: opfDirectory,
+                    reader: reader,
+                    allPaths: allPaths
+                )
+                imagePathByItem[itemKey] = .some(resolvedImagePath)
+            }
+            guard let entryPath = resolvedImagePath else { continue }
 
             let itemPath = resolvedPath(base: opfDirectory, relative: manifestItem.href)
             let sourceHref = matchExistingPath(itemPath, in: allPaths) ?? itemPath
@@ -173,7 +191,7 @@ nonisolated enum EpubStructureResolver {
         for manifestItem: PackageDocumentParserDelegate.ManifestItem,
         baseDirectory: String,
         reader: ArchiveReading,
-        allPaths: Set<String>
+        allPaths: ExistingPaths
     ) -> String? {
         let itemPath = resolvedPath(base: baseDirectory, relative: manifestItem.href)
         let mediaType = manifestItem.mediaType
@@ -219,21 +237,80 @@ nonisolated enum EpubStructureResolver {
         return firstImageReferenceUsingRegex(in: data)
     }
 
+    /// XML として読めなかった文書から、最初の画像の参照を拾う。答えは正規表現
+    /// `<img[^>]+src=["']([^"']+)["']` → `<image[^>]+(?:xlink:href|href)=["']([^"']+)["']`(大文字小文字を区別しない)の
+    /// 最初の一致と同じ(`firstTagAttributeValue`)。ただし大文字小文字は ASCII だけで畳む(ICU は `ſ`(U+017F)を `s` と、
+    /// `K`(U+212A)を `k` と同じに見る。そういう綴りのタグ・属性は拾わない)。
+    ///
+    /// 以前は NSRegularExpression をそのまま使っていて、`>` の無い `<img` を繰り返した文書(最大 8MB)で `[^>]+` の後戻りが
+    /// 2 乗になり、EPUB を開く・一覧の絵を作るだけで止まった(2026-10-25 のハング・クラッシュの監査 #16)。後戻りしない走査に替えた。
     private static func firstImageReferenceUsingRegex(in data: Data) -> String? {
         guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
             return nil
         }
-        let patterns = [
-            #"<img[^>]+src=["']([^"']+)["']"#,
-            #"<image[^>]+(?:xlink:href|href)=["']([^"']+)["']"#
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-            let range = NSRange(text.startIndex..., in: text)
-            if let match = regex.firstMatch(in: text, options: [], range: range),
-               let hrefRange = Range(match.range(at: 1), in: text) {
-                return String(text[hrefRange])
+        let bytes = Array(text.utf8)
+        return firstTagAttributeValue(in: bytes, tag: Array("<img".utf8), attribute: Array("src=".utf8))
+            ?? firstTagAttributeValue(in: bytes, tag: Array("<image".utf8), attribute: Array("href=".utf8))
+    }
+
+    /// 正規表現 `TAG[^>]+ATTR["']([^"']+)["']`(ASCII の大文字小文字を区別しない。TAG・ATTR は小文字で渡す)の最初の一致の
+    /// 1 番目の組を、**後戻りせずに**(長さに比例する手間で)求める。
+    ///
+    /// 正規表現の答え方をそのまま写す:
+    /// - 一致を探す開始位置は TAG の現れる順。最初に一致が見つかった TAG で決まる。
+    /// - `[^>]+` は TAG の直後から次の `>` の手前までしか伸びず、1 文字以上。欲張りなので、その範囲で後ろへ戻りながら試す ――
+    ///   つまり**その範囲で最も後ろの** ATTR のうち、続きが合うもの。
+    /// - 値は `["']` の後の、どちらの引用符でもない 1 文字以上(`>` も含みうる)と、それに続く引用符(開きと同じでなくてよい)。
+    ///
+    /// 手間を比例に保つ決まり:
+    /// - TAG の範囲で一致しなければ、その範囲の中で始まる TAG も一致しない(範囲の終わりが同じで、試す ATTR が部分集合になる)。
+    ///   次は範囲の終わりの `>` から探す。`>` が無ければ、後ろのどの TAG も一致しない。
+    /// - 「次の引用符」は、問い合わせの位置が常に前へ進むので、1 本の読み位置で答える。
+    static func firstTagAttributeValue(in bytes: [UInt8], tag: [UInt8], attribute: [UInt8]) -> String? {
+        let count = bytes.count
+        func lowered(_ byte: UInt8) -> UInt8 { (0x41...0x5A).contains(byte) ? byte | 0x20 : byte }
+        func matches(_ word: [UInt8], at index: Int) -> Bool {
+            guard index >= 0, index + word.count <= count else { return false }
+            for offset in 0..<word.count where lowered(bytes[index + offset]) != word[offset] { return false }
+            return true
+        }
+        func isQuote(_ byte: UInt8) -> Bool { byte == 0x22 || byte == 0x27 }
+        var quoteCursor = 0
+        /// `position` 以後の最初の引用符(どちらでも)。`position` は呼ぶたびに前へ進む(上の決まり)。
+        func firstQuote(atOrAfter position: Int) -> Int? {
+            if quoteCursor < position { quoteCursor = position }
+            while quoteCursor < count, !isQuote(bytes[quoteCursor]) { quoteCursor += 1 }
+            return quoteCursor < count ? quoteCursor : nil
+        }
+
+        var searchFrom = 0
+        while searchFrom + tag.count <= count {
+            // TAG を探す。
+            var start = searchFrom
+            while start + tag.count <= count, !matches(tag, at: start) { start += 1 }
+            guard start + tag.count <= count else { return nil }
+            let bodyStart = start + tag.count
+            // `[^>]+` の範囲: TAG の直後から次の `>` の手前まで。
+            var end = bodyStart
+            while end < count, bytes[end] != 0x3E { end += 1 }
+            // その範囲で始まる ATTR(`[^>]+` が 1 文字以上なので、TAG の直後の 1 文字目からは始まらない)のうち、続きが合う最も後ろのもの。
+            var found: Range<Int>?
+            var position = bodyStart + 1
+            while position + attribute.count < count, position <= end {
+                // ATTR の頭は範囲の中(`[^>]+` の続き)。ATTR 自身は `>` を含まない。
+                if matches(attribute, at: position) {
+                    let open = position + attribute.count
+                    if open < count, isQuote(bytes[open]), let close = firstQuote(atOrAfter: open + 1), close > open + 1 {
+                        found = (open + 1)..<close
+                    }
+                }
+                position += 1
             }
+            if let found {
+                return String(decoding: bytes[found], as: UTF8.self)
+            }
+            guard end < count else { return nil }
+            searchFrom = end + 1
         }
         return nil
     }
@@ -401,7 +478,7 @@ nonisolated enum EpubStructureResolver {
 
         let opfDirectory = directory(of: opfPath)
         guard let listedPaths = try? reader.listFilePaths() else { return nil }
-        let allPaths = Set(listedPaths)
+        let allPaths = ExistingPaths(listedPaths)
         let candidateNavPath = resolvedPath(base: opfDirectory, relative: navItem.href)
         guard let navPath = matchExistingPath(candidateNavPath, in: allPaths) else { return [] }
         guard let navData = try? markupData(reader: reader, at: navPath) else { return nil }
@@ -467,11 +544,39 @@ nonisolated enum EpubStructureResolver {
     /// 計算したパスが実際のアーカイブ内エントリと完全一致しない場合に備えた保険。
     /// (先頭の"./"の有無など、ごく軽微な表記ゆれのみを吸収する。大文字小文字の違いなど
     /// 本質的に異なるパスまでは救わない)
-    private static func matchExistingPath(_ candidate: String, in allPaths: Set<String>) -> String? {
-        if allPaths.contains(candidate) { return candidate }
+    private static func matchExistingPath(_ candidate: String, in allPaths: ExistingPaths) -> String? {
+        if allPaths.paths.contains(candidate) { return candidate }
         let trimmed = candidate.hasPrefix("./") ? String(candidate.dropFirst(2)) : candidate
-        if allPaths.contains(trimmed) { return trimmed }
-        return allPaths.first { $0 == trimmed || $0.hasSuffix("/\(trimmed)") }
+        if allPaths.paths.contains(trimmed) { return trimmed }
+        return allPaths.path(endingWith: trimmed)
+    }
+
+    /// 書庫の中のパスの一覧と、「`/` の後ろの末尾」から引く索引(matchExistingPath)。
+    ///
+    /// 以前は末尾での照合を `Set.first { $0.hasSuffix(…) }` で 1 回ごとに全件なめていて、ページ数 × エントリ数の手間だった
+    /// (細工された OPF では項目数 × エントリ数。2026-10-25 の監査 #16)。末尾が合うパスが複数あれば、以前は Set の並び
+    /// (起動ごとに変わる)で決まっていた。いまは辞書順で最初のもの(起動ごとに変わらない)。
+    struct ExistingPaths {
+        let paths: Set<String>
+        private var bySuffix: [String: String] = [:]
+
+        init(_ list: [String]) {
+            paths = Set(list)
+            for path in paths.sorted() {
+                var index = path.endIndex
+                while let slash = path[..<index].lastIndex(of: "/") {
+                    let suffix = String(path[path.index(after: slash)...])
+                    if bySuffix[suffix] == nil { bySuffix[suffix] = path }
+                    index = slash
+                }
+            }
+        }
+
+        /// `suffix` と同じか、`/` + `suffix` で終わるパス。
+        func path(endingWith suffix: String) -> String? {
+            if paths.contains(suffix) { return suffix }
+            return bySuffix[suffix]
+        }
     }
 }
 

@@ -2,7 +2,11 @@ import Foundation
 import CoreFoundation
 import ZIPFoundation
 
-/// zip / cbz を読むための ArchiveReading 実装。
+/// zip / cbz を ZIPFoundation で読む ArchiveReading 実装。
+///
+/// **アプリの読みには使っていない**(2026-10-25 から `makeArchiveReader` は zip をすべて `CentralDirectoryZipReader` で開く。
+/// ZIPFoundation 0.9.20 は EOCD の無いファイルで全体を 1 バイトずつ遡り、細工された ZIP64 の値で trap する)。
+/// `CentralDirectoryZipReader` が ZIPFoundation と同じ答えを返すことを確かめる基準として、テストから使う。
 ///
 /// 昔の日本語Windows/Macで作られたzipは、ファイル名がUTF-8ではなくShift-JIS等の
 /// レガシーな文字コードで格納されていることがある(ZIPの仕様上、UTF-8フラグが

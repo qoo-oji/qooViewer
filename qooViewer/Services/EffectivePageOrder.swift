@@ -68,17 +68,28 @@ nonisolated enum EffectivePageOrder {
             ordered.sort { compare($0.sortKey, $1.sortKey) == .orderedAscending }
         }
         if let pageOrderOverride {
-            var pageByKey: [String: Page] = [:]
-            for page in ordered { pageByKey[page.sortKey] = page }
-            var seenKeys: Set<String> = []
+            // 同じ鍵のページは、その鍵が書かれた回数だけ、元の並びの順に 1 枚ずつ割り当てる(2026-10-25 のハング・クラッシュの監査
+            // A1-6)。鍵はページ数より多くは使わない: 保存データの JSON(手で直されうる)に重なった鍵があっても同じページを 2 回並べず、
+            // 本の側に同じ sortKey のページが 2 枚ある(入れ子の `a.zip` と `a.zip/` フォルダの同居)なら、鍵が 2 度書かれていれば
+            // 2 枚とも並ぶ。以前は鍵 → 最後のページの 1 対 1 で、前者では同じページが 2 回並び、後者では先のページが消えた。
+            var pagesByKey: [String: [Page]] = [:]
+            for page in ordered { pagesByKey[page.sortKey, default: []].append(page) }
+            var usedCount: [String: Int] = [:]
             var reordered: [Page] = []
             for key in pageOrderOverride {
-                if let page = pageByKey[key] {
-                    reordered.append(page)
-                    seenKeys.insert(key)
-                }
+                guard let candidates = pagesByKey[key] else { continue }
+                let used = usedCount[key] ?? 0
+                guard used < candidates.count else { continue }
+                reordered.append(candidates[used])
+                usedCount[key] = used + 1
             }
-            for page in ordered where !seenKeys.contains(page.sortKey) {
+            // 並べ替えに書かれていなかったページ(書かれた回数を超えた同じ鍵のページを含む)は、元の並びのまま後ろへ。
+            var skip = usedCount
+            for page in ordered {
+                if let remaining = skip[page.sortKey], remaining > 0 {
+                    skip[page.sortKey] = remaining - 1
+                    continue
+                }
                 reordered.append(page)
             }
             ordered = reordered

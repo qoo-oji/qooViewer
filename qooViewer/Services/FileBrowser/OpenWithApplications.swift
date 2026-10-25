@@ -56,19 +56,33 @@ final class OpenWithApplications {
         let type = Self.contentType(for: url, isDirectory: isDirectory, isPackage: isPackage)
         let all = workspace.urlsForApplications(toOpen: type)
         let defaultApp = workspace.urlForApplication(toOpen: type)
-        let candidates = all.map { appURL in
-            Candidate(
+        // LaunchServices はネットワーク・外付けのボリュームの上のアプリも返す。名前と bundle id はアプリの中(Info.plist)を読むので、
+        // 応答しない共有の上のアプリではメインがそこで止まった(2026-10-25 のハング・クラッシュの監査 A3-5)。ネットワーク上の
+        // アプリ・繋がっていないボリュームのアプリには触らず、ファイル名から名前を作る(bundle id は無し。自分自身を除く照合にしか
+        // 使わない)。マウント表は MNT_NOWAIT で読むので止まらない。
+        let mounts = MountTable.current()
+        func candidate(for appURL: URL) -> Candidate {
+            if mounts.isRemote(appURL) || mounts.isOnAnUnmountedVolume(appURL) {
+                return Candidate(url: appURL, name: appURL.deletingPathExtension().lastPathComponent, bundleIdentifier: nil)
+            }
+            return Candidate(
                 url: appURL,
                 name: FileManager.default.displayName(atPath: appURL.path),
                 bundleIdentifier: Bundle(url: appURL)?.bundleIdentifier
             )
         }
+        // ネットワーク上のアプリは bundle id を読まないので、`arrange` の bundle id での重複の除去が効かない。手元に同じ名前の
+        // アプリがあるもの・qooViewer 自身と同じ名前のものは、名前で落とす(同じアプリの共有の上の写しが 2 度並ばないように)。
+        let localNames = Set(all.filter { !mounts.isRemote($0) && !mounts.isOnAnUnmountedVolume($0) }.map(\.lastPathComponent))
+        let ownName = Bundle.main.bundleURL.lastPathComponent
+        let candidates = all.filter { appURL in
+            guard mounts.isRemote(appURL) || mounts.isOnAnUnmountedVolume(appURL) else { return true }
+            return !localNames.contains(appURL.lastPathComponent) && appURL.lastPathComponent != ownName
+        }.map(candidate(for:))
         let defaultCandidate = defaultApp.map { appURL in
-            candidates.first { $0.url.standardizedFileURL == appURL.standardizedFileURL }
-                ?? Candidate(
-                    url: appURL, name: FileManager.default.displayName(atPath: appURL.path),
-                    bundleIdentifier: Bundle(url: appURL)?.bundleIdentifier
-                )
+            // パスの文字列で比べる(`standardizedFileURL` は `/private` の判定でファイルに触る)。どちらも LaunchServices が
+            // 返した同じ形のパス。
+            candidates.first { MountTable.normalized($0.url.path) == MountTable.normalized(appURL.path) } ?? candidate(for: appURL)
         }
         let result = Self.arrange(candidates, default: defaultCandidate, excludingBundleIdentifier: Bundle.main.bundleIdentifier)
         cache[key] = result
@@ -78,7 +92,11 @@ final class OpenWithApplications {
     /// メニューに添えるアイコン(16pt)。
     func icon(for application: Application) -> NSImage {
         if let cached = iconCache[application.url.path] { return cached }
-        let icon = NSWorkspace.shared.icon(forFile: application.url.path)
+        // ネットワーク上のアプリの絵はアプリの中を読むので、種類の絵で代える(applications(for:) と同じ理由)。
+        let mounts = MountTable.current()
+        let icon = mounts.isRemote(application.url) || mounts.isOnAnUnmountedVolume(application.url)
+            ? NSWorkspace.shared.icon(for: .applicationBundle)
+            : NSWorkspace.shared.icon(forFile: application.url.path)
         let sized = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
             icon.draw(in: rect)
             return true

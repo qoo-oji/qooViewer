@@ -1264,7 +1264,10 @@ actor PageLoader {
             let box = pdfPage.getBoxRect(.mediaBox)
             // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize)。
             guard box.hasUsablePDFPageSize else { return nil }
-            let dates = Self.fileSystemDates(for: container.revealURL)
+            // 日付の問い合わせは `FileIO` の上で(2026-10-25 のハング・クラッシュの監査 A2-4。PDF はネットワーク上にありうる。
+            // 以前は actor の上 = 協調スレッドプールで問い合わせていた。書庫の reader を使わないので、actor の外へ出してよい)。
+            let revealURL = container.revealURL
+            let dates = await FileIO.perform(qos: .userInitiated) { Self.fileSystemDates(for: revealURL) }
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: "PDF",
@@ -1362,7 +1365,7 @@ actor PageLoader {
 
     /// url自体(フォルダ内の画像ファイル、またはPDFファイル)の、ファイルシステム上の
     /// 作成日時・更新日時。取得できない場合はnil(pageImageInfo(at:)向け)。
-    private static func fileSystemDates(for url: URL) -> (created: Date?, modified: Date?) {
+    private nonisolated static func fileSystemDates(for url: URL) -> (created: Date?, modified: Date?) {
         let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
         return (values?.creationDate, values?.contentModificationDate)
     }
@@ -1437,12 +1440,17 @@ actor PageLoader {
     /// メモリがまるごと無駄だった。寸法はヘッダーだけから分かる(pageSize(at:))ので先に確かめ、
     /// 表示用の経路(imageCache。無ければそこへ読み込む)を使う。PDFも同様に、描画の倍率が
     /// 表示用と同じになる場合(pdfRenderScale参照)は表示用を使う。
+    ///
+    /// ページは**待つ前に**取っておく(2026-10-25 のハング・クラッシュの監査 #3)。寸法を調べる await の間に `updateBook` で
+    /// ページが減ると(除外・Edit Bookmarks & Layout・取り込み)、待った後の `book.pages[index]` が範囲外で trap した
+    /// (actualSizeImage(at:) と同じ形にした)。
     func highResolutionImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
+        let source = book.pages[index].source
         if await highResolutionMatchesPageImage(at: index) {
             return await pageImage(at: index)
         }
-        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
+        return await decodedImage(for: source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
     }
 
     /// highResolutionImage(at:)の結果がpageImage(at:)と同じ寸法になるか(同メソッドのコメント参照)。
@@ -1475,7 +1483,10 @@ actor PageLoader {
         around index: Int, radius: Int = 3, displayedPageCount: Int = 1, direction: PrefetchDirection = .unknown
     ) {
         guard !isReleased else { return }
-        guard !book.pages.isEmpty else { return }
+        // 呼び出し側の index は、この actor に届くまでの間に `updateBook` でページが減って範囲外になりうる(ページ送りの列の
+        // 先読み Task・await をまたいだ loadCurrentSpread の最後)。下の `lower <= upper` は index == count などを弾かず、
+        // `book.pages[index]` で trap した(2026-10-25 のハング・クラッシュの監査 #4)。
+        guard book.pages.indices.contains(index) else { return }
         let lastDisplayed = index + max(displayedPageCount, 1) - 1
         let lower = max(0, index - radius)
         let upper = min(book.pages.count - 1, lastDisplayed + radius)
@@ -1964,7 +1975,7 @@ actor PageLoader {
     /// 済むよう、振り分けまでをこの1つのメソッドに閉じてある。
     ///
     /// - Parameter bookSourceURL: MangaBook.sourceURL(フォルダの本を探す場合にだけ使う)。
-    func sourceComicInfo(bookSourceURL: URL) -> ComicInfo? {
+    func sourceComicInfo(bookSourceURL: URL) async -> ComicInfo? {
         switch book.pages.first?.source {
         case .archive(let locator, _):
             guard let reader = reader(for: locator) else { return nil }
@@ -1973,8 +1984,9 @@ actor PageLoader {
             guard !(reader is any RemoteArchiveReading) else { return nil }
             return ComicInfoResolver.resolve(reader: reader)
         case .file:
-            // 画像フォルダ。
-            return ComicInfoResolver.resolve(bookAt: bookSourceURL)
+            // 画像フォルダ。reader を使わないので `FileIO` の上で読む(2026-10-25 の監査 A2-4。以前は actor の上 = 協調スレッド
+            // プールでフォルダのファイルを読んでいた。フォルダはネットワーク上にありうる)。
+            return await FileIO.perform(qos: .userInitiated) { ComicInfoResolver.resolve(bookAt: bookSourceURL) }
         case .pdf, nil:
             // PDFはComicInfo.xmlを持たない形式。
             return nil
@@ -2071,7 +2083,7 @@ actor PageLoader {
             guard let reader = reader(for: locator) else { return nil }
             // 解凍爆弾よけ: 展開後サイズが上限を超えるエントリは読み込まない
             // (maxDecodableEntryBytesのコメント参照)。申告サイズを取れない形式でも、
-            // ZipArchiveReader側が事前確保を抑えているためトラップ/過大確保にはならない。
+            // reader 側が事前確保を抑えているためトラップ/過大確保にはならない(zip・rar とも上限 64MB)。
             if let size = reader.entryUncompressedSize(at: entryPath), size > Self.maxDecodableEntryBytes {
                 return nil
             }

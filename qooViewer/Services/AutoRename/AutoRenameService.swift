@@ -98,10 +98,17 @@ final class AutoRenameService: ObservableObject {
     private var observations: [String: AutoRename.Observation] = [:]
     /// 見直しの予約(フォルダごと。二重に積まない)。
     private var rechecks: [String: Task<Void, Never>] = [:]
+    /// 見直しの予約の時刻(`scheduleRecheck`。早い方の頼みで入れ直すため)。
+    private var recheckDeadlines: [String: Date] = [:]
     /// 自分が名前を変えたパス(元と新しい方)。そのイベントは読み飛ばす。
     private var recentlyRenamed: [String: Date] = [:]
     /// 同じ見送りを何度も実行ログに書かない(パス + 理由)。
     private var loggedSkips: Set<String> = []
+    /// 「新しい名前が塞がっていた」で見直した回数と最後の時刻(パス + 新しい名前。`process`)。上限を超えたら見直さない。
+    /// `collisionAttemptWindow` より前の失敗は数え直す(何時間も離れた一時的な衝突を積み上げない)。
+    private var collisionAttempts: [String: (count: Int, at: Date)] = [:]
+    /// 書き終わりを待って続けて見直した回数(パスごと。`process`)。続くほど見直しの間を空ける。
+    private var unsettledRechecks: [String: Int] = [:]
     /// 走査に使った対象ごとの中身(規則の並び + 印)。変わった対象だけを走査し直す。
     private var activeTargetKeys: [UUID: String] = [:]
     /// 見つからないと 1 回目に分かった時刻(1 秒置いて確かめ直す)。
@@ -161,7 +168,10 @@ final class AutoRenameService: ObservableObject {
             .store(in: &subscriptions)
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            // メインで受ける(2026-10-25 のハング・クラッシュの監査 A3-4)。NSWorkspace のマウントの知らせはメインで届くが、それに
+            // 頼って assumeIsolated すると、別のスレッドから届いた回に落ちる。ほかの同じ知らせの購読(FileBrowserSystemIcon)と揃える。
             center.publisher(for: name)
+                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshAvailabilitySoon() } }
                 .store(in: &subscriptions)
         }
@@ -198,6 +208,7 @@ final class AutoRenameService: ObservableObject {
         missingRecheckTask = nil
         rechecks.values.forEach { $0.cancel() }
         rechecks.removeAll()
+        recheckDeadlines.removeAll()
         needsAnotherAvailabilityPass = false
         pendingFullScan = false
         pendingShallowFolders.removeAll()
@@ -205,6 +216,8 @@ final class AutoRenameService: ObservableObject {
         observations.removeAll()
         recentlyRenamed.removeAll()
         loggedSkips.removeAll()
+        collisionAttempts.removeAll()
+        unsettledRechecks.removeAll()
         activeTargetKeys.removeAll()
         missingSince.removeAll()
         if !availability.isEmpty { availability = [:] }
@@ -813,7 +826,10 @@ final class AutoRenameService: ObservableObject {
             // 書き終わりを待っていた項目が消えた・外で動いた・手で名前が変わったら、その観測を捨てる(2026-10-05 の効率の監査 C12。
             // 以前は名前を変えたときと止めたときにしか消えず、フォルダの観測 ―― 中身の写しで 1 つ数 MB になりうる ―― が残り続けた)。
             // あるものは残す(使っている本で見送った項目が、閉じた後にすぐ変えられる今の振る舞いを変えない)。
-            for path in vanished { observations[path] = nil }
+            for path in vanished {
+                observations[path] = nil
+                unsettledRechecks[path] = nil
+            }
             // 走査のあいだに止められていたら、その結果では名前を変えない。
             guard isCurrent(generation) else { return }
             await process(result, plan: plan, generation: generation)
@@ -823,7 +839,37 @@ final class AutoRenameService: ObservableObject {
     /// 書き終わりを見ている項目の観測を、これより長く見直していなければ捨てる(`process`)。
     static let observationLifetime: TimeInterval = 10 * 60
     /// 同じ見送りを書かないための控え(`loggedSkips`)の上限。超えたら空にする(同じ見送りがもう 1 度だけ実行ログに出る)。
+    /// `collisionAttempts` / `unsettledRechecks` も同じ上限で空にする。
     static let loggedSkipsLimit = 5000
+    /// 「新しい名前が塞がっていた」(`alreadyExists`)で見直す回数の上限(2026-10-25 のハング・クラッシュの監査 #8)。
+    ///
+    /// 決めた名前がファイルシステムの上では塞がっているのに、こちらの比べ方では空いて見える組み合わせがあった(大文字小文字を
+    /// 区別しない APFS は `straße` と `strasse` を同じ名前として扱う)。決め直しても同じ名前になり、`EEXIST` → 1 秒後に見直し →
+    /// また `EEXIST` が、アプリが動いている間ずっと続いた(実行ログにも出なかった)。比べ方も揃えたが(`FileNameValidation.
+    /// foldedForComparison`)、ほかの食い違いでも回り続けないよう、数回で見送って失敗として実行ログに 1 度書く。
+    static let maxCollisionAttempts = 3
+    /// `collisionAttempts` を数え続ける時間。続けて失敗している間(見直しは 1 秒ごと)だけを数える。
+    static let collisionAttemptWindow: TimeInterval = 60
+    /// 書き終わりを待つ見直しを、この回数までは `recheckDelay` で、その後は倍々に(最大 `maxUnsettledRecheckDelay` まで)空ける。
+    /// 中断されたコピーの印(Finder の `brok`/`MACS`)が残った項目や、更新日時が未来の項目は書き終わりにならず、配下の写しを
+    /// 取り直す見直し(最大 2 万項目の lstat)が 1 秒ごとに止まらなかった(同監査の A3-2)。
+    static let unsettledRechecksAtFullRate = 10
+    static let maxUnsettledRecheckDelay: TimeInterval = 60
+
+    /// 書き終わりを待つ `count` 回目の見直しまでの待ち(`unsettledRechecksAtFullRate`)。
+    func unsettledRecheckDelay(afterRechecks count: Int) -> TimeInterval {
+        let extra = count - Self.unsettledRechecksAtFullRate
+        guard extra > 0 else { return recheckDelay }
+        return min(recheckDelay * pow(2, Double(min(extra, 16))), max(Self.maxUnsettledRecheckDelay, recheckDelay))
+    }
+
+    /// 決め直せば通りうる名前の変更の失敗(塞がっていた・消えていた)。
+    private static func isRetriableRenameError(_ error: FileOperationError) -> Bool {
+        switch error {
+        case .alreadyExists, .itemMissing: true
+        default: false
+        }
+    }
 
     private func process(_ result: AutoRenameScanner.Result, plan: AutoRenamePlan, generation: UInt64) async {
         let currentLocale = locale()
@@ -834,8 +880,12 @@ final class AutoRenameService: ObservableObject {
         let staleBefore = Date().addingTimeInterval(-Self.observationLifetime)
         if observations.values.contains(where: { $0.at < staleBefore }) {
             observations = observations.filter { $0.value.at >= staleBefore }
+            // 書き終わりを待った回数も、観測と一緒に捨てる(観測が無い項目は、次に見たときに 1 回目から数える)。
+            unsettledRechecks = unsettledRechecks.filter { observations[$0.key] != nil }
         }
         if loggedSkips.count > Self.loggedSkipsLimit { loggedSkips.removeAll() }
+        if collisionAttempts.count > Self.loggedSkipsLimit { collisionAttempts.removeAll() }
+        if unsettledRechecks.count > Self.loggedSkipsLimit { unsettledRechecks.removeAll() }
         for skip in result.skips {
             let key = skip.path + "\u{0}" + skip.reason.result
             guard loggedSkips.insert(key).inserted else { continue }
@@ -865,22 +915,42 @@ final class AutoRenameService: ObservableObject {
             guard AutoRename.isSettled(observation, previous: observations[candidate.path]) else {
                 observations[candidate.path] = observation
                 heldBack.append(candidate.path)
-                scheduleRecheck(folder: candidate.folder, after: recheckDelay)
+                let count = (unsettledRechecks[candidate.path] ?? 0) + 1
+                unsettledRechecks[candidate.path] = count
+                scheduleRecheck(folder: candidate.folder, after: unsettledRecheckDelay(afterRechecks: count))
                 continue
             }
             observations[candidate.path] = nil
+            unsettledRechecks[candidate.path] = nil
             let item = URL(fileURLWithPath: candidate.path, isDirectory: candidate.isDirectory)
             recentlyRenamed[candidate.path] = Date()
             recentlyRenamed[candidate.folder + "/" + candidate.newName] = Date()
             do {
                 let receipt = try await fileOps.rename(item, to: candidate.newName, keepsNameExactly: true)
+                collisionAttempts[candidate.path + "\u{0}" + candidate.newName] = nil
                 entries.append(.init(
                     folderPath: candidate.folder, originalName: candidate.name, outcome: .renamed(newName: candidate.newName),
                     ruleNames: candidate.ruleNames, identity: receipt.identity
                 ))
-            } catch FileOperationError.alreadyExists, FileOperationError.itemMissing {
-                // 決めてから変えるまでの間に外で変わった。フォルダを読み直して決め直す。
-                scheduleRecheck(folder: candidate.folder, after: recheckDelay)
+            } catch let error as FileOperationError where Self.isRetriableRenameError(error) {
+                // 決めてから変えるまでの間に外で変わった。フォルダを読み直して決め直す。ただし何度決め直しても同じ名前が
+                // 塞がっているなら、見直しを止めて失敗として 1 度だけ実行ログに書く(`maxCollisionAttempts`)。
+                let attemptKey = candidate.path + "\u{0}" + candidate.newName
+                let previous = collisionAttempts[attemptKey]
+                let isRecent = previous.map { Date().timeIntervalSince($0.at) < Self.collisionAttemptWindow } ?? false
+                let attempts = (isRecent ? previous?.count ?? 0 : 0) + 1
+                collisionAttempts[attemptKey] = (attempts, Date())
+                if attempts <= Self.maxCollisionAttempts {
+                    scheduleRecheck(folder: candidate.folder, after: recheckDelay)
+                    continue
+                }
+                let key = candidate.path + "\u{0}failed\u{0}" + candidate.newName
+                guard loggedSkips.insert(key).inserted else { continue }
+                entries.append(.init(
+                    folderPath: candidate.folder, originalName: candidate.name,
+                    outcome: .failed(newName: candidate.newName, message: error.localizedDescription),
+                    ruleNames: candidate.ruleNames
+                ))
             } catch {
                 let key = candidate.path + "\u{0}failed\u{0}" + candidate.newName
                 guard loggedSkips.insert(key).inserted else { continue }
@@ -894,13 +964,24 @@ final class AutoRenameService: ObservableObject {
         log.append(entries)
     }
 
+    ///
+    /// フォルダごとに 1 つ。**早い方の予約が勝つ**(2026-10-25 の監査の直しのレビュー): 書き終わらない項目の見直しは間を空けて
+    /// いく(`unsettledRecheckDelay`)ので、先に「60 秒後」が入っていても、同じフォルダの別の項目の「1 秒後」の頼みが来たら
+    /// 入れ直す(以前のように先の予約があれば断ると、新しくコピーした項目の改名まで最大 60 秒遅れた)。
     private func scheduleRecheck(folder: String, after delay: TimeInterval) {
-        guard isStarted, rechecks[folder] == nil else { return }
+        guard isStarted else { return }
+        let deadline = Date().addingTimeInterval(delay)
+        if rechecks[folder] != nil {
+            guard let current = recheckDeadlines[folder], deadline < current else { return }
+            rechecks[folder]?.cancel()
+        }
         let generation = generation
+        recheckDeadlines[folder] = deadline
         rechecks[folder] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard let self, !Task.isCancelled, self.isCurrent(generation) else { return }
             self.rechecks[folder] = nil
+            self.recheckDeadlines[folder] = nil
             self.pendingShallowFolders.insert(folder)
             self.scheduleRun()
         }

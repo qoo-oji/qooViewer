@@ -1216,7 +1216,7 @@ extension MetadataBookTableView {
                 UserFeedback.beep()
                 return
             }
-            for folder in folders { NSWorkspace.shared.open(folder) }
+            for folder in folders { NSWorkspace.shared.openWithoutWaiting(folder) }
         }
     }
 }

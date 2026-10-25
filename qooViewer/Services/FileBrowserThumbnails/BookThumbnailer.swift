@@ -203,7 +203,9 @@ nonisolated enum BookThumbnailer {
     /// 書庫の順で `path` より前にあるファイルの宣言サイズの合計が `limit` を超えるか(`maxBytesBeforeFirstImage`)。zip は
     /// エントリごとに直接読めるので見ない。一覧が引けなければ超えない扱い(読んでみて失敗するだけ)。
     static func readsTooMuchBefore(_ path: String, in reader: ArchiveReading, limit: Int64 = maxBytesBeforeFirstImage) -> Bool {
-        guard !(reader is ZipArchiveReader), let entries = try? reader.entriesInArchiveOrder() else { return false }
+        // zip の reader は 2026-10-25 から `CentralDirectoryZipReader`(ネットワーク上もローカルも)。
+        guard !(reader is CentralDirectoryZipReader), !(reader is ZipArchiveReader),
+              let entries = try? reader.entriesInArchiveOrder() else { return false }
         var total: Int64 = 0
         for entry in entries where entry.kind == .file {
             if entry.path == path { return false }

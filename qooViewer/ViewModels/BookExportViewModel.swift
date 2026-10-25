@@ -421,6 +421,11 @@ class BookExportViewModel: ObservableObject {
         guard presented != isPresented else { return }
         isPresented = presented
         if presented { presentationSerial &+= 1 }
+        // 書き出しの途中で閉じられたら止める(2026-10-25 のハング・クラッシュの監査 A8-5)。上書きの確認は進行のシートの `.task` が
+        // 出すので、閉じた後に同名のファイルに当たると確認の待ちが答えられずに残り、RunningWorkRegistry も減らず ⌘Q のたびに
+        // 作業中の確認が出た。普段はシートが付いている間は閉じられないが、閉じる経路はほかにもある(WindowSheet の CloseWatch の
+        // コメント)。ファイルブラウザ・ビューアの書き出しシートは消えるときに cancel() を呼んでいる。
+        if !presented, isExporting { cancel() }
         guard presented, needsReloadWhenPresented else { return }
         needsReloadWhenPresented = false
         reload()
@@ -526,12 +531,43 @@ class BookExportViewModel: ObservableObject {
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
         // ブックマークの解決はボリュームに触るので FileIO の上で(2026-10-06 の応答性の点検 R7。以前は `Task.detached` で、期限も無く、
         // 応答しない共有の本があると協調スレッドプールのスレッドを塞いだ)。
+        //
+        // **1 冊ごとに待つのは `eligibilityCheckLimit` まで**(2026-10-25 のハング・クラッシュの監査 #13)。以前は期限が無く、マウント
+        // されたまま応答しない共有の本が 1 冊あると、3 つの書き出しウインドウが「読み込み中」のまま戻らず、後の reload() もすべて
+        // needsAnotherReload に畳まれた。期限を過ぎた本は**確かめられなかった本として並べる**(無ければ書き出しのときに「見つからない」と
+        // 数える ―― 書き出しは本ごとに場所を解き直す)。同じボリュームの残りの本も、この回は確かめずに並べる(止まった共有で 1 冊ずつ
+        // 期限まで待ち、確かめのスレッドを積み上げない)。確かめずに並ぶのは、期限を過ぎたボリュームの本だけ(ほかの本は 1 冊ずつ
+        // 確かめる ―― 以前の案の「全体で 30 秒」では、止まった 1 冊の後ろの本がすべて確かめられずに並んだ。直しのレビュー)。
+        let mounts = MountTable.current()
         Task { [weak self] in
-            let eligible = await FileIO.perform { candidates.compactMap { BookURLResolver.resolvedURL($0) != nil ? $0.bookID : nil } }
+            var eligible: Set<String> = []
+            var stalledMountPoints: Set<String> = []
+            for candidate in candidates {
+                let mountPoint = mounts.entry(containing: candidate.bookID)?.mountPoint
+                if let mountPoint, stalledMountPoints.contains(mountPoint) {
+                    eligible.insert(candidate.bookID)
+                    continue
+                }
+                let found = try? await FileIO.withDeadline(Self.eligibilityCheckLimit) {
+                    await FileIO.perform { BookURLResolver.resolvedURL(candidate) != nil }
+                }
+                switch found {
+                case true?:
+                    eligible.insert(candidate.bookID)
+                case false?:
+                    break
+                case nil:
+                    eligible.insert(candidate.bookID)
+                    if let mountPoint { stalledMountPoints.insert(mountPoint) }
+                }
+            }
             guard let self else { return }
-            self.applyEligibleBookIDs(Set(eligible), generation: generation)
+            self.applyEligibleBookIDs(eligible, generation: generation)
         }
     }
+
+    /// reload() の確かめで 1 冊を待つ上限(上のコメント)。
+    static let eligibilityCheckLimit: Duration = .seconds(10)
 
     /// reload()の絞り込み結果を反映して、一覧を組み立てる。
     func applyEligibleBookIDs(_ eligibleIDs: Set<String>, generation: Int) {
@@ -868,6 +904,9 @@ class BookExportViewModel: ObservableObject {
         }
         pendingOverwriteBookDisplayName = displayName
         return await withCheckedContinuation { continuation in
+            // 書き出しは 1 本ずつ(runExport が 2 本目を断る)なので前の待ちは残っていないはずだが、残っていたら「スキップ」で
+            // 解いてから置き換える(上書きすると前の待ちは二度と再開されない)。
+            overwriteDecisionContinuation?.resume(returning: .skip)
             overwriteDecisionContinuation = continuation
         }
     }
@@ -959,8 +998,13 @@ class BookExportViewModel: ObservableObject {
         didFinish = false
         relocationsDuringExport = []
         defer { relocationsDuringExport = [] }
-        // 前に落ちた書き出しの一時ファイルを片付ける(`sweepStaleTemporaryFiles` のコメント)。
-        await Self.sweepStaleTemporaryFiles(in: destinationFolder)
+        // 前に落ちた書き出しの一時ファイルを片付ける(`sweepStaleTemporaryFiles` のコメント)。片付けは本筋ではないので
+        // 待つのは `temporarySweepLimit` まで(2026-10-25 の監査 #13: 以前はここで期限なく待ち、まだ本の書き出しが始まっていない
+        // ので「中止」も効かなかった)。片付けは止まった後も裏で走りうる。**出力先そのものが応答しなければ、この後の書き込みは
+        // やはり待つ**(Finder の書き込みと同じ。中止は本ごとの区切りで効く)。
+        _ = try? await FileIO.withDeadline(Self.temporarySweepLimit) {
+            await Self.sweepStaleTemporaryFiles(in: destinationFolder)
+        }
 
         for target in targets {
             guard !isCancelled else { break }
@@ -1153,6 +1197,9 @@ class BookExportViewModel: ObservableObject {
     /// 一時ファイルの残りとみなすまでの時間(`sweepStaleTemporaryFiles`)。走っているほかの書き出し(別のウインドウ)の一時ファイルを
     /// 消さないよう、十分に長く取る。
     nonisolated static let staleTemporaryFileAge: TimeInterval = 24 * 60 * 60
+
+    /// 一時ファイルの片付けを待つ上限(`runExport`)。
+    static let temporarySweepLimit: Duration = .seconds(10)
 
     /// 出力先のフォルダに残った、前の書き出しの一時ファイル(`temporaryFilePrefix` + UUID + 拡張子の隠しファイル)を消す(2026-10-05 の
     /// 監査の範囲外の指摘)。書き出しの途中でアプリが落ちる・強制終了されると、一時ファイルは消す機会が無く、保存先に隠れたまま残って

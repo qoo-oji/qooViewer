@@ -104,11 +104,63 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         entries.filter { !$0.directory }.map { $0.fileName }
     }
 
+    /// 展開後の大きさが「不明」の項目に unrar が入れる値(`INT64NDF`。RAR5 の `FHFL_UNPUNKNOWN`、RAR4 の 0xFFFFFFFF ――
+    /// `rar a -si` で作られる)。
+    private static let unknownUncompressedSize: UInt64 = 0x7fff_ffff_7fff_ffff
+
+    /// 事前確保してよい大きさの上限(ZipArchiveReader / CentralDirectoryZipReader と同じ。申告は信用しない)。
+    private static let reserveCapByteCount: UInt64 = 64 * 1024 * 1024
+
+    /// 取り出してよい項目(2026-10-25 のハング・クラッシュの監査 #5)。フォークの `extract(_:handler:)` は
+    /// `Progress(totalUnitCount: Int64(uncompressedSize))` を作るので、申告が Int64 の上限を超える項目(細工・破損した見出し)は
+    /// そこで trap する。読む前に断る。
+    private func extractableEntry(at path: String) throws -> Unrar.Entry {
+        guard let entry = entryByFileName[path] else { throw ArchiveReaderError.entryNotFound }
+        guard entry.uncompressedSize <= UInt64(Int64.max) else { throw ArchiveReaderError.entryTooLarge }
+        return entry
+    }
+
+    /// フォークの `extract(_:) -> Data` は使わない(2026-10-25 の監査 #5): `Data(capacity: Int(entry.uncompressedSize))` で
+    /// 申告どおりに先に確保するので、大きさ「不明」の項目(約 9.2e18 バイト)や細工された申告で確保に失敗して落ちうる。
+    /// (大きさ「不明」の項目は落ちなくなるだけで、ページとしては読めないまま ―― `entryUncompressedSize` が大きな申告を返し、
+    /// `PageLoader.rawData` / `NestedArchiveResolver` の上限が断る。)
+    /// ページの寸法を調べるだけの `dataPrefix` もここへ来ていたので、そういう rar は本を開いただけで落ちた。
+    /// コールバック版で受け、確保は上限までにする。申告と大きさが違えば失敗にするのはフォークと同じ(「不明」なら比べない)。
     func data(at path: String) throws -> Data {
-        guard let entry = entryByFileName[path] else {
-            throw ArchiveReaderError.entryNotFound
+        let entry = try extractableEntry(at: path)
+        var result = Data()
+        result.reserveCapacity(Int(min(entry.uncompressedSize, Self.reserveCapByteCount)))
+        try checkingReads { try archive.extract(entry) { chunk, _ in result.append(chunk) } }
+        guard entry.uncompressedSize == Self.unknownUncompressedSize || UInt64(result.count) == entry.uncompressedSize else {
+            throw UnrarError.unknown
         }
-        return try checkingReads { try archive.extract(entry) }
+        return result
+    }
+
+    /// 先頭だけ要るとき(画像のヘッダー・ComicInfo)。溜まったら `progress.cancel()` で伸長を打ち切る(2026-10-25)。
+    /// 以前は既定実装(`data(at:)` で全体)だった。打ち切った後に unrar が返す失敗は、要るぶんが揃っていれば無視する。
+    func dataPrefix(at path: String, maxByteCount: Int) throws -> Data {
+        let entry = try extractableEntry(at: path)
+        guard maxByteCount > 0 else { return Data() }
+        var result = Data()
+        result.reserveCapacity(Int(min(entry.uncompressedSize, UInt64(maxByteCount), Self.reserveCapByteCount)))
+        do {
+            try checkingReads { try archive.extract(entry) { chunk, progress in
+                guard result.count < maxByteCount else { return }
+                result.append(chunk.prefix(maxByteCount - result.count))
+                if result.count >= maxByteCount { progress.cancel() }
+            } }
+        } catch {
+            guard result.count >= maxByteCount else { throw error }
+        }
+        // 打ち切らずに終わったなら、全体読み(`data(at:)`)と同じく申告の大きさと比べる。フォークは見出しが見つからない・unrar が
+        // 読めずに「書庫の終わり」と見なした場合も成功(0 バイト)で返すので、比べないと「読めなかった」を「空だった」と取り違える
+        // (ComicInfo.xml が「無い」と覚えられ、ファイルが変わるまで取り込まれなくなる。直しのレビュー)。
+        if result.count < maxByteCount, entry.uncompressedSize != Self.unknownUncompressedSize,
+           UInt64(result.count) != entry.uncompressedSize {
+            throw UnrarError.unknown
+        }
+        return result
     }
 
     /// rarはUnrar.Entryが作成日時(creation)・更新日時(modified)の両方を持つ数少ない
@@ -131,7 +183,7 @@ nonisolated final class RarArchiveReader: ArchiveReading {
     /// 上限超過(maxByteCount)も同じ経路で打ち切る ―― 書き出した量を数え、超えた時点で
     /// entryTooLargeを控えて伸長を止める(監査で指摘)。
     func extract(at path: String, to url: URL, maxByteCount: Int) throws {
-        guard let entry = entryByFileName[path] else { throw ArchiveReaderError.entryNotFound }
+        let entry = try extractableEntry(at: path)
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw ArchiveReaderError.cannotOpen
         }
@@ -183,7 +235,7 @@ nonisolated final class RarArchiveReader: ArchiveReading {
     ///   項目も伸長される**ので、全項目をこれで順に取り出すと書庫の大きさの 2 乗に比例する(ページの表示と同じ経路)。
     ///   全項目を読むなら readEntriesInArchiveOrder。
     func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
-        guard let entry = entryByFileName[path] else { throw ArchiveReaderError.entryNotFound }
+        let entry = try extractableEntry(at: path)
         var bodyError: (any Error)?
         // ライブラリの閉包は @escaping だが、呼ばれるのは extract の中だけ(同期)。
         try withoutActuallyEscaping(body) { body in

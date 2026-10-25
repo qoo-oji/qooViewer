@@ -1590,6 +1590,7 @@ final class ViewerViewModel: ObservableObject {
     /// ときだけ、通過するページも(見開き表示中はその見た目のまま)1ページずつ一瞬表示する。
     private func drainPageFlipQueue() async {
         defer { pageFlipTask = nil }
+        let transitSource = flipTransitFrameSource()
         while !pageFlipQueue.isEmpty {
             if pageFlipQueue.count == 1 {
                 let target = pageFlipQueue.removeFirst()
@@ -1636,7 +1637,7 @@ final class ViewerViewModel: ObservableObject {
                 } else {
                     // 通過中のコマ: 先読みは行わないが、見開き表示中は見た目を保つため
                     // このページを含む隣接ページとのペア表示を試みる。
-                    await loadTransitFrame(at: currentIndex, flipGeneration: generation)
+                    await loadTransitFrame(at: currentIndex, flipGeneration: generation, source: transitSource)
                     // このコマの表示時間(下のsleep)を使って、次に表示する予定のページ(と、
                     // 見開き表示中ならそのペア相手)のデコードを先に始めておく(結果は待たない)。
                     // ページによってデコード時間にばらつきがあっても、1コマ分前もって着手して
@@ -1644,7 +1645,7 @@ final class ViewerViewModel: ObservableObject {
                     // 更新間隔がばらつくのを防ぐ。
                     let lookaheadIndex = currentIndex + direction
                     let loader = pageLoader
-                    if book.isStackNestReference {
+                    if transitSource == .cachedOnly {
                         // StackNest の本の通過コマは手元に届いている絵だけを出す(loadTransitFrame)ので、次のコマではなく
                         // **着地する先**を先に取り寄せておく(2026-10-19 の実測、1 ページの往復 300 ms: 次のコマを頼んでいたころは、
                         // 着地のページを頼むのが通過の終わり近くになり、最後のキーから着地まで 560 ms。着地する先を頼むと 480 ms)。
@@ -1673,7 +1674,9 @@ final class ViewerViewModel: ObservableObject {
     /// 見開きの切り替えをすると、移動先の読み込み(キャッシュからすぐ終わる)の後にこのコマが届き、ページ番号は移動先なのに
     /// 画像は通過ページのまま次の操作まで残った(`currentImages.didSet` が拡大鏡の元画像・相方・1 ページずらしの淡色も
     /// 食い違った枚数で計算する)。`loadCurrentSpread` は `loadGeneration` で古い結果を捨てているので、同じ形にそろえる。
-    private func loadTransitFrame(at index: Int, flipGeneration: Int) async {
+    ///
+    /// - Parameter source: 通過コマの絵の取り方(`flipTransitFrameSource`)。
+    private func loadTransitFrame(at index: Int, flipGeneration: Int, source: TransitFrameSource) async {
         let spreadGeneration = loadGeneration
         func isStillCurrent() -> Bool {
             !Task.isCancelled && flipGeneration == pageFlipGeneration
@@ -1684,13 +1687,28 @@ final class ViewerViewModel: ObservableObject {
         // 実測: 1 ページの往復に 300 ms かかる StackNest でキーを 30 回続けて押すと、通過する 60 ページを 1 枚ずつ待ったので、着地まで
         // 最後のキーから 12.6 秒(60 回で 33 秒)かかった。相方が届いていないコマも出さない ―― 1 枚だけの見開きがちらつくうえ、出ている
         // 枚数は次の歩幅の手がかりにもなる(SpreadPairing.forwardStepSize の fallback)。
-        let remote = book.isStackNestReference
-        let loadedFirst = remote ? await pageLoader.cachedPageImage(at: index) : await pageLoader.pageImage(at: index)
+        //
+        // ネットワークボリュームの上の本(`.decodesBriefly`)は、手元に無い絵を `transitDecodeBudget` まで待つ(2026-10-25 の
+        // ハング・クラッシュの監査 #14)。以前は 1 枚ずつ伸長し終えるまで待ったので、応答の遅い共有ではキーを離した後も長く走った。
+        // 速い共有・取り寄せ終えた本では予算の中で伸長が終わるので、通過コマは今までどおり出る。
+        let remote = source != .decodes
+        let loader = pageLoader
+        func transitImage(at page: Int) async -> CGImage? {
+            switch source {
+            case .decodes:
+                return await loader.pageImage(at: page)
+            case .cachedOnly:
+                return await loader.cachedPageImage(at: page)
+            case .decodesBriefly:
+                if let cached = await loader.cachedPageImage(at: page) { return cached }
+                return try? await FileIO.withDeadline(Self.transitDecodeBudget) { await loader.pageImage(at: page) }
+            }
+        }
+        let loadedFirst = await transitImage(at: index)
         guard let firstImage = loadedFirst, isStillCurrent() else { return }
         var images = [firstImage]
         if shouldPairWithNextPage(at: index, firstImage: firstImage) {
-            if let secondImage = remote
-                ? await pageLoader.cachedPageImage(at: index + 1) : await pageLoader.pageImage(at: index + 1) {
+            if let secondImage = await transitImage(at: index + 1) {
                 guard isStillCurrent() else { return }
                 images.append(secondImage)
                 // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
@@ -1701,6 +1719,26 @@ final class ViewerViewModel: ObservableObject {
             }
         }
         showImages(images, forIndex: index)
+    }
+
+    /// ページ送りの通過コマの絵の取り方(loadTransitFrame)。
+    enum TransitFrameSource {
+        /// 伸長し終えるまで待つ(ローカルの本)。
+        case decodes
+        /// 手元にある絵だけ(StackNest の本)。
+        case cachedOnly
+        /// 手元に無ければ `transitDecodeBudget` まで待つ(ネットワークボリュームの上の本。2026-10-25 の監査 #14)。
+        case decodesBriefly
+    }
+
+    /// 通過コマ 1 枚の伸長を待つ上限(`.decodesBriefly`)。
+    static let transitDecodeBudget: Duration = .milliseconds(100)
+
+    /// この本の通過コマの絵の取り方。ネットワークボリュームかどうかはマウント表だけで決める(共有そのものには触らない。
+    /// 読み込み層の隠し設定とは関わらせない)。
+    private func flipTransitFrameSource() -> TransitFrameSource {
+        if book.isStackNestReference { return .cachedOnly }
+        return MountTable.current().isRemote(book.sourceURL) ? .decodesBriefly : .decodes
     }
 
     /// プログレスバーでのジャンプなど、通過ページの表示が不要な「即座に移動する」操作の前に呼び、

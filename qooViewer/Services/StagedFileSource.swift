@@ -3,8 +3,9 @@ import Foundation
 /// 書庫の reader が読むバイト列の出所(位置を指定して読む)。
 ///
 /// ネットワークボリューム上の書庫は `StagedFileSource`(下)を通して読む。zip は自前の `CentralDirectoryZipReader` が、
-/// 7z・rar はフォークの「呼び出し側の関数から読む」入口が、これだけを通して読む。ローカルの書庫はこれを使わず、
-/// 従来どおり各ライブラリがファイルを直接開く(docs/plans/network-volume-study.md)。
+/// 7z・rar はフォークの「呼び出し側の関数から読む」入口が、これだけを通して読む。ローカルの 7z・rar はこれを使わず、
+/// 従来どおり各ライブラリがファイルを直接開く(docs/plans/network-volume-study.md)。ローカルの zip・入れ子の zip は 2026-10-25 から
+/// `LocalFileSource` / `MemoryDataSource`(下)を通して `CentralDirectoryZipReader` が読む(`makeArchiveReader(kind:url:stagesWholeFile:)`)。
 ///
 /// nonisolated: BookLoader(Task.detached)・PageLoader(actor)の reader から呼ばれる。
 nonisolated protocol RandomAccessSource: AnyObject {
@@ -22,7 +23,7 @@ nonisolated enum RandomAccessSourceError: Error {
     case cacheWriteFailed(Int32)
 }
 
-/// ローカルのファイルを pread で読む出所(テスト、および読み込み層を通さないときの比較用)。
+/// ローカルのファイルを pread で読む出所(ローカルの zip。2026-10-25 から。テストの比較にも使う)。
 nonisolated final class LocalFileSource: RandomAccessSource {
     let size: UInt64
     private let fd: Int32
@@ -31,7 +32,8 @@ nonisolated final class LocalFileSource: RandomAccessSource {
         fd = open(url.path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { throw RandomAccessSourceError.cannotOpen }
         var st = stat()
-        guard fstat(fd, &st) == 0 else {
+        // 負の大きさ(壊れた・細工されたファイルシステムの答え)は `UInt64(…)` で trap するので開けない扱い(2026-10-25 の監査 A2-5)。
+        guard fstat(fd, &st) == 0, st.st_size >= 0 else {
             close(fd)
             throw RandomAccessSourceError.cannotOpen
         }
@@ -42,6 +44,25 @@ nonisolated final class LocalFileSource: RandomAccessSource {
 
     func read(at offset: UInt64, count: Int) throws -> Data {
         try preadFully(fd: fd, offset: offset, count: count, size: size)
+    }
+}
+
+/// メモリ上の Data を読む出所(入れ子の zip。`makeArchiveReader(kind:data:)`)。Data は保持するだけで写さない
+/// (渡す Data は独立した実体であること ―― `makeArchiveReader(kind:data:)` のコメント)。
+nonisolated final class MemoryDataSource: RandomAccessSource {
+    let size: UInt64
+    private let data: Data
+
+    init(_ data: Data) {
+        self.data = data
+        size = UInt64(data.count)
+    }
+
+    func read(at offset: UInt64, count: Int) throws -> Data {
+        guard count > 0, offset < size else { return Data() }
+        let start = data.startIndex + Int(offset)
+        let length = Int(min(UInt64(count), size - offset))
+        return data.subdata(in: start..<(start + length))
     }
 }
 
@@ -154,7 +175,8 @@ nonisolated final class StagedFileSource: RandomAccessSource, @unchecked Sendabl
         let fd = open(url.path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { throw RandomAccessSourceError.cannotOpen }
         var st = stat()
-        guard fstat(fd, &st) == 0 else {
+        // 負の大きさは開けない扱い(LocalFileSource と同じ。`UInt64(…)` で trap した)。
+        guard fstat(fd, &st) == 0, st.st_size >= 0 else {
             close(fd)
             throw RandomAccessSourceError.cannotOpen
         }

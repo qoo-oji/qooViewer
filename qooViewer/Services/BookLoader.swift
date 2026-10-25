@@ -221,6 +221,12 @@ nonisolated enum BookLoader {
     private struct LoadContext {
         let resolver: NestedArchiveResolver
         let progress: LoadProgressReporter
+        /// この読み込みで開いた入れ子の書庫の数(`maxNestedArchivesPerLoad`)。読み込みは 1 本のスレッドで進むので鍵は要らない。
+        let nestedArchiveCount = Counter()
+
+        final class Counter {
+            var value = 0
+        }
     }
 
     /// 読み込んだ本を、次回の高速経路のために保存できる形へ畳む
@@ -528,6 +534,11 @@ nonisolated enum BookLoader {
     /// 安全装置(通常のマンガでこの深さに達することは無い)。
     private static let maxNestedArchiveDepth = 8
 
+    /// 1 回の読み込みで開く入れ子の書庫の数の上限(2026-10-25 のハング・クラッシュの監査 A1-7)。深さは上で止まるが幅に上限が
+    /// 無く、16 本ずつ 5 段に入れ子にした書庫で約 100 万回の取り出しになった(本を開く読み込みは中止できるが、表紙・書き出しなど
+    /// 利用者が止められない呼び出しでは走り続けた)。実在の本はこれに遠く及ばない。超えた分の入れ子は読み飛ばす(壊れた入れ子と同じ)。
+    private static let maxNestedArchivesPerLoad = 10_000
+
     /// locatorが指す書庫の中身を列挙し、画像はそのままページ化、さらに入れ子になった書庫が
     /// 見つかった場合は再帰的に統合する。
     ///
@@ -584,6 +595,8 @@ nonisolated enum BookLoader {
                     source: .archive(locator: locator, entryPath: path)
                 ))
             } else if isArchiveFile(path), locator.depth < maxNestedArchiveDepth {
+                guard context.nestedArchiveCount.value < maxNestedArchivesPerLoad else { continue }
+                context.nestedArchiveCount.value += 1
                 context.progress.didDiscoverArchive()
                 // 壊れた入れ子・上限超え(NestedArchiveResolver.ResolveError.archiveTooLarge)は
                 // その1本を飛ばすだけで、本全体の読み込みは続ける(従来と同じ扱い)。
@@ -745,7 +758,7 @@ nonisolated enum BookLoader {
     }
 
     /// EPUBファイルを1冊の本として読み込む。EPUB自体はzipコンテナのため、内部の読み出しは
-    /// ZipArchiveReaderをそのまま使う。ただしcbz(loadArchive)のように「zip内の画像を名前順に
+    /// zip の reader(`makeArchiveReader` が選ぶ `CentralDirectoryZipReader`)をそのまま使う。ただしcbz(loadArchive)のように「zip内の画像を名前順に
     /// 並べる」のではなく、container.xml/package documentが定義する正しい読み順(spine)を
     /// 解決してからページを組み立てる必要があるため、専用の読み込み経路にしている
     /// (詳細はEpubStructureResolver.swift参照)。

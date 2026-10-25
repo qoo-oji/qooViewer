@@ -31008,6 +31008,22 @@
         }
       }
     },
+    "There isn’t enough free space, or qooViewer can’t write to the folder that holds its saved data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There isn’t enough free space, or qooViewer can’t write to the folder that holds its saved data."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空き容量が足りないか、保存データのフォルダに書き込めません。"
+          }
+        }
+      }
+    },
     "There are unsaved changes" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -32,8 +32,8 @@ import Foundation
 /// macOS に中断できるファイル I/O は無い。`withDeadline` が行うのは**待つのをやめること**だけで、
 /// 走っている I/O は止まらない。
 ///
-/// 既存の `FolderExistenceProbe`(CollectionAutoFolderRow.swift)も同じ理由で同じ形をしている。
-/// 動いているものなので段階 2 では寄せない。
+/// 既存の `FolderExistenceProbe`(CollectionAutoFolderRow.swift)も同じ理由で 1 本の直列キューを使う(打ち直すたびにスレッドを
+/// 増やさないため。2026-10-25 から待つのは `withDeadline` の期限まで)。
 nonisolated enum FileIO {
     /// 同期のブロッキング処理を、プールとメインスレッドの外で実行する。
     ///

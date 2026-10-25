@@ -128,7 +128,18 @@ nonisolated enum PDFImageExtractor {
         var bestHeight: Int = 0
         /// 現在たどっているForm XObjectの深さ(maxFormNestingDepthと比較する)。
         var depth: Int = 0
+        /// 辿った`/XObject`の辞書と、そのときの深さ(2026-10-25 のハング・クラッシュの監査 #15)。同じ辞書を**同じか深い所から**
+        /// 辿り直しても見つかるものは増えないので飛ばす(浅い所から来たときだけ辿り直す ―― 深さの上限で切れた先を拾い直す)。
+        /// 深さの上限だけでは、Form がページと同じ`/Resources`(自分自身を含む)を共有する PDF で、訪問が「Form の数 ^ 8」に
+        /// 増えた(10 個で 1 億回。PDF のページを描くたびに PageLoader の actor の上で通る)。鍵は`/Resources`ではなく`/XObject`の
+        /// 辞書(別々の`/Resources`が 1 つの`/XObject`を共有しても、なめ直さない。直しのレビュー)。辿り直しは深さの段の数まで。
+        var shallowestVisit: [CGPDFDictionaryRef: Int] = [:]
+        /// なめた`/XObject`の項目の数(`maxVisitedEntries`)。
+        var visitedEntries = 0
     }
+
+    /// 1 ページでなめる`/XObject`の項目の数の上限(別々の Form を大量に並べた PDF への保険)。
+    private static let maxVisitedEntries = 100_000
 
     /// このページに埋め込まれた画像のうち、いちばん画素数の多いもののピクセル寸法。
     /// 画像を1枚も持たないページ(ベクター描画だけのページ)ではnil。
@@ -182,9 +193,12 @@ nonisolated enum PDFImageExtractor {
 
     /// `/Resources`の`/XObject`をなめて、画像はcollectorへ、Formはその`/Resources`を再帰で辿る。
     private static func collectImageStreams(in resources: CGPDFDictionaryRef, collector: Collector) {
-        guard collector.depth < maxFormNestingDepth else { return }
+        guard collector.depth < maxFormNestingDepth, collector.visitedEntries < maxVisitedEntries else { return }
         var xObjects: CGPDFDictionaryRef?
         guard CGPDFDictionaryGetDictionary(resources, "XObject", &xObjects), let xObjects else { return }
+        if let earlier = collector.shallowestVisit[xObjects], earlier <= collector.depth { return }
+        collector.shallowestVisit[xObjects] = collector.depth
+        collector.visitedEntries += CGPDFDictionaryGetCount(xObjects)
 
         CGPDFDictionaryApplyBlock(xObjects, { _, object, info in
             guard let info else { return true }

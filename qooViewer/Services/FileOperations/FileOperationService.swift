@@ -1000,38 +1000,55 @@ actor FileOperationService {
     ///   `.replace` と同じ手順(退避 → 書く → 退避をゴミ箱へ。開いている本・macOS が要るフォルダ・ロックは断る)、古いか同じなら残す。
     ///
     /// 写すのは `carry` なので、書きかけの片付け・元の変化の確かめ・中止は普通のコピーと同じ。ブロッキングするので FileIO の上で呼ぶ。
+    ///
+    /// **再帰しない**(2026-10-25 のハング・クラッシュの監査 A3-3)。以前は両方にあるフォルダごとに自分を呼び直していて、深い木の
+    /// 結合で FileIO のスレッドのスタック(512KB)を使い切りえた。明示の積み上げで、同じ順(各フォルダの中は名前の順、両方にある
+    /// フォルダはその場で中へ)に辿る。
     nonisolated static func merge(
         _ source: URL, into target: URL, protectedPaths: [String],
         using perform: (URL, URL, @escaping (Int64) -> Void) throws -> FileCopyEngine.Outcome,
         tracker: ProgressTracker, environment: FileOperationEnvironment
     ) -> MergeOutcome {
+        struct Frame {
+            let source: URL
+            let target: URL
+            let names: [String]
+            var next = 0
+        }
         var outcome = MergeOutcome()
-        let names: [String]
+        let rootNames: [String]
         do {
-            names = try directoryEntryNames(atPath: source.path).sorted()
+            rootNames = try directoryEntryNames(atPath: source.path).sorted()
         } catch {
             outcome.failure = FailedItem(url: source, reason: error.localizedDescription)
             return outcome
         }
-        for name in names {
+        var stack = [Frame(source: source, target: target, names: rootNames)]
+        while var frame = stack.popLast() {
+            guard frame.next < frame.names.count else { continue }
+            let name = frame.names[frame.next]
+            frame.next += 1
+            stack.append(frame)
             if Cancellation.isRequestedInCurrentScope {
                 outcome.wasCancelled = true
                 return outcome
             }
-            let childSource = source.appendingPathComponent(name)
-            let childTarget = target.appendingPathComponent(name)
+            let childSource = frame.source.appendingPathComponent(name)
+            let childTarget = frame.target.appendingPathComponent(name)
             do {
                 let resolved: ResolvedDestination
                 if !itemExists(at: childTarget) {
                     resolved = ResolvedDestination(target: childTarget, backupOfReplaced: nil)
                 } else if isMergeableFolder(childSource), isMergeableFolder(childTarget) {
-                    let inner = merge(childSource, into: childTarget, protectedPaths: protectedPaths, using: perform, tracker: tracker, environment: environment)
-                    outcome.receipts += inner.receipts
-                    if inner.failure != nil || inner.wasCancelled {
-                        outcome.failure = inner.failure
-                        outcome.wasCancelled = inner.wasCancelled
+                    // 両方にあるフォルダ同士: その中を先に(名前の順に)まとめる。
+                    let innerNames: [String]
+                    do {
+                        innerNames = try directoryEntryNames(atPath: childSource.path).sorted()
+                    } catch {
+                        outcome.failure = FailedItem(url: childSource, reason: error.localizedDescription)
                         return outcome
                     }
+                    stack.append(Frame(source: childSource, target: childTarget, names: innerNames))
                     continue
                 } else if isNewer(childSource, than: childTarget) {
                     switch try checkConflict(

@@ -330,6 +330,21 @@ struct PageLoaderTests {
         #expect(!keys.contains(ids[11]))
     }
 
+    @Test("ページ数より後ろ・負の番号で先読みを頼んでも落ちず、何も読まない(2026-10-25 のハング・クラッシュの監査 #4)")
+    func prefetchIgnoresAnIndexOutsideTheBook() async throws {
+        let source = try await makeSource("loader-prefetch-outside", pageCount: 4)
+        let loader = makeLoader(source.book)
+        defer { Task { await loader.releaseAllResources() } }
+
+        // ページが減った後に古い番号が届いた形(以前は `book.pages[index]` で trap した)。
+        await loader.prefetch(around: 4, radius: 3, displayedPageCount: 1)
+        await loader.prefetch(around: -1, radius: 3, displayedPageCount: 2)
+        try await waitForPrefetchToSettle(loader)
+        #expect(await loader.cacheStatistics().pageImages.keys.isEmpty)
+        // 範囲外の高解像度の頼みも nil で返る。
+        #expect(await loader.highResolutionImage(at: 4) == nil)
+    }
+
     @Test("先読み中のページは統計に出る(異常判定がこれを見る)")
     func inFlightPrefetchesAreVisibleInTheStatistics() async throws {
         let source = try await makeSource("loader-prefetch-stats", pageCount: 12)
