@@ -31,9 +31,14 @@ nonisolated enum VolumeUnmounting {
     }
 
     /// `volume` をアンマウントする。失敗したらその理由(成功なら nil)。
-    static func unmount(_ volume: URL) async -> (any Error)? {
-        await withCheckedContinuation { continuation in
-            FileManager.default.unmountVolume(at: volume, options: []) { error in
+    ///
+    /// - 先に、ネットワーク上の書庫の読み込み層が猶予の間だけ持っている記述子を手放させる(`StagedFileRegistry.releaseHolds`。
+    ///   本を閉じた直後に押すと、アプリ自身が持つ記述子で「使用中」になった ―― 2026-10-25 のレビュー)。
+    /// - `.withoutUI`: 失敗の知らせはアプリが出す(docs/09 の作法の文面)。macOS 自身の表示と二重にしない(同レビュー)。
+    static func unmount(_ volume: URL, stagedFiles: StagedFileRegistry = .shared) async -> (any Error)? {
+        stagedFiles.releaseHolds(onVolume: volume.standardizedFileURL.path)
+        return await withCheckedContinuation { continuation in
+            FileManager.default.unmountVolume(at: volume, options: [.withoutUI]) { error in
                 continuation.resume(returning: error)
             }
         }

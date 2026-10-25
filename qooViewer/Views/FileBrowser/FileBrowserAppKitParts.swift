@@ -405,6 +405,15 @@ enum FileBrowserIconProvider {
         return image
     }
 
+    /// ツリーの「ネットワーク」の「ローカルネットワークへのアクセスが許可されていません」(テンプレート画像なので文字色で描かれる)。
+    static var networkNoticeIcon: NSImage? {
+        if let cached = cache["networkNotice"] { return cached }
+        let image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        if let image { cache["networkNotice"] = image }
+        return image
+    }
+
     /// ツリーの「ネットワーク」のサーバ(Finder のサイドバーが SMB のサーバに使う汎用の機器の絵)。
     static var networkServerIcon: NSImage {
         if let cached = cache["networkServer"] { return cached }

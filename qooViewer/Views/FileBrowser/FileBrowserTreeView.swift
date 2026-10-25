@@ -239,6 +239,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case folder
             /// 「ネットワーク」のグループのサーバ(Bonjour のサービス名。url は無く、子も無い。クリックで繋ぐ)。
             case networkServer(String)
+            /// 「ネットワーク」のグループの「ローカルネットワークへのアクセスが許可されていません」(クリックで戻し方を案内する)。
+            case networkNotice
         }
 
         enum Group: CaseIterable {
@@ -296,7 +298,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         /// 読み込んで子を出す行か(グループは自前で持つ)。
-        var loadsChildren: Bool { !isGroup && kind != .recents && serverName == nil }
+        var loadsChildren: Bool { !isGroup && kind != .recents && !isNetworkRow }
+
+        /// 「ネットワーク」のグループの行(サーバ・許可の案内)。選べず、子も無い。
+        var isNetworkRow: Bool { serverName != nil || kind == .networkNotice }
 
         /// サーバの行の名前(サーバの行でなければ nil)。
         var serverName: String? {
@@ -749,7 +754,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case .volume: rootKey = "volume:" + (root.url.map { FileBrowserState.id(for: $0) } ?? "")
             case .home: rootKey = "home"
             case .favorite(let id): rootKey = "favorite:" + id.uuidString
-            case .group, .folder, .recents, .networkServer: return nil
+            case .group, .folder, .recents, .networkServer, .networkNotice: return nil
             }
             return rootKey + "|" + FileBrowserState.id(for: url)
         }
@@ -1262,7 +1267,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             // サーバの行は選ばせない(クリックで繋ぐ ―― 型コメント「ネットワーク」)。
             guard let node = item as? Node else { return false }
-            return !node.isGroup && node.serverName == nil
+            return !node.isGroup && !node.isNetworkRow
         }
 
         /// グループの見出し(ボリューム・ホーム・よく使う項目)には開閉の印を出さない(2026-09-14、ユーザー報告)。
@@ -1333,6 +1338,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             case .networkServer(let name):
                 cell.icon?.image = FileBrowserIconProvider.networkServerIcon
                 cell.configure(text: name, outlineWidth: outlineWidth)
+            case .networkNotice:
+                cell.icon?.image = FileBrowserIconProvider.networkNoticeIcon
+                cell.configure(
+                    text: String(localized: "Local network access isn’t allowed", language: locale),
+                    color: .secondaryLabelColor, outlineWidth: outlineWidth
+                )
             default:
                 cell.icon?.image = FileBrowserIconProvider.folderIcon
                 cell.configure(text: node.name, outlineWidth: outlineWidth)
@@ -1546,9 +1557,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private func startNetworkServers() {
             guard let directory = networkServers, networkSubscriptions.isEmpty else { return }
             networkSubscriptions = [
-                directory.$servers.removeDuplicates().sink { [weak self] names in
-                    MainActor.assumeIsolated { self?.applyNetworkServers(names) }
-                },
+                directory.$servers.combineLatest(directory.$isLocalNetworkDenied)
+                    .removeDuplicates { $0 == $1 }
+                    .sink { [weak self] names, denied in
+                        MainActor.assumeIsolated { self?.applyNetworkServers(names, isDenied: denied) }
+                    },
                 directory.$connectingServers.removeDuplicates().dropFirst().sink { [weak self] _ in
                     // 回転表示は次のランループで(publish は値が入る前に届く)。
                     DispatchQueue.main.async { self?.refreshNetworkServerRows() }
@@ -1562,20 +1575,28 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard !networkSubscriptions.isEmpty else { return }
             networkSubscriptions.removeAll()
             networkServers?.deactivate(client: networkClientID)
-            applyNetworkServers([])
+            applyNetworkServers([], isDenied: false)
         }
 
         /// サーバの行を一覧に合わせる(残るサーバの行は同じ Node を使い回す)。グループは 1 つ目が見つかったら出し、
-        /// 全部消えたら引っ込める。
-        private func applyNetworkServers(_ names: [String]) {
+        /// 全部消えたら引っ込める。ローカルネットワークの許可が無ければ、サーバの代わりに案内の行を 1 つ出す(型コメント「ネットワーク」)。
+        private func applyNetworkServers(_ names: [String], isDenied: Bool) {
             guard let outline else { return }
             let wasShown = showsNetworkGroup
+            // 引っ込めるときの位置は、変える前の並びから読む(根の並びの写しを別に持たない ―― 2026-10-25 のレビュー)。
+            let previousIndex = roots.firstIndex { $0 === networkGroup }
             let previous = networkGroup.children ?? []
-            let rows = names.map { name in
-                previous.first { $0.serverName == name }
-                    ?? Node(kind: .networkServer(name), url: nil, name: name, hasSubfolders: false)
+            let rows: [Node]
+            if isDenied && names.isEmpty {
+                rows = [previous.first { $0.kind == .networkNotice }
+                    ?? Node(kind: .networkNotice, url: nil, name: "", hasSubfolders: false)]
+            } else {
+                rows = names.map { name in
+                    previous.first { $0.serverName == name }
+                        ?? Node(kind: .networkServer(name), url: nil, name: name, hasSubfolders: false)
+                }
             }
-            guard rows.map(\.serverName) != previous.map(\.serverName) else { return }
+            guard rows.map(\.kind) != previous.map(\.kind) else { return }
             networkGroup.children = rows
             switch (wasShown, showsNetworkGroup) {
             case (false, true):
@@ -1583,8 +1604,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outline.insertItems(at: IndexSet(integer: roots.firstIndex { $0 === networkGroup } ?? 0), inParent: nil)
                 outline.expandItem(networkGroup)
             case (true, false):
-                let index = (showsRecents ? 1 : 0) + 1
-                outline.removeItems(at: IndexSet(integer: index), inParent: nil)
+                guard let previousIndex else { break }
+                outline.removeItems(at: IndexSet(integer: previousIndex), inParent: nil)
             case (true, true):
                 outline.reloadItem(networkGroup, reloadChildren: true)
                 outline.expandItem(networkGroup)
@@ -1617,10 +1638,37 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         /// 行のクリック(`outline.action`)。サーバの行だけを扱う(ほかの行は選択の変化で右ペインが移る)。
         @objc func rowClicked(_ sender: Any?) {
-            guard let outline, outline.clickedRow >= 0,
-                  let node = outline.item(atRow: outline.clickedRow) as? Node, let server = node.serverName
+            // ダブルクリックの 2 回目は無視する(1 回目で繋ぎ始めている。2 回目が「繋いでいる最中」の音を鳴らさないように ――
+            // 2026-10-25 のレビュー)。
+            guard (NSApp.currentEvent?.clickCount ?? 1) <= 1, let outline, outline.clickedRow >= 0,
+                  let node = outline.item(atRow: outline.clickedRow) as? Node
             else { return }
-            connect(to: server)
+            if let server = node.serverName {
+                connect(to: server)
+            } else if node.kind == .networkNotice {
+                explainLocalNetworkAccess()
+            }
+        }
+
+        /// ローカルネットワークの許可の戻し方を案内し、望めばシステム設定を開く。「ローカルネットワーク」の画面を直接開く URL は
+        /// 無い(2026-10-25 実測: どの書き方でも「プライバシーとセキュリティ」の最初の画面まで)ので、その先は文で案内する。
+        /// 戻して qooViewer へ戻れば、探し直して並ぶ(`NetworkServerDirectory.refreshOnActivation`)。
+        private func explainLocalNetworkAccess() {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "qooViewer can’t look for devices on your local network.", language: locale)
+            alert.informativeText = String(
+                localized: "To allow it, open System Settings, choose Privacy & Security, then Local Network, and turn on qooViewer.",
+                language: locale
+            )
+            alert.addButton(withTitle: String(localized: "Open System Settings", language: locale))
+            alert.addButton(withTitle: String(localized: "Cancel", language: locale))
+            let window = outline?.window
+            Task {
+                guard await WindowSheet.run(alert, for: window) == .alertFirstButtonReturn,
+                      let url = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension")
+                else { return }
+                NSWorkspace.shared.open(url)
+            }
         }
 
         @objc private func connectFromMenu(_ sender: NSMenuItem) {
@@ -1644,6 +1692,16 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     self.state?.navigate(to: URL(filePath: first, directoryHint: .isDirectory))
                 case .cancelled:
                     break
+                case .failed(let status) where status == EEXIST:
+                    // もうマウントしてある共有だけを選んだ。そのボリュームへ移る(2026-10-25 のレビュー)。
+                    if let existing = NetworkMountLookup.mountPoints(ofServer: server, in: .current()).first {
+                        self.state?.navigate(to: URL(filePath: existing, directoryHint: .isDirectory))
+                    } else {
+                        self.showProblem(
+                            title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
+                            message: Self.message(forNetFSStatus: status)
+                        )
+                    }
                 case .failed(let status):
                     self.showProblem(
                         title: String(format: String(localized: "Couldn’t connect to “%@”.", language: self.locale), server),
@@ -1687,6 +1745,18 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     message: String(localized: "Close the book, then try again.", language: locale)
                 )
             }
+            // qooViewer の作業(ファイルブラウザのコピー・移動・圧縮、書き出し、保存データの読み込み)が走っている・並んでいる間は断る。
+            // どのボリュームを触っているかは数えていないので、どれか 1 つでも走っていれば断る(コピーの途中で外すと、写しが中途半端に
+            // 残る ―― 2026-10-25 のレビュー)。
+            if RunningWorkRegistry.forCurrentProcess?.hasRunningWork == true || state?.operations.isBusy == true {
+                return showProblem(
+                    title: String(
+                        format: String(localized: "“%@” can’t be unmounted while qooViewer is working on files.", language: locale),
+                        node.name
+                    ),
+                    message: String(localized: "Try again after the work finishes.", language: locale)
+                )
+            }
             unmountingMountPoints.insert(path)
             outline.reloadItem(node)
             let name = node.name
@@ -1714,8 +1784,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard let outline else { return }
             let row = outline.clickedRow
             if row >= 0, let node = outline.item(atRow: row) as? Node, let server = node.serverName {
-                // サーバの行は「接続」だけ(ファイルの項目は無い)。
+                // サーバの行は「接続」だけ(ファイルの項目は無い)。淡色を自分で決めるので自動の有効化を切る(既定の ON のままだと
+                // `isEnabled` が無視される ―― 2026-10-25 のレビュー)。
                 menu.removeAllItems()
+                menu.autoenablesItems = false
                 let item = NSMenuItem(
                     title: String(localized: "Connect", language: locale), action: #selector(connectFromMenu(_:)), keyEquivalent: ""
                 )

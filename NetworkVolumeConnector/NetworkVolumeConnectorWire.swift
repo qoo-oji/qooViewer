@@ -16,8 +16,9 @@ import Foundation
 /// アプリからサービスへの口。
 @objc(QooNetworkVolumeConnecting)
 nonisolated protocol NetworkVolumeConnecting {
-    /// サーバを探し始める。見つかっているサーバの名前が変わるたびに、接続の相手(`NetworkVolumeConnectorObserving`)へ知らせる
-    /// (始めた直後にも 1 度、いまの一覧を知らせる)。もう探していれば、いまの一覧を知らせ直すだけ。
+    /// サーバを探し始める。見つかっているサーバの名前・ローカルネットワークの許可の有無が変わるたびに、接続の相手
+    /// (`NetworkVolumeConnectorObserving`)へ知らせる。始めた直後には知らせない(結果が来たとき・断られたとき・断られずに少し
+    /// 経ったときに知らせる ―― サービスの型コメント)。もう探していれば、いまの一覧を知らせ直すだけ。
     func startBrowsing()
     /// 探すのをやめる(一覧は空になる。知らせはしない)。
     func stopBrowsing()
@@ -32,8 +33,9 @@ nonisolated protocol NetworkVolumeConnecting {
 /// サービスからアプリへの知らせ(接続の `exportedObject` がアプリの側で受ける)。
 @objc(QooNetworkVolumeConnectorObserving)
 nonisolated protocol NetworkVolumeConnectorObserving {
-    /// 見つかっているサーバの名前(JSON の `[String]`。重なりなし・表示の順に並べたもの)。
-    func serversDidChange(_ names: Data)
+    /// 見つかっているサーバの名前(JSON の `[String]`。重なりなし・表示の順に並べたもの)と、ローカルネットワークの許可が無いか
+    /// (システム設定 ▸ プライバシーとセキュリティ ▸ ローカルネットワークで断られている。そのとき名前は空)。
+    func serversDidChange(_ names: Data, isLocalNetworkDenied: Bool)
 }
 
 /// 両側が同じに判定する決まり。

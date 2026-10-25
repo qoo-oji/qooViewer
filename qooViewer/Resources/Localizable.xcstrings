@@ -36502,18 +36502,114 @@
         }
       }
     },
-    "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network." : {
+    "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network. If you didn’t allow it, turn on qooViewer in System Settings > Privacy & Security > Local Network." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network."
+            "value" : "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network. If you didn’t allow it, turn on qooViewer in System Settings > Privacy & Security > Local Network."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "左のツリーの「ボリューム」の下に「ネットワーク」を加え、ローカルネットワークで見つかったファイルサーバを並べます。クリックすると接続します。必要なら macOS がパスワードを尋ね、マウントするボリュームを選べます。初回は、qooViewer がローカルネットワーク上のデバイスを探してよいかを macOS が確認します。"
+            "value" : "左のツリーの「ボリューム」の下に「ネットワーク」を加え、ローカルネットワークで見つかったファイルサーバを並べます。クリックすると接続します。必要なら macOS がパスワードを尋ね、マウントするボリュームを選べます。初回は、qooViewer がローカルネットワーク上のデバイスを探してよいかを macOS が確認します。許可しなかった場合は、システム設定の「プライバシーとセキュリティ」→「ローカルネットワーク」で qooViewer をオンにしてください。"
+          }
+        }
+      }
+    },
+    "Local network access isn’t allowed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local network access isn’t allowed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカルネットワークへのアクセスが許可されていません"
+          }
+        }
+      }
+    },
+    "qooViewer can’t look for devices on your local network." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer can’t look for devices on your local network."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer はローカルネットワーク上のデバイスを探せません。"
+          }
+        }
+      }
+    },
+    "To allow it, open System Settings, choose Privacy & Security, then Local Network, and turn on qooViewer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To allow it, open System Settings, choose Privacy & Security, then Local Network, and turn on qooViewer."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "許可するには、システム設定を開いて「プライバシーとセキュリティ」→「ローカルネットワーク」の順に選び、qooViewer をオンにしてください。"
+          }
+        }
+      }
+    },
+    "Open System Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open System Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システム設定を開く"
+          }
+        }
+      }
+    },
+    "“%@” can’t be unmounted while qooViewer is working on files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” can’t be unmounted while qooViewer is working on files."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer がファイルの作業をしている間は、“%@”をアンマウントできません。"
+          }
+        }
+      }
+    },
+    "Try again after the work finishes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again after the work finishes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業が終わってから、もう一度試してください。"
           }
         }
       }

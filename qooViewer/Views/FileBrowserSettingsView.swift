@@ -136,7 +136,7 @@ struct FileBrowserSettingsView: View {
                 SettingsToggle(
                     "Show Network in the Tree",
                     isOn: $preferences.fileBrowserShowsNetwork,
-                    help: "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network."
+                    help: "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network. If you didn’t allow it, turn on qooViewer in System Settings > Privacy & Security > Local Network."
                 )
             } header: {
                 Text("Tree")

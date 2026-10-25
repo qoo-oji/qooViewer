@@ -481,6 +481,7 @@ final class DebugControlPort {
         case "fileBrowserFeatureEnabled": preferences.fileBrowserFeatureEnabled = value
         case "smartLibraryFeatureEnabled": preferences.smartLibraryFeatureEnabled = value
         case "fileBrowserReadOnly": preferences.fileBrowserReadOnly = value
+        case "fileBrowserShowsNetwork": preferences.fileBrowserShowsNetwork = value
         default: throw Failure("not a switchable preference: \(key)")
         }
         return [key: value]
@@ -553,7 +554,10 @@ enum DebugStateDump {
                 "fileBrowser": preferences.fileBrowserFeatureEnabled,
                 "smartLibrary": preferences.smartLibraryFeatureEnabled,
                 "fileBrowserReadOnly": preferences.fileBrowserReadOnly,
+                "fileBrowserShowsNetwork": preferences.fileBrowserShowsNetwork,
             ],
+            // ツリーの「ネットワーク」に並んでいるサーバ(探していなければ空)。
+            "networkServers": stores.networkServers.servers,
         ]
     }
 

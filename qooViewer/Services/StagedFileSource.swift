@@ -567,6 +567,26 @@ nonisolated final class StagedFileRegistry: @unchecked Sendable {
         return live.values.filter { $0.source != nil }.count
     }
 
+    /// `mountPoint` の上のファイルの猶予を今すぐ切る(ファイルブラウザのツリーのアンマウントの前。2026-10-25 のレビュー ――
+    /// 本を閉じた直後は、ここが猶予の間その書庫の記述子を持っているので、アンマウントが「使用中」で失敗した)。使っている
+    /// 読み手がいるもの(開いている本)は、読み手が持つので残る。
+    func releaseHolds(onVolume mountPoint: String) {
+        let prefix = mountPoint.hasSuffix("/") ? mountPoint : mountPoint + "/"
+        lock.lock()
+        var released: [StagedFileSource] = []
+        for (key, hold) in holds {
+            let path = key.split(separator: "|", maxSplits: 1).first.map(String.init) ?? ""
+            if path.hasPrefix(prefix) {
+                released.append(hold.source)
+                holds[key] = nil
+            }
+        }
+        live = live.filter { $0.value.source != nil || holds[$0.key] != nil }
+        lock.unlock()
+        // 強参照はロックの外で手放す(ここで記述子が閉じる)。
+        released.removeAll()
+    }
+
     /// 猶予を今すぐ切る(テスト用)。
     func expireAllHolds() {
         lock.lock()

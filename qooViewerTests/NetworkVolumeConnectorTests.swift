@@ -63,14 +63,14 @@ private final class FakeNetworkVolumeConnector: NetworkVolumeConnectorTransport,
     private let lock = NSLock()
     private var _startCount = 0
     private var _stopCount = 0
-    private var onChange: (@Sendable ([String]) -> Void)?
+    private var onChange: (@Sendable (NetworkBrowseSnapshot) -> Void)?
     private var pendingMounts: [(String, @Sendable (NetworkMountResult) -> Void)] = []
 
     var startCount: Int { lock.withLock { _startCount } }
     var stopCount: Int { lock.withLock { _stopCount } }
     var mountRequests: [String] { lock.withLock { pendingMounts.map(\.0) } }
 
-    func startBrowsing(onChange: @escaping @Sendable ([String]) -> Void) {
+    func startBrowsing(onChange: @escaping @Sendable (NetworkBrowseSnapshot) -> Void) {
         lock.withLock {
             _startCount += 1
             self.onChange = onChange
@@ -85,9 +85,9 @@ private final class FakeNetworkVolumeConnector: NetworkVolumeConnectorTransport,
         lock.withLock { pendingMounts.append((serverName, completion)) }
     }
 
-    func send(_ names: [String]) {
+    func send(_ names: [String], denied: Bool = false) {
         let handler = lock.withLock { onChange }
-        handler?(names)
+        handler?(NetworkBrowseSnapshot(names: names, isLocalNetworkDenied: denied))
     }
 
     func finishMount(with result: NetworkMountResult) {
@@ -103,7 +103,7 @@ struct NetworkServerDirectoryTests {
         for _ in 0..<5 { await Task.yield() }
     }
 
-    @Test("探すのは 1 つ目のツリーが出たときから最後のツリーが消えるまで。消えたら一覧は空")
+    @Test("探すのは 1 つ目のツリーが出たときから最後のツリーが消えるまで。消えても前回の一覧は残し、後から届いた前の回の知らせは捨てる")
     func browsesOnlyWhileATreeIsShown() async {
         let fake = FakeNetworkVolumeConnector()
         let directory = NetworkServerDirectory(transport: fake)
@@ -119,11 +119,43 @@ struct NetworkServerDirectoryTests {
         #expect(directory.servers == ["NAS-A", "NAS-B"])
         directory.deactivate(client: second)
         #expect(fake.stopCount == 1)
-        #expect(directory.servers.isEmpty)
+        // 前回の一覧として残す(ツリーを作り直すたびに「ネットワーク」が出直さないように)。
+        #expect(directory.servers == ["NAS-A", "NAS-B"])
         // やめた後に届いた前の回の知らせは捨てる。
         fake.send(["NAS-C"])
         await settle()
+        #expect(directory.servers == ["NAS-A", "NAS-B"])
+        // 探し直した結果が来たら入れ替える。
+        directory.activate(client: first)
+        #expect(fake.startCount == 2)
+        fake.send(["NAS-C"])
+        await settle()
+        #expect(directory.servers == ["NAS-C"])
+    }
+
+    @Test("断られていれば一覧は空で印が立つ。前面に戻ったら探し直し(間隔の下限あり)、許可されたら一覧が戻る")
+    func refreshesOnActivation() async {
+        let fake = FakeNetworkVolumeConnector()
+        let directory = NetworkServerDirectory(transport: fake)
+        let start = ContinuousClock.now
+        directory.activate(client: UUID())
+        fake.send([], denied: true)
+        await settle()
+        #expect(directory.isLocalNetworkDenied)
         #expect(directory.servers.isEmpty)
+        directory.refreshOnActivation(now: start + .seconds(10))
+        #expect(fake.stopCount == 1)
+        #expect(fake.startCount == 2)
+        fake.send(["NAS-A"])
+        await settle()
+        #expect(!directory.isLocalNetworkDenied)
+        #expect(directory.servers == ["NAS-A"])
+        // 間隔の下限より前の前面への出入りでは探し直さない。
+        directory.refreshOnActivation(now: start + .seconds(11))
+        #expect(fake.startCount == 2)
+        // 許可されていても探し直す(使っている途中でオフにされても、走っている探索には届かないため)。
+        directory.refreshOnActivation(now: start + .seconds(20))
+        #expect(fake.startCount == 3)
     }
 
     @Test("同じサーバへ繋いでいる最中の 2 回目は重ねない(nil)。返事が来たら繋ぎ直せる")
@@ -165,5 +197,48 @@ struct VolumeUnmountingTests {
             URL(filePath: $0, directoryHint: .isDirectory)
         }
         #expect(VolumeUnmounting.unmountableMountPoints(of: volumes, mountTable: table) == ["/Volumes/share"])
+    }
+}
+
+/// すでにマウントしてある共有の場所(NetworkMountLookup。共有の選択で EEXIST が返ったとき)。
+struct NetworkMountLookupTests {
+    @Test("マウント元のホストが Bonjour の名前・.local・名前そのもののどれかなら当たる。大文字小文字と百分率符号化は畳む")
+    func findsMountedShares() {
+        let table = MountTable(entries: [
+            .init(mountPoint: "/Volumes/share", mountedFrom: "//user@NAS-01._smb._tcp.local/share", fileSystemType: "smbfs",
+                  isLocal: false, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/other", mountedFrom: "//user@other._smb._tcp.local/other", fileSystemType: "smbfs",
+                  isLocal: false, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/office", mountedFrom: "//Office%20NAS._smb._tcp.local/docs", fileSystemType: "smbfs",
+                  isLocal: false, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/plain", mountedFrom: "//guest@nas-01.local:445/plain", fileSystemType: "smbfs",
+                  isLocal: false, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/Volumes/nfs", mountedFrom: "//NAS-01._smb._tcp.local/nfs", fileSystemType: "nfs",
+                  isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        #expect(NetworkMountLookup.mountPoints(ofServer: "NAS-01", in: table) == ["/Volumes/share", "/Volumes/plain"])
+        #expect(NetworkMountLookup.mountPoints(ofServer: "Office NAS", in: table) == ["/Volumes/office"])
+        #expect(NetworkMountLookup.mountPoints(ofServer: "nobody", in: table).isEmpty)
+        #expect(NetworkMountLookup.host(ofMountedFrom: "/dev/disk4s1") == nil)
+    }
+}
+
+/// アンマウントの前に、ネットワーク上の書庫の読み込み層が猶予の間だけ持つ記述子を手放す(StagedFileRegistry.releaseHolds)。
+struct StagedFileRegistryReleaseTests {
+    @Test("そのボリュームの上の、読み手のいない読み込み層だけを手放す")
+    func releasesHoldsOnTheVolume() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "staged-release-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "book.zip")
+        try Data(repeating: 7, count: 4096).write(to: file)
+        let registry = StagedFileRegistry(gracePeriod: 60, maxHeld: 4)
+        _ = try registry.source(for: file)
+        #expect(registry.liveCount == 1)
+        // 別のボリューム(場所)を手放しても残る。
+        registry.releaseHolds(onVolume: "/Volumes/somewhere-else")
+        #expect(registry.liveCount == 1)
+        registry.releaseHolds(onVolume: folder.path)
+        #expect(registry.liveCount == 0)
     }
 }
