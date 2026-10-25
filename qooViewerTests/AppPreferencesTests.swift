@@ -325,6 +325,7 @@ struct AppPreferencesTests {
         .fileBrowser: [
             "fileBrowserStartupLocation", "fileBrowserStartupFavoriteID", "fileBrowserFoldersFirst",
             "fileBrowserExternalDropAction", "fileBrowserExpandsTreeToCurrentFolder", "fileBrowserTreeFollowsListSort", "fileBrowserShowsRecents",
+            "fileBrowserShowsNetwork",
             "fileBrowserCompressionFormat",
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
             "fileBrowserWarnsBeforeChangingExtension",

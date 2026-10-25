@@ -73,6 +73,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
         static let fileBrowserTreeFollowsListSort = "qooViewer.pref.fileBrowser.treeFollowsListSort"
         static let fileBrowserShowsRecents = "qooViewer.pref.fileBrowser.showsRecents"
+        static let fileBrowserShowsNetwork = "qooViewer.pref.fileBrowser.showsNetwork"
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
@@ -583,6 +584,12 @@ final class AppPreferences: ObservableObject {
     /// 設定に関わらず出さない(履歴を見せない約束)。`FileBrowserLocation.recents`。
     @Published var fileBrowserShowsRecents: Bool {
         didSet { defaults.set(fileBrowserShowsRecents, forKey: Keys.fileBrowserShowsRecents) }
+    }
+    /// 左のツリーに「ネットワーク」(LAN で見つかった SMB のサーバ。クリックで繋ぐ)を出すか(既定 OFF。2026-10-25、利用者の要望)。
+    /// OFF の間は LAN を探さない ―― 初めて ON にしてツリーが出たときに、macOS がローカルネットワークの許可を確かめる
+    /// (既定 ON だと、更新しただけの利用者全員にこの確認が出る)。FileBrowserTreeView の型コメント「ネットワーク」。
+    @Published var fileBrowserShowsNetwork: Bool {
+        didSet { defaults.set(fileBrowserShowsNetwork, forKey: Keys.fileBrowserShowsNetwork) }
     }
     /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
     @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
@@ -1451,6 +1458,7 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserTreeFollowsListSort =
             defaults.object(forKey: Keys.fileBrowserTreeFollowsListSort) as? Bool ?? false
         self.fileBrowserShowsRecents = defaults.object(forKey: Keys.fileBrowserShowsRecents) as? Bool ?? false
+        self.fileBrowserShowsNetwork = defaults.object(forKey: Keys.fileBrowserShowsNetwork) as? Bool ?? false
         self.fileBrowserVideoThumbnailsEnabled =
             defaults.object(forKey: Keys.fileBrowserVideoThumbnailsEnabled) as? Bool ?? true
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
@@ -1727,6 +1735,7 @@ extension AppPreferences {
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
                 Keys.fileBrowserTreeFollowsListSort,
                 Keys.fileBrowserShowsRecents,
+                Keys.fileBrowserShowsNetwork,
                 Keys.fileBrowserCompressionFormat,
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
@@ -1866,6 +1875,7 @@ extension AppPreferences {
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
             fileBrowserTreeFollowsListSort = source.fileBrowserTreeFollowsListSort
             fileBrowserShowsRecents = source.fileBrowserShowsRecents
+            fileBrowserShowsNetwork = source.fileBrowserShowsNetwork
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination

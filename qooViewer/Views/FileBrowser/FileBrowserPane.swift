@@ -81,6 +81,7 @@ struct FileBrowserPane: View {
                 // シークレットウインドウでは履歴を見せない(AppState.isPrivateWindow)ので、最近の項目も出さない。
                 showsRecents: preferences.fileBrowserShowsRecents && !appState.isPrivateWindow,
                 networkServers: unobservedStores.networkServers,
+                showsNetwork: preferences.fileBrowserShowsNetwork,
                 wheelScrollRows: appearance.homeListWheelScrollRows
             )
             .frame(width: treeWidth)

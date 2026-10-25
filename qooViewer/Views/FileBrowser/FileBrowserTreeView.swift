@@ -8,6 +8,7 @@ import SwiftUI
 /// **よく使う項目**(FavoriteLocationStore。見出しの右に「＋」)。
 ///
 /// ■ ネットワーク(2026-10-25、利用者の要望)
+/// 環境設定「ツリーに「ネットワーク」を表示」(既定 OFF)が ON なら、
 /// LAN で SMB のサーバが見つかっている間だけ、ボリュームとホームの間に **ネットワーク** のグループを出し、サーバを 1 行ずつ並べる
 /// (`NetworkServerDirectory`。探すのはツリーが画面に出ている間だけ)。サーバの行は選べず、子も無い。**クリックすると繋ぐ**:
 /// macOS が認証(要れば)とマウントする共有の選択のダイアログを出し、マウントされたら右ペインがそのボリュームへ移る
@@ -126,6 +127,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
     let showsRecents: Bool
     /// 「ネットワーク」のグループに並べるサーバ(型コメント「ネットワーク」)。nil なら出さない。
     let networkServers: NetworkServerDirectory?
+    /// 「ネットワーク」を出すか(環境設定「ツリーに「ネットワーク」を表示」。OFF の間は LAN を探さない)。
+    let showsNetwork: Bool
 
     /// ホイール1ノッチで動かす行数(リスト表示と共通の設定。HomeWheelScroll参照)。
     /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
@@ -378,6 +381,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// `NetworkServerDirectory.activate(client:)` に渡す、このツリーの番号。
         private let networkClientID = UUID()
         private var networkSubscriptions: [AnyCancellable] = []
+        /// 環境設定で「ネットワーク」を出すか(`update` が写す)。
+        private var showsNetwork = false
+        /// `start` を通ったか(それまでは設定が変わっても探し始めない ―― `start` が始める)。
+        private var hasStarted = false
         /// アンマウントのボタンを付けるボリューム(`VolumeUnmounting.unmountableMountPoints`。ボリュームの一覧と一緒に読む)。
         private var unmountableMountPoints: Set<String> = []
         /// アンマウントしている最中のボリューム(ボタンを押し重ねさせない)。
@@ -394,7 +401,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // グループの見出しは開いた状態で始める(中の行は閉じている ―― 型コメント)。
             for group in groups { outline.expandItem(group) }
             reloadVolumes()
-            startNetworkServers()
+            hasStarted = true
+            if showsNetwork { startNetworkServers() }
             watcher = FolderChangeWatcher(onEvents: { [weak self] events in
                 // ファイルの書き換えだけの知らせでは読み直さない(ツリーにはフォルダしか出ないので何も変わらない。
                 // `FolderChangeWatcher.Event.isFileModificationOnly`。2026-10-05 の効率の監査 B13)。
@@ -418,8 +426,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         func stop() {
-            networkSubscriptions.removeAll()
-            networkServers?.deactivate(client: networkClientID)
+            hasStarted = false
+            stopNetworkServers()
             let center = NSWorkspace.shared.notificationCenter
             volumeObservers.forEach(center.removeObserver)
             volumeObservers.removeAll()
@@ -573,6 +581,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard let outline else { return }
             state = view.state
             if networkServers == nil, let directory = view.networkServers { networkServers = directory }
+            // 環境設定「ツリーに「ネットワーク」を表示」の切り替え。OFF にしたらグループを引っ込め、探すのもやめる。
+            if view.showsNetwork != showsNetwork {
+                showsNetwork = view.showsNetwork
+                if hasStarted {
+                    if showsNetwork { startNetworkServers() } else { stopNetworkServers() }
+                }
+            }
             actions = view.actions
             favoriteLocations = view.favoriteLocations
             var needsRedraw = false
@@ -1529,7 +1544,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         /// 見つかっているサーバの購読を始める(型コメント「ネットワーク」)。ツリーが画面にある間だけ探す。
         private func startNetworkServers() {
-            guard let directory = networkServers else { return }
+            guard let directory = networkServers, networkSubscriptions.isEmpty else { return }
             networkSubscriptions = [
                 directory.$servers.removeDuplicates().sink { [weak self] names in
                     MainActor.assumeIsolated { self?.applyNetworkServers(names) }
@@ -1540,6 +1555,14 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 },
             ]
             directory.activate(client: networkClientID)
+        }
+
+        /// 見つかっているサーバの購読をやめ、グループを引っ込める(環境設定で OFF にした・ツリーが消える)。
+        private func stopNetworkServers() {
+            guard !networkSubscriptions.isEmpty else { return }
+            networkSubscriptions.removeAll()
+            networkServers?.deactivate(client: networkClientID)
+            applyNetworkServers([])
         }
 
         /// サーバの行を一覧に合わせる(残るサーバの行は同じ Node を使い回す)。グループは 1 つ目が見つかったら出し、

@@ -330,7 +330,8 @@ Sparkle の値の変化(KVO)は、届いたスレッドがメインならその�
   `scripts/release/check-release-app.sh` が entitlement とバンドル ID を確かめる)。頼めるのは**いま見つかっているサーバ**だけで、URL は
   `smb://<名前>._smb._tcp.local` の形に限る(`NetworkVolumeConnectorPolicy`。アプリとサービスが同じ判定をする)。この Mac 自身
   (ループバックで見えるもの)は外す。サービスは SMB を話さない ―― マウント・認証・共有の選択は macOS の NetAuthSysAgent / NetAuthAgent。
-- アプリの側は `NetworkServerDirectory`(アプリで 1 つ、`AppStores.networkServers`)。探すのはツリーが画面にある間だけ。テストの中で走る
+- アプリの側は `NetworkServerDirectory`(アプリで 1 つ、`AppStores.networkServers`)。探すのは環境設定「ツリーに「ネットワーク」を表示」
+  (既定 OFF)が ON で、ツリーが画面にある間だけ。テストの中で走る
   実物のアプリでは道を繋がない(`AppStores.Dependencies.networkVolumeConnector` が nil)。
 - アンマウントはアプリ本体(`VolumeUnmounting`)。
 - ローカルネットワークの許可の確認の文は、アプリ本体の Info.plist の `NSLocalNetworkUsageDescription`(日本語は `InfoPlist.xcstrings`)。

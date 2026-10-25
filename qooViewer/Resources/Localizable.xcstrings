@@ -36485,6 +36485,38 @@
           }
         }
       }
+    },
+    "Show Network in the Tree" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Network in the Tree"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツリーに「ネットワーク」を表示"
+          }
+        }
+      }
+    },
+    "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左のツリーの「ボリューム」の下に「ネットワーク」を加え、ローカルネットワークで見つかったファイルサーバを並べます。クリックすると接続します。必要なら macOS がパスワードを尋ね、マウントするボリュームを選べます。初回は、qooViewer がローカルネットワーク上のデバイスを探してよいかを macOS が確認します。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

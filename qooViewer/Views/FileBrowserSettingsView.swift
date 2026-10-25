@@ -132,6 +132,12 @@ struct FileBrowserSettingsView: View {
                     isOn: $preferences.fileBrowserShowsRecents,
                     help: "Adds “Recents” above Volumes in the tree on the left. It lists the books you have opened in qooViewer, newest first (the same list as the File menu's Open Recent), so you can get back to them from a Home that has no history button. It is not shown in private windows."
                 )
+                // LAN の SMB サーバ(2026-10-25、利用者の要望。既定 OFF ―― AppPreferences.fileBrowserShowsNetwork)。
+                SettingsToggle(
+                    "Show Network in the Tree",
+                    isOn: $preferences.fileBrowserShowsNetwork,
+                    help: "Adds “Network” below Volumes in the tree on the left, listing the file servers found on your local network. Click one to connect: macOS asks for a password if needed and lets you choose the volumes to mount. The first time, macOS asks whether qooViewer may find devices on your local network."
+                )
             } header: {
                 Text("Tree")
             }
