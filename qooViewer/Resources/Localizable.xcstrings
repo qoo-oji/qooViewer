@@ -5665,23 +5665,6 @@
         }
       }
     },
-    "All data has been deleted. qooViewer will now quit — please reopen it." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All data has been deleted. qooViewer will now quit — please reopen it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのデータを削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
-          }
-        }
-      }
-    },
     "All data has been deleted. qooViewer will quit in 10 seconds — please reopen it." : {
       "localizations" : {
         "en" : {
@@ -6261,23 +6244,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "物理マウスのホイールにだけ効きます。\nトラックパッドのスクロールは変わりません。"
-          }
-        }
-      }
-    },
-    "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to collections and their books, and to the smart library. When on, a click opens the item; select with Command-click, Shift-click, dragging from an empty area, or the arrow keys. When off, a click selects and a double-click opens. The file browser always works like the Finder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクションとその中の本、スマートライブラリに効きます。オンのときはクリックで開き、選ぶのは ⌘ クリック・⇧ クリック・空いている所からのドラッグ・矢印キーです。オフのときはクリックで選び、ダブルクリックで開きます。ファイルブラウザは常にFinder と同じ操作です。"
           }
         }
       }
@@ -12477,23 +12443,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "末尾の「side」「part」などを削除"
-          }
-        }
-      }
-    },
-    "Drop an image file on the cover, or right-click it to choose a page." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Drop an image file on the cover, or right-click it to choose a page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カバーに画像ファイルをドロップするか、カバーを右クリックしてページを選べます。"
           }
         }
       }
@@ -24819,23 +24768,6 @@
         }
       }
     },
-    "Remove %lld books from the collection?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove %lld books from the collection?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld冊をコレクションから削除しますか?"
-          }
-        }
-      }
-    },
     "Remove %lld books from the history?" : {
       "localizations" : {
         "en" : {
@@ -25010,23 +24942,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した本をコレクションから削除"
-          }
-        }
-      }
-    },
-    "Remove this book from the collection?" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove this book from the collection?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本をコレクションから削除しますか?"
           }
         }
       }
@@ -27988,23 +27903,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シークレットウインドウのタイトルの前に付ける文字です。空にすると何も付けません(タイトルバーの色で見分けられる場合など)。絵文字も使えます。"
-          }
-        }
-      }
-    },
-    "Shown in the File menu's Open Recent and in the side panel's History mode." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shown in the File menu's Open Recent and in the side panel's History mode."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルメニューの「最近使った項目を開く」と、サイドパネルの「履歴」に表示されます。"
           }
         }
       }
@@ -31711,23 +31609,6 @@
         }
       }
     },
-    "This permanently deletes every bookmark in this book. This cannot be undone." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This permanently deletes every bookmark in this book. This cannot be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のすべてのブックマークを完全に削除します。この操作は取り消せません。"
-          }
-        }
-      }
-    },
     "This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone." : {
       "localizations" : {
         "en" : {
@@ -31740,23 +31621,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本のすべてのレイアウト設定(読み方向・ページ順・単独/見開きページの設定)を完全に削除します。この操作は取り消せません。"
-          }
-        }
-      }
-    },
-    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択した項目を、ファイルメニューの「最近使った項目を開く」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。"
           }
         }
       }
