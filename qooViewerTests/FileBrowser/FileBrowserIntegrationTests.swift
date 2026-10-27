@@ -1000,6 +1000,52 @@ struct FileBrowserIntegrationTests {
         #expect(FileBrowserMenuCommand.groups(for: .folder).contains([.getInfo, .rename, .compress, .makeAlias, .quickLook]))
     }
 
+    @Test("右クリックの「“名前”を取り出す」: アンマウントできるボリューム 1 つだけ、「ゴミ箱に入れる」(⌥ の代わりの項目)の後ろ、外している間は淡色")
+    func ejectMenuItem() throws {
+        let fixture = try Fixture("fb-menu-eject")
+        defer { fixture.close() }
+        let english = Locale(identifier: "en")
+        // 実在しないマウント先(押さないので触らない)。
+        func volume(_ name: String, unmountable: Bool) -> FileBrowserEntry {
+            var entry = FileBrowserEntry(
+                url: URL(filePath: "/Volumes/\(name)", directoryHint: .isDirectory), displayName: name, isDirectory: true,
+                isPackage: false, isSymbolicLink: false, isVolume: true, fileSize: nil, typeDescription: nil,
+                creationDate: nil, modificationDate: nil
+            )
+            entry.isUnmountable = unmountable
+            return entry
+        }
+        func titles(_ context: FileBrowserMenuContext) -> [String] {
+            let menu = NSMenu()
+            FileBrowserMenuBuilder().rebuild(menu, for: context, actions: fixture.actions, locale: english)
+            return menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        }
+        let disk = volume("Disk", unmountable: true)
+        for kind in [FileBrowserMenuKind.folder, .tree] {
+            var context = FileBrowserMenuContext(kind: kind, entries: [disk], folder: nil)
+            context.isTreeRoot = kind == .tree
+            let items = titles(context)
+            let trash = try #require(items.firstIndex(of: "Move to Trash"))
+            #expect(Array(items[trash...].prefix(4)) == ["Move to Trash", "Delete Immediately…", "Eject “Disk”", "-"], "\(kind)")
+            #expect(FileBrowserMenuCommand.eject.isEnabled(in: context, actions: fixture.actions))
+        }
+        // アンマウントできないボリューム・ふつうのフォルダ・複数には出さない。
+        let folderURL = fixture.temporary.file("Plain")
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        let folder = fixture.entry(folderURL)
+        for entries in [[volume("Internal", unmountable: false)], [folder], [disk, volume("Other", unmountable: true)]] {
+            let context = FileBrowserMenuContext(kind: .folder, entries: entries, folder: nil)
+            #expect(!titles(context).contains { $0.hasPrefix("Eject") })
+        }
+        // 外している間は淡色(押し重ねない)。
+        fixture.state.setUnmounting(disk.url.standardizedFileURL.path, true)
+        #expect(!FileBrowserMenuCommand.eject.isEnabled(
+            in: FileBrowserMenuContext(kind: .folder, entries: [disk], folder: nil), actions: fixture.actions
+        ))
+        fixture.state.setUnmounting(disk.url.standardizedFileURL.path, false)
+        #expect(fixture.actions.canEject([disk]))
+    }
+
     @Test("右クリックの「シークレットフォルダに追加/から外す」: フォルダ 1 つだけ、載っていれば題が「外す」、中のフォルダとシークレットウインドウでは淡色")
     func secretFolderMenuItem() throws {
         let fixture = try Fixture("fb-menu-secret-folder")

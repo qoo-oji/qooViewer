@@ -18,7 +18,8 @@ import SwiftUI
 /// ■ アンマウント(2026-10-25、利用者の要望)
 /// ネットワーク越し・外付けのボリュームの行の右端に取り出しの印のボタンを出し、押すとそのボリュームをアンマウントする
 /// (`VolumeUnmounting`。どの行に付けるかもそちら)。ビューアで開いている本がそのボリュームにあれば断り、使用中で失敗したら理由を出す。
-/// 右ペインがそのボリュームの中を見ていたら、外したあとはコンピュータへ移る。
+/// 右ペインがそのボリュームの中を見ていたら、外したあとはコンピュータへ移る。同じことを右クリックの「「名前」を取り出す」からもできる
+/// (2026-10-27、利用者の要望。ツリーの行と右ペインの「コンピュータ」のボリューム。中身は `FileBrowserActions.ejectVolume`)。
 ///
 /// ■ 子は開いたときだけ読み、たたんだら捨てる
 /// 子を読むとき、**それぞれの子に直下のサブフォルダがあるかも 1 回だけ調べ**、無ければその行に三角を出さない
@@ -390,9 +391,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var showsNetwork = false
         /// `start` を通ったか(それまでは設定が変わっても探し始めない ―― `start` が始める)。
         private var hasStarted = false
-        /// アンマウントのボタンを付けるボリューム(`VolumeUnmounting.unmountableMountPoints`。ボリュームの一覧と一緒に読む)。
+        /// アンマウントのボタンを付けるボリューム(`FileBrowserEntry.isUnmountable`。ボリュームの一覧と一緒に読む)。
         private var unmountableMountPoints: Set<String> = []
-        /// アンマウントしている最中のボリューム(ボタンを押し重ねさせない)。
+        /// アンマウントしている最中のボリューム(`FileBrowserState.unmountingVolumePaths` の写し。ボタンを淡色にし、行に回転表示)。
         private var unmountingMountPoints: Set<String> = []
         /// 先頭の「最近の項目」(三角なし・子なし)。出すかどうかは `showsRecents`。
         private let recentsNode = Node(kind: .recents, url: nil, name: "", hasSubfolders: false)
@@ -619,6 +620,17 @@ struct FileBrowserTreeView: NSViewRepresentable {
             if view.state.cutPaths != appliedCutPaths {
                 appliedCutPaths = view.state.cutPaths
                 if !needsRedraw { applyCutAppearance() }
+            }
+            // アンマウントを始めた・終えた(ツリーの印・右ペインの右クリックのどちらからでも)。ボリュームの行の印と回転表示を描き直す。
+            if view.state.unmountingVolumePaths != unmountingMountPoints {
+                let changed = view.state.unmountingVolumePaths.symmetricDifference(unmountingMountPoints)
+                unmountingMountPoints = view.state.unmountingVolumePaths
+                if !needsRedraw {
+                    for node in volumesGroup.children ?? []
+                    where node.url.map({ changed.contains($0.standardizedFileURL.path) }) == true && outline.row(forItem: node) >= 0 {
+                        outline.reloadItem(node)
+                    }
+                }
             }
             if view.childSort != childSort {
                 childSort = view.childSort
@@ -962,14 +974,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
             volumeLoadGeneration += 1
             let mine = volumeLoadGeneration
             Task { [weak self] in
-                let (volumes, unmountable) = await FileIO.perform {
-                    let mounts = MountTable.current()
-                    let volumes = FileBrowserListing.volumeEntries(mountTable: mounts)
-                    return (volumes, VolumeUnmounting.unmountableMountPoints(of: volumes.map(\.url), mountTable: mounts))
-                }
+                let volumes = await FileIO.perform { FileBrowserListing.volumeEntries(mountTable: .current()) }
                 guard let self, let outline = self.outline, self.volumeLoadGeneration == mine else { return }
-                self.unmountableMountPoints = unmountable
-                self.unmountingMountPoints.formIntersection(unmountable)
+                self.unmountableMountPoints = Set(volumes.filter(\.isUnmountable).map { $0.url.standardizedFileURL.path })
                 let sorted = volumes.sorted { lhs, rhs in
                     // 起動ボリュームを先頭に、残りは名前順(Finderのサイドバーと同じ)。
                     if (lhs.url.path == "/") != (rhs.url.path == "/") { return lhs.url.path == "/" }
@@ -1753,53 +1760,20 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         // MARK: アンマウント
 
-        /// ボリュームの行の取り出しの印(型コメント「アンマウント」)。
+        /// ボリュームの行の取り出しの印(型コメント「アンマウント」)。右クリックの「取り出す」と同じ入り口へ渡す。
         @objc private func unmountVolume(_ sender: NSButton) {
-            guard let outline, let node = outline.item(atRow: outline.row(for: sender)) as? Node, node.kind == .volume,
-                  let url = node.url
+            guard let outline, let actions, let node = outline.item(atRow: outline.row(for: sender)) as? Node,
+                  let entry = volumeEntry(for: node)
             else { return UserFeedback.beep() }
-            let path = url.standardizedFileURL.path
-            guard !unmountingMountPoints.contains(path) else { return UserFeedback.beep() }
-            // ビューアで開いている本がこのボリュームにある(ファイルブラウザの操作と同じ判定 ―― 本そのもの・祖先・中身)。
-            if FileBrowserOperations.openBookConflict(among: [url], openBookPaths: state?.operations.openBookPaths() ?? []) != nil {
-                return showProblem(
-                    title: String(
-                        format: String(localized: "“%@” can’t be unmounted while a book on it is open.", language: locale), node.name
-                    ),
-                    message: String(localized: "Close the book, then try again.", language: locale)
-                )
-            }
-            // qooViewer の作業(ファイルブラウザのコピー・移動・圧縮、書き出し、保存データの読み込み)が走っている・並んでいる間は断る。
-            // どのボリュームを触っているかは数えていないので、どれか 1 つでも走っていれば断る(コピーの途中で外すと、写しが中途半端に
-            // 残る ―― 2026-10-25 のレビュー)。
-            if RunningWorkRegistry.forCurrentProcess?.hasRunningWork == true || state?.operations.isBusy == true {
-                return showProblem(
-                    title: String(
-                        format: String(localized: "“%@” can’t be unmounted while qooViewer is working on files.", language: locale),
-                        node.name
-                    ),
-                    message: String(localized: "Try again after the work finishes.", language: locale)
-                )
-            }
-            unmountingMountPoints.insert(path)
-            outline.reloadItem(node)
-            let name = node.name
-            Task { [weak self] in
-                let error = await VolumeUnmounting.unmount(url)
-                guard let self else { return }
-                self.unmountingMountPoints.remove(path)
-                if let error {
-                    if let outline = self.outline, outline.row(forItem: node) >= 0 { outline.reloadItem(node) }
-                    return self.showProblem(
-                        title: String(format: String(localized: "“%@” couldn’t be unmounted.", language: self.locale), name),
-                        message: error.localizedDescription
-                    )
-                }
-                // 右ペインが外したボリュームの中にいたらコンピュータへ(行はボリュームの一覧の読み直しで消える)。
-                if let folder = self.state?.currentFolder, MountTable.path(folder.standardizedFileURL.path, isAtOrUnder: path) {
-                    self.state?.navigate(to: nil as URL?)
-                }
-            }
+            actions.ejectVolume(entry)
+        }
+
+        /// ボリュームの行の項目。アンマウントできるか(`isUnmountable`)はボリュームの一覧と一緒に読んだ値を載せる
+        /// (`Node.entry` は名前と URL しか持たない)。ボリュームの行でなければ nil。
+        private func volumeEntry(for node: Node) -> FileBrowserEntry? {
+            guard node.kind == .volume, var entry = node.entry else { return nil }
+            entry.isUnmountable = unmountableMountPoints.contains(entry.url.standardizedFileURL.path)
+            return entry
         }
 
         // MARK: 右クリック
@@ -1821,7 +1795,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 menu.addItem(item)
                 return
             }
-            guard row >= 0, let node = outline.item(atRow: row) as? Node, let entry = node.entry else {
+            guard row >= 0, let node = outline.item(atRow: row) as? Node, let entry = volumeEntry(for: node) ?? node.entry else {
                 menu.removeAllItems()
                 return
             }

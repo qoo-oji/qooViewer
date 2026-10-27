@@ -908,6 +908,10 @@ enum FileBrowserMenuCommand {
     /// 「シークレットフォルダに追加」/「シークレットフォルダから外す」(2026-10-03。FileBrowserSecretFolderActions.swift)。
     /// アプリ固有の項目なので一番下の群。フォルダとツリーだけ。
     case secretFolder
+    /// Finder の「“名前”を取り出す」(2026-10-27、利用者の要望。FileBrowserVolumeActions.swift)。**アンマウントできるボリューム 1 つを
+    /// 右クリックしたときだけ**「ゴミ箱に入れる」の後ろに出る(Finder がボリュームでその位置に出す)。`groups(for:)` には載せない ――
+    /// 組む側(FileBrowserMenuBuilder)が足す。ほかの項目と違って出たり消えたりするのは、Finder もボリュームにしか出さないから。
+    case eject
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
     ///
@@ -1048,6 +1052,7 @@ enum FileBrowserMenuCommand {
         case .quickLook: "Quick Look"
         case .makeAlias: "Make Alias"
         case .secretFolder: "Add to Secret Folders"
+        case .eject: "Eject"
         }
     }
 
@@ -1057,6 +1062,9 @@ enum FileBrowserMenuCommand {
         // 一覧にそのまま載っているフォルダなら「外す」(項目の数は変わらない)。
         if self == .secretFolder, actions?.isListedSecretFolder(context.entries) == true {
             return String(localized: "Remove from Secret Folders", language: locale)
+        }
+        if self == .eject, let entry = FileBrowserActions.ejectTarget(context.entries) {
+            return String(format: String(localized: "Eject “%@”", language: locale), entry.displayName)
         }
         if self == .rename, context.entries.count > 1 {
             return String(format: String(localized: "Rename %lld Items…", language: locale), context.entries.count)
@@ -1152,6 +1160,9 @@ enum FileBrowserMenuCommand {
             return !FileBrowserActions.isHomeTreeRoot(context) && actions.canMakeAlias(entries)
         case .secretFolder:
             return actions.canToggleSecretFolder(entries)
+        case .eject:
+            // 読み取り専用モードでも押せる(ファイルを変えない ―― ツリーの印のボタンと同じ)。
+            return actions.canEject(entries)
         }
     }
 
@@ -1206,6 +1217,7 @@ enum FileBrowserMenuCommand {
                 actions.quickLook(entries)
             }
         case .makeAlias: actions.makeAliases(entries)
+        case .eject: FileBrowserActions.ejectTarget(entries).map { actions.ejectVolume($0) }
         }
     }
 }
@@ -1239,6 +1251,10 @@ final class FileBrowserMenuBuilder: NSObject {
                     item.isAlternate = true
                     item.keyEquivalentModifierMask = [.option]
                     menu.addItem(item)
+                }
+                // アンマウントできるボリュームなら「ゴミ箱に入れる」(と ⌥ の「すぐに削除…」)の後ろに「“名前”を取り出す」。
+                if command == .moveToTrash, FileBrowserActions.ejectTarget(context.entries) != nil {
+                    menu.addItem(fullMenuItem(for: .eject, locale: locale, actions: actions))
                 }
             }
         }

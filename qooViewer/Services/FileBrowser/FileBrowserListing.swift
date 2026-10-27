@@ -36,6 +36,9 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
     /// Finder のエイリアス(`isAliasFileKey`。OS は記号リンクにも true を返す)。記号リンクと同じく、アイコンは先の項目のもの
     /// (`BookThumbnailer.Kind.alias`。2026-09-29)。ふつうのファイルとして扱う(コピー・削除・名前の変更は Finder と同じくファイル自身)。
     var isAliasFile = false
+    /// コンピュータ(ボリューム一覧)の行で、アンマウントできるボリューム(`VolumeUnmounting.unmountableMountPoints`。外付け・
+    /// ネットワーク越し)。右クリックの「“名前”を取り出す」とツリーの取り出しの印を出す(2026-10-27)。
+    var isUnmountable = false
 
     /// 記号リンクか Finder のエイリアス。先の項目として扱う操作は `FileBrowserState.effective(_:)`(docs/15「記号リンクとエイリアスの先」)。
     var isLink: Bool { isSymbolicLink || isAliasFile }
@@ -244,10 +247,11 @@ nonisolated enum FileBrowserListing {
     ///
     /// 出すのは起動ボリューム(`/`)と`/Volumes/`直下のうち、Finderに出すもの(`MNT_DONTBROWSE`でない)
     /// だけ。`/System/Volumes/Data`やTime Machineのスナップショット、`-nobrowse`で付けたディスク
-    /// イメージは出ない(Finderと同じ)。
+    /// イメージは出ない(Finderと同じ)。アンマウントできるか(`isUnmountable`)もここで決める(ローカルのボリュームには
+    /// 問い合わせるので、ほかと同じく **FileIO の上で呼ぶ**)。
     static func volumeEntries(mountTable: MountTable) -> [FileBrowserEntry] {
         let volumeKind = UTType.volume.localizedDescription
-        return mountTable.entries.compactMap { mount in
+        let entries: [FileBrowserEntry] = mountTable.entries.compactMap { mount in
             guard !mount.isHiddenFromBrowsing,
                   mount.mountPoint == "/" || MountTable.volumeRoot(of: mount.mountPoint) == mount.mountPoint
             else { return nil }
@@ -267,6 +271,13 @@ nonisolated enum FileBrowserListing {
                 typeDescription: volumeKind,
                 creationDate: creationDate, modificationDate: modificationDate
             )
+        }
+        let unmountable = VolumeUnmounting.unmountableMountPoints(of: entries.map(\.url), mountTable: mountTable)
+        guard !unmountable.isEmpty else { return entries }
+        return entries.map { entry in
+            var entry = entry
+            entry.isUnmountable = unmountable.contains(entry.url.standardizedFileURL.path)
+            return entry
         }
     }
 

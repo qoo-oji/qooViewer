@@ -12859,6 +12859,38 @@
         }
       }
     },
+    "Eject" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eject"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り出す"
+          }
+        }
+      }
+    },
+    "Eject “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eject “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を取り出す"
+          }
+        }
+      }
+    },
     "Emoji & Symbols" : {
       "localizations" : {
         "en" : {

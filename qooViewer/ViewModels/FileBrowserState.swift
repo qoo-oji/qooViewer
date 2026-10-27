@@ -686,6 +686,9 @@ final class FileBrowserState: ObservableObject {
     /// 右クリックと一覧のキー(⌥⌘V)は押す・開くたびにペーストボードを直に読むので、これを使わない。
     @Published private(set) var pasteboardHasFiles = false
     private var pasteboardChangeCount: Int?
+    /// アンマウントしている最中のボリューム(マウント先の `standardizedFileURL.path`。`FileBrowserActions.ejectVolume`、2026-10-27)。
+    /// ツリーの取り出しの印と右クリックの「取り出す」を淡色にし、ツリーの行に回転表示を出す(押し重ねさせない)。
+    @Published private(set) var unmountingVolumePaths: Set<String> = []
     private var toastDismissTask: Task<Void, Never>?
     private let defaults: UserDefaults
     /// アプリ自身がファイルを動かした知らせ(`FileSystemChange` の型コメント)。操作の側(`FileBrowserOperations`)も、済んだ直後に
@@ -1286,6 +1289,15 @@ final class FileBrowserState: ObservableObject {
     /// 項目がカット済みか(淡く描く)。
     func isCut(_ entry: FileBrowserEntry) -> Bool {
         !cutPaths.isEmpty && cutPaths.contains(MountTable.normalized(entry.url.standardizedFileURL.path))
+    }
+
+    /// アンマウントを始めた・終えた(`unmountingVolumePaths`)。
+    func setUnmounting(_ path: String, _ isUnmounting: Bool) {
+        if isUnmounting {
+            unmountingVolumePaths.insert(path)
+        } else {
+            unmountingVolumePaths.remove(path)
+        }
     }
 
     func requestRename(_ id: String) {

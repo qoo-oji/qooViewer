@@ -178,7 +178,9 @@ add a second alert for those. Local Network denial arrives as `PolicyDenied` onl
 access is turned back on, so `NetworkServerDirectory` re-browses on every app activation (at most every 3 s) and keeps the last list across tree
 rebuilds. Unmount (eject on network/external volume rows) is `VolumeUnmounting` in the app (`FileManager.unmountVolume(.withoutUI)` works in the
 sandbox) after releasing `StagedFileRegistry` holds; it refuses while a viewer has a book on the volume or `RunningWorkRegistry` has work. The eject
-button sits inside the name cell: a button added to the `NSTableRowView` was invisible to accessibility.
+button sits inside the name cell: a button added to the `NSTableRowView` was invisible to accessibility. The context menu's "Eject “name”"
+(tree rows and the right pane's Computer volumes, 2026-10-27) goes through the same `FileBrowserActions.ejectVolume`; whether a volume can be
+unmounted is read with the volume list (`FileBrowserEntry.isUnmountable`).
 **Network volumes (2026-09-24/25)**: archives and PDFs on a volume without `MNT_LOCAL` (`NetworkVolumeReading`, via
 `MountTable`) are read through `StagedFileSource` — 64 KB blocks copied into a temp file (`TemporaryFileStore`), one large read
 per missing run, read-ahead scaled by bytes actually read sequentially, and (for books opened in a page-turning screen — the viewer
