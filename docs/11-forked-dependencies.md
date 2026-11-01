@@ -6,9 +6,9 @@ qooViewer は6つの Swift パッケージに依存します(下の表の 5 つ�
 | パッケージ | 参照先 | 固定方法 | 用途 |
 |---|---|---|---|
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
-| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
-| Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
-| Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.0(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
+| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `f7a59c1` | 7z / cb7 の読み取り |
+| Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `1f375d3` | rar / cbr の読み取り |
+| Sparkle | `sparkle-project/Sparkle` | **正確な版** 2.10.1(`exactVersion`) | 自動アップデート(2026-10-10。→ [下](#sparkle2026-10-10)) |
 | StackNestViewerKit | `shelfsmith/StackNestViewerKit`(フォークではない) | **正確な版** 0.2.0(`exactVersion`) | StackNest の本の参照ファイル(`.stacknestbook`)の読み取り・通信・読書位置の書き戻し(下の「StackNestViewerKit」) |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
@@ -53,6 +53,7 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `f93e3eb` Add reading an archive through a caller-supplied positional reader | `Archive(reader:)` / `Archive.PositionalReader`。`7zMemInStream.c` に「呼び出し側の関数から読む」`ISeekInStream`(`CCallbackInStream`)を足した。ネットワークボリューム上の 7z を qooViewer の読み込み層(`StagedFileSource`)経由で読むため(2026-09-24。[plans/network-volume-study.md](plans/network-volume-study.md))。短い読みを返してよい(LZMA SDK が繰り返す)。`Archive` が reader を保持する |
 | `0b4c1b9` Add a limit on whole-block decoding in the BCJ2 fallback | `Archive.maxWholeBlockBytes`。フォールバック(`extract`)の前にブロックの宣言の伸長後の大きさ(`SzAr_GetFolderUnpackSize`)と比べ、超えたら何も確保せずに `LZMAError.blockTooLarge` を投げる。既定は nil(従来どおり)。qooViewer はファイルブラウザの一覧の絵(BookThumbnailer)だけが 64MB を付ける(2026-09-14 の 2 回目の監査 20) |
 | `4db7571` Merge upstream v0.4.1 | upstream の LZMA SDK v26.03 への更新の取り込み(2026-10-01)。先に fork の `main` を `upstream/main` へ早送りし、その `main` を `streaming-extract` へ merge した。`7zFolderStream.c` が使う SDK の入口のシグネチャは変わっていない |
+| `f7a59c1` Merge upstream v0.5.0 | upstream の LZMA SDK v26.04 / v26.05 と、`Package.swift` の `unsafeFlags(["-mcrc"])`(iOS のみ)の削除の取り込み(2026-11-01)。手順は上と同じ。SDK の差分は `CpuArch.h` のマクロ追加と `XzDec.c` のあふれ対策などで、`7zFolderStream.c` が使う入口には触れていない |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
 
@@ -206,6 +207,7 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 | `2d2982e` Add reading every entry of an archive in one pass | `Archive.forEachEntry(_:)`(下の「全エントリを 1 回で読む」)。2026-09-14 |
 | `485f7d3` Add reading an archive through a caller-supplied positional reader | `Archive.Source.reader(PositionalReader)` / `RAROpenArchiveCallback`(下の「呼び出し側の関数から読む」)。2026-09-24 |
 | `70fe20d` Keep unrar's error state per thread | `ErrHandler` を `thread_local` に(下の「複数のスレッドで同時に読む」)。2026-09-25 |
+| `1f375d3` Merge upstream main | upstream の GitHub Actions の固定(`actions.lock`、Dependabot)の取り込み(2026-11-01)。ソースの変更は無く、unrar は v7.23 のまま。先に fork の `main` を `upstream/main` へ早送りした |
 
 メモリ上の書庫(`2fb14dc`):
 
@@ -321,8 +323,10 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 - 動的フレームワークで、Xcode が自動で `Contents/Frameworks/` に入れて署名し直す(入れ子の XPC サービス・`Autoupdate`・`Updater.app` は
   Sparkle の配布物の ad-hoc 署名のまま。Sparkle の文書どおり `--deep` で署名し直さない)。
 - 2.10.0 で最小の macOS が 12.0 になった(このアプリは 15.0 なので影響なし)。
+- 2.10.1(2026-11-01 に更新)のリリースノートにセキュリティの修正は無く、2.10.0...2.10.1 の差分でも署名の確かめ方・`LICENSE` は変わっていない。利用者に関わるのは、NFC の文字を含むパスに置いたアプリで終了を待たずに更新が入る不具合の修正(sparkle-project/Sparkle#2943)。**古い版からの更新を実際に通す確認は、この版を載せた最初のリリースで行う**(リリース前は通せない)。
 
-上げる手順: project.pbxproj の `XCRemoteSwiftPackageReference "Sparkle"` の `version` を書き換え → `xcodebuild -resolvePackageDependencies`
+上げる手順: project.pbxproj の `XCRemoteSwiftPackageReference "Sparkle"` の `version` を書き換え → `xcodebuild -resolvePackageDependencies -packageAuthorizationProvider netrc`
+(書庫を github.com から取るときに SwiftPM がキーチェーンの `github.com` を読みに行き、git の資格情報の項目だと許可のダイアログが出る。公開ファイルなので認証は要らない。2026-11-01)
 → `Package.resolved` の revision がそのタグの commit であることを `gh api repos/sparkle-project/Sparkle/commits/<版> --jq .sha` で確かめる
 → `python3 -I scripts/dev/build-credits.py`(ライセンス表記の版。中の部品が増えていないかも `LICENSE` で見る)
 → Release で組んで `scripts/release/check-release-app.sh` → 古い版からの更新を一度実際に通す(署名の確かめ方が変わっていないか。
@@ -428,5 +432,5 @@ Xcode はその revision を使います。フォークを更新したら:
 - Unrar.swift: unrar の新版を年に数回取り込む。パッチは `[qoo-oji fork]` の印を頼りに当て直し、
   `swift test` を通す。
 
-どちらも、フォーク側のテスト(SevenZip 26 件・Unrar 25 件、2026-09 時点)が通ることを確認してから
+どちらも、フォーク側のテスト(SevenZip 39 件・Unrar 38 件、2026-11 時点)が通ることを確認してから
 上の手順でピンを更新してください。

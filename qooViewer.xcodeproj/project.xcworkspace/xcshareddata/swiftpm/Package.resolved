@@ -16,7 +16,7 @@
       "location" : "https://github.com/qoo-oji/SevenZip.swift",
       "state" : {
         "branch" : "streaming-extract",
-        "revision" : "4db7571af50325bdb5f726a33f345732ab95e990"
+        "revision" : "f7a59c142531cbeb2a930b1229c877b922e1ca1b"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
-        "version" : "2.10.0"
+        "revision" : "ab7d71291238df6e0492143b120c9b696a35f603",
+        "version" : "2.10.1"
       }
     },
     {
@@ -43,7 +43,7 @@
       "location" : "https://github.com/qoo-oji/Unrar.swift",
       "state" : {
         "branch" : "memory-archive",
-        "revision" : "70fe20d552c8b00ae1c35993d3759d68424c7050"
+        "revision" : "1f375d37c6cdf312ec46702a0f1033a707637db1"
       }
     },
     {
