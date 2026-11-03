@@ -25,6 +25,8 @@ nonisolated enum SmartLibraryScanner {
         /// 表紙のディスクキャッシュの鍵(FileBrowserThumbnailKey。探したときの lstat から)。保存した一覧と一緒に持ち、
         /// 表紙を引くときに項目を読みに行かないために使う(SmartLibraryCatalog の型コメント「速さ」)。
         var thumbnailKey: FileBrowserThumbnailKey? = nil
+        /// Finder のタグの名前(読めなければ nil。`SmartBook.tags`)。
+        var tags: [String]? = nil
     }
 
     struct Result: Sendable {
@@ -77,7 +79,24 @@ nonisolated enum SmartLibraryScanner {
             scan(root: root, skipping: skips, mountTable: mountTable, visited: &visited, seen: &seen, into: &result)
             if result.isTruncated { break }
         }
+        readTags(of: &result.books)
         return result
+    }
+
+    /// 本のタグを読む(**ブロッキングする**。探した本だけ、1 冊に 1〜2 回の `getxattr`。ローカルも NAS も同じ扱い ―― 2026-11-03、利用者の決定)。
+    /// 「タグを更新」もこれを呼ぶ。止められたら残りは前の値のまま返る(呼ぶ側が結果を捨てる)。
+    static func readTags(of books: inout [ScannedBook]) {
+        // 言語は 1 回だけ引く(古いラベルだけの本の名前に使う。本ごとに設定を読まない)。
+        let localization = FinderTagColor.finderLocalization()
+        for index in books.indices {
+            if index % 64 == 0, Cancellation.isRequestedInCurrentScope { return }
+            let url = URL(fileURLWithPath: books[index].path, isDirectory: books[index].isFolder)
+            if case .tags(let tags) = FinderTagStore.read(at: url, localization: localization) {
+                books[index].tags = tags.map(\.name)
+            } else {
+                books[index].tags = nil
+            }
+        }
     }
 
     private static func scan(root: String, skipping protectedPrefixes: [String], mountTable: MountTable, visited: inout Int,

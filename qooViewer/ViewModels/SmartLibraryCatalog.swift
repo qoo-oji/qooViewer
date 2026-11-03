@@ -41,6 +41,8 @@ final class SmartLibraryCatalog: ObservableObject {
     @Published private(set) var books: [SmartBook] = []
     /// 集めている最中か。
     @Published private(set) var isLoading = false
+    /// 「タグを更新」で読み直している最中(`refreshTags`)。
+    @Published private(set) var isRefreshingTags = false
     /// 一度でも集め終えたか。**まだ集めていない(空)と、集めたが 1 冊も無い(空)を画面が見分けるため**(2026-09-22、
     /// 利用者の指摘: 起動直後に「表示する本がありません」が一瞬出た。集め始める前のコマでは isLoading もまだ false だった)。
     @Published private(set) var hasLoaded = false
@@ -67,8 +69,10 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// 画面に出ている数(ウインドウごと)。0 なら何もしない。
     private var activeCount = 0
-    /// そのうち、記録の残るウインドウ(シークレットウインドウでない)の数。0 の間は並べた本を DB へ登録しない
-    /// (ビューアの登録が `skipsPersistence` で止まるのと同じ。2026-09-22 の 2 回目の監査の 8)。
+    /// そのうち、記録の残るウインドウ(シークレットウインドウでない)の数。0 の間は並べた本をディスクに残さない ―― 母体の記録
+    /// (`recordSmartLibraryScan`。ビューアの登録が `skipsPersistence` で止まるのと同じ。2026-09-22 の 2 回目の監査の 8)も、
+    /// 前回の一覧(`saveCache`。2026-11-03、それまでは判定が無く、シークレットウインドウだけでも `catalog.json` を書いていた)も。
+    /// 読むのは止めない(シークレットウインドウにも前回の一覧を先に出す。絵のディスクキャッシュと同じ扱い)。
     private var persistingCount = 0
     private var subscriptions: Set<AnyCancellable> = []
     private var pending: Task<Void, Never>?
@@ -87,6 +91,8 @@ final class SmartLibraryCatalog: ObservableObject {
     private var scanEpoch = 0
     /// 探している最中の探索(`scan(roots:)`)。同じ場所・同じ `scanEpoch` を頼んだ集め直しは、新しく探さずにこれを待つ。
     private var scanning: (roots: [String], epoch: Int, task: Task<SmartLibraryScanner.Result?, Never>)?
+    /// 「タグを更新」の読み直し(`refreshTags`)。
+    private var tagRefresh: Task<Void, Never>?
 
     private func invalidateScan() {
         scanned = nil
@@ -94,6 +100,8 @@ final class SmartLibraryCatalog: ObservableObject {
         // 探している最中のものは古い(探し直し・ボリュームの着脱・機能 OFF)。止める ―― 取り消しは FileIO を通って探索の中へ届く。
         scanning?.task.cancel()
         scanning = nil
+        // 読み直している本の一覧も古い(結果は `scanEpoch` を見て捨てる)。
+        tagRefresh?.cancel()
     }
 
     /// `roots` を探し、探し終えたら `scanned` に覚える。同じ場所を探している最中ならそれを待つ。途中で止められたら nil
@@ -211,7 +219,12 @@ final class SmartLibraryCatalog: ObservableObject {
         guard isFeatureEnabled else { return }
         if persistsMetadata { persistingCount += 1 }
         activeCount += 1
-        guard activeCount == 1 else { return }
+        guard activeCount == 1 else {
+            // シークレットウインドウだけで出していたところへ、記録の残るウインドウが来た。ここで集め直さないと、次に何か変わるまで
+            // 記録も前回の一覧の保存も起きない(探した結果があれば探し直さず、中身が同じなら画面も変わらない)。
+            if persistsMetadata, persistingCount == 1 { scheduleRebuild(rescan: false, delay: .zero) }
+            return
+        }
         subscribe()
         // 集め直しは次のコマで始まるので、「集めている最中」はここで立てておく(その間を空の一覧として描かない)。
         isLoading = true
@@ -253,6 +266,44 @@ final class SmartLibraryCatalog: ObservableObject {
     func reload() {
         invalidateScan()
         scheduleRebuild(rescan: true, delay: .zero)
+    }
+
+    /// 「タグを更新」。探した本のタグだけ読み直して並べ直す(フォルダの中は探し直さない)。
+    ///
+    /// **タグは自動では更新しない**(2026-11-03、利用者の決定): タグを変えても mtime は動かず、一覧はアプリの外の変化では探し直さないので、
+    /// Finder で変えたタグも、インスペクタで変えたタグも、このボタンか探し直すまで絞り込みに届かない。
+    /// - Returns: 読み終えて並べ直しを頼むまでの Task(テストが待つ)。
+    @discardableResult
+    func refreshTags() -> Task<Void, Never>? {
+        guard isFeatureEnabled, !isRefreshingTags else { return nil }
+        let roots = scanRoots()
+        guard let known = scanned, known.roots == roots else {
+            // まだ探していない(探せばタグも読む)。
+            reload()
+            return nil
+        }
+        isRefreshingTags = true
+        let epoch = scanEpoch
+        let books = known.result.books
+        let task = Task { [weak self] in
+            let updated = await FileIO.perform { () -> [SmartLibraryScanner.ScannedBook]? in
+                var books = books
+                SmartLibraryScanner.readTags(of: &books)
+                return Cancellation.isRequestedInCurrentScope ? nil : books
+            }
+            guard let self else { return }
+            self.isRefreshingTags = false
+            self.tagRefresh = nil
+            // 読んでいる間に探し直しを頼まれた・機能を切られたら捨てる(探し直せばタグも読む)。
+            guard let updated, !Task.isCancelled, epoch == self.scanEpoch, var current = self.scanned, current.roots == roots else { return }
+            current.result.books = updated
+            self.scanned = current
+            // 待たせずに世代を進める(走っている集め直しが、古いタグの結果を `scanned` へ書き戻さないように)。
+            self.pending?.cancel()
+            self.rebuild()
+        }
+        tagRefresh = task
+        return task
     }
 
     /// アプリ自身がファイルを動かした(AppStores.handleFileSystemChange から)。探している場所の中なら探し直す。
@@ -368,8 +419,11 @@ final class SmartLibraryCatalog: ObservableObject {
             if changed { self.revision += 1 }
             // 対象フォルダのボリュームが繋がっていない回は保存しない(2026-09-22 の監査。以前は空の一覧で上書きし、次の起動の
             // 先出しも失った)。判定は MountTable だけで、パスには触らない。
+            // シークレットウインドウだけで出している間も保存しない(`persistingCount`。後から記録の残るウインドウが来れば `activate` が
+            // 集め直して、そこで保存する)。
             let mounts = MountTable.current()
-            if !roots.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0, isDirectory: true)) }) {
+            if self.persistingCount > 0,
+               !roots.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0, isDirectory: true)) }) {
                 self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
             }
             self.building = nil
@@ -533,6 +587,7 @@ final class SmartLibraryCatalog: ObservableObject {
             current.fileSize = scanned.fileSize
             current.dateAdded = scanned.addedDate ?? scanned.creationDate
             current.thumbnailKey = scanned.thumbnailKey
+            current.tags = scanned.tags
             byID[scanned.path] = current
         }
         let ids = byID.keys.sorted()

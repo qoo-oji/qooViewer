@@ -1194,6 +1194,22 @@
         }
       }
     },
+    "Read the Finder tags of the books in the target folders again" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the Finder tags of the books in the target folders again"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象フォルダの本の Finder のタグを読み直します"
+          }
+        }
+      }
+    },
     "Remove Tag “%@”" : {
       "localizations" : {
         "en" : {
@@ -1798,6 +1814,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "補助ウインドウ"
+          }
+        }
+      }
+    },
+    "Update Tags" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update Tags"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグを更新"
           }
         }
       }

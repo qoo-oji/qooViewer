@@ -73,7 +73,7 @@ final class SmartLibraryViewState: ObservableObject {
             guard facetFields != oldValue else { return }
             defaults.set(facetFields.map(\.rawValue), forKey: Keys.facetFields)
             // 並びから消えた欄の選択は外す(見えない所で絞り込みが残らないように)。
-            for field in SmartFacetField.allCases where !facetFields.contains(field) { facetSelection[field] = [] }
+            for field in SmartFacetField.arrangeable where !facetFields.contains(field) { facetSelection[field] = [] }
             narrowingChanged()
         }
     }
@@ -271,7 +271,7 @@ final class SmartLibraryViewState: ObservableObject {
         selectedShelfID = defaults.string(forKey: Keys.selectedShelf).flatMap(UUID.init(uuidString:))
         if let stored = defaults.stringArray(forKey: Keys.facetFields) {
             var fields: [SmartFacetField] = []
-            for field in stored.compactMap(SmartFacetField.init(rawValue:)) where !fields.contains(field) { fields.append(field) }
+            for field in stored.compactMap(SmartFacetField.init(rawValue:)) where field != .tags && !fields.contains(field) { fields.append(field) }
             facetFields = fields
         } else {
             facetFields = Self.defaultFacetFields
@@ -344,7 +344,7 @@ final class SmartLibraryViewState: ObservableObject {
 
     /// ボタンを足す(並びの最後へ)。
     func addFacetField(_ field: SmartFacetField) {
-        guard !facetFields.contains(field) else { return }
+        guard field != .tags, !facetFields.contains(field) else { return }
         facetFields.append(field)
     }
 
@@ -354,7 +354,7 @@ final class SmartLibraryViewState: ObservableObject {
 
     /// ボタンの欄を替える(替えた先の欄が別のボタンにあれば、2 つを入れ替える)。
     func replaceFacetField(_ old: SmartFacetField, with new: SmartFacetField) {
-        guard old != new, let index = facetFields.firstIndex(of: old) else { return }
+        guard old != new, new != .tags, let index = facetFields.firstIndex(of: old) else { return }
         var fields = facetFields
         if let other = fields.firstIndex(of: new) { fields[other] = old }
         fields[index] = new
@@ -624,7 +624,8 @@ final class SmartLibraryViewState: ObservableObject {
         )
         if facetMemo != facetKey {
             var values: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
-            for field in facetFields {
+            // タグは「タグ」の節に固定で出す(`SmartFacetField.arrangeable`)。
+            for field in facetFields + [.tags] {
                 // ほかの欄に選択が無ければ、絞らずに数える(写しを作らない)。
                 let narrowedByOthers = selection.values.contains { $0.key != field && !$0.value.isEmpty }
                 let indices = narrowedByOthers ? current.filter { selection.matches(books[$0], except: field) } : current

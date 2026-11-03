@@ -35,6 +35,10 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable, Codable {
     var thumbnailKey: FileBrowserThumbnailKey?
     /// 最後に表示していた画面に最後のページが写っていたか(BookReadingState.isAtLastPage)。
     var isAtLastPage = false
+    /// Finder のタグの名前(色は持たない)。**探したときと「タグを更新」のときの値**で、Finder やインスペクタで変えても自動では変わらない
+    /// (2026-11-03、利用者の決定。docs/14「スマートライブラリ」)。**nil は「読めていない」で、タグ無し(空)とは別**(どの条件にも合わせない)。
+    /// 省略可能にしてあるので、タグを持たない前の版の catalog.json もそのまま読める。
+    var tags: [String]?
 
     var readState: SmartReadState {
         guard lastRead != nil else { return .unread }
@@ -186,6 +190,8 @@ nonisolated struct SmartShelfRule: Codable, Hashable, Identifiable, Sendable {
         let op = op
         let query = LibrarySearchQuery.normalized(text.trimmingCharacters(in: .whitespaces))
         return { book in
+            // タグを読めていない本は「タグ無し」でも「含まない」でもない(FinderTagStore の型コメント)。
+            if field == .tags, book.tags == nil { return false }
             let values = field.textValues(of: book)
             switch op {
             case .contains: return values.contains { LibrarySearchQuery.normalized($0).contains(query) }
@@ -235,7 +241,7 @@ nonisolated struct SmartShelfRule: Codable, Hashable, Identifiable, Sendable {
 
 /// 条件に使える欄。
 nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
-    case title, authors, genre, series, source, event, info, fileName
+    case title, authors, genre, series, source, event, info, tags, fileName
     case volume, progress
     case dateAdded, lastRead
     case kind, readState
@@ -262,7 +268,7 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
 
     var valueType: ValueType {
         switch self {
-        case .title, .authors, .genre, .series, .source, .event, .info, .fileName: .text
+        case .title, .authors, .genre, .series, .source, .event, .info, .tags, .fileName: .text
         case .volume, .progress: .number
         case .dateAdded, .lastRead: .days
         case .kind, .readState: .choice
@@ -278,6 +284,7 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
         case .source: "Source work"
         case .event: "Event"
         case .info: "Info"
+        case .tags: "Tags"
         case .fileName: "File name"
         case .volume: "Volume"
         case .progress: "Progress (%)"
@@ -307,6 +314,7 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
         case .source: return [m.source]
         case .event: return [m.event]
         case .info: return [m.info]
+        case .tags: return book.tags ?? []
         case .fileName: return [book.fileName]
         default: return []
         }
@@ -402,7 +410,11 @@ nonisolated struct SmartQuickFilter: Codable, Hashable, Sendable {
 
 /// 左ペインの「ブラウザ」のボタンに使える欄(StackNest の上ペインのブラウザ列に当たるもの)。
 nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Sendable {
-    case genre, authors, series, source, event, kind
+    case genre, authors, series, source, event, tags, kind
+
+    /// 「メタデータ」の節に並べられる欄。**タグは独立した「タグ」の節に固定で置く**(2026-11-03、利用者の指示。`tagsSection`)ので、足す・替える・外すの
+    /// 相手にしない。
+    static let arrangeable: [SmartFacetField] = allCases.filter { $0 != .tags }
 
     var titleKey: String {
         switch self {
@@ -411,6 +423,7 @@ nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Senda
         case .series: "Series"
         case .source: "Source work"
         case .event: "Event"
+        case .tags: "Tags"
         case .kind: "Book Format"
         }
     }
@@ -424,8 +437,14 @@ nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Senda
         case .series: return m.series.isEmpty ? [] : [m.series]
         case .source: return m.source.isEmpty ? [] : [m.source]
         case .event: return m.event.isEmpty ? [] : [m.event]
+        case .tags: return (book.tags ?? []).filter { !$0.isEmpty }
         case .kind: return [book.kind.rawValue]
         }
+    }
+
+    /// その本の値が分からないか(タグを読めていない本。「(空)」に数えない)。
+    func isUnknown(for book: SmartBook) -> Bool {
+        self == .tags && book.tags == nil
     }
 }
 
@@ -478,6 +497,7 @@ nonisolated enum SmartFacets {
         var counts: [String: Int] = [:]
         var empty = 0
         for book in books {
+            if field.isUnknown(for: book) { continue }
             let values = field.values(of: book)
             if values.isEmpty { empty += 1; continue }
             for value in Set(values) { counts[value, default: 0] += 1 }
@@ -491,7 +511,7 @@ nonisolated enum SmartFacets {
     static func matches(_ book: SmartBook, field: SmartFacetField, value: SmartFacetValue) -> Bool {
         let values = field.values(of: book)
         switch value {
-        case .empty: return values.isEmpty
+        case .empty: return values.isEmpty && !field.isUnknown(for: book)
         case .value(let v): return values.contains(v)
         }
     }

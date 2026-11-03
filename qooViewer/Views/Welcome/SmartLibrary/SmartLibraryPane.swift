@@ -123,6 +123,7 @@ struct SmartLibrarySidebar: View {
                 foldersSection.dimsInInactiveWindow(unless: isFolderDropTargeted)
                 shelvesSection.dimsInInactiveWindow()
                 browseSection.dimsInInactiveWindow()
+                tagsSection.dimsInInactiveWindow()
                 filterSection.dimsInInactiveWindow()
             }
             .padding(12)
@@ -344,7 +345,7 @@ struct SmartLibrarySidebar: View {
         VStack(alignment: .leading, spacing: 8) {
             // 見出しは「メタデータ」(「ブラウザ」では何を選ぶ所か読めなかった。2026-09-22、利用者の指示)。
             SmartSidebarHeader(titleKey: "Metadata") {
-                let addable = SmartFacetField.allCases.filter { !state.facetFields.contains($0) }
+                let addable = SmartFacetField.arrangeable.filter { !state.facetFields.contains($0) }
                 Menu {
                     ForEach(addable, id: \.self) { field in
                         Button(LocalizedStringKey(field.titleKey)) { state.addFacetField(field) }
@@ -362,6 +363,24 @@ struct SmartLibrarySidebar: View {
             ForEach(state.facetFields, id: \.self) { field in
                 SmartFacetButton(state: state, field: field, allowsPinning: allowsEditing)
             }
+        }
+    }
+
+    // MARK: タグ
+
+    /// タグの節(2026-11-03、利用者の指示: タグの項目は独立させ、いちばん上に更新のボタン)。
+    ///
+    /// **タグは自動では更新しない**(`SmartLibraryCatalog.refreshTags`)ので、更新は文字のリンクでなく、はっきりボタンに見える形にする。形は下の欄のボタンと
+    /// 同じ作り: 標準の `.bordered` は地が半透明で、面を文字の色で塗ると文字ごと消える(CLAUDE.md の表)。ファイルに書かないのでシークレットウインドウでも
+    /// 押せる(「本を探し直す」と同じ)。読んでいる間はボタンの中に進み具合を出す(NAS では数秒かかる)。
+    private var tagsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SmartSidebarHeader(titleKey: "Tags") { EmptyView() }
+            SmartTagRefreshButton(isRefreshing: catalog.isRefreshingTags) {
+                catalog.refreshTags()
+            }
+            .disabled(catalog.isRefreshingTags || catalog.isLoading || store.folders.isEmpty)
+            SmartFacetButton(state: state, field: .tags, allowsPinning: allowsEditing)
         }
     }
 
@@ -506,18 +525,23 @@ private struct SmartFacetButton: View {
                 SmartFacetPanel(state: state, field: field, allowsPinning: allowsPinning)
             }
             .contextMenu {
-                Menu("Change Field") {
-                    ForEach(SmartFacetField.allCases, id: \.self) { candidate in
-                        Button(LocalizedStringKey(candidate.titleKey)) {
-                            state.replaceFacetField(field, with: candidate)
+                // タグのボタンは節に固定(`SmartFacetField.arrangeable`)なので、替える・外すは出さない。
+                if field != .tags {
+                    Menu("Change Field") {
+                        ForEach(SmartFacetField.arrangeable, id: \.self) { candidate in
+                            Button(LocalizedStringKey(candidate.titleKey)) {
+                                state.replaceFacetField(field, with: candidate)
+                            }
+                            .disabled(candidate == field)
                         }
-                        .disabled(candidate == field)
                     }
                 }
                 Button("Clear Selection") { state.clearFacet(field) }
                     .disabled(selected.isEmpty)
-                Divider()
-                Button("Remove Button") { state.removeFacetField(field) }
+                if field != .tags {
+                    Divider()
+                    Button("Remove Button") { state.removeFacetField(field) }
+                }
             }
             if !selected.isEmpty {
                 FlowLayout(spacing: 4) {
@@ -529,6 +553,51 @@ private struct SmartFacetButton: View {
                 }
             }
         }
+    }
+}
+
+/// 「タグを更新」のボタン(左ペインの幅いっぱい)。タグは自動では更新しないので、押す場所が一目で分かるように色を塗る(2026-11-03、利用者の要望)。
+///
+/// **色はアクセントにしない**(利用者の指定): この画面では選択中の行・選んだ値がアクセントなので、塗ると「選ばれている」ように読める。
+/// 赤・橙・黄は警告に、緑は完了に読めるので、青緑の固定色にした。不透明の地に白い文字なので文字に輪郭は掛けないが、面を同じ色で塗ると形が
+/// 消えるので枠は掛ける(CLAUDE.md の表)。
+private struct SmartTagRefreshButton: View {
+    let isRefreshing: Bool
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// 白い文字とのコントラストは 5:1 ほど。
+    private static let fill = Color(red: 0.04, green: 0.47, blue: 0.52)
+    /// 押せないとき。透明度で薄めると面の色が透けて文字が消えるので、不透明のまま色を抜く。
+    private static let disabledFill = Color(red: 0.50, green: 0.60, blue: 0.62)
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isRefreshing {
+                    // 地の色に関わらず白い回転表示にする(外観が明るいと黒くなり、この地では見えにくい)。
+                    ProgressView()
+                        .controlSize(.mini)
+                        .environment(\.colorScheme, .dark)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                Text("Update Tags")
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(shape.fill(isEnabled || isRefreshing ? Self.fill : Self.disabledFill))
+            .panelOutlinedFrame(in: shape)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .help("Read the Finder tags of the books in the target folders again")
     }
 }
 

@@ -1021,6 +1021,55 @@ struct SmartLibraryTests {
         first.deactivate()
     }
 
+    @Test("シークレットウインドウだけで出している間は、前回の一覧も本の記録も書かない。読むのは許し、通常の窓が来たら書く(2026-11-03)")
+    func aPrivateWindowAloneLeavesNoRecord() async throws {
+        let library = try InMemoryLibrary(label: "smart-private")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let temporary = try TemporaryDirectory("smart-private")
+        let cacheURL = temporary.file("catalog.json")
+        let root = temporary.url.appendingPathComponent("対象", isDirectory: true)
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(root)
+        try await writeSavedCatalog(root: root, store: store, library: library, cacheURL: cacheURL)
+        let saved = try Data(contentsOf: cacheURL)
+        func savedBookCount() throws -> Int {
+            try JSONDecoder().decode(SmartLibraryCatalog.CachedCatalog.self, from: Data(contentsOf: cacheURL)).books.count
+        }
+
+        try Data().write(to: root.appendingPathComponent("架空の本 丁.zip"))
+        let corpus = MetadataCorpusStore(url: nil)
+        let catalog = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                          modelContext: library.context, cacheURL: cacheURL, corpusStore: corpus)
+        let privateWindow = NSObject()
+        let normalWindow = NSObject()
+
+        // シークレットウインドウだけ: 探して並べるが、どちらにも書かない。
+        catalog.activate(client: privateWindow, persistsMetadata: false)
+        #expect(await wait { !catalog.isLoading && catalog.books.count == 4 })
+        await catalog.waitForPendingSaves()
+        #expect(try Data(contentsOf: cacheURL) == saved)
+        #expect(corpus.smartLibraryBookIDs.isEmpty)
+
+        // 通常の窓が来た: シークレットウインドウが出たままでも、次の変化を待たずに書く。
+        catalog.activate(client: normalWindow, persistsMetadata: true)
+        #expect(await wait { corpus.smartLibraryBookIDs.count == 4 })
+        #expect(await wait { !catalog.isLoading })
+        await catalog.waitForPendingSaves()
+        #expect(try savedBookCount() == 4)
+
+        // 通常の窓が消えてシークレットウインドウだけに戻れば、探し直しても書かない。
+        catalog.deactivate(client: normalWindow)
+        try Data().write(to: root.appendingPathComponent("架空の本 戊.zip"))
+        catalog.reload()
+        #expect(await wait { !catalog.isLoading && catalog.books.count == 5 })
+        await catalog.waitForPendingSaves()
+        #expect(try savedBookCount() == 4)
+        #expect(corpus.smartLibraryBookIDs.count == 4)
+        catalog.deactivate(client: privateWindow)
+    }
+
     @Test("保存した前回の一覧を、集め直しが終わる前に出す(2026-09-26。集め直しの世代と比べていて、毎回捨てていた)")
     func theSavedListIsShownBeforeTheRebuild() async throws {
         let library = try InMemoryLibrary(label: "smart-restore")

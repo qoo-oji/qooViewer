@@ -562,6 +562,11 @@ returns an empty success (only `getxattr`'s `EPERM` tells "denied" from "no tags
 (`AppPreferences.refusesFileChanges`, shared with `FileBrowserOperations.isReadOnly`) and private windows dim editing. Tag names are written in **Finder's** language (`FinderTagColor.names`), not the
 display language. A write from the sandbox makes macOS add `com.apple.quarantine`, which the app cannot remove (`EPERM`). No exFAT test: tags live in `._name`, and removing such a work folder
 risks the rmdir hang.
+**Smart library tags (2026-11-03, user decisions; docs/14「スマートライブラリ」)**: the scan reads Finder tags with the same `FinderTagStore`, network target folders included (read-only there too), into
+`SmartBook.tags` (nil = could not read, which matches no condition and is never "no tags"). **Tags are never refreshed live**: the scan and the fixed "Update Tags" button (`SmartLibraryCatalog.refreshTags`, no rescan) are the only
+readers, so a tag changed in Finder or the inspector reaches the filter only then. The tag facet lives in its own "Tags" sidebar group and is not arrangeable (`SmartFacetField.arrangeable`); the button is a fixed teal because the accent colour reads as "selected" here.
+**A private window alone writes neither `corpus.json` nor `catalog.json`** (`SmartLibraryCatalog.persistingCount`; a normal window arriving later triggers the rebuild that records and saves). Home's mode is deliberately still saved from private windows
+(user decision), so the next normal window can open on the smart library and record — when verifying on the real app, set `qooViewer.welcome.mode` before each launch and read which window wrote.
 **Home inspector (2026-09-30; `Views/Welcome/Inspector/`, docs/14「インスペクタ」)**: a Finder-preview-like right pane next to the
 file browser / smart library / library, one per-window flag shared by all three (`WelcomeLibraryState.isInspectorShown`, View ▸ Show/Hide
 Inspector ⇧⌘P, a button at the right end of the top bar — or of the file browser's header when there is no top bar), absent in `.classic`.

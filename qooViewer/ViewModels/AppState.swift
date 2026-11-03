@@ -32,6 +32,8 @@ final class AppState: ObservableObject {
     ///   残らないが、同じ本でも開き方によって挙動が変わるのを避けるため。
     ///   BookLoader.restoredFromStructureCache / PageLoader.loadPersistedPageSizes参照。
     ///   下調べが作る進捗バー用サムネイル(PageLoader.scanPage)も同じガード)
+    /// - スマートライブラリの本の記録(MetadataCorpusStore)と前回の一覧(catalog.json)。シークレットウインドウだけで出している間は
+    ///   書かない(SmartLibraryCatalog.persistingCount)。保存した前回の一覧を読んで先に出すのは許す
     /// - 本の移動・リネーム追従によるbookIDの書き換え(reconcileBookIDIfMoved)や識別子の補完
     ///   (backfillIdentifiers)。これらも既存行への書き込みなので行わない
     /// - ファイルブラウザのよく使う項目の登録・削除、最後に表示したフォルダ、一括リネームの前回の入力(FileBrowserState.isPrivate)、
