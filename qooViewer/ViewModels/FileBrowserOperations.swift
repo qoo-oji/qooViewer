@@ -85,7 +85,7 @@ final class FileBrowserOperations: ObservableObject {
     /// **出している間に切り替わったとき**(`asking`)。ファイルに触り始めた操作は、途中で切り替わっても最後までやる。
     var isReadOnly: Bool {
         guard let preferences = state?.preferences else { return true }
-        return preferences.fileBrowserReadOnly || !preferences.fileBrowserFeatureEnabled
+        return preferences.refusesFileChanges
     }
 
     /// 操作を始める前の確認・シートを出し、答えを返す。**出している間に変更を断る状態へ切り替わっていたら nil**(どの呼び出し元でも

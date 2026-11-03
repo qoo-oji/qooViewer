@@ -150,6 +150,38 @@
         }
       }
     },
+    "Add Tag" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Tag"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグを追加"
+          }
+        }
+      }
+    },
+    "Add Standard Tag" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Standard Tag"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "標準のタグを追加"
+          }
+        }
+      }
+    },
     "Adding books…" : {
       "localizations" : {
         "en" : {
@@ -970,6 +1002,22 @@
         }
       }
     },
+    "No Tags" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Tags"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグなし"
+          }
+        }
+      }
+    },
     "Not broken down" : {
       "localizations" : {
         "en" : {
@@ -1146,6 +1194,38 @@
         }
       }
     },
+    "Remove Tag “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Tag “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグ“%@”を外す"
+          }
+        }
+      }
+    },
+    "qooViewer doesn’t have access to this item’s tags." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer doesn’t have access to this item’s tags."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この項目へのアクセス権がないため、タグを読めません。"
+          }
+        }
+      }
+    },
     "Renaming “%@”…" : {
       "localizations" : {
         "en" : {
@@ -1286,6 +1366,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "システム"
+          }
+        }
+      }
+    },
+    "Tags" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tags"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグ"
+          }
+        }
+      }
+    },
+    "Tags can’t be changed in read-only mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tags can’t be changed in read-only mode."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み取り専用モードのため、タグは変更できません。"
+          }
+        }
+      }
+    },
+    "Tags on network volumes can only be viewed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tags on network volumes can only be viewed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークボリュームのタグは表示のみです。"
           }
         }
       }
@@ -1546,6 +1674,22 @@
         }
       }
     },
+    "The tags couldn’t be changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The tags couldn’t be changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグを変更できませんでした。"
+          }
+        }
+      }
+    },
     "This deletes all saved data except folder access permissions and quits qooViewer. You can’t undo this action." : {
       "localizations" : {
         "en" : {
@@ -1558,6 +1702,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダのアクセス権以外の保存データをすべて削除し、qooViewerを終了します。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "This item’s tags can’t be changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This item’s tags can’t be changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この項目のタグは変更できません。"
+          }
+        }
+      }
+    },
+    "This item’s tag data is damaged, so it can’t be shown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This item’s tag data is damaged, so it can’t be shown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タグの情報が壊れているため、表示できません。"
+          }
+        }
+      }
+    },
+    "This item’s tags couldn’t be read." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This item’s tags couldn’t be read."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この項目のタグを読めませんでした。"
           }
         }
       }

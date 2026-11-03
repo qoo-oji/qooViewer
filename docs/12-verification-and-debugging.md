@@ -134,6 +134,25 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   どうしてもキーが要るときは、直前に最前面が qooViewer であることを確かめ、確かめと送信を 1 つの `osascript` の中で行う。
 - GUI の挙動は、推測で2回外したらコンテナ内にログを仕込んで自分で読む。
 
+## サンドボックスの許可を測る探査アプリ
+
+許可の有無が結果を左右する API(2026-11-03 の Finder のタグ)は、**テストホストや Debug では測れない**(Xcode が `/` の読み取りの例外を足す。下の「ファイルブラウザ」)。
+Release と同じ権限の使い捨てのアプリを作る:
+
+- `swiftc` で作り、`.app` に `LSUIElement`(窓を出さない)と、`CFBundleDocumentTypes`(`public.item` / `public.folder`、`LSHandlerRank = None`、役割は qooViewer の多くと同じ `Viewer`)を書き、
+  sandbox + `files.user-selected.read-write` の entitlement と hardened runtime で、Local.xcconfig と同じ Team の開発用の証明書で署名する。bundle id は qooViewer と別にする。
+- `open -n -g -j -W --stdout 出力 -a App 対象 --args …` で渡すと、**ファイル選択のダイアログ無しで**利用者の操作と同じ許可が付く。種類の違う項目を一度に渡すと `application(_:open:)` が
+  分かれて届くので、1 回に 1 種類だけ渡す。パネルとドロップの経路だけは利用者の操作が要る。
+- **実蔵書の名前を出さない**: 調査用のフォルダの外のパスは件数だけ出す(Spotlight のコンピュータ全体の問い合わせなど)。
+- 測るのは許可の中・許可の外(隣のファイル)・ファイル 1 個の許可・bookmark の `startAccessing` の前と中と後。対照はサンドボックスの外の同じ読み取り。
+  Finder の形を真似るときは、タグの xattr だけでなく `FinderInfo` の色も入れる(無いと `tagNames` の部分的な答えが出ず、一度説明を誤った)。
+- `-nobrowse` や hdiutil で付けたイメージは索引が無効(`mdutil -i on` は sudo 無しで通る)。`-nobrowse` を外すと Finder の `FXDesktopVolumePositions` に残る。
+- **後片付け**: `Containers` と `Application Scripts` の両方、`lsregister -u`。`tccutil reset` は登録を消す**前**に。触った共有やボリュームの直下の mtime は `touch -mt` で戻す。
+  共有を取り出すと Finder の `FXRecentFolders` から項目が減る。Finder の設定は `defaults export` の控えと比べ、**一致するまで控えを消さない**(一度消して 1 件戻せなくした)。
+
+**実データの窓を撮るときは、撮った直後に切り取り、切り取る前の画像は読まずに消す道具だけを使う**(2026-11-03、開いたメニューを `screencapture -l<メニューの窓番号>` で撮ったら窓全体が
+写り、実名が会話に入った)。ポップアップは撮らず AX で読む(項目名・淡色は読める)。AX の `AXFocused` や `AXPress` はアプリを前面に出す。
+
 ## ファイルの同定の測り方
 
 「このファイルは同じものか」に関わる API は、**思い込みが当たらない**ところが多いので測ります

@@ -28,6 +28,12 @@ nonisolated enum NetworkVolumeReading {
         return MountTable.current().isRemote(url)
     }
 
+    /// `url` がネットワークボリューム上か(隠し設定は見ない。読み方の逃げ道ではなく、ボリュームの種類そのものを聞きたいとき ――
+    /// インスペクタのタグは見るだけ)。マウント表を読むだけで、共有には触らない。
+    static func isOnNetworkVolume(_ url: URL, mounts: MountTable = .current()) -> Bool {
+        isTreatedAsRemoteForTesting(url) || mounts.isRemote(url)
+    }
+
     /// 読み込み層(同じファイルなら共有)。使わない・作れないなら nil(呼び出し側は従来どおり直接開く)。
     ///
     /// 作れないのは、一時ファイルを置く場所の空きが本の大きさに足りないとき(裏の取り寄せで本 1 冊ぶんを書くため)と、

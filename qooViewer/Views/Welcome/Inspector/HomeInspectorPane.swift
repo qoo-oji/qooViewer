@@ -13,8 +13,9 @@ import SwiftUI
 ///    選ぶ・デフォルトに戻す・切り取るときに残す位置)。本でないものは Finder のプレビューに揃える(動画はサムネイル。
 ///    `HomeInspectorItemPreview`)
 /// 2. 名前(ファイル名)と、種類・サイズの 1 行
-/// 3. 本ならメタデータの欄(その場で直せる。`HomeInspectorMetadataSection`)
-/// 4. 情報(種類・サイズ・場所・作成日・変更日。Finder のプレビューと同じ項目)
+/// 3. Finder のタグ(`HomeInspectorTagsSection`。ファイル・フォルダ・本。ネットワークボリュームは見るだけ)
+/// 4. 本ならメタデータの欄(その場で直せる。`HomeInspectorMetadataSection`)
+/// 5. 情報(種類・サイズ・場所・作成日・変更日。Finder のプレビューと同じ項目)
 ///
 /// ■ 何を見せるか(`HomeInspectorSubject`)
 /// - ファイルブラウザ: 選んだ項目。フォルダは画像フォルダ(1 冊の本)かどうかを 1 回だけ調べる(`ShelfFolderResolver.isSingleBookFolder`)
@@ -270,12 +271,12 @@ private struct HomeInspectorFileBrowserItem: View {
                     width: width, allowsEditing: allowsEditing, home: home
                 )
             case false?:
-                HomeInspectorPlainItemView(entry: entry, currentFolder: currentFolder, width: width,
-                                           savesToDisk: allowsEditing)
+                HomeInspectorPlainItemView(entry: entry, effective: effective, currentFolder: currentFolder, width: width,
+                                           allowsEditing: allowsEditing)
             case nil:
                 // 調べている間も、本でないものと同じ形で出しておく(絵・名前・情報は同じ。本と分かったら表紙とメタデータに替わる)。
-                HomeInspectorPlainItemView(entry: entry, currentFolder: currentFolder, width: width,
-                                           savesToDisk: allowsEditing)
+                HomeInspectorPlainItemView(entry: entry, effective: effective, currentFolder: currentFolder, width: width,
+                                           allowsEditing: allowsEditing)
             }
         }
         // リンクの先が後から解けて `effective` が変わったら決め直す(一覧はリンクの先を読み込みの後で解く ―― FileBrowserState.resolveLinkTargets)。
@@ -327,20 +328,29 @@ private struct HomeInspectorFileBrowserItem: View {
 /// 本でない項目(Finder のプレビューの形: 絵・名前・情報)。
 private struct HomeInspectorPlainItemView: View {
     let entry: FileBrowserEntry
+    /// 記号リンク・エイリアスの先(タグはこちら。本の面と同じく、リンクは先の項目として扱う)。
+    let effective: FileBrowserEntry
     let currentFolder: URL?
     let width: CGFloat
-    let savesToDisk: Bool
+    let allowsEditing: Bool
 
     var body: some View {
         let facts = HomeInspectorFileFacts(entry: entry)
         VStack(spacing: 14) {
             HomeInspectorItemPreview(
                 entry: entry, currentFolder: currentFolder, width: width, maxHeight: HomeInspectorBookView.maxCoverHeight,
-                savesToDisk: savesToDisk
+                savesToDisk: allowsEditing
             )
             HomeInspectorTitle(
                 name: entry.displayName, subtitle: HomeInspectorFormat.subtitle(kind: facts.kind, size: facts.size)
             )
+            // ボリュームそのものにタグは付かない(Finder の情報を見るにも無い)。
+            if !effective.isVolume {
+                HomeInspectorTagsSection(
+                    target: HomeInspectorTagTarget(url: effective.url, isLinkTarget: entry.isLink),
+                    allowsEditing: allowsEditing, width: width
+                )
+            }
             HomeInspectorFileInfoSection(
                 facts: facts, folderSizePolicy: entry.isVolume ? .never : .ifReadable(currentFolder: currentFolder)
             )

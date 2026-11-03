@@ -98,6 +98,7 @@ struct HomeInspectorBookView: View {
                     .panelOutlinedContent()
             }
             HomeInspectorTitle(name: name, subtitle: HomeInspectorFormat.subtitle(kind: facts?.kind, size: facts?.size))
+            HomeInspectorTagsSection(target: tagTarget, allowsEditing: allowsEditing, width: width)
             HomeInspectorMetadataSection(bookID: bookID, sourceURL: sourceURL, allowsEditing: allowsEditing, home: home)
                 .id(bookID)
             if let facts {
@@ -182,6 +183,18 @@ struct HomeInspectorBookView: View {
     }
 
     // MARK: - 名前と情報
+
+    /// タグを読む相手。コレクションの本はブックマークのスコープの中で読む(`loadCollectionItemFacts` と同じ理由)。
+    private var tagTarget: HomeInspectorTagTarget {
+        switch book {
+        case .fileBrowser(let entry, let displayed, _):
+            HomeInspectorTagTarget(url: entry.url, isLinkTarget: displayed.isLink)
+        case .smart(let smartBook):
+            HomeInspectorTagTarget(url: URL(filePath: smartBook.id, directoryHint: smartBook.kind == .folder ? .isDirectory : .notDirectory))
+        case .collectionItem(_, let bookID):
+            HomeInspectorTagTarget(url: URL(filePath: bookID), bookmark: collectionItem?.bookmarkData)
+        }
+    }
 
     private var name: String {
         switch book {

@@ -553,6 +553,15 @@ scene (`WelcomeLibraryState` / `SmartLibraryViewState.scrollMemory`, `.homeScrol
 `dismantleNSView` + `HomeWheelScrollView.restoreScrollOrigin` for AppKit lists; the file browser keeps its own in `FileBrowserState`,
 tree expansion included). A new Home list must do the same, and a SwiftUI one must not save before restoring starts (the first
 geometry report, offset 0, can arrive before `onAppear`).
+**Finder tags in the Home inspector (2026-11-03; `HomeInspectorTagsSection`, `Services/FileBrowser/FinderTagStore.swift`, `Models/FinderTag.swift`; measurements in docs/14「インスペクタ」)**:
+read with `getxattr`, never by trusting `URL.tagNames` — outside the granted scope it returns one colour from `FinderInfo` or nil **without an error**, and Spotlight
+returns an empty success (only `getxattr`'s `EPERM` tells "denied" from "no tags"; Debug and the test host cannot measure this because Xcode adds a `/` read exception, docs/12
+「サンドボックスの許可を測る探査アプリ」). Writes re-read first, then `setxattr` the array and set `FinderInfo`'s colour to the last coloured tag's; clearing all tags goes through
+`NSURL`'s `[]` (what Finder leaves: an empty array and colour 0) — **never `removexattr`** (a measured SMB NAS returns success and keeps it) and never an empty array alone (the colour stays and
+`tagNames` keeps answering) — and every write is read back. Network volumes are view-only (`FinderTagStore.apply` refuses too; user decision), and read-only mode
+(`AppPreferences.refusesFileChanges`, shared with `FileBrowserOperations.isReadOnly`) and private windows dim editing. Tag names are written in **Finder's** language (`FinderTagColor.names`), not the
+display language. A write from the sandbox makes macOS add `com.apple.quarantine`, which the app cannot remove (`EPERM`). No exFAT test: tags live in `._name`, and removing such a work folder
+risks the rmdir hang.
 **Home inspector (2026-09-30; `Views/Welcome/Inspector/`, docs/14「インスペクタ」)**: a Finder-preview-like right pane next to the
 file browser / smart library / library, one per-window flag shared by all three (`WelcomeLibraryState.isInspectorShown`, View ▸ Show/Hide
 Inspector ⇧⌘P, a button at the right end of the top bar — or of the file browser's header when there is no top bar), absent in `.classic`.

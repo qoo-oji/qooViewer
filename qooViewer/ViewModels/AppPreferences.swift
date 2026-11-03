@@ -606,6 +606,12 @@ final class AppPreferences: ObservableObject {
     @Published var fileBrowserReadOnly: Bool {
         didSet { defaults.set(fileBrowserReadOnly, forKey: Keys.fileBrowserReadOnly) }
     }
+
+    /// ユーザーのファイルを変える操作を断るか(読み取り専用、**または「ファイルブラウザを有効にする」が OFF**)。
+    /// `FileBrowserOperations.isReadOnly` とインスペクタのタグの共通の判定。
+    var refusesFileChanges: Bool {
+        fileBrowserReadOnly || !fileBrowserFeatureEnabled
+    }
     /// 名前の変更で拡張子を変えるとき、Finder と同じく確かめるか(Finder の「拡張子を変更する前に警告を表示」。既定 ON ―― Finder の既定)。
     /// サンドボックスの中からは Finder のこの設定を読めないので、ここに同じ設定を持つ(2026-10-24、ユーザー決定)。
     @Published var fileBrowserWarnsBeforeChangingExtension: Bool {
