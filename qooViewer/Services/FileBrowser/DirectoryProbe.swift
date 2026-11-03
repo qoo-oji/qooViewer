@@ -99,9 +99,18 @@ nonisolated enum DirectoryProbe {
         prefixes: [String] = protectedPrefixes, categoryPrefixes: Set<String> = categoryProtectedPrefixes
     ) -> Bool {
         if mountTable.isRemote(url) { return false }
-        guard let prefix = protectedPrefix(containing: url, prefixes: prefixes) else { return true }
+        return !isOffLimitsUnentered(url, from: currentFolder, prefixes: prefixes, categoryPrefixes: categoryPrefixes)
+    }
+
+    /// `mayReadUnentered` の TCC の部分だけ: 利用者が入っていないのに読むと許可のダイアログが出うる場所か。ネットワーク越しでも読む仕事
+    /// (インスペクタのタグは共有の上でも読む)が使う。**ファイルシステムには触れない。**
+    static func isOffLimitsUnentered(
+        _ url: URL, from currentFolder: URL?,
+        prefixes: [String] = protectedPrefixes, categoryPrefixes: Set<String> = categoryProtectedPrefixes
+    ) -> Bool {
+        guard let prefix = protectedPrefix(containing: url, prefixes: prefixes) else { return false }
         let current = currentFolder.flatMap { protectedPrefix(containing: $0, prefixes: prefixes) }
-        return categoryPrefixes.contains(prefix) && current == prefix
+        return !(categoryPrefixes.contains(prefix) && current == prefix)
     }
 
     /// 比べる形のパス。**起動ボリュームのデータ側の書き方(`FileBrowserState.dataVolumePrefix` を頭に付けたホーム)も頭を外して揃える**

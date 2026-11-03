@@ -347,7 +347,7 @@ private struct HomeInspectorPlainItemView: View {
             // ボリュームそのものにタグは付かない(Finder の情報を見るにも無い)。
             if !effective.isVolume {
                 HomeInspectorTagsSection(
-                    target: HomeInspectorTagTarget(url: effective.url, isLinkTarget: entry.isLink),
+                    target: HomeInspectorTagTarget(url: effective.url, browsed: .init(currentFolder: currentFolder)),
                     allowsEditing: allowsEditing, width: width
                 )
             }

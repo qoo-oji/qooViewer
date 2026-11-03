@@ -93,6 +93,8 @@ final class SmartLibraryCatalog: ObservableObject {
     private var scanning: (roots: [String], epoch: Int, task: Task<SmartLibraryScanner.Result?, Never>)?
     /// 「タグを更新」の読み直し(`refreshTags`)。
     private var tagRefresh: Task<Void, Never>?
+    /// 「タグを更新」の読み方(**テストのための口**: 応答しない共有の代わりに待たせる)。
+    var tagRefreshReader: @Sendable (inout [SmartLibraryScanner.ScannedBook]) -> Void = { SmartLibraryScanner.readTags(of: &$0) }
 
     private func invalidateScan() {
         scanned = nil
@@ -100,8 +102,11 @@ final class SmartLibraryCatalog: ObservableObject {
         // 探している最中のものは古い(探し直し・ボリュームの着脱・機能 OFF)。止める ―― 取り消しは FileIO を通って探索の中へ届く。
         scanning?.task.cancel()
         scanning = nil
-        // 読み直している本の一覧も古い(結果は `scanEpoch` を見て捨てる)。
+        // 読み直している本の一覧も古い(結果は `scanEpoch` を見て捨てる)。**ボタンはここで戻す**: 取り消しが届いても、応答しない共有の
+        // `getxattr` が返るまで読み直しは終わらず、その間「タグを更新」が押せないままになる。
         tagRefresh?.cancel()
+        tagRefresh = nil
+        isRefreshingTags = false
     }
 
     /// `roots` を探し、探し終えたら `scanned` に覚える。同じ場所を探している最中ならそれを待つ。途中で止められたら nil
@@ -285,17 +290,19 @@ final class SmartLibraryCatalog: ObservableObject {
         isRefreshingTags = true
         let epoch = scanEpoch
         let books = known.result.books
+        let reader = tagRefreshReader
         let task = Task { [weak self] in
             let updated = await FileIO.perform { () -> [SmartLibraryScanner.ScannedBook]? in
                 var books = books
-                SmartLibraryScanner.readTags(of: &books)
+                reader(&books)
                 return Cancellation.isRequestedInCurrentScope ? nil : books
             }
-            guard let self else { return }
+            // 読んでいる間に探し直しを頼まれた・機能を切られたら捨てる(探し直せばタグも読む)。旗は `invalidateScan` が戻してあり、
+            // ここで触ると、後から始めた読み直しの旗を落とす。
+            guard let self, epoch == self.scanEpoch else { return }
             self.isRefreshingTags = false
             self.tagRefresh = nil
-            // 読んでいる間に探し直しを頼まれた・機能を切られたら捨てる(探し直せばタグも読む)。
-            guard let updated, !Task.isCancelled, epoch == self.scanEpoch, var current = self.scanned, current.roots == roots else { return }
+            guard let updated, !Task.isCancelled, var current = self.scanned, current.roots == roots else { return }
             current.result.books = updated
             self.scanned = current
             // 待たせずに世代を進める(走っている集め直しが、古いタグの結果を `scanned` へ書き戻さないように)。

@@ -187,8 +187,8 @@ struct HomeInspectorBookView: View {
     /// タグを読む相手。コレクションの本はブックマークのスコープの中で読む(`loadCollectionItemFacts` と同じ理由)。
     private var tagTarget: HomeInspectorTagTarget {
         switch book {
-        case .fileBrowser(let entry, let displayed, _):
-            HomeInspectorTagTarget(url: entry.url, isLinkTarget: displayed.isLink)
+        case .fileBrowser(let entry, _, let currentFolder):
+            HomeInspectorTagTarget(url: entry.url, browsed: .init(currentFolder: currentFolder))
         case .smart(let smartBook):
             HomeInspectorTagTarget(url: URL(filePath: smartBook.id, directoryHint: smartBook.kind == .folder ? .isDirectory : .notDirectory))
         case .collectionItem(_, let bookID):

@@ -170,6 +170,86 @@ struct SmartLibraryTagsTests {
         catalog.deactivate()
     }
 
+    @Test("タグの読みの取り消しは 1 冊ごとに見る(応答しない共有で読み続けない)")
+    func readTagsChecksCancellationPerBook() {
+        var books = (0..<5).map {
+            SmartLibraryScanner.ScannedBook(path: "/架空/\($0).zip", isFolder: false, creationDate: nil, modificationDate: nil, fileSize: nil)
+        }
+        let scope = Cancellation()
+        var reads = 0
+        Cancellation.withScope(scope) {
+            SmartLibraryScanner.readTags(of: &books) { _, _ in
+                reads += 1
+                if reads == 2 { scope.request() }
+                return .tags([FinderTag(rawValue: "A")])
+            }
+        }
+        #expect(reads == 2)
+        #expect(books.map(\.tags) == [["A"], ["A"], nil, nil, nil])
+    }
+
+    /// 読みを止めておける箱(応答しない共有の代わり)。
+    nonisolated private final class StuckReads: @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls = 0
+        private let gates = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
+
+        func read() {
+            let index = lock.withLock {
+                calls += 1
+                return calls - 1
+            }
+            gates[index].wait()
+        }
+        var callCount: Int { lock.withLock { calls } }
+        func open(_ index: Int) { gates[index].signal() }
+    }
+
+    @Test("読み直し中に探し直しを頼むとボタンはすぐ戻る。古い読みが後で返っても、新しい読み直しの状態を壊さない")
+    func invalidationReleasesTheRefreshButton() async throws {
+        let library = try InMemoryLibrary(label: "smart-tags")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let folder = try TemporaryDirectory("smart-tags")
+        let temporary = try TemporaryDirectory("smart-tags-cache")
+        let file = folder.url.appendingPathComponent("架空の本.zip")
+        try Data().write(to: file)
+        try setTags(["A"], at: file)
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(folder.url)
+        let catalog = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                          modelContext: library.context, cacheURL: temporary.file("catalog.json"))
+        let stuck = StuckReads()
+        catalog.tagRefreshReader = { _ in stuck.read() }
+        catalog.activate()
+        #expect(await eventuallyHere { catalog.hasLoaded && !catalog.isLoading && catalog.books.count == 1 })
+
+        let firstRefresh = try #require(catalog.refreshTags())
+        #expect(catalog.isRefreshingTags)
+        #expect(await eventuallyHere { stuck.callCount == 1 })
+
+        // 読みが返らなくても、探し直しを頼めばすぐ押せるようになる。
+        try setTags(["B"], at: file)
+        catalog.reload()
+        #expect(!catalog.isRefreshingTags)
+        // 探し直しが終わった(探した結果の新しいタグが並んだ)ところで次を押す。
+        #expect(await eventuallyHere { !catalog.isLoading && catalog.books.first?.tags == ["B"] })
+
+        let secondRefresh = try #require(catalog.refreshTags())
+        #expect(await eventuallyHere { stuck.callCount == 2 })
+
+        // 古い読みが返っても、走っている新しい読み直しの旗は落とさない。
+        stuck.open(0)
+        await firstRefresh.value
+        #expect(catalog.isRefreshingTags)
+
+        stuck.open(1)
+        await secondRefresh.value
+        #expect(!catalog.isRefreshingTags)
+        catalog.deactivate()
+    }
+
     @Test("探す前に押されたら探し直しになる。機能を切ると結果を捨てる")
     func refreshBeforeScanAndWhileOff() async throws {
         let library = try InMemoryLibrary(label: "smart-tags")

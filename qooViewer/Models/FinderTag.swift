@@ -48,7 +48,9 @@ nonisolated enum FinderTagEdit: Hashable, Sendable {
         switch self {
         case .add(let rawName):
             // 改行は色番号との区切りなので、名前に入れない(1 行の欄なので普通は来ないが、貼り付けはありうる)。
-            let name = rawName.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            // `\R` = CRLF を 1 つとして、CR・LF・U+2028 など改行の全部(LF だけ置き換えると、貼り付けた CR が名前の中に残った)。
+            let name = rawName.replacingOccurrences(of: "\\R", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, !tags.contains(where: { $0.hasName(name) }) else { return nil }
             return tags + [FinderTag(name: name, color: FinderTagColor.color(forTagNamed: name, localization: localization))]
         case .remove(let name):

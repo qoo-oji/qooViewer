@@ -1402,6 +1402,22 @@
         }
       }
     },
+    "Tags aren’t read for items in this protected location." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tags aren’t read for items in this protected location."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保護された場所にある項目なので、タグは読み取りません。"
+          }
+        }
+      }
+    },
     "Tags can’t be changed in read-only mode." : {
       "localizations" : {
         "en" : {
@@ -1414,6 +1430,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "読み取り専用モードのため、タグは変更できません。"
+          }
+        }
+      }
+    },
+    "Tags can’t be changed while the file browser is turned off." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tags can’t be changed while the file browser is turned off."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザが無効のため、タグは変更できません。"
           }
         }
       }
@@ -1686,6 +1718,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ネットワークボリューム上の本のうち、読んだ部分を手元に残したものです。同じ部分を取り寄せ直さずに済みます。場所を取るのは実際に読んだ部分だけで、ビューアで開いている間は残りを裏で取り寄せます。本を閉じて少し経つと削除し、アプリを終了するときにも削除します。"
+          }
+        }
+      }
+    },
+    "The tags of “%@” couldn’t be changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The tags of “%@” couldn’t be changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」のタグを変更できませんでした。"
           }
         }
       }

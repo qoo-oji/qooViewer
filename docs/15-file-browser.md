@@ -1961,6 +1961,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | **開く前に触って確かめない**(触ること自体が確認の引き金) | 「移動」メニューの標準の場所・「フォルダへ移動…」(`FileBrowserStandardLocation` / `FileBrowserGoToFolderSheet`) |
 | 一覧は子フォルダの中を見ない。パッケージの中へは降りない(写真ライブラリの確認も出ない) | `FileBrowserListing`(→「一覧の読み込み」) |
 | 自分から中を読む部品は、TCC の保護下の場所を**パスの文字列だけで**除外し、ネットワーク越しの場所を**マウント表で**除外する | 三角 `DirectoryProbe.protectedPrefixes`、絵 `FileBrowserThumbnailProvider`(同じ保護下の場所の中を見ているときだけ `categoryProtectedPrefixes` を読む)、動画の先回り `FileBrowserVideoThumbnailWarmer`(よく使う項目そのものがその中にあるときだけ辿る) |
+| インスペクタのタグは、ファイルブラウザの項目なら保護下の場所を読まない(行そのもの・リンクの先・途中の段のリンクも、パスの文字列で確かめてから lstat する。ネットワーク越しは読むが、アプリ全体で 1 度に 1 本) | `HomeInspectorTagsModel`(`DirectoryProbe.isOffLimitsUnentered`・`FileBrowserLinkResolver.followSymbolicLinks`・`HomeInspectorRemoteTagReads`。docs/14「インスペクタ」の「タグ」) |
 | 1 冊の本になるフォルダかどうか(メタデータの編集・書き出し・コレクション・インスペクタ。ダブルクリックで開くのは 2026-10-24 から直下の名前だけ ―― 「移動の規則」)は、直下と子フォルダの直下の名前だけを見て、保護下の子フォルダは同じ保護下の場所の中から見ているときだけ読む。`DirectoryBrowser` の一覧(コレクションの作成・本棚へのドロップ・サイドパネル)も同じ規則で子フォルダの中を読む。比べるパスは `/System/Volumes/Data` の頭を外して揃える(2 回目の監査 15・23。以前は `ShelfFolderResolver.role` がホームで「書類」などの中まで読んだ) | `ShelfFolderResolver.isSingleBookFolder` / `DirectoryProbe.mayReadChild` |
 | アイコンは種類だけで引く。`NSWorkspace.icon(forFile:)` と `NSPathControl.url` を使わない。例外はアプリと記号リンク・エイリアスの先で、FileIO の上で、読んでよい場所だけ(→「アプリケーションのアイコン」「記号リンクとエイリアスのアイコン」) | `FileBrowserIconProvider` / `FileBrowserPathBar`(→「AppKit とすりガラス面」)/ `FileBrowserSystemIcon` |
 | 追い出されたファイル(`SF_DATALESS`)は絵を作らず、読み取りはスレッド単位で実体化を切る | `DatalessFiles.withoutDownloading`(→「サムネイル」) |

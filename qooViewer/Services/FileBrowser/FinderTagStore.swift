@@ -15,7 +15,8 @@ import Foundation
 ///   **`removexattr` は使わない**: SMB の NAS では成功を返すのに消えず、`FinderInfo` の色も残る。空の配列を xattr で書くだけでも色が残り、
 ///   `tagNames` が `['Blue']` を返し続ける
 /// - **書き込みの後は読み直して確かめる**(成功を返しても効いていないことがある ―― 上の `removexattr`)
-/// - **ネットワークボリュームには書かない**(利用者の指定。読むだけ。画面が淡色にするだけでなく、ここでも断る)
+/// - **ネットワークボリュームには書かない**(利用者の指定。読むだけ。画面が淡色にするだけでなく、ここでも断る)。判定は**リンクを段ごとに辿った先**で
+///   (`followingLinksOnLocalVolumes`): パスの字面だけで見ると、`~/nas → /Volumes/NAS` の下の項目や共有を指すリンクを「ローカル」と読み違えて書いた
 ///
 /// ■ 副作用
 /// サンドボックスの中からタグを書くと、macOS がそのファイルに `com.apple.quarantine` を付ける(`setxattr` だけでも付く。読むだけなら
@@ -93,12 +94,26 @@ nonisolated enum FinderTagStore {
         }
     }
 
-    /// 編集できるかの材料を読む。
+    /// `url` のリンク(途中の段も)を辿った本当の場所。ネットワーク越しの段に着いたら、**その段に触らずに** `.refused`。
+    private static func followingLinksOnLocalVolumes(_ url: URL, mounts: MountTable) -> FileBrowserLinkResolver.Outcome {
+        FileBrowserLinkResolver.followSymbolicLinks(url) { !NetworkVolumeReading.isOnNetworkVolume($0, mounts: mounts) }
+    }
+
+    /// リンクを辿るとネットワークボリュームに着くか。共有には触らない。
+    static func leadsToNetworkVolume(_ url: URL, mounts: MountTable = .current()) -> Bool {
+        followingLinksOnLocalVolumes(url, mounts: mounts) == .refused
+    }
+
+    /// 編集できるかの材料を読む(リンクは先の場所について)。
     static func location(of url: URL, mounts: MountTable = .current()) -> Location {
-        let path = MountTable.normalized(url.path)
-        if NetworkVolumeReading.isOnNetworkVolume(url, mounts: mounts) {
-            return Location(isOnNetworkVolume: true, isMountPoint: false, isUnwritable: false)
+        let real: URL
+        switch followingLinksOnLocalVolumes(url, mounts: mounts) {
+        case .target(let target): real = target
+        case .refused: return Location(isOnNetworkVolume: true, isMountPoint: false, isUnwritable: false)
+        // リンクの輪・読めないリンク。どこへ書くか決まらない。
+        case .unresolvable: return Location(isOnNetworkVolume: false, isMountPoint: false, isUnwritable: true)
         }
+        let path = MountTable.normalized(real.path)
         let readOnlyVolume = (try? URL(filePath: path).resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly ?? false
         return Location(
             isOnNetworkVolume: false, isMountPoint: mounts.isMounted(path),
@@ -113,8 +128,13 @@ nonisolated enum FinderTagStore {
     static func apply(
         _ edit: FinderTagEdit, at url: URL, localization: String = FinderTagColor.finderLocalization()
     ) throws -> [FinderTag] {
-        guard !NetworkVolumeReading.isOnNetworkVolume(url) else { throw WriteError.networkVolume }
-        let target = resolvingSymbolicLink(url)
+        // リンクは先へ書く(`getxattr` はリンクを辿るが、`NSURL` の書き込みはリンク自身へ向かうことがあるので揃える)。
+        let target: URL
+        switch followingLinksOnLocalVolumes(url, mounts: .current()) {
+        case .target(let real): target = real
+        case .refused: throw WriteError.networkVolume
+        case .unresolvable: throw WriteError.unreadable(.failed(ELOOP))
+        }
         let current: [FinderTag]
         switch read(at: target, localization: localization) {
         case .tags(let tags): current = tags
@@ -173,13 +193,6 @@ nonisolated enum FinderTagStore {
             return Int32(posix.code)
         }
         return error.domain == NSOSStatusErrorDomain && error.code == -5000 ? EACCES : EIO
-    }
-
-    /// リンクは先へ書く(`getxattr` はリンクを辿るが、`NSURL` の書き込みはリンク自身へ向かうことがあるので揃える)。
-    private static func resolvingSymbolicLink(_ url: URL) -> URL {
-        var info = stat()
-        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFLNK else { return url }
-        return url.resolvingSymlinksInPath()
     }
 
     // MARK: - 拡張属性

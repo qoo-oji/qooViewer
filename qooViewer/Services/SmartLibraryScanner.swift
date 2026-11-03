@@ -85,13 +85,19 @@ nonisolated enum SmartLibraryScanner {
 
     /// 本のタグを読む(**ブロッキングする**。探した本だけ、1 冊に 1〜2 回の `getxattr`。ローカルも NAS も同じ扱い ―― 2026-11-03、利用者の決定)。
     /// 「タグを更新」もこれを呼ぶ。止められたら残りは前の値のまま返る(呼ぶ側が結果を捨てる)。
-    static func readTags(of books: inout [ScannedBook]) {
+    /// **取り消しは 1 冊ごとに見る**: 応答しない共有では 1 冊に 30 秒かかるので、まとめて数えると止まるまで何十分も共有を叩き続ける。
+    /// 期限は設けない(同じ共有を歩く探索そのものにも無い。止めるのは「本を探し直す」・ボリュームの着脱・機能 OFF)。
+    /// - Parameter read: 1 冊を読む(テストのための口)。
+    static func readTags(
+        of books: inout [ScannedBook],
+        read: (URL, String) -> FinderTagStore.Reading = { FinderTagStore.read(at: $0, localization: $1) }
+    ) {
         // 言語は 1 回だけ引く(古いラベルだけの本の名前に使う。本ごとに設定を読まない)。
         let localization = FinderTagColor.finderLocalization()
         for index in books.indices {
-            if index % 64 == 0, Cancellation.isRequestedInCurrentScope { return }
+            if Cancellation.isRequestedInCurrentScope { return }
             let url = URL(fileURLWithPath: books[index].path, isDirectory: books[index].isFolder)
-            if case .tags(let tags) = FinderTagStore.read(at: url, localization: localization) {
+            if case .tags(let tags) = read(url, localization) {
                 books[index].tags = tags.map(\.name)
             } else {
                 books[index].tags = nil
