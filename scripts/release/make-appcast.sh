@@ -61,7 +61,11 @@ if [ -z "${SPARKLE_BIN:-}" ]; then
     for dir in "$HOME"/Library/Developer/Xcode/DerivedData/qooViewer-*/SourcePackages; do
         [ -x "$dir/artifacts/sparkle/Sparkle/bin/generate_appcast" ] || continue
         # その DerivedData が固定した版を取ってきたものか(古いビルドの残りを使わない)。
-        got=$(git -C "$dir/checkouts/Sparkle" describe --tags --exact-match 2>/dev/null || true)
+        # 道具と同じ書庫から展開された framework の版で見る。checkout の git タグでは見ない:
+        # SwiftPM は版を上げたときにタグを取ってこないことがあり、2.10.1 の checkout にタグが無くて
+        # 道具を見つけられなかった(v1.87 のリリース、2026-11-07)。
+        plist="$dir/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Resources/Info.plist"
+        got=$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$plist" 2>/dev/null || true)
         if [ "$got" = "$pinned" ]; then SPARKLE_BIN="$dir/artifacts/sparkle/Sparkle/bin"; break; fi
     done
 fi
