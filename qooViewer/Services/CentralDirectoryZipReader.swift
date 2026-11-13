@@ -19,7 +19,8 @@ import ZIPFoundation
 ///
 /// ■ ZipArchiveReader と結果を一致させる(ページのキーが変わらないように)
 /// 一覧のパス・種類・大きさ・日時、中身のバイト列は ZIPFoundation + ZipArchiveReader と**一致させる**:
-/// - パスの復号(UTF-8 フラグ → UTF-8、無ければ codepage437 → `EntryNameDecoder` で書庫単位の補正)
+/// - パスの復号(UTF-8 フラグ → UTF-8、無ければ codepage437 → `EntryNameDecoder` で書庫単位の補正)。ただし Info-ZIP の
+///   Unicode Path 拡張欄を持つエントリはそちらを使う(下の「違い」の 3 つ目)
 /// - 種類の判定(`Entry.type` と同じ: 作成 OS が unix/osx なら外部属性の S_IFMT、msdos なら属性ビット、ほかは末尾の "/")
 /// - EOCD の探し方(末尾 22 バイト目から 1 バイトずつ前へ、最初に見つかった署名。範囲は下の「違い」の 2 つ目)
 /// - ZIP64 の拾い方(locator は EOCD の直前 20 バイト、record はさらにその直前 56 バイトと決め打ち。拡張欄の値は 0 でなければ使う)
@@ -30,7 +31,7 @@ import ZIPFoundation
 /// 2026-09-24 に、テストのフィクスチャ全件・境界ケース 22 本・実際の蔵書 8,266 本で突き合わせて一致を確かめた
 /// (CentralDirectoryZipReaderTests が常に見ている)。
 ///
-/// **違いは 2 つ(どちらも意図したもの)**:
+/// **違いは 3 つ(どれも意図したもの)**:
 /// 1. 中央ディレクトリは無事で、途中のローカルヘッダーだけが壊れた書庫。ZIPFoundation は一覧の時点でそこで打ち切るが、
 ///    こちらは一覧に含め、そのエントリを取り出すときに失敗する(ページが増え、壊れたページが「読めないページ」になる)。
 ///    ローカルヘッダーを一覧の時点で読まないことがこの reader の目的なので、揃えない。ただし読まなくても分かる失敗
@@ -38,6 +39,13 @@ import ZIPFoundation
 /// 2. EOCD を探すのは末尾から 22+65535 バイト(EOCD+コメントの最大長)まで(2026-09-27 の監査)。ZIPFoundation はファイルの
 ///    先頭まで探すので、**末尾に 64KB を超えるゴミが付いた zip** だけは、あちらが開けてこちらは開けない。上限なしで探すと、
 ///    zip ではないファイル(中身が RAR の .cbz・途中までの zip)1 本ごとにファイル全体をネットワークから取り寄せることになる。
+/// 3. UTF-8 フラグの無いエントリが **Info-ZIP Unicode Path 拡張欄**(0x7075、APPNOTE 4.6.9)を持ち、その欄の版が 1 で、欄の CRC が
+///    元のファイル名のバイト列の CRC と一致すれば、欄の UTF-8 名をパスにする(2026-11-13)。ZIPFoundation はこの欄を読まないので、
+///    あちらは `EntryNameDecoder` の推定の名前になる。推定は外れうる: CP932 の名前で日本語が共通のフォルダ名(カタカナ 7 文字)だけ、
+///    残りは英数字という書庫で、Foundation の判定が全件 Windows-1254(トルコ語)を返し、1 バイトの文字コードはどのバイト列も
+///    「読めて」しまうので検証も通り、全ページの名前が化けた(実物の書庫で確認)。WinRAR などはレガシーな名前にこの欄を添えるので、
+///    欄があれば推定は要らない。欄を持つエントリは推定の標本からも外す(ほかのエントリの判定を正しい名前で薄めない)。
+///    ページのキーはパスなので、欄を持つ書庫は以前と鍵が変わる(構造キャッシュは BookPageListCache の版 5 で捨てる)。
 /// 細工・破損した書庫の値(位置・大きさ)で落ちないことも、ZIPFoundation とは揃えない(あちらは同じ値で trap しうる)。
 ///
 /// スレッド安全ではない(ほかの reader と同じ。PageLoader の actor などの中で 1 つのスレッドから使う)。出所は共有してよい。
@@ -58,6 +66,8 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
         let extraLength: Int
         /// ZIPFoundation の `Entry.path` と同じ文字列(補正前)。
         let mangledPath: String
+        /// Info-ZIP Unicode Path 拡張欄の名前(確かめたものだけ。`unicodePath(extra:rawName:)`)。あれば推定より優先する。
+        let unicodePath: String?
         let kind: ArchiveEntryDescriptor.Kind
     }
 
@@ -203,12 +213,16 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
             let versionMadeBy = cd.le16(cursor + 4)
             let external = cd.le32(cursor + 38)
             // ZIPFoundation の Entry.path と同じ(Darwin では String(data:encoding:) ?? "")。
-            let mangled = String(data: nameData, encoding: flags & (1 << 11) != 0 ? .utf8 : Self.codepage437) ?? ""
+            let hasUTF8Flag = flags & (1 << 11) != 0
+            let mangled = String(data: nameData, encoding: hasUTF8Flag ? .utf8 : Self.codepage437) ?? ""
+            // UTF-8 フラグがあれば名前そのものが UTF-8 なので、拡張欄は見ない。
+            let unicodePath = hasUTF8Flag ? nil : Self.unicodePath(extra: extra, rawName: nameData)
+                .flatMap { $0.hasSuffix("/") == mangled.hasSuffix("/") ? $0 : nil }
             all.append(Record(
                 versionMadeBy: versionMadeBy, dosTime: cd.le16(cursor + 12), dosDate: cd.le16(cursor + 14),
                 cdCompressionMethod: cd.le16(cursor + 10),
                 compressedSize: compressedSize, uncompressedSize: uncompressedSize, localHeaderOffset: localOffset,
-                nameLength: nameLength, extraLength: extraLength, mangledPath: mangled,
+                nameLength: nameLength, extraLength: extraLength, mangledPath: mangled, unicodePath: unicodePath,
                 kind: Self.kind(path: mangled, versionMadeBy: versionMadeBy, external: external)
             ))
             cursor = nameStart + nameLength + extraLength + fileCommentLength
@@ -217,9 +231,10 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
 
         // ここから下は ZipArchiveReader.indexEntries と同じ(判定の標本はファイルだけ、補正後に同じパスなら先のもの)。
         let fileIndices = all.indices.filter { all[$0].kind == .file }
-        let decoder = EntryNameDecoder(mangledPaths: fileIndices.map { all[$0].mangledPath })
+        // Unicode Path 拡張欄で名前が分かったエントリは推定の標本に入れない(型コメントの「違い」の 3 つ目)。
+        let decoder = EntryNameDecoder(mangledPaths: fileIndices.compactMap { all[$0].unicodePath == nil ? all[$0].mangledPath : nil })
         for i in fileIndices {
-            let path = decoder.correctedPath(for: all[i].mangledPath)
+            let path = Self.path(of: all[i], decoder: decoder)
             if recordIndexByCorrectedPath[path] == nil { recordIndexByCorrectedPath[path] = i }
         }
         records = all
@@ -251,6 +266,36 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
                 if compressed { values.compressed = extra.le64(r); r += 8 }
                 if offset { values.offset = extra.le64(r) }
                 return values
+            }
+            o = next
+        }
+        return nil
+    }
+
+    /// 一覧に出すパス。Unicode Path 拡張欄の名前があればそれ、無ければ書庫単位の推定で補正したもの。
+    private static func path(of record: Record, decoder: EntryNameDecoder) -> String {
+        record.unicodePath ?? decoder.correctedPath(for: record.mangledPath)
+    }
+
+    /// Info-ZIP Unicode Path 拡張欄(ヘッダー ID 0x7075。APPNOTE.TXT 4.6.9)の UTF-8 名。
+    ///
+    /// 欄の形は「版(1 バイト、1 だけが定義済み)・元のファイル名の CRC-32(4 バイト)・UTF-8 名」。CRC は、名前を書き換える道具が
+    /// 欄を残したまま元の名前だけを変えた書庫で、古い欄を信じないためのもの(仕様もそう求める)。版が違う・CRC が合わない・
+    /// UTF-8 として読めない・空・NUL を含む欄は無いものとする(推定へ落ちる)。値は書庫の中のものなので、長さは拡張欄の範囲で確かめる。
+    private static func unicodePath(extra: Data, rawName: Data) -> String? {
+        var o = 0
+        while o + 4 <= extra.count {
+            let id = extra.le16(o)
+            let size = Int(extra.le16(o + 2))
+            let next = o + 4 + size
+            guard next <= extra.count else { return nil }
+            if id == 0x7075 {
+                // 版 1 バイト + CRC 4 バイト + 名前 1 バイト以上。
+                guard size > 5, extra[extra.startIndex + o + 4] == 1 else { return nil }
+                guard extra.le32(o + 5) == rawName.crc32(checksum: 0) else { return nil }
+                let utf8 = extra.subdata(in: (extra.startIndex + o + 9)..<(extra.startIndex + next))
+                guard let name = String(data: utf8, encoding: .utf8), !name.isEmpty, !name.contains("\0") else { return nil }
+                return name
             }
             o = next
         }
@@ -441,7 +486,7 @@ nonisolated final class CentralDirectoryZipReader: ArchiveReading {
         let decoder = nameDecoder ?? EntryNameDecoder(mangledPaths: [])
         let made = records.map { r in
             ArchiveEntryDescriptor(
-                path: decoder.correctedPath(for: r.mangledPath), kind: r.kind, uncompressedSize: r.uncompressedSize,
+                path: Self.path(of: r, decoder: decoder), kind: r.kind, uncompressedSize: r.uncompressedSize,
                 modified: ZipDOSTime.localDate(fromZIPFoundation: Self.zipFoundationDate(date: r.dosDate, time: r.dosTime))
             )
         }

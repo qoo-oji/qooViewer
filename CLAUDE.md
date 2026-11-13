@@ -192,9 +192,10 @@ free, and a failed cache write falls back to the bytes read from the network. Th
 `CGPDFDocument(url)` directly. zip uses `CentralDirectoryZipReader` — **local and nested zips too since 2026-10-25** (ZIPFoundation's
 `Archive` scanned a file without an EOCD backwards byte by byte — ~100 s per 100 MB, uncancellable, reached by icon-view thumbnails — and
 trapped on crafted ZIP64 values; `ZipArchiveReader` is now only the reference the tests diff against) (listing from the central directory only; kept answer-for-answer
-identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the two intended differences are documented on the
+identical to ZIPFoundation — `NetworkVolumeReadingTests` diffs every zip fixture; the three intended differences are documented on the
 type — the EOCD search stops 22+65535 bytes from the end, because an unbounded search pulled a whole non-zip file over the network and
-into memory; values read from an archive are untrusted, never `a + b` / `Int64(x)` on them), rar/7z use the forks' positional-reader
+into memory, and an Info-ZIP Unicode Path extra field (0x7075, CRC-checked) wins over the guessed legacy encoding — a CP932 book whose only
+Japanese was one katakana folder name was guessed as Windows-1254 for every page, 2026-11-13; values read from an archive are untrusted, never `a + b` / `Int64(x)` on them), rar/7z use the forks' positional-reader
 entry points. unrar (built as a DLL) treats a read failure as the end of the archive, so `RarArchiveReader` records failures itself
 (`ReadFailureLog`) — a silently shorter page list made the book "look replaced" and dropped bookmarks. Page keys are unchanged. Copies are not kept after use (user decision);
 `StagedFileRegistry` shares one source per file and holds at most 4 unused ones for 30 s (each holds 2 fds). Hidden escape hatch

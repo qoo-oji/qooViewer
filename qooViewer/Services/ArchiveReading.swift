@@ -330,8 +330,9 @@ nonisolated func makeArchiveReader(for url: URL, stagesWholeFile: Bool = false) 
 /// 末尾から 1 バイトずつ fseek + fread で遡り(100MB で約 100 秒、中止も効かない。フォルダをアイコン表示するだけでサムネイル作りから
 /// 届いた)、(2) ZIP64 の位置・大きさに 2^63 以上の値を書いた書庫で `off_t(…)` / `Int64(…)` が trap した。どちらもネットワーク側の
 /// reader では直してあった(探す範囲は末尾 22+65535 バイト、書庫の値はあふれない形で比べる)。答えは ZIPFoundation と一致させてあり
-/// (`NetworkVolumeReadingTests` がフィクスチャ全件で突き合わせる)、違いは型コメントの 2 つ(途中のローカルヘッダーだけが壊れた
-/// 書庫ではページが増えて読めないページになる・末尾に 64KB を超えるゴミが付いた zip は開けない)だけ。
+/// (`NetworkVolumeReadingTests` がフィクスチャ全件で突き合わせる)、違いは型コメントの 3 つ(途中のローカルヘッダーだけが壊れた
+/// 書庫ではページが増えて読めないページになる・末尾に 64KB を超えるゴミが付いた zip は開けない・Info-ZIP Unicode Path 拡張欄の
+/// 名前を推定より優先する)だけ。
 nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL, stagesWholeFile: Bool = false) throws -> ArchiveReading {
     switch kind {
     case .zip:

@@ -121,7 +121,9 @@
   Foundation の自動判定に頼るため **EUC-JP は当たらず**(Baltic / Latin-1 のような単バイトの文字コードとして
   「読めて」しまう)、**CP949 は Shift-JIS / GB18030 に倒れる**(2026-09-05、テストのフィクスチャで発見。
   `NSString.stringEncoding(for:)` は `likelyLanguageKey` を渡さないとロケール寄りに判定する)。どちらも
-  `qooViewerTests/Fixtures/manifest.json` に「ページ数だけ」の期待として固定してある。
+  `qooViewerTests/Fixtures/manifest.json` に「ページ数だけ」の期待として固定してある。同じく単バイトの文字コードへの外れは
+  CP932 でも起きる(日本語が共通のカタカナのフォルダ名だけの書庫が Windows-1254 に倒れた、2026-11-13)。Info-ZIP Unicode Path
+  拡張欄(0x7075)を持つ書庫は判定を経ないので当たらない([04](04-book-loading.md#zip-のファイル名の文字コード))。
 - **7z**: BCJ2 はブロック丸ごと伸長にフォールバック。BZip2 / Deflate / 暗号化は読めない。
   辞書の外への後方ジャンプはブロック先頭からやり直し(読む側が書庫順を守る前提)。
   (エントリの更新日時が常に nil だった件 ―― 2026-09-05 に `ArchiveReaderTests.entryDates` で
