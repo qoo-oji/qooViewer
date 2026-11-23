@@ -93,6 +93,53 @@ struct StackNestPageFailureTests {
         #expect(viewer.stackNestBook?.pageFailureToShow(page: 6) == nil)
     }
 
+    /// 2026-11-01 の CI(Debug)で、上の試験の最後の `pageFailureToShow(page: 6) == nil` が 1 度落ちた(6 番の要求は増えていた)。
+    /// 落ちうる筋道: 6 番の近傍の寸法の下調べ(primeWideImageCache。`settle()` は待たない)が 0 番へ戻った後も走り続け、StackNest が
+    /// 直る前に出した 6 番の要求の 500 が、直った後に 6 番へ来た表示に届く(部品は同じページの飛んでいる要求に相乗りさせる)。
+    /// 0 番の近傍は調べ終えていたので、戻ったときに前の下調べを止めていなかった。ここでは見立ての門で順番を固定して、その筋道を必ず通す。
+    @Test("ビューア: 前の場所で始めた寸法の下調べは、戻った先に調べるページが無くても止める(直る前に出した要求の失敗を、直った後のページへ持ち込まない)")
+    @MainActor
+    func leavingAPlaceStopsItsSizeProbeEvenWhenTheNewPlaceIsMeasured() async throws {
+        let fixture = try StackNestTestBook(pageCount: 8, startPage: 0)
+        defer { fixture.close() }
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        harness.preferences.prefetchPageCount = 0
+        let viewer = await harness.openInWindow(try await FixtureBook.load(fixture.referenceURL))
+        // 開いた位置(0 番)の近傍の下調べを終えておく(戻ったときに調べるページが無いように)。
+        await viewer.stackNestPrimeTask?.value
+        // 6 番の近傍の下調べ(4〜7 番)を 4 番で止めておき、その間に 6 番を表示して 500 を受ける。
+        let holdPage4 = fixture.server.gate(.page(4))
+        defer { holdPage4.open() }
+        fixture.server.respond(.page(6), with: .status(500))
+        viewer.jump(toPageIndex: 6)
+        await viewer.settle()
+        #expect(viewer.stackNestNotice != nil)
+        #expect(await holdPage4.arrival())
+        // 下調べを進めると 6 番の寸法を取りに行く(StackNest はまだ 500)。その応答を見立ての門で止める。
+        let holdPage6 = fixture.server.gate(.page(6))
+        defer { holdPage6.open() }
+        holdPage4.open()
+        #expect(await holdPage6.arrival())
+        let probeAroundPage6 = try #require(viewer.stackNestPrimeTask)
+        // 0 番へ戻る: 6 番の近傍の下調べは止まり、止めておいた 6 番の要求からも抜ける(待つ人のいなくなった要求は部品が取り消す)。
+        // 止まらないと、下の 6 番の表示が止めておいた要求(500)に相乗りし、門が開くか要求の無通信の時間切れ(部品の既定の
+        // requestTimeout、20 秒)まで待つ。ここで「取り消された要求の数」を待つと、その時間切れで消えた分で満たされてしまう
+        // (TestPatience.condition は 30 秒。実測で、直す前でもそれで通った)ので、下調べが取り消されたことをその場で確かめる。
+        viewer.jump(toPageIndex: 0)
+        await viewer.settle()
+        #expect(probeAroundPage6.isCancelled)
+        // StackNest が直った: 6 番へ来ると問い合わせ直して読め、理由は残らない。
+        fixture.server.respond(
+            .page(6), with: .status(200, headers: ["Content-Type": "image/png"], body: PageImageFactory.png(number: 7))
+        )
+        fixture.server.gate(.page(6)).open()
+        viewer.jump(toPageIndex: 6)
+        await viewer.settle()
+        #expect(!viewer.currentImages.isEmpty)
+        #expect(viewer.stackNestBook?.pageFailureToShow(page: 6) == nil)
+    }
+
     @Test("ビューア: 施錠が変わった後は、読めないページを真っ黒のままにせず解錠の案内を 1 度だけ出し、ページを送っても問い合わせない")
     @MainActor
     func lockChangeShowsTheKitMessageOnceAndStopsRetrying() async throws {
