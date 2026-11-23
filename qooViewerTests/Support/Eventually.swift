@@ -9,6 +9,8 @@ import Foundation
 nonisolated enum TestPatience {
     /// 条件が成り立つまで待つ最長の時間。
     static let condition: Duration = .seconds(30)
+    /// `condition` を秒で。秒で締め切りを受け取る待ち(部品の見立ての `StubGate.arrival(timeout:)` など。既定は 5 秒)へ渡す。
+    static var conditionInterval: TimeInterval { TimeInterval(condition.components.seconds) }
 }
 
 /// 裏で走る仕事(待たずに投げる書き込みなど)の結果が見えるまで、少しずつ待つ。
