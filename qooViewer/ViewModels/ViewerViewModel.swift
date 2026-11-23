@@ -1280,6 +1280,7 @@ final class ViewerViewModel: ObservableObject {
         stackNestBook = nil
         stackNestPrimeTask?.cancel()
         stackNestPrimeTask = nil
+        cancelStackNestPageInfoTasks()
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
 
@@ -2988,6 +2989,8 @@ final class ViewerViewModel: ObservableObject {
         // 続きから」再開した直後など、targetIndexより前のページを一度も表示していない状態で
         // すぐに「前のページへ戻る」を行うケースに備える。
         primeWideImageCache(around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 2))
+        // 前の表示が始めた「情報を見る」の先回り取得も止める(StackNest の本だけが控える。cachePageImageInfo)。
+        cancelStackNestPageInfoTasks()
 
         // StackNest の本は、表示するページを頼む**前に**先読みを始める(2026-10-19 の実測: 1 ページの往復に 300 ms かかる StackNest で、
         // 先読みの外へ飛ぶと 660 ms かかった ―― 見開きの 2 枚目を 1 枚目が届いてから頼むので、往復 2 回ぶん待っていた)。先読みは
@@ -3056,7 +3059,13 @@ final class ViewerViewModel: ObservableObject {
 
         // コンテキストメニュー「情報を見る」(ユーザー要望)向けに、実際に表示するページの
         // 画像ファイル情報をバックグラウンドで取得しておく(pageImageInfoCacheのコメント参照)。
-        cachePageImageInfo(at: targetIndex)
+        // StackNest の本で表示できなかったページは、先回りして取りに行かない(2026-11-23): 読めなかった直後に、同じページを失敗している
+        // StackNest へもう一度頼むことになる。CI で一度、StackNest が直る前に出したこの要求(500)に、直った後の同じページの表示が
+        // 相乗りして読めなかった(StackNestPageFailureTests。primeWideImageCache の止め方も同じ件。表示できたページの分は控えて次の
+        // 表示で取り消す ―― cachePageImageInfo)。「情報を見る」のパネルは開いたときに取りに行く(pageImageInfo(forPageKey:))。
+        if !(book.isStackNestReference && images.isEmpty) {
+            cachePageImageInfo(at: targetIndex)
+        }
         if images.count > 1 {
             cachePageImageInfo(at: targetIndex + 1)
         }
@@ -3136,10 +3145,26 @@ final class ViewerViewModel: ObservableObject {
         guard book.pages.indices.contains(index) else { return }
         let key = book.pages[index].sortKey
         guard pageImageInfoCache[key] == nil else { return }
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self, let info = await self.pageLoader.pageImageInfo(at: index) else { return }
             self.pageImageInfoCache[key] = info
         }
+        // StackNest の本では控えておき、次の表示(loadCurrentSpread)で取り消す(2026-11-23 のレビュー)。表示したページでもヘッダーの
+        // 控え(PageLoader.headerInfoCache)が無ければ StackNest へもう一度頼むので、控えずにいると、StackNest が直る前に出したこの
+        // 要求(500)に、直った後の同じページの表示が相乗りして読めない(primeWideImageCache の止め方と同じ件)。取り消しは Task の
+        // 取り消しで部品の要求まで届く(pageImageInfo → rawData → pageData は同じ Task の中)。
+        if book.isStackNestReference {
+            stackNestPageInfoTasks.append(task)
+        }
+    }
+
+    /// StackNest の本で、直前の表示が始めた「情報を見る」の先回り取得(`cachePageImageInfo`)。
+    private var stackNestPageInfoTasks: [Task<Void, Never>] = []
+
+    /// `stackNestPageInfoTasks` を取り消して空にする。
+    private func cancelStackNestPageInfoTasks() {
+        for task in stackNestPageInfoTasks { task.cancel() }
+        stackNestPageInfoTasks = []
     }
 
     /// index付近(前後radius枚)のうち、まだwideImageCacheに判定結果が無いページについて、
@@ -3166,6 +3191,14 @@ final class ViewerViewModel: ObservableObject {
     /// 含めないため、同じ範囲に対して繰り返し呼んでも(通常のページ送りのたびに呼ばれる)
     /// 無駄な再判定は発生しない。
     private func primeWideImageCache(around index: Int, radius: Int) {
+        // StackNest の本では、前のページで始めた下調べを止める(下の stackNestPrimeTask の置き換えのコメント)。新しい範囲に
+        // 調べるページが無くても止める(2026-11-23): 以前は置き換えるときにだけ止めていたので、調べ終えた近傍へ戻ると、離れた
+        // 場所の下調べが走り続けた。CI で一度、StackNest が直る前に出したその下調べの要求(500)に、直った後の同じページの表示が
+        // 相乗り(部品は同じページの飛んでいる要求をまとめる)して読めなかった(StackNestPageFailureTests)。
+        if book.isStackNestReference {
+            stackNestPrimeTask?.cancel()
+            stackNestPrimeTask = nil
+        }
         guard book.pages.indices.contains(index), radius > 0 else { return }
         let lower = max(0, index - radius)
         let upper = min(book.pages.count - 1, index + radius)
@@ -3191,13 +3224,13 @@ final class ViewerViewModel: ObservableObject {
         // ページを速く送ると、送るたびに始まる直列の下調べが積み重なって、もう見ていないページを何分も取り寄せ続けた。
         // ほかの本は今までどおり(手元の読み取りは速く、積み重なっても待たない)。
         if book.isStackNestReference {
-            stackNestPrimeTask?.cancel()
             stackNestPrimeTask = task
         }
     }
 
-    /// StackNest の本の、いちばん新しい近傍の下調べ(`primeWideImageCache`)。
-    private var stackNestPrimeTask: Task<Void, Never>?
+    /// StackNest の本の、いちばん新しい近傍の下調べ(`primeWideImageCache`)。読めるのは試験のため(`settle()` はこれを待たない:
+    /// 応答しない StackNest では待ち時間の上限まで戻らないので、待つ試験が自分で待つ)。
+    private(set) var stackNestPrimeTask: Task<Void, Never>?
 
     /// StackNest の失敗を知らせる。読書は止めない。文言は部品の既定の文言を、表示言語とアプリの名前で(StackNestText)。
     ///
