@@ -12,8 +12,9 @@ struct PageImageInfo {
     let fileName: String
     /// 例: "JPEG"、"PDF"。
     let formatDescription: String
-    let pixelWidth: Int
-    let pixelHeight: Int
+    /// 見たときの幅・高さ(利用者がページの向きを記録していれば、その向きで ―― PageLoader.pageImageInfo(at:))。
+    var pixelWidth: Int
+    var pixelHeight: Int
     /// 例: "RGB"、"Gray"、"CMYK"。取得できない場合はnil。
     let colorModel: String?
     /// 画像ファイル自体のバイト数(アーカイブ内エントリは展開後のサイズ)。PDFはnil。
@@ -269,10 +270,12 @@ actor PageLoader {
         imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024,
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         stagesWholeFile: Bool = false,
-        memoryUsageRole: MemoryUsageRole = .otherBookReading
+        memoryUsageRole: MemoryUsageRole = .otherBookReading,
+        rotationOverrides: [String: Int] = [:]
     ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
+        self.rotationOverrides = rotationOverrides.mapValues(PageRotation.normalized)
         // StackNest の参照ファイルの本はサムネイルをディスクに残さない(2026-10-18 のレビュー): 鍵を掛けられる StackNest の
         // ライブラリや中継したリモートの本のページの縮小画像が、StackNest の施錠や鍵の期限と関係なく qooViewer の Caches に
         // 残り続ける。中身の目印(更新日時・大きさ)も無く、同じパスに別の本が来ると前の本の絵が出うる。メモリの上のキャッシュは使う。
@@ -348,7 +351,9 @@ actor PageLoader {
             modificationDate: attributes.modificationDate,
             fileSize: attributes.fileSize,
             contrastCorrectionEnabled: contrast,
-            maxPixelSize: maxPixelSize
+            maxPixelSize: maxPixelSize,
+            // PDF の描き方が変わったときに古い絵を使わないため(ThumbnailDiskCache.pdfRenderingGeneration)。
+            containsPDFPages: book.pages.contains { if case .pdf = $0.source { true } else { false } }
         )
         // 待っている間にコントラスト補正を切り替えられたら(`setContrastCorrectionEnabled` が控えを捨てる)、古い設定の鍵は控えない。
         if contrast == contrastCorrectionEnabled { cachedThumbnailDiskKeys[maxPixelSize] = key }
@@ -482,6 +487,103 @@ actor PageLoader {
         self.book = book
     }
 
+    // MARK: - 利用者が決めたページの向き(PageRotationOverride、2026-11-23)
+
+    /// pageKey(PageRef.sortKey)→ 元の画素から見た時計回りの回転。ここにあるページは、ファイルの向きの指定(EXIF・`/Rotate`)の
+    /// **代わりに**この向きで描く・測る・書き出す(PageRotationOverride の型コメント)。
+    ///
+    /// 絵のキャッシュ(imageCache/thumbnailCache/gridThumbnailCache)・読み込み中の合流・ディスクのサムネイルは、向きを含めた
+    /// 鍵(`cacheID(for:)`)で引く ―― 向きを変えると別の絵として読み直され、古い向きの絵は使われない(LRU で追い出される)。
+    /// 寸法のキャッシュ(pageSizeCache・保存した寸法)は**ファイルのとおりの寸法**のまま持ち、答えるときに向きを当てる(pageSize(at:))。
+    private var rotationOverrides: [String: Int]
+
+    /// 向きの記録を差し替える(ビューアがレイアウトを読み直したとき。ViewerViewModel.reloadLayoutData)。
+    func setRotationOverrides(_ overrides: [String: Int]) {
+        rotationOverrides = overrides.mapValues(PageRotation.normalized)
+    }
+
+    /// このページの向きの記録(無ければ nil = ファイルの向き)。
+    private func rotationOverride(for page: PageRef) -> Int? {
+        rotationOverrides[page.sortKey]
+    }
+
+    /// 絵のキャッシュの鍵(向きの記録があるページは、向きを含める。`rotationOverrides` のコメント)。
+    private func cacheID(for page: PageRef) -> String {
+        guard let rotation = rotationOverride(for: page) else { return page.id }
+        return "\(page.id)#rot\(rotation)"
+    }
+
+    /// ファイルそのものの向き(時計回りの回転。画像は EXIF の向き、PDF は `/Rotate`)。分からなければ 0。
+    /// 利用者がいまの向きから回す(ViewerViewModel.rotatePage)ときの基準と、向きを差し替えたページの寸法に使う。
+    func fileRotation(at index: Int) async -> Int {
+        guard book.pages.indices.contains(index) else { return 0 }
+        return await fileRotation(of: book.pages[index])
+    }
+
+    /// いま描いている向き(記録があればそれ、無ければファイルの向き)。
+    func effectiveRotation(at index: Int) async -> Int {
+        guard book.pages.indices.contains(index) else { return 0 }
+        let page = book.pages[index]
+        if let rotation = rotationOverride(for: page) { return rotation }
+        return await fileRotation(of: page)
+    }
+
+    /// ファイルの向き(page.id ごとに覚える。ファイルが変われば本は開き直される)。
+    private var fileRotationCache: [String: Int] = [:]
+
+    private func fileRotation(of page: PageRef) async -> Int {
+        if let cached = fileRotationCache[page.id] { return cached }
+        let rotation: Int
+        switch page.source {
+        case .pdf(let container, let pageIndex):
+            guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1),
+                  let geometry = PDFPageGeometry(page: pdfPage)
+            else { return 0 }
+            rotation = geometry.rotation
+        case .file(let url):
+            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+                rotation = PageRotation.rotation(forOrientation: cached.header.orientation)
+            } else {
+                // ヘッダーだけを読む(ImageDecoder.headerInfo(ofFileAt:))。読むのは `FileIO` の上で(pageSize(at:)と同じ)。
+                let header = await FileIO.perform(qos: .userInitiated) { ImageDecoder.headerInfo(ofFileAt: url) }
+                rotation = PageRotation.rotation(forOrientation: header?.orientation ?? 1)
+            }
+        case .archive(let locator, let entryPath):
+            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+                rotation = PageRotation.rotation(forOrientation: cached.header.orientation)
+            } else if remoteReader(for: page.source) != nil {
+                // 網越しのページ(StackNest)は取り寄せ直さない(2026-11-23 のレビュー: 以前は表示の列でページ全体をもう 1 回取り寄せ、
+                // awaitRemote も通らなかった)。進んでいる絵の取り寄せがあれば待ち、その中身から控えたヘッダーで答える
+                // (filePageSize と同じ)。無ければ分からないので 0 とし、覚えない(次に絵を読んだ後で読み直す)。
+                let inFlightKey = "\(ObjectIdentifier(imageCache))#\(cacheID(for: page))"
+                if let imageTask = inFlightTasks[inFlightKey], !imageTask.isCancelled {
+                    _ = await awaitRemote(imageTask, key: inFlightKey)
+                }
+                guard let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] else { return 0 }
+                rotation = PageRotation.rotation(forOrientation: cached.header.orientation)
+            } else {
+                // 先頭だけを伸長して向きを読む(pageSize(at:)と同じ。向きの指定は JPEG の先頭の EXIF にある)。
+                guard let reader = reader(for: locator) else { return 0 }
+                let prefix = try? reader.dataPrefix(at: entryPath, maxByteCount: Self.headerProbeByteCount)
+                var header = prefix.flatMap(ImageDecoder.headerInfo(of:))
+                if header == nil, let full = await rawData(for: page.source) { header = ImageDecoder.headerInfo(of: full) }
+                rotation = PageRotation.rotation(forOrientation: header?.orientation ?? 1)
+            }
+        }
+        fileRotationCache[page.id] = rotation
+        return rotation
+    }
+
+    /// 寸法 `size`(ファイルのとおり)を、このページの向きの記録で見たときの寸法にする。記録が無ければそのまま。
+    private func applyingRotationOverride(
+        to size: (width: Int, height: Int), of page: PageRef
+    ) async -> (width: Int, height: Int) {
+        guard let override = rotationOverride(for: page) else { return size }
+        let file = await fileRotation(of: page)
+        guard PageRotation.isSideways(override) != PageRotation.isSideways(file) else { return size }
+        return (size.height, size.width)
+    }
+
     /// 指定ページのフルサイズ画像を取得する(キャッシュ済みなら即座に、なければ読み込んでキャッシュする)
     func pageImage(at index: Int) async -> CGImage? {
         guard !isReleased else { return nil }
@@ -492,7 +594,7 @@ actor PageLoader {
     /// 網越しの本のページを待たないため ―― ViewerViewModel.loadTransitFrame)。
     func cachedPageImage(at index: Int) -> CGImage? {
         guard !isReleased, book.pages.indices.contains(index) else { return nil }
-        return imageCache.object(forKey: book.pages[index].id as NSString)?.makeImage()
+        return imageCache.object(forKey: cacheID(for: book.pages[index]) as NSString)?.makeImage()
     }
 
     /// プログレスバー用の小さいサムネイルを取得する
@@ -507,13 +609,15 @@ actor PageLoader {
         guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
-        let key = page.id as NSString
+        // 向きの記録があるページは、向きを含めた鍵で(rotationOverrides のコメント)。
+        let pageCacheID = cacheID(for: page)
+        let key = pageCacheID as NSString
 
         if let cached = thumbnailCache.object(forKey: key) {
             return cached.makeImage()
         }
         if let derived = await thumbnailDerivedFromPageImage(
-            pageID: page.id, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+            pageID: pageCacheID, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
         ) {
             // 待っている間に手放された(本を閉じた)なら、キャッシュへ戻さない(2026-10-25 のリークの点検。`pixels(at:)` と同じ。
             // 以前はここと下のディスクからの 3 か所だけ見ておらず、古い世代の PageLoader が残る間、閉じた本の絵を持ち続けた)。
@@ -530,7 +634,7 @@ actor PageLoader {
         }
 
         let diskKey = await thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
-        if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
+        if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: pageCacheID),
            let buffer = await Self.renderBuffer(from: fromDisk) {
             if !isReleased { thumbnailCache.store(buffer, forKey: key) }
             return buffer.makeImage()
@@ -542,7 +646,7 @@ actor PageLoader {
         guard let decoded else { return nil }
         // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
         // 失敗しても次回またデコードするだけ)。
-        let pageID = page.id
+        let pageID = pageCacheID
         let thumbnailCache = diskCaches.thumbnails
         Task.detached(priority: .background) {
             guard let image = decoded.makeImage() else { return }
@@ -577,12 +681,15 @@ actor PageLoader {
         guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
-        let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
+        // 向きの記録があるページは、向きを含めた鍵で(rotationOverrides のコメント)。
+        let pageCacheID = cacheID(for: page)
+        let rotation = rotationOverride(for: page)
+        let key = "\(pageCacheID)|\(Int(maxPixelSize))" as NSString
 
         if let cached = gridThumbnailCache.object(forKey: key) {
             return cached.makeImage()
         }
-        if let derived = await thumbnailDerivedFromPageImage(pageID: page.id, maxPixelSize: maxPixelSize) {
+        if let derived = await thumbnailDerivedFromPageImage(pageID: pageCacheID, maxPixelSize: maxPixelSize) {
             if !isReleased { gridThumbnailCache.store(derived, forKey: key) }
             return derived.makeImage()
         }
@@ -593,21 +700,23 @@ actor PageLoader {
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesDisk {
             let diskKey = await thumbnailDiskKey(maxPixelSize: maxPixelSize)
-            if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: page.id),
+            if let fromDisk = await diskCaches.thumbnails.thumbnail(bookKey: diskKey, pageID: pageCacheID),
                let buffer = await Self.renderBuffer(from: fromDisk) {
                 if !isReleased { gridThumbnailCache.store(buffer, forKey: key) }
                 return buffer.makeImage()
             }
         }
 
-        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize, asksAsDisplay: asksAsDisplay),
+        guard let decoded = await decodedPixels(
+            for: page.source, maxPixelSize: maxPixelSize, asksAsDisplay: asksAsDisplay, rotation: rotation
+        ),
               !isReleased else {
             return nil
         }
         gridThumbnailCache.store(decoded, forKey: key)
         if usesDisk {
             let diskKey = await thumbnailDiskKey(maxPixelSize: maxPixelSize)
-            let pageID = page.id
+            let pageID = pageCacheID
             let thumbnailCache = diskCaches.thumbnails
             // 書き込みは待たない(thumbnail(at:)と同じ考え方)。
             Task.detached(priority: .background) {
@@ -688,16 +797,39 @@ actor PageLoader {
     func exportableImage(at index: Int) async throws -> (data: Data, fileExtension: String)? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
+        let rotation = rotationOverride(for: page)
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
-            guard let data = await rawData(for: page.source) else { return nil }
+            guard let raw = await rawData(for: page.source) else { return nil }
+            // 利用者がページの向きを記録していれば、その向きの画素で同じ形式に書き直す(向きの指定は付けない。OrientationBaking。
+            // 2026-11-23: 書き出しはアプリの記録に従う)。記録の無いページは元のバイト列のまま(CBZ・EPUB はこの後でファイルの
+            // 向きの指定を焼き込む)。書き直しは重いので actor の外で。
             // 網越しのページの名前は仮のもの(exportableImageFileExtension(at:)のコメント)なので、拡張子は中身から。
-            let sniffed = remoteReader(for: page.source) != nil ? ImageDecoder.fileExtension(sniffing: data) : nil
-            return (data, sniffed ?? Self.fileExtension(forEntryPathOf: page))
+            let sniffed = remoteReader(for: page.source) != nil ? ImageDecoder.fileExtension(sniffing: raw) : nil
+            let sourceExtension = sniffed ?? Self.fileExtension(forEntryPathOf: page)
+            guard let rotation else { return (raw, sourceExtension) }
+            let orientation = PageRotation.orientation(for: rotation)
+            // ImageIO が同じ形式で書けない画像(WebP)は、回した画素を PNG で出す(拡張子も png ―― exportableImageFileExtension(at:)
+            // も同じ判断をする。2026-11-23 のレビュー: 以前は元のバイト列へ落ちて、記録した向きが捨てられた)。
+            if !OrientationBaking.canWrite(fileExtension: sourceExtension) {
+                let png = await Task.detached(priority: .userInitiated) {
+                    OrientationBaking.orientedPNG(raw, orientation: orientation)
+                }.value
+                return png.map { ($0, "png") } ?? (raw, sourceExtension)
+            }
+            let baked = await Task.detached(priority: .userInitiated) {
+                OrientationBaking.bakedForExport(raw, orientationOverride: orientation)
+            }.value
+            return (baked ?? raw, sourceExtension)
         }
         guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
         else { return nil }
-        let extracted = try PDFImageExtractor.extractImageData(from: pdfPage, pageNumber: pdfPageIndex + 1)
+        // PDF の参照に触れる前半だけを actor の上で行い、復号・回転・符号化は actor の外で(CLAUDE.md の actor の境界。
+        // PDFImageExtractor.extractParts のコメント)。
+        let parts = try PDFImageExtractor.extractParts(
+            from: pdfPage, pageNumber: pdfPageIndex + 1, rotationOverride: rotation
+        )
+        let extracted = try await Task.detached(priority: .userInitiated) { try PDFImageExtractor.finish(parts) }.value
         return (extracted.data, extracted.format.fileExtension)
     }
 
@@ -723,11 +855,14 @@ actor PageLoader {
         }
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
+            var ext = Self.fileExtension(forEntryPathOf: page)
             if remoteReader(for: page.source) != nil,
                let sniffed = await rawData(for: page.source).flatMap(ImageDecoder.fileExtension(sniffing:)) {
-                return sniffed
+                ext = sniffed
             }
-            return Self.fileExtension(forEntryPathOf: page)
+            // 向きを記録したページで、ImageIO が同じ形式で書けない画像(WebP)は PNG で出す(exportableImage(at:) と同じ判断)。
+            if rotationOverride(for: page) != nil, !OrientationBaking.canWrite(fileExtension: ext) { return "png" }
+            return ext
         }
         guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
@@ -759,15 +894,22 @@ actor PageLoader {
     /// 使わないため、ImageDecoder.pixelSize(of:)(フォーマットのヘッダー部分だけを読む)に
     /// 置き換えた)。
     ///
-    /// PDFソースの場合は、ページ描画(renderPDFPage)と同じCGPDFPage.getBoxRect(.mediaBox)から
+    /// PDFソースの場合は、ページ描画(renderPDFPage)と同じPDFPageGeometry(`/Rotate`を反映し、CropBoxで切った見たときの寸法)から
     /// 直接取得する(レンダリング不要)。
     ///
-    /// 注意: JPEG等のEXIF回転タグが付いた画像は、この関数が返す値がタグ適用前の生の
-    /// ピクセルサイズになる(thumbnail(at:)側はkCGImageSourceCreateThumbnailWithTransformで
-    /// 回転を反映してから幅・高さを見ているため、回転タグ付きの画像では結果が食い違いうる)。
-    /// このアプリが主に扱うマンガのスキャン・アーカイブ画像はカメラ写真と異なりEXIF回転タグを
-    /// 持つことが稀なため、実用上の影響は小さいと判断している。
+    /// JPEG等のEXIFの向きの指定が付いた画像は、指定を反映した(見たときの)寸法を返す(ImageDecoder.HeaderInfo。
+    /// 2026-11-23 までは指定を反映する前の生の寸法で、表示と食い違っていた)。
+    ///
+    /// 利用者がページの向きを記録している(rotationOverrides)ページは、その向きで見たときの寸法(縦横を入れ替えうる)。
     func pageSize(at index: Int) async -> (width: Int, height: Int)? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        guard let size = await filePageSize(at: index) else { return nil }
+        return await applyingRotationOverride(to: size, of: page)
+    }
+
+    /// ファイルのとおりの(向きの記録を当てる前の)寸法。キャッシュ(pageSizeCache・保存した寸法)が持つのはこちら。
+    private func filePageSize(at index: Int) async -> (width: Int, height: Int)? {
         guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
@@ -789,7 +931,7 @@ actor PageLoader {
         // (2026-10-19 の実測: 横長の判定の下調べが先読みと同じページを別々に取りに行き、背景の枠を取り合っていた)。
         // 絵の取り寄せは先読み・表示の持ち物なので、ここで待つのをやめても取り消さない(awaitRemote にしない)。
         if waitsRemotely, !Task.isCancelled,
-           let imageTask = inFlightTasks["\(ObjectIdentifier(imageCache))#\(page.id)"], !imageTask.isCancelled {
+           let imageTask = inFlightTasks["\(ObjectIdentifier(imageCache))#\(cacheID(for: page))"], !imageTask.isCancelled {
             _ = await imageTask.value
             if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
                 let size = (width: cached.header.pixelWidth, height: cached.header.pixelHeight)
@@ -804,10 +946,11 @@ actor PageLoader {
             guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
-            let box = pdfPage.getBoxRect(.mediaBox)
-            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize)。
-            guard box.hasUsablePDFPageSize else { return nil }
-            let size = (width: Int(box.width.rounded()), height: Int(box.height.rounded()))
+            // 見たときの(`/Rotate` を反映し、CropBox で切った)寸法。描くもの(renderPDFPixels)と同じ PDFPageGeometry から
+            // ―― 回転前の寸法を答えると、横倒しのページの横長判定(見開きの組み方)がずれる。
+            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize。PDFPageGeometry が確かめる)。
+            guard let geometry = PDFPageGeometry(page: pdfPage) else { return nil }
+            let size = geometry.displayedPointSize
             pageSizeCache[page.id] = size
             return size
         }
@@ -1119,7 +1262,18 @@ actor PageLoader {
     /// 読む(近傍の十数ページを二度読むだけ)。2回目以降は寸法が永続化されているので書庫に触らない。
     ///
     /// 上の条件に当たらない本(zip/rar/フォルダ/PDF/EPUB、入れ子の7z)ではpageSize(at:)そのもの。
+    ///
+    /// 答える寸法は pageSize(at:) と同じく、向きの記録を当てたもの(下調べは横長の判定に使う)。
     func scanPage(at index: Int) async -> (width: Int, height: Int)? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        guard let size = await fileScanPage(at: index) else { return nil }
+        return await applyingRotationOverride(to: size, of: page)
+    }
+
+    /// scanPage(at:) の本体(ファイルのとおりの寸法を答える)。作るディスクのサムネイルは、ファイルの向きの絵なので `page.id` の鍵
+    /// (向きの記録の無い鍵)へ入れる。
+    private func fileScanPage(at index: Int) async -> (width: Int, height: Int)? {
         guard !isReleased, book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let cachedSize = pageSizeCache[page.id]
@@ -1138,7 +1292,7 @@ actor PageLoader {
             // 下調べを止めた(本を閉じた)ときは、1 件ずつの取り出しへ落ちない(ソリッドではそのページまでの全部の伸長が actor に乗り、
             // 解放を待たせる ―― コードレビュー)。
             if Task.isCancelled { return nil }
-            return await pageSize(at: index)
+            return await filePageSize(at: index)
         }
 
         // 解凍爆弾よけはrawData(for:)と同じ。
@@ -1249,6 +1403,17 @@ actor PageLoader {
     /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を
     /// 取得する。pageSize(at:)と同じくヘッダー情報の読み取りのみ(ピクセルデコード無し)。
     func pageImageInfo(at index: Int) async -> PageImageInfo? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        guard var info = await filePageImageInfo(at: index) else { return nil }
+        let size = await applyingRotationOverride(to: (info.pixelWidth, info.pixelHeight), of: page)
+        info.pixelWidth = size.width
+        info.pixelHeight = size.height
+        return info
+    }
+
+    /// pageImageInfo(at:) の本体(寸法はファイルのとおり)。
+    private func filePageImageInfo(at index: Int) async -> PageImageInfo? {
         guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
@@ -1261,9 +1426,10 @@ actor PageLoader {
             guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
-            let box = pdfPage.getBoxRect(.mediaBox)
-            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize)。
-            guard box.hasUsablePDFPageSize else { return nil }
+            // 寸法は見たときのもの(pageSize(at:)と同じ。PDFPageGeometry)。
+            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize。PDFPageGeometry が確かめる)。
+            guard let geometry = PDFPageGeometry(page: pdfPage) else { return nil }
+            let pointSize = geometry.displayedPointSize
             // 日付の問い合わせは `FileIO` の上で(2026-10-25 のハング・クラッシュの監査 A2-4。PDF はネットワーク上にありうる。
             // 以前は actor の上 = 協調スレッドプールで問い合わせていた。書庫の reader を使わないので、actor の外へ出してよい)。
             let revealURL = container.revealURL
@@ -1271,8 +1437,8 @@ actor PageLoader {
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: "PDF",
-                pixelWidth: Int(box.width.rounded()),
-                pixelHeight: Int(box.height.rounded()),
+                pixelWidth: pointSize.width,
+                pixelHeight: pointSize.height,
                 colorModel: nil,
                 fileSizeBytes: nil,
                 location: container.displayPath,
@@ -1396,7 +1562,10 @@ actor PageLoader {
     /// 扱える。
     func fullResolutionImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
-        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+        let page = book.pages[index]
+        return await decodedImage(
+            for: page.source, maxPixelSize: ImageDecoder.exportMaxPixelSize, rotation: rotationOverride(for: page)
+        )
     }
 
     /// 「原寸大」のウインドウ(ViewerView.showActualSizeWindow)向け: 表示用(4096px 上限)より大きい元の寸法で読み直した画像。
@@ -1410,6 +1579,7 @@ actor PageLoader {
     func actualSizeImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         let source = book.pages[index].source
+        let rotation = rotationOverride(for: book.pages[index])
         if case .pdf(let container, let pageIndex) = source {
             guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1),
                   PDFImageExtractor.largestEmbeddedImagePixelSize(of: pdfPage) != nil,
@@ -1417,12 +1587,12 @@ actor PageLoader {
                   let displayScale = pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.pageMaxPixelSize),
                   fullScale > displayScale
             else { return nil }
-            return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+            return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize, rotation: rotation)
         }
         guard let size = await pageSize(at: index),
               CGFloat(max(size.width, size.height)) > ImageDecoder.pageMaxPixelSize
         else { return nil }
-        return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+        return await decodedImage(for: source, maxPixelSize: ImageDecoder.exportMaxPixelSize, rotation: rotation)
     }
 
     /// 拡大して見るとき(拡大鏡=ルーペ、およびピンチイン・ピンチアウトによる拡大)向け:
@@ -1447,10 +1617,11 @@ actor PageLoader {
     func highResolutionImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         let source = book.pages[index].source
+        let rotation = rotationOverride(for: book.pages[index])
         if await highResolutionMatchesPageImage(at: index) {
             return await pageImage(at: index)
         }
-        return await decodedImage(for: source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
+        return await decodedImage(for: source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize, rotation: rotation)
     }
 
     /// highResolutionImage(at:)の結果がpageImage(at:)と同じ寸法になるか(同メソッドのコメント参照)。
@@ -1533,10 +1704,10 @@ actor PageLoader {
         for pageIndex in order {
             guard prefetchTasks[pageIndex] == nil else { continue }
             let page = book.pages[pageIndex]
-            guard imageCache.object(forKey: page.id as NSString) == nil else { continue }
+            guard imageCache.object(forKey: cacheID(for: page) as NSString) == nil else { continue }
 
             // image(at:cache:maxPixelSize:isPrefetch:)へ渡すキーの組み立て方と揃えること。
-            let inFlightKey = "\(ObjectIdentifier(imageCache))#\(page.id)"
+            let inFlightKey = "\(ObjectIdentifier(imageCache))#\(cacheID(for: page))"
             let token = UUID()
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -1605,14 +1776,18 @@ actor PageLoader {
     ) async -> PagePixelBuffer? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
-        let key = page.id as NSString
+        // 向きの記録があるページは、向きを含めた鍵で(rotationOverrides のコメント)。読み込みの途中で向きが変わっても、
+        // 古い向きの絵は古い鍵へ入るだけで、新しい向きの要求とは合流しない。
+        let pageCacheID = cacheID(for: page)
+        let rotation = rotationOverride(for: page)
+        let key = pageCacheID as NSString
 
         if let cached = cache.object(forKey: key) {
             return cached
         }
 
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
-        let inFlightKey = "\(ObjectIdentifier(cache))#\(page.id)"
+        let inFlightKey = "\(ObjectIdentifier(cache))#\(pageCacheID)"
         // 網越しの本(StackNest)のページは、待っている人(ページ一覧のセル・進捗バー・表示・先読み)が全員取り消したら取り寄せも
         // 取り消す(awaitRemote。2026-10-19 のレビュー: 以前は切り離した Task が最後まで走り、ページ一覧を流し読みしただけで全ページを
         // 取り寄せ、先読みがその後ろで何分も待った)。表示のページも同じ(2026-10-19 の実測: 表示の要求は合流した時点で打ち切れなく
@@ -1645,7 +1820,8 @@ actor PageLoader {
         let task = Task<PagePixelBuffer?, Never> { [weak self] in
             guard let self else { return nil }
             return await self.decodedPixels(
-                for: page.source, maxPixelSize: maxPixelSize, isPrefetch: isPrefetch, waiterKey: inFlightKey
+                for: page.source, maxPixelSize: maxPixelSize, isPrefetch: isPrefetch, waiterKey: inFlightKey,
+                rotation: rotation
             )
         }
         inFlightTasks[inFlightKey] = task
@@ -1676,9 +1852,10 @@ actor PageLoader {
     ///   表示要求が合流したとき、その待ちを表示要求の列へ移すための突き合わせに使う
     ///   (promoteDecodeWaiter参照)。合流の仕組みが無い経路(拡大サムネイル)はnil。
     /// - Parameter asksAsDisplay: 網越しのページを、大きさに関わらず表示の列で取り寄せる(gridThumbnail の同名の引数)。
+    /// - Parameter rotation: ファイルの向きの代わりに使う向き(利用者の記録。nil ならファイルの向き。rotationOverrides のコメント)。
     private func decodedPixels(
         for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil,
-        asksAsDisplay: Bool = false
+        asksAsDisplay: Bool = false, rotation: Int? = nil
     ) async -> PagePixelBuffer? {
         // 網越しのページ(StackNest の参照ファイルの本)は、デコードの枠を取る**前に**取り寄せる。枠は CPU とメモリの
         // ための絞り(最大 2)で、網の待ちに使うと、応答しない StackNest への先読み 1〜2 件が最長 25 秒枠を握り、表示要求が
@@ -1730,7 +1907,9 @@ actor PageLoader {
         if !contrastCorrectionEnabled {
             switch source {
             case .pdf(let container, let pageIndex):
-                return renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+                return renderPDFPixels(
+                    container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize, rotation: rotation
+                )
             case .file, .archive:
                 let fetched: Data?
                 if let prefetched { fetched = prefetched } else { fetched = await rawData(for: source) }
@@ -1739,8 +1918,9 @@ actor PageLoader {
                 // decodedImage(for:maxPixelSize:)と同じく、デコードはactorの外で行う。
                 // 書庫内エントリはヘッダー情報も同じバイト列から取っておく(headerInfoCache参照)。
                 let wantsHeader = Self.headerCacheKey(for: source).map { headerInfoCache[$0] == nil } ?? false
+                let orientation = rotation.map(PageRotation.orientation(for:))
                 let decodeTask = Task.detached(priority: .userInitiated) { () -> (PagePixelBuffer?, ImageDecoder.HeaderInfo?) in
-                    (ImageDecoder.decodePixels(data, maxPixelSize: maxPixelSize),
+                    (ImageDecoder.decodePixels(data, maxPixelSize: maxPixelSize, orientationOverride: orientation),
                      wantsHeader ? ImageDecoder.headerInfo(of: data) : nil)
                 }
                 let (pixels, header) = await decodeTask.value
@@ -1748,7 +1928,9 @@ actor PageLoader {
                 return pixels
             }
         }
-        guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize, prefetched: prefetched) else {
+        guard let decoded = await decodedImage(
+            for: source, maxPixelSize: maxPixelSize, prefetched: prefetched, rotation: rotation
+        ) else {
             return nil
         }
         guard !Task.isCancelled else { return nil }
@@ -1921,12 +2103,15 @@ actor PageLoader {
     /// (1ページ分の描画は画像デコードほど重くなく、actorを長時間ブロックする心配は小さい)。
     /// - Parameter prefetched: 呼び出し側が先に取り寄せたバイト列(網越しのページ。decodedPixels がデコードの枠を取る前に取る)。
     ///   nil ならここで読む。
-    private func decodedImage(for source: PageSource, maxPixelSize: CGFloat, prefetched: Data? = nil) async -> CGImage? {
+    /// - Parameter rotation: ファイルの向きの代わりに使う向き(decodedPixels の同名の引数)。
+    private func decodedImage(
+        for source: PageSource, maxPixelSize: CGFloat, prefetched: Data? = nil, rotation: Int? = nil
+    ) async -> CGImage? {
         let decoded: CGImage?
         switch source {
         case .pdf(let container, let pageIndex):
             guard !Task.isCancelled else { return nil }
-            decoded = renderPDFPage(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+            decoded = renderPDFPage(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize, rotation: rotation)
         case .file, .archive:
             let fetched: Data?
             if let prefetched { fetched = prefetched } else { fetched = await rawData(for: source) }
@@ -1938,8 +2123,9 @@ actor PageLoader {
             //  不安定なことがあるため、クロージャの戻り値の型を明示し、Taskの生成とvalueの待ち受けを
             //  分けて書くことで確実に型が決まるようにしている)
             let wantsHeader = Self.headerCacheKey(for: source).map { headerInfoCache[$0] == nil } ?? false
+            let orientation = rotation.map(PageRotation.orientation(for:))
             let decodeTask = Task.detached(priority: .userInitiated) { () -> (CGImage?, ImageDecoder.HeaderInfo?) in
-                (ImageDecoder.decode(data, maxPixelSize: maxPixelSize),
+                (ImageDecoder.decode(data, maxPixelSize: maxPixelSize, orientationOverride: orientation),
                  wantsHeader ? ImageDecoder.headerInfo(of: data) : nil)
             }
             let (image, header) = await decodeTask.value
@@ -2149,21 +2335,28 @@ actor PageLoader {
     /// PDFの指定ページ(0始まり)を、長辺がmaxPixelSizeに収まる解像度でCGImageとして描画する。
     /// 透過を持つPDFページ(白紙部分が透明になっている場合など)でも、他の画像ページと同様に
     /// 不透明な画像として扱えるよう、白背景の上に描画する。
-    private func renderPDFPage(container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat) -> CGImage? {
-        renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)?.makeImage()
+    private func renderPDFPage(
+        container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat, rotation: Int? = nil
+    ) -> CGImage? {
+        renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize, rotation: rotation)?.makeImage()
     }
 
     /// renderPDFPageの本体。描画先はPagePixelBufferが確保したmmap領域で、CGImageを経由しない
     /// (PagePixelBuffer.init(width:height:grayscale:colorSpace:draw:)のコメント参照)。
-    private func renderPDFPixels(container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat) -> PagePixelBuffer? {
+    /// - Parameter rotation: ページの `/Rotate` の代わりに使う回転(利用者の記録。PDFPageGeometry.overridingRotation)。
+    private func renderPDFPixels(
+        container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat, rotation: Int? = nil
+    ) -> PagePixelBuffer? {
         guard let document = pdfDocument(for: container) else { return nil }
         // CGPDFDocumentのページ番号は1始まり(pageIndexは0始まり)。
         guard let page = document.page(at: pageIndex + 1) else { return nil }
 
-        let mediaBox = page.getBoxRect(.mediaBox)
-        guard let scale = pdfRenderScale(for: page, maxPixelSize: maxPixelSize) else { return nil }
-        let pixelWidth = max(1, Int((mediaBox.width * scale).rounded()))
-        let pixelHeight = max(1, Int((mediaBox.height * scale).rounded()))
+        // 向き(`/Rotate`)と範囲(CropBox)は Finder(PDFKit)で見たとおりに(PDFPageGeometry のコメント。2026-11-23 まで
+        // MediaBox をそのまま描いていて、`/Rotate 180` のページが天地逆に出ていた)。
+        guard let geometry = PDFPageGeometry(page: page)?.overridingRotation(rotation),
+              let scale = pdfRenderScale(for: page, maxPixelSize: maxPixelSize)
+        else { return nil }
+        let (pixelWidth, pixelHeight) = geometry.pixelSize(scale: scale)
 
         return PagePixelBuffer(
             width: pixelWidth, height: pixelHeight, grayscale: false,
@@ -2172,9 +2365,7 @@ actor PageLoader {
             context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
 
-            context.scaleBy(x: scale, y: scale)
-            // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。
-            context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
+            geometry.prepare(context, scale: scale)
             context.drawPDFPage(page)
         }
     }
@@ -2182,8 +2373,13 @@ actor PageLoader {
     /// PDFのページを描くときの倍率(pt→px)。寸法が取れないページはnil。
     /// renderPDFPixelsと、highResolutionImage(at:)の「表示用と同じ倍率になるか」の判定が共用する。
     private func pdfRenderScale(for page: CGPDFPage, maxPixelSize: CGFloat) -> CGFloat? {
+        guard let geometry = PDFPageGeometry(page: page) else { return nil }
+        // 回転前の枠で計算してよい: 長辺で決まる倍率(下の min)は 90° 回しても変わらない。
+        let box = geometry.box
+        // 埋め込み画像の解像度と比べるのは MediaBox(スキャンの画像はふつう紙全体 = MediaBox を覆う。CropBox で比べると、
+        // 切り取ったぶん要らない高さの倍率になる)。画像はページの回転前の座標に置かれるので、画像の幅は箱の幅に対応する。
         let mediaBox = page.getBoxRect(.mediaBox)
-        guard mediaBox.hasUsablePDFPageSize else { return nil }
+        let imageFrame = mediaBox.hasUsablePDFPageSize ? mediaBox : box
 
         // PDFのページ寸法はpt(72dpi基準)でしか分からないため、要求された最大ピクセル数まで
         // 無条件に引き伸ばすと、中身より高い解像度で描くことになる。画像ファイルの側は
@@ -2198,16 +2394,16 @@ actor PageLoader {
         // ページで、たまたま小さな画像(ロゴ等)しか埋め込まれていない場合に、その小ささへ
         // 引きずられて粗くなるのを防ぐため。画像を1枚も持たないページでは従来どおり
         // 要求どおりの解像度で描く。
-        let requestedScale = min(maxPixelSize / mediaBox.width, maxPixelSize / mediaBox.height)
+        let requestedScale = min(maxPixelSize / box.width, maxPixelSize / box.height)
         let baselineScale = min(
-            ImageDecoder.pageMaxPixelSize / mediaBox.width,
-            ImageDecoder.pageMaxPixelSize / mediaBox.height
+            ImageDecoder.pageMaxPixelSize / box.width,
+            ImageDecoder.pageMaxPixelSize / box.height
         )
         var scale = requestedScale
         if let embedded = PDFImageExtractor.largestEmbeddedImagePixelSize(of: page) {
             let naturalScale = max(
-                CGFloat(embedded.width) / mediaBox.width,
-                CGFloat(embedded.height) / mediaBox.height
+                CGFloat(embedded.width) / imageFrame.width,
+                CGFloat(embedded.height) / imageFrame.height
             )
             if naturalScale > 0 {
                 scale = min(requestedScale, max(naturalScale, baselineScale))

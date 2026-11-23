@@ -455,6 +455,11 @@ struct ViewerView: View {
         appState.performAutoLayout = {
             isShowingAutoLayoutConfirmation = true
         }
+        // メニューバー「編集」の「画像を回転」(2026-11-23)。対象の決め方はレイアウトと同じ(相方が無ければ現在のページ)。
+        appState.performPageRotation = { target, command in
+            let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
+            rotatePage(atIndex: pageIndex, command)
+        }
         // スライドショーが前の本の最後のページに達して、この本へ来た場合は続きを流す(AppState.pendingStartsSlideshow。
         // 下の clearPendingInitialPage で一緒に捨てるので、その前に読む)。
         if appState.pendingStartsSlideshow {
@@ -876,6 +881,7 @@ struct ViewerView: View {
         appState.setScalingMode = nil
         appState.performLayoutStateChange = nil
         appState.performLayoutClear = nil
+        appState.performPageRotation = nil
         appState.performAutoLayout = nil
         appState.performImageExport = nil
         appState.exportPageImage = nil
@@ -1601,6 +1607,19 @@ struct ViewerView: View {
             appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
             appState.updateCurrentPartnerPageIndex(partnerPageIndex)
             syncMenuCheckmarkState()
+        }
+        // 中身の差し替えの確認が出る・済むと、「画像を回転」を押せるかが変わる(ViewerViewModel.canRotatePages)。
+        .onChange(of: viewModel.pendingLayoutReplacementStatus == nil) { _, _ in
+            syncMenuCheckmarkState()
+        }
+        // 画像の向きを変えたら、サイドパネル(ページモード)のサムネイルを読み直させる(2026-11-23)。サイドパネルの行は
+        // 世代番号と番号だけを見るので、取得の口を登録し直して世代を進める(AppState.updateLoadPageThumbnail)。
+        .onChange(of: viewModel.pageRotationRevision) { [weak viewModel] _, _ in
+            appState.updateLoadPageThumbnail({ index in
+                await viewModel?.loadThumbnail(at: index)
+            }, pageImageLoader: { index in
+                await viewModel?.loadPreviewImage(at: index)
+            })
         }
     }
 
@@ -2401,6 +2420,24 @@ struct ViewerView: View {
             }
         }
 
+        // 画像の回転(2026-11-23、ユーザー要望)。見開きではクリックした側のページだけ(レイアウトと同じ見分け方)。
+        // 記録を残さない本(シークレットウインドウなど)でも回せる(メモリの上だけ。ViewerViewModel.rotatePage)ので淡色にしない。
+        // 中身の差し替えを確かめている間だけは回さないので淡色(`.contextMenu` の中の `Menu` に `.disabled` は効かないので、押せない Button)。
+        if !viewModel.canRotatePages {
+            Button("Rotate Image") {}
+                .disabled(true)
+        } else {
+        Menu("Rotate Image") {
+            if let partnerPageIndex {
+                let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+                let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+                rotationMenuItems(forPageIndex: isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex)
+            } else {
+                rotationMenuItems(forPageIndex: viewModel.currentIndex)
+            }
+        }
+        }
+
         Divider()
 
         // 画像のエクスポート機能(要望)。表示内容の切替はLayoutサブメニューと同じ考え方だが、
@@ -2617,6 +2654,36 @@ struct ViewerView: View {
                     view.syncMenuCheckmarkState()
                 }
             }
+        }
+    }
+
+    /// 「画像を回転」サブメニュー(右クリックメニュー)の、1ページ分の項目。メニューバーの同じ項目は QooViewerApp の
+    /// `rotationMenuItems(target:hasOverride:)`(並びと文言を揃えること)。
+    @ViewBuilder
+    private func rotationMenuItems(forPageIndex pageIndex: Int) -> some View {
+        let relay = actionRelay
+        Button("Rotate Right 90°") {
+            relay.send { $0.rotatePage(atIndex: pageIndex, .rotateRight) }
+        }
+        Button("Rotate Left 90°") {
+            relay.send { $0.rotatePage(atIndex: pageIndex, .rotateLeft) }
+        }
+        Button("Rotate 180°") {
+            relay.send { $0.rotatePage(atIndex: pageIndex, .rotate180) }
+        }
+        Divider()
+        // 記録の無いページでは押しても何も起きないので淡色にする(押せるのに何もしない項目を作らない ―― CLAUDE.md)。
+        Button("Reset to Original Orientation") {
+            relay.send { $0.rotatePage(atIndex: pageIndex, .reset) }
+        }
+        .disabled(!viewModel.hasPageRotationOverride(atIndex: pageIndex))
+    }
+
+    /// ページを回す(右クリックメニュー・メニューバー共通の入口)。
+    fileprivate func rotatePage(atIndex pageIndex: Int, _ command: PageRotationCommand) {
+        let viewModel = viewModel
+        Task { [weak viewModel] in
+            await viewModel?.rotatePage(atIndex: pageIndex, command)
         }
     }
 
@@ -3997,7 +4064,10 @@ struct ViewerView: View {
             isPageShiftLocked: viewModel.isPageShiftLocked,
             hasPartnerPageDisplayed: partnerPageIndex != nil,
             hasCurrentPageLayoutOverride: viewModel.hasPageLayoutOverride(atIndex: viewModel.currentIndex),
-            hasPartnerPageLayoutOverride: partnerPageIndex.map { viewModel.hasPageLayoutOverride(atIndex: $0) } ?? false
+            hasPartnerPageLayoutOverride: partnerPageIndex.map { viewModel.hasPageLayoutOverride(atIndex: $0) } ?? false,
+            hasCurrentPageRotationOverride: viewModel.hasPageRotationOverride(atIndex: viewModel.currentIndex),
+            hasPartnerPageRotationOverride: partnerPageIndex.map { viewModel.hasPageRotationOverride(atIndex: $0) } ?? false,
+            canRotatePages: viewModel.canRotatePages
         )
     }
 

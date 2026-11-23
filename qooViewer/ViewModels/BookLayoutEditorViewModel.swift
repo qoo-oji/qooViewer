@@ -306,7 +306,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // 本をめくる画面なので、ネットワークボリューム上の本は残りを裏で取り寄せる(PageLoader.init のコメント)。
         pageLoader = PageLoader(book: loaded, usesThumbnailDiskCache: !isSecret, diskCaches: diskCaches,
                                 imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
-                                memoryUsageRole: .bookmarkEditor(title: isSecret ? nil : loaded.title))
+                                memoryUsageRole: .bookmarkEditor(title: isSecret ? nil : loaded.title),
+                                rotationOverrides: loadedRotations())
         pageLoaderGeneration &+= 1
         isBookReady = true
 
@@ -343,7 +344,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
         pageLoader = PageLoader(
             book: loaded, usesThumbnailDiskCache: usesDiskCaches, diskCaches: diskCaches,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes, stagesWholeFile: true,
-            memoryUsageRole: .bookmarkEditor(title: usesDiskCaches ? loaded.title : nil)
+            memoryUsageRole: .bookmarkEditor(title: usesDiskCaches ? loaded.title : nil),
+            rotationOverrides: loadedRotations()
         )
         pageLoaderGeneration &+= 1
         isBookReady = true
@@ -919,6 +921,25 @@ final class BookLayoutEditorViewModel: ObservableObject {
         )
     }
 
+    /// ページごとの画像の向き(PageRotationOverride。2026-11-23)。サムネイルをビューアで見たとおりの向きにする。
+    private var shownRotations: [String: Int] = [:]
+
+    private func loadedRotations() -> [String: Int] {
+        shownRotations = layoutStore.pageRotations(forBookID: bookID)
+        return shownRotations
+    }
+
+    /// 向きの記録が変わっていたら PageLoader へ渡し、サムネイルを読み直させる(行のタスクは pageLoaderGeneration を見る)。
+    private func refreshRotations() {
+        let rotations = layoutStore.pageRotations(forBookID: bookID)
+        guard rotations != shownRotations, let pageLoader else { return }
+        shownRotations = rotations
+        Task { [weak self] in
+            await pageLoader.setRotationOverrides(rotations)
+            self?.pageLoaderGeneration &+= 1
+        }
+    }
+
     /// レイアウト変更の書き込みがすべて完了した後に1回だけ呼ぶ。pageLayoutStates
     /// (Picker表示用の公開スナップショット)とrows[].effectiveReadingIndexの両方を、
     /// この時点のSwiftDataの状態から同時に更新する。
@@ -928,6 +949,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 古いまま残り、その状態で上へ/下へを押すと、消したはずの並びが新しいページ順として保存された。
     /// 最後にブックマークの番号を今の並びへ振り直す(`renumberBookmarks`。監査 BE-1)。
     private func refreshEffectiveIndices() {
+        refreshRotations()
         if !pageDescriptors.isEmpty, storedOrderKeys(for: pageDescriptors) != rows.map(\.pageKey) {
             rebuildRows(from: pageDescriptors)
             return

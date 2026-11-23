@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import qooViewer
 
@@ -452,6 +453,47 @@ struct FileBrowserThumbnailTests {
         let shelfPage = try await number()
         #expect(abs((shelfPage ?? 0) - 80) <= 2, "表紙に指定したページの絵になっていない: \(String(describing: shelfPage))")
         #expect(provider.sourceKey(for: linkEntry, kind: .alias) != keyBefore)
+    }
+
+    @Test("表紙に指定したページを回すと、その本の絵も回した向きで作り直す(メモリとディスクの鍵に向きが入る。2026-11-23)")
+    func shelfCoverPageFollowsTheRecordedRotation() async throws {
+        let library = try InMemoryLibrary(label: "thumb-shelf-rotation")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("thumb-shelf-rotation")
+        let shelf = try temporary.directory("shelf")
+        let book = try temporary.directory("shelf/book")
+        for index in 1...2 {
+            try PixelGrid.encoded(Quadrants.image(), as: .jpeg)
+                .write(to: book.appendingPathComponent(String(format: "%03d.jpg", index)))
+        }
+        let bookEntry = try entry(book, in: shelf)
+        let loaded = try await FixtureBook.load(bookEntry.url)
+        let second = try #require(loaded.pages.count == 2 ? loaded.pages[1] : nil)
+        library.layouts.setShelfCoverPageKey(
+            forBookID: bookEntry.id, anchors: .probe(bookEntry.url), pageKey: second.sortKey, displayName: "002.jpg"
+        )
+        let cache = FileBrowserThumbnailDiskCache(directory: temporary.file("cache"))
+        func makeProvider() -> FileBrowserThumbnailProvider {
+            FileBrowserThumbnailProvider(
+                diskCache: cache, layoutStore: library.layouts, protectedPrefixes: [], categoryPrefixes: []
+            )
+        }
+        let provider = makeProvider()
+        func corners(_ provider: FileBrowserThumbnailProvider) async throws -> Quadrants.Corners {
+            let buffer = try #require(await provider.thumbnail(
+                for: bookEntry, kind: .folder, pixelSize: 128, currentFolder: shelf
+            ))
+            return Quadrants.corners(of: try #require(buffer.makeImage()))
+        }
+        #expect(try await corners(provider) == .upright)
+        let keyBefore = provider.sourceKey(for: bookEntry, kind: .folder)
+
+        library.layouts.setPageRotation(for: loaded, pageKey: second.sortKey, rotation: 90)
+        #expect(provider.sourceKey(for: bookEntry, kind: .folder) != keyBefore)
+        #expect(try await corners(provider) == .uprightRotatedClockwise(90))
+        await provider.waitUntilIdle()
+        // ディスクに残った絵も向きで分かれている(作り直した後の新しい控えからも、回した絵が出る)。
+        #expect(try await corners(makeProvider()) == .uprightRotatedClockwise(90))
     }
 
     // MARK: - 先頭の絵の選び方

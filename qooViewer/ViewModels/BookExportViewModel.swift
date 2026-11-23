@@ -89,6 +89,8 @@ class BookExportViewModel: ObservableObject {
         let pageOrderOverride: [String]?
         /// pageKey(PageRef.sortKey) -> レイアウト状態。
         let pageOverrides: [String: PageLayoutState]
+        /// pageKey -> 利用者が記録した画像の向き(PageRotationOverride。書き出す画像はこの向きにする)。
+        var pageRotations: [String: Int] = [:]
         /// 見開き/単ページ。本ごとの上書き・画面・ファイル自身の指定・最後にビューアで表示していた状態のどれも無ければnil
         /// (一度も開いていない本。サブクラス側で指定を書かない)。
         let forcedDisplayMode: DisplayMode?
@@ -1118,7 +1120,7 @@ class BookExportViewModel: ObservableObject {
         // 順序はビューアで開いたときと同じ(ファイルの指定は初めて開いたときに上書きとして取り込まれ、以後は見ない)。
         let unimportedHint = settings?.didImportSourceLayout == true ? nil : book.sourceLayoutHint
         let lastShown = displayState == nil ? layoutStore.lastShownDisplaySettings(forBookID: row.bookID) : nil
-        let prepared = PreparedBook(
+        var prepared = PreparedBook(
             row: row,
             book: book,
             pageOrderOverride: pageOrderOverride,
@@ -1138,6 +1140,9 @@ class BookExportViewModel: ObservableObject {
             author: authorOverrides[row.bookID],
             metadata: metadataStore.metadata(forBookID: row.bookID)
         )
+        // 書き出す画像の向きは、アプリが記録した向き(PageRotationOverride)に従う(2026-11-23。シークレットウインドウでメモリの上
+        // だけ回した向きは記録に無いので入らない)。
+        prepared.pageRotations = layoutStore.pageRotations(forBookID: row.bookID)
         return prepared
     }
 

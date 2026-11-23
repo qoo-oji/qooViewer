@@ -405,6 +405,23 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 - **PDF**: 表示は `CGPDFDocument`(`PageLoader.renderPDFPage`、描画倍率あり)。アウトライン・
   書誌情報・`/ViewerPreferences/Direction`・`/PageLayout` は `PDFStructureResolver`(PDFKit)で
   読み、初回オープン時に取り込む。中の画像の取り出し(書き出し用)は `PDFImageExtractor`。
+- **PDF のページは Finder(PDFKit)で見たとおりの向き・範囲で扱う**(2026-11-23、`PDFPageGeometry`)。発端は「一部の PDF が
+  qooViewer でだけ天地逆に表示される」報告で、表示が `/Rotate`(表示するとき時計回りに何度回すか)を見ず MediaBox をそのまま
+  描いていた ―― スキャンして逆さまだったページをプレビュー等で「回転」して保存すると、画像はそのままで `/Rotate 180` だけが書かれる。
+  ファイルブラウザのアイコン(`BookThumbnailer.render`)だけが `/Rotate` を見ていて、アプリの中でも向きが食い違っていた。
+  ページを描く・寸法を答える所(表示・サムネイル・`pageSize`・「情報を見る」・描画倍率・アイコン・PDF 書き出し)はすべて
+  `PDFPageGeometry` を通す。決まりは PDFKit と突き合わせて実測したもの:
+  - 範囲は **CropBox ∩ MediaBox**(ユーザー判断で Finder に揃えた。トンボ付きの印刷用 PDF では見える範囲と寸法が変わる)。
+    `getBoxRect(.cropBox)` は MediaBox からはみ出した CropBox を切らずに返す(PDFKit は切る)ので、自分で重ねる。
+  - `rotationAngle` は親の `/Pages` から継承した値も返すが正規化しない(-180・540 がそのまま)。90 の倍数でない値は PDFKit と同じく
+    いちばん近い 90° 単位へ丸める(45 → 90、135 → 180)。90°/270° では寸法の縦横も入れ替わる(横長の判定に効く)。
+  - 埋め込みの JPEG の EXIF の向きは、CoreGraphics も PDFKit も**無視して**貼られた画素のまま描く(表示はそれで正しい。書き出しは
+    [08](08-export-and-import.md)「PDF のページの向き」)。
+  - 扱わないもの: ページの中で画像を置く変換行列(内容ストリームの `cm`)による反転・回転。描画は CoreGraphics が反映するので
+    表示は正しいが、画像を取り出す書き出しには反映されない。
+  - 描き方を変えたとき: 進捗バーのサムネイルのディスクキャッシュは PDF を含む本だけ鍵に世代が入る
+    (`ThumbnailDiskCache.pdfRenderingGeneration`)。コレクション表紙は保存物なので、PDF を含みうる本の表紙を起動時に一度だけ
+    作り直す(`CollectionCoverExtractor.refreshPDFCoversForRenderingFixIfNeeded`。テストホストでは走らない)。
 - **EPUB**: `EpubStructureResolver` が container.xml → package document → spine の順に画像を
   解決し、`page-spread-left/right` / `rendition:page-spread-center` を `PageRef.epubSpreadPosition`
   に、`page-progression-direction` / `rendition:spread` を `sourceLayoutHint` に入れる。

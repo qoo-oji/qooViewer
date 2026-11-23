@@ -55,6 +55,9 @@ struct PDFExportInput {
     var additionalAuthors: [String] = []
     /// ジャンル。Document Info の `Subject` に書く。
     var genre: String? = nil
+    /// ページごとの画像の向き(PageRotationOverride。pageKey → 元の画素から見た時計回りの回転。2026-11-23)。書き出す画像はこの向きの
+    /// 画素にする(ユーザー要望: 書き出しはアプリが記録した向きに従う。ファイルの向きの指定と食い違えばアプリの記録が勝つ)。
+    var pageRotations: [String: Int] = [:]
 }
 
 enum PDFExportError: LocalizedError {
@@ -113,7 +116,9 @@ nonisolated enum PDFExporter {
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
         // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
-        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
+        let pageLoader = PageLoader(
+            book: input.book, memoryUsageRole: .exporting, rotationOverrides: input.pageRotations
+        )
 
         // book.titleは元のファイル/フォルダ名。PDFにファイル名は入らないが、書誌メタデータは
         // EPUB/CBZと同じくNFCへ揃える(nfcNormalizedForExportのコメント参照)。
@@ -161,10 +166,11 @@ nonisolated enum PDFExporter {
         // 圧縮データをそのまま(再エンコードせずに)埋め込む「パススルー」が働き、EPUB書き出し
         // (zip内にraw bytesをそのまま格納)と同等のファイルサイズに収まる。
         //
-        // 代償として、EXIFの回転情報の自動反映(kCGImageSourceCreateThumbnailWithTransform)は
-        // 行われなくなるが、EpubExporter.exportも同じくrawImageDataをそのまま埋め込んでおり
-        // (書き出し先のEPUBリーダー側でもEXIF回転は反映されない)、この点は既存のEPUB書き出しと
-        // 挙動を揃えているだけで新たな制約ではない。
+        // EXIFの向きの指定は、このCGImageには反映されない(CGImageSourceCreateImageAtIndexは向きを見ない)し、PDFの描画も
+        // 埋め込みJPEGの指定を無視する(2026-11-23 実測)。そこで**ページに貼るときの座標変換で**向きを付け、ページの寸法も
+        // 回した後のものにする(ImageDecoder.orientedDrawing。座標変換を掛けてもパススルーは保たれることを実測)。埋め込むJPEGの
+        // 指定は圧縮し直さずに1へ戻す(OrientationBaking.losslesslyResettingOrientation ―― 指定に従う描き手があっても二重に
+        // 回らないように)。2026-11-23 までは向きを捨てていて、ビューアで正しく見えるページが書き出したPDFでは回る前の向きだった。
         //
         // バグ修正: 以前はこのループの前でPDFコンテキストを作り、ループを抜けた後で
         // 「1ページも書き出せなかった」と分かった時点でnoEligiblePagesを投げていた。この経路は
@@ -198,7 +204,10 @@ nonisolated enum PDFExporter {
             // 描画に必要な材料(元PDFのページ、または画像)を先に用意する。用意できない
             // ページは飛ばす(この時点ではまだ書き出し先に触れない)。
             var sourcePage: CGPDFPage?
+            var sourceGeometry: PDFPageGeometry?
             var image: CGImage?
+            /// 画像のページの向きの指定(1〜8。上のコメント)。
+            var imageOrientation = 1
             var mediaBox: CGRect
             if case .pdf(let container, let pdfPageIndex) = page.source {
                 let key = container.cacheKey
@@ -216,17 +225,29 @@ nonisolated enum PDFExporter {
                 guard let document = sourcePDFDocuments[key] ?? nil,
                       let pdfPage = document.page(at: pdfPageIndex + 1)
                 else { continue }
-                let box = pdfPage.getBoxRect(.mediaBox)
-                guard box.width > 0, box.height > 0 else { continue }
+                // 書き出すページは、元のページを Finder(PDFKit)で見たとおりの向き・範囲にしたもの(PDFPageGeometry)。
+                // CGPDFContext はページに `/Rotate` を書けないので、回転は中身へ焼き込み、箱は見たときの寸法にする。
+                // 利用者がビューアで向きを記録したページは、`/Rotate` の代わりにその向きで(PageRotationOverride。2026-11-23)。
+                guard let geometry = PDFPageGeometry(page: pdfPage)?.overridingRotation(input.pageRotations[page.sortKey])
+                else { continue }
                 sourcePage = pdfPage
-                mediaBox = CGRect(origin: .zero, size: box.size)
+                sourceGeometry = geometry
+                mediaBox = CGRect(origin: .zero, size: geometry.displayedSize)
             } else {
-                guard let data = await pageLoader.rawImageData(at: originalIndex),
-                      let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+                guard let rawData = await pageLoader.rawImageData(at: originalIndex) else { continue }
+                // 向きは、利用者がビューアで記録した向き(PageRotationOverride)があればそれ、無ければファイルの指定(2026-11-23)。
+                // 埋め込む JPEG の指定は、どちらの場合も圧縮し直さずに 1 へ戻す(losslesslyResettingOrientation は指定の無い画像では nil)。
+                let fileOrientation = OrientationBaking.orientation(of: rawData)
+                let orientation = input.pageRotations[page.sortKey].map(PageRotation.orientation(for:)) ?? fileOrientation
+                let data = fileOrientation == 1
+                    ? rawData : (OrientationBaking.losslesslyResettingOrientation(rawData) ?? rawData)
+                guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
                       let decoded = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
                 else { continue }
                 image = decoded
-                mediaBox = CGRect(x: 0, y: 0, width: CGFloat(decoded.width), height: CGFloat(decoded.height))
+                imageOrientation = orientation
+                let drawing = ImageDecoder.orientedDrawing(of: decoded, orientation: orientation)
+                mediaBox = CGRect(x: 0, y: 0, width: CGFloat(drawing.width), height: CGFloat(drawing.height))
             }
 
             // 最初に描画できるページが確定した、このタイミングで初めて書き出し先を作る。
@@ -254,20 +275,20 @@ nonisolated enum PDFExporter {
             pageNumberByOriginalKey[page.sortKey] = pageNumber
 
             pdfContext.beginPage(mediaBox: &mediaBox)
-            if let sourcePage {
-                // 元ページの原点がmediaBoxの左下と一致しない場合に備えて平行移動してから写す。
-                //
-                // `/Rotate`(ページの回転指定)は考慮していない。ビューア側の描画
-                // (PageLoader.renderPDFPage)もmediaBoxをそのまま使って同じように写しており、
-                // 画面で見たとおりのものが書き出される。どちらか一方だけを直すと表示と出力が
-                // 食い違うため、直すなら両方を`CGPDFPageGetDrawingTransform`ベースに揃えること。
-                let box = sourcePage.getBoxRect(.mediaBox)
+            if let sourcePage, let sourceGeometry {
+                // 回転(`/Rotate`)・枠の原点・CropBox での切り取りを掛けてから写す。ビューアの描画(PageLoader.renderPDFPixels)と
+                // 同じ PDFPageGeometry なので、画面で見たとおりのものが書き出される(2026-11-23 まではどちらも `/Rotate` を
+                // 見ておらず、`/Rotate 180` のページは出力した PDF でも天地逆だった)。
                 pdfContext.saveGState()
-                pdfContext.translateBy(x: -box.origin.x, y: -box.origin.y)
+                sourceGeometry.prepare(pdfContext, scale: 1)
                 pdfContext.drawPDFPage(sourcePage)
                 pdfContext.restoreGState()
             } else if let image {
-                pdfContext.draw(image, in: mediaBox)
+                // 向きは座標変換で付ける(上のコメント)。等倍で描くのでパススルーは保たれる。
+                pdfContext.saveGState()
+                ImageDecoder.orientedDrawing(of: image, orientation: imageOrientation).prepare(pdfContext)
+                pdfContext.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                pdfContext.restoreGState()
             }
             pdfContext.endPage()
         }

@@ -8,6 +8,7 @@
 | ブックマーク | SwiftData `Bookmark` | `BookmarkStore` / `ViewerViewModel` | 無制限(自動削除しない) |
 | レイアウト(本全体) | SwiftData `BookLayoutSettings` | `LayoutStore` | 無制限 |
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
+| ページごとの画像の向き | SwiftData `PageRotationOverride`(2026-11-23、`StoreSchemaGuard` の世代 6) | `LayoutStore` | 無制限 |
 | (お気に入り) | **2026-10-24 に機能ごと削除** | ―― | 改善要望5で入り口を閉じたまま使わなくなったので、利用者の判断でモデル(`FavoriteBook` / `FavoriteFolder`)・ストア・ウインドウ・JSON の節をすべて消した。既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす(`StoreSchemaGuard` の世代 5。削除したエンティティの名前は `retiredEntityNames` に並べ、「知らない表 = 新しいアプリのストア」の判定から外す)。設定の 4 つのキーは起動時に消し、保存データの JSON にも入れない(`AppPreferences.retiredFavoritesKeys` の 1 か所に書き、`SettingsBackup.excludedKeys` もそれを読む ―― 2 か所に書くと片方だけ直して控えから書き戻しうる) |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
@@ -247,7 +248,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 **フォルダの本は、ページの鍵も付け替える**(2026-09-21。`PageKeyRelocation`、Services/BookRelocation.swift)。フォルダの本の `PageRef.sortKey` は
 **絶対パス**(中の書庫・PDF のページも、その書庫の絶対パスが頭に付く)なので、本が動くと `bookID` だけでなく鍵の頭も変わる。鍵で持っている保存データ ――
-`PageLayoutOverride.pageKey`・`BookLayoutSettings.coverPageKey` / `shelfCoverPageKey` / `pageOrderOverride`(ページの並べ替え)・`Bookmark.pageKey`・
+`PageLayoutOverride.pageKey`・`PageRotationOverride.pageKey`(画像の向き)・`BookLayoutSettings.coverPageKey` / `shelfCoverPageKey` / `pageOrderOverride`(ページの並べ替え)・`Bookmark.pageKey`・
 `BookReadingState.lastPageKey` ―― は、
 上の 2 つの経路(`reconcileBookIDIfMoved` と `applyBookRelocation`)で `bookID` と一緒に書き換える。それまでは `bookID` しか付け替えておらず、フォルダの本を
 移す・名前を変えると、ページ単位のレイアウトと「本の中のページ」で選んだ表紙が黙って外れ、ブックマークは番号へ落ちていた(鍵が合わないので、並びが

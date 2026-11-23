@@ -518,11 +518,17 @@ final class DebugControlPort {
         guard let path = arguments["path"] as? [String], !path.isEmpty, var menu = NSApp.mainMenu else {
             throw Failure("missing path")
         }
+        // `occurrence`: 最後の項目と同じ題が 1 つのメニューにいくつも並ぶとき(見出しで分けた「画像を回転」の左のページ・右のページ。
+        // 2026-11-23)、何番目(0 始まり)を押すか。省けば最初。
+        let occurrence = arguments["occurrence"] as? Int ?? 0
         for (depth, title) in path.enumerated() {
             menu.update()
-            guard let index = menu.items.firstIndex(where: { $0.title == title }) else {
-                throw Failure("no menu item “\(title)” in \(path.prefix(depth))")
+            let matches = menu.items.indices.filter { menu.items[$0].title == title }
+            let wanted = depth == path.count - 1 ? occurrence : 0
+            guard matches.indices.contains(wanted) else {
+                throw Failure("no menu item “\(title)” (#\(wanted)) in \(path.prefix(depth))")
             }
+            let index = matches[wanted]
             let item = menu.items[index]
             if depth == path.count - 1 {
                 guard item.isEnabled, !item.isHidden else { throw Failure("the menu item “\(title)” is disabled") }

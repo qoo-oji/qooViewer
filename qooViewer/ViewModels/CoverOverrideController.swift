@@ -341,7 +341,8 @@ final class CoverOverrideController: ObservableObject {
                 coverPageKey: coverPageKey,
                 imageFileURL: await layoutStore.resolvedExternalCoverURL(forBookID: bookID),
                 pageOrderOverride: pageOrderOverride,
-                excludedKeys: excludedKeys
+                excludedKeys: excludedKeys,
+                pageRotations: layoutStore.pageRotations(forBookID: bookID)
             )
         }
         var scopedURLs: [URL] = []
@@ -568,6 +569,11 @@ final class CoverOverrideController: ObservableObject {
         resolvedCoverNames.removeValue(forKey: bookID)
         noteCoverDidChange()
         Task { await refreshCoverName(forBookID: bookID) }
+    }
+
+    /// ページごとの画像の向き(PageRotationOverride。表紙を選ぶ一覧のサムネイルをビューアで見たとおりの向きにする。2026-11-23)。
+    func pageRotations(forBookID bookID: String) -> [String: Int] {
+        layoutStore.pageRotations(forBookID: bookID)
     }
 
     /// いまカバーに指定されている本の中のページ(未指定・外部ファイル指定ならnil)。

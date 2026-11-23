@@ -175,13 +175,17 @@ nonisolated enum CoverImageResolver {
         /// 撤去した環境設定がOFFだった頃の表紙と比べる判定だけ
         /// (CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)。
         var usesLegacyOrder = false
+        /// ページごとの画像の向き(PageRotationOverride。pageKey → 回転、2026-11-23)。表紙の絵もビューアで見たとおりの向きにする。
+        var pageRotations: [String: Int] = [:]
 
         init(
             coverPageKey: String? = nil,
             imageFileURL: URL? = nil,
             pageOrderOverride: [String]? = nil,
-            excludedKeys: Set<String> = []
+            excludedKeys: Set<String> = [],
+            pageRotations: [String: Int] = [:]
         ) {
+            self.pageRotations = pageRotations
             self.coverPageKey = coverPageKey
             self.imageFileURL = imageFileURL
             self.pageOrderOverride = pageOrderOverride
@@ -256,7 +260,10 @@ nonisolated enum CoverImageResolver {
         // 3. 復号。カバーは1000px弱の小さな画像なので、grid用の経路をそのまま借りる。
         //    ディスクキャッシュ(ThumbnailDiskCache)は使わない ―― カバーはこの後
         //    CollectionCoverStoreへJPEGで永続化するので、同じ絵を2か所に置く意味が無い。
-        let loader = PageLoader(book: book, usesThumbnailDiskCache: false, memoryUsageRole: .coverExtraction)
+        let loader = PageLoader(
+            book: book, usesThumbnailDiskCache: false, memoryUsageRole: .coverExtraction,
+            rotationOverrides: snapshot.pageRotations
+        )
         let image = await loader.gridThumbnail(at: index, maxPixelSize: maxPixelSize, usesDiskCache: false)
         await loader.releaseAllResources()
         return image

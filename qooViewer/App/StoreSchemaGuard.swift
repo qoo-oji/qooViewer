@@ -54,13 +54,15 @@ nonisolated enum StoreSchemaGuard {
     /// - 4: `BookMetadata.extraValuesData`(原作・情報の 2 つ目からの値。qooMeta 0.3.0)を足した時点
     ///   (2026-10-01)。1.84 までにリリース済み(**この行の指紋はもう書き換えない**)
     /// - 5: お気に入り(`FavoriteBook` / `FavoriteFolder`)を機能ごと削除し、エンティティを外した時点(2026-10-24)。
-    ///   **リリースするまでは、この行の指紋を書き換えてよい**
+    ///   1.85 でリリース済み(**この行の指紋はもう書き換えない**)
+    /// - 6: ページごとの画像の向き(`PageRotationOverride`)を足した時点(2026-11-23)。**リリースするまでは、この行の指紋を書き換えてよい**
     static let generations: [Int: String] = [
         1: "82a1fb6d0d07bdc10cc4f297ac78096f48f6d101c0d8ec685ede6c0e803429d2",
         2: "507a48b2e004d8fbb926c846af2267835092ae6233def7f4da1da8917b7f3ad8",
         3: "5a187a191f25e719e0f38297ef1f72fc4cd9ee61c759b24ef0758995fdca60fa",
         4: "ce41991138ed8c0438c7609667c0344ef6a8dd173c0dbbd6cd1c2009461bac24",
         5: "1a1ae023bf8e522820c2897dbf3d2ecacc2216132a6f0828982478e1c679b03a",
+        6: "165360dc895cd90f0689e18d91f1a701e74f3df991f6975b40abbfdea2059d30",
     ]
 
     /// 削除したエンティティの名前(2026-10-24)。古いストアにはまだあるので、「いまのモデルが知らないエンティティ = 新しいアプリの

@@ -209,6 +209,19 @@ dedups in-flight requests for the same page, limits concurrent full-size decodes
 jump ahead of prefetches), and prefetches pages around the current index into three `PagePixelCache`s
 (strict LRU with byte/count limits; full image / progress-bar thumbnail / grid thumbnail). When editing this file, preserve the actor-isolation
 boundary: archive/PDF handles must stay actor-confined, but decoding must not block the actor.
+**A PDF page is drawn and measured only through `PDFPageGeometry`** (2026-11-23, after "some PDFs show upside down in qooViewer
+but not in Finder": the viewer ignored `/Rotate` and drew the MediaBox): CropBox ∩ MediaBox, `/Rotate` normalized like PDFKit, sizes
+after rotation — display, thumbnails, `pageSize`, the file browser icon and PDF export all agree with Finder. Exported page images
+(EPUB/CBZ/single page) carry no orientation tag: pages with `/Rotate` and JPEGs with an EXIF orientation are re-encoded with the
+pixels as the PDF shows them (user decision: never rely on the reader honouring EXIF; docs/04「PDF と EPUB」, docs/08).
+The same goes for image files: CBZ/EPUB re-encode an image that carries an orientation tag with the pixels turned (same format,
+no tag) and PDF export applies it with the CTM while resetting the JPEG's tag losslessly — `OrientationBaking`; page sizes
+(`ImageDecoder.HeaderInfo`) are after orientation, and stored page sizes carry `pageSizesVersion`.
+**The viewer's "Rotate Image" (2026-11-23) records `PageRotationOverride`** — the clockwise rotation of the raw pixels, which
+*replaces* the file's EXIF orientation / `/Rotate` (user decision: the app's record is newer); it is applied only inside `PageLoader`
+(`rotationOverrides`, cache keys via `cacheID(for:)`, sizes via `applyingRotationOverride`), so new code that shows, measures or exports a
+page must go through `PageLoader` (or pass `pageRotations` like the exporters and `OverrideSnapshot`). It follows `PageLayoutOverride`'s
+paths (relocation, discard/delete, JSON `rotations`); books that record nothing rotate in memory only, so the items are not dimmed there.
 **Resource monitor** (`ResourceMonitorView`: the side panel's Resources mode, and on Home the inspector's Info / Resources switch,
 2026-10-11) breaks memory and disk down by feature in foldable groups: **anything new that deliberately holds memory registers with
 `MemoryUsageRegistry`** (`MemoryUsageRegistration`; every `PageLoader` takes a `memoryUsageRole`, lazy lists pass one to

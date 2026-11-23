@@ -354,6 +354,65 @@ struct CollectionCoverExtractorTests {
         #expect(await coverNumber(of: item, in: library) == 1)
     }
 
+    // MARK: - PDF の描き方を直したあとの作り直し(2026-11-23)
+
+    @Test("PDF の描き方を直したあと一度だけ、PDF を含みうる本の表紙を表紙を出したまま作り直す(画像だけの本は作り直さない)")
+    func pdfCoversAreRefreshedOnceAfterTheRenderingFix() async throws {
+        let library = try InMemoryLibrary(label: "cover-extractor-pdf-fix")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-extractor-pdf-fix")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-extractor-pdf-fix")
+        let pdf = temporary.file("rotated.pdf")
+        try HandWrittenPDF.write([.init(image: Quadrants.jpeg(), rotate: 180)], to: pdf)
+        let folder = try makeFolderBook(temporary, named: "images")
+        // フォルダの中に PDF がある本(ページ一覧のキャッシュに PDF のページが見えている)。
+        let mixed = try makeFolderBook(temporary, named: "mixed")
+        let shelf = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: shelf, items: [pdf, folder, mixed].compactMap(CollectionStore.makePendingItem(for:))
+        ))
+        let pdfItem = try #require(collection.items.first { $0.bookID == pdf.path })
+        let mixedPages = [
+            BookPageListCache.Entry.Page(sortKey: mixed.path + "/chapter.pdf/000000", displayName: "000000", idSuffix: "/chapter.pdf#pdf#0"),
+        ]
+        let mixedBookID = mixed.path
+        func makeExtractor() -> CollectionCoverExtractor {
+            CollectionCoverExtractor(
+                collectionStore: library.collections, coverStore: library.collectionCovers,
+                layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults,
+                cachedPageList: { bookID in bookID == mixedBookID ? mixedPages : nil }
+            )
+        }
+
+        // 直す前に作られた表紙があるところから(済み印を立てて、最初の抽出では作り直しが走らないようにする)。
+        suite.defaults.set(true, forKey: CollectionCoverExtractor.pdfCoverRenderingFixDoneKey)
+        let first = makeExtractor()
+        first.enqueue(Array(collection.items))
+        await first.waitUntilIdle()
+        first.releaseResources()
+        #expect(collection.items.allSatisfy { $0.coverState == .ready })
+
+        suite.defaults.removeObject(forKey: CollectionCoverExtractor.pdfCoverRenderingFixDoneKey)
+        let second = makeExtractor()
+        // 作り直しを待つ間も表紙は出たまま(pending へ戻さない)。
+        #expect(pdfItem.coverState == .ready)
+        await second.settlePDFCoverEvaluation()
+        await second.waitUntilIdle()
+        second.releaseResources()
+        // PDF の本と、PDF のページを含むフォルダの本の 2 冊だけ。
+        #expect(second.extractionAttemptCount == 2)
+        #expect(pdfItem.coverState == .ready)
+        #expect(suite.defaults.bool(forKey: CollectionCoverExtractor.pdfCoverRenderingFixDoneKey))
+
+        // 一度きり。
+        let third = makeExtractor()
+        defer { third.releaseResources() }
+        await third.settlePDFCoverEvaluation()
+        await third.waitUntilIdle()
+        #expect(third.extractionAttemptCount == 0)
+    }
+
     // MARK: - 保存の仕方の世代
 
     @Test("保存の世代が上がっていたら全件を pending へ戻す(一度だけ・save は 1 回)")

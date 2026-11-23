@@ -165,6 +165,7 @@ UI の文言とコードの語彙で、同じものを別の語で呼ばない�
 | カバー | コレクションで本を表す画像(上書きが無ければ実効1ページ目)。「表紙」とは呼ばない | `CoverImageResolver` / `CollectionCoverStore` |
 | 履歴 | 最近開いたファイル | `RecentFilesStore` |
 | レイアウト | 読み方向の上書き・見開き強制・ページ順補正・ページ単位の状態 | `BookLayoutSettings` / `PageLayoutOverride` |
+| 画像の向き | ビューアの「画像を回転」で記録したページの向き(ファイルの EXIF・`/Rotate` を置き換える) | `PageRotationOverride` |
 | 除外(非表示) | 読書フローから完全に外したページ | `PageLayoutState.excluded` |
 | 見開き右 / 見開き左 | **画面上の**右/左に置く指定(読み方向に応じて「どちらと組むか」が変わる) | `PageLayoutState.spreadRight/Left` |
 | 保存データ | 本ごとに DB へ保存したものの総称(読書位置・ブックマーク・レイアウト・メタデータ) | ― |

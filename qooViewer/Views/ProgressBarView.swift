@@ -82,13 +82,16 @@ struct ProgressBarView: View {
     private struct ThumbnailContent: Equatable {
         let pageID: String
         let isContrastCorrected: Bool
+        /// 利用者が記録した画像の向き(2026-11-23。回したら読み直す)。
+        let rotation: Int?
     }
 
     /// その番号のページの、いまの中身(範囲外なら nil)。
     private func currentContent(at index: Int) -> ThumbnailContent? {
         guard viewModel.book.pages.indices.contains(index) else { return nil }
         return ThumbnailContent(
-            pageID: viewModel.book.pages[index].id, isContrastCorrected: viewModel.isContrastCorrectionEnabled
+            pageID: viewModel.book.pages[index].id, isContrastCorrected: viewModel.isContrastCorrectionEnabled,
+            rotation: viewModel.pageRotation(atIndex: index)
         )
     }
 

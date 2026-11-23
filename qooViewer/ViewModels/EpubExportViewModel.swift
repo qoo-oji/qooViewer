@@ -13,7 +13,7 @@ final class EpubExportViewModel: BookExportViewModel {
     override var supportsCoverSelection: Bool { true }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
-        let input = EpubExportInput(
+        var input = EpubExportInput(
             book: prepared.book,
             pageOrderOverride: prepared.pageOrderOverride,
             pageOverrides: prepared.pageOverrides,
@@ -39,6 +39,7 @@ final class EpubExportViewModel: BookExportViewModel {
         let options = EpubExportOptions(
             renumberImagesSequentially: renumberImagesSequentially, includeExcludedPages: includeExcludedPages
         )
+        input.pageRotations = prepared.pageRotations
         try await EpubExporter.export(input, options: options, to: destinationURL)
     }
 }

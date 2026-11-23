@@ -116,6 +116,7 @@ nonisolated struct BookRelocationPlan: Sendable {
 
 /// **フォルダの本のページの鍵は絶対パス**(`PageRef.sortKey`。BookLoader.collectPages ―― 中の書庫・PDF のページも、その書庫の絶対パスが頭に付く)。
 /// 本が移る・名前が変わると `bookID` だけでなく鍵の頭も変わるので、鍵で持っている保存データ(`PageLayoutOverride.pageKey`・
+/// `PageRotationOverride.pageKey`(ページごとの画像の向き。2026-11-23)・
 /// `BookLayoutSettings.coverPageKey` / `shelfCoverPageKey` / `pageOrderOverride`・`Bookmark.pageKey`・`BookReadingState.lastPageKey`)も
 /// 一緒に付け替える(並べ替えは最初の版で漏れていた。2026-09-21 の監査の M1)。
 ///

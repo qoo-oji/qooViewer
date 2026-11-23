@@ -1038,6 +1038,9 @@ struct ContentView: View {
             hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
             hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
             hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
+            hasCurrentPageRotationOverride: appState.hasCurrentPageRotationOverride,
+            hasPartnerPageRotationOverride: appState.hasPartnerPageRotationOverride,
+            canRotatePages: appState.canRotatePages,
             // ファイルブラウザの値は AppState の保留付きの値を読む(fileBrowserMenuSnapshot のコメント)。
             fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
             fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,

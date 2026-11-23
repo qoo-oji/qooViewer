@@ -92,6 +92,13 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
     `createCollection '{"library":…,"name":…,"paths":[…]}'`(合成名のライブラリ・コレクションを作る)。
   - **`menu` の淡色は、メニューバーの今の状態を映さないことがある**(2026-10-18 実測。本に依る項目が、普通の本でも淡色と返った)。
     淡色の確認は AX で読む(下の「StackNest の本の実機の確かめ方」)。
+    2026-11-23 の実測(画像の回転): アプリを前面に出して窓をキーにしても、`menu` は「本なし」の形(レイアウトが左右に分かれない・
+    「画像を回転」が淡色で中身なし)のままだった。**AX でその項目を一度読む**と SwiftUI がメニューを組み直し、その後の `menu`・
+    `performMenuItem` は今の形になる(押す前に `osascript … get name of menu items of menu 1 of menu item "…" of …` を 1 回挟む)。
+    見出し(`Section`)で分けた同じ題が並ぶメニュー(見開きの「左のページ」「右のページ」の「180°回転」など)は、
+    `performMenuItem '{"path":[…],"occurrence":1}'` で何番目(0 始まり)を押すかを選ぶ。右クリックメニューは System Events の
+    `menu 1` では見えなかったので、AXUIElement で アプリの直下の AXMenu を辿り、`AXPress`(押すと閉じる)・`AXCancel` で閉じる ――
+    開いている間はアプリが応答しない(制御口の頼みもメニューが閉じるまで待たされ、閉じた後に続けて実行される)ので、必ず閉じる手順を先に用意する。
   - 置き場所はコンテナの `tmp/qooViewer-debug-control/`(署名していない CI のビルドでは `$(getconf DARWIN_USER_TEMP_DIR)`、
     環境変数 `QOO_DEBUG_CONTROL_DIR` で変えられる)。`inbox/` に置いた頼みに `outbox/` で答える。
   - アプリを隠して起動(`open -g -j <app>`)すれば、画面に何も出さずに状態を読める。終わりは
