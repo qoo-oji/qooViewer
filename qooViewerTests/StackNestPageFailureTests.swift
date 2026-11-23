@@ -115,12 +115,12 @@ struct StackNestPageFailureTests {
         viewer.jump(toPageIndex: 6)
         await viewer.settle()
         #expect(viewer.stackNestNotice != nil)
-        #expect(await holdPage4.arrival())
+        #expect(await holdPage4.arrival(timeout: TestPatience.conditionInterval))
         // 下調べを進めると 6 番の寸法を取りに行く(StackNest はまだ 500)。その応答を見立ての門で止める。
         let holdPage6 = fixture.server.gate(.page(6))
         defer { holdPage6.open() }
         holdPage4.open()
-        #expect(await holdPage6.arrival())
+        #expect(await holdPage6.arrival(timeout: TestPatience.conditionInterval))
         let probeAroundPage6 = try #require(viewer.stackNestPrimeTask)
         // 0 番へ戻る: 6 番の近傍の下調べは止まり、止めておいた 6 番の要求からも抜ける(待つ人のいなくなった要求は部品が取り消す)。
         // 止まらないと、下の 6 番の表示が止めておいた要求(500)に相乗りし、門が開くか要求の無通信の時間切れ(部品の既定の

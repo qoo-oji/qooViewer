@@ -1280,6 +1280,7 @@ final class ViewerViewModel: ObservableObject {
         stackNestBook = nil
         stackNestPrimeTask?.cancel()
         stackNestPrimeTask = nil
+        cancelStackNestPageInfoTasks()
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
 
@@ -2988,6 +2989,8 @@ final class ViewerViewModel: ObservableObject {
         // 続きから」再開した直後など、targetIndexより前のページを一度も表示していない状態で
         // すぐに「前のページへ戻る」を行うケースに備える。
         primeWideImageCache(around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 2))
+        // 前の表示が始めた「情報を見る」の先回り取得も止める(StackNest の本だけが控える。cachePageImageInfo)。
+        cancelStackNestPageInfoTasks()
 
         // StackNest の本は、表示するページを頼む**前に**先読みを始める(2026-10-19 の実測: 1 ページの往復に 300 ms かかる StackNest で、
         // 先読みの外へ飛ぶと 660 ms かかった ―― 見開きの 2 枚目を 1 枚目が届いてから頼むので、往復 2 回ぶん待っていた)。先読みは
@@ -3056,10 +3059,10 @@ final class ViewerViewModel: ObservableObject {
 
         // コンテキストメニュー「情報を見る」(ユーザー要望)向けに、実際に表示するページの
         // 画像ファイル情報をバックグラウンドで取得しておく(pageImageInfoCacheのコメント参照)。
-        // StackNest の本で表示できなかったページは、先回りして取りに行かない(2026-11-23): 読めなかった直後に同じページをもう一度
-        // StackNest へ頼むことになり、その要求は誰も待たず取り消されもしない。CI で一度、StackNest が直る前に出したこの要求(500)に、
-        // 直った後の同じページの表示が相乗りして読めなかった(StackNestPageFailureTests。primeWideImageCache の止め方も同じ件)。
-        // 「情報を見る」のパネルは開いたときに取りに行く(pageImageInfo(forPageKey:))。
+        // StackNest の本で表示できなかったページは、先回りして取りに行かない(2026-11-23): 読めなかった直後に、同じページを失敗している
+        // StackNest へもう一度頼むことになる。CI で一度、StackNest が直る前に出したこの要求(500)に、直った後の同じページの表示が
+        // 相乗りして読めなかった(StackNestPageFailureTests。primeWideImageCache の止め方も同じ件。表示できたページの分は控えて次の
+        // 表示で取り消す ―― cachePageImageInfo)。「情報を見る」のパネルは開いたときに取りに行く(pageImageInfo(forPageKey:))。
         if !(book.isStackNestReference && images.isEmpty) {
             cachePageImageInfo(at: targetIndex)
         }
@@ -3142,10 +3145,26 @@ final class ViewerViewModel: ObservableObject {
         guard book.pages.indices.contains(index) else { return }
         let key = book.pages[index].sortKey
         guard pageImageInfoCache[key] == nil else { return }
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self, let info = await self.pageLoader.pageImageInfo(at: index) else { return }
             self.pageImageInfoCache[key] = info
         }
+        // StackNest の本では控えておき、次の表示(loadCurrentSpread)で取り消す(2026-11-23 のレビュー)。表示したページでもヘッダーの
+        // 控え(PageLoader.headerInfoCache)が無ければ StackNest へもう一度頼むので、控えずにいると、StackNest が直る前に出したこの
+        // 要求(500)に、直った後の同じページの表示が相乗りして読めない(primeWideImageCache の止め方と同じ件)。取り消しは Task の
+        // 取り消しで部品の要求まで届く(pageImageInfo → rawData → pageData は同じ Task の中)。
+        if book.isStackNestReference {
+            stackNestPageInfoTasks.append(task)
+        }
+    }
+
+    /// StackNest の本で、直前の表示が始めた「情報を見る」の先回り取得(`cachePageImageInfo`)。
+    private var stackNestPageInfoTasks: [Task<Void, Never>] = []
+
+    /// `stackNestPageInfoTasks` を取り消して空にする。
+    private func cancelStackNestPageInfoTasks() {
+        for task in stackNestPageInfoTasks { task.cancel() }
+        stackNestPageInfoTasks = []
     }
 
     /// index付近(前後radius枚)のうち、まだwideImageCacheに判定結果が無いページについて、
