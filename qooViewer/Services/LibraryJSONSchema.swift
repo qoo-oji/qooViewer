@@ -327,6 +327,9 @@ struct ExportedBookLayout: Codable {
     var pageOrder: [String]?
     /// キー: pageKey。
     var pages: [String: ExportedPageState]?
+    /// ページごとの画像の向き(PageRotationOverride。キー: pageKey、値: 元の画素から見た時計回りの回転 0/90/180/270。2026-11-23)。
+    /// 無ければnil。Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き)。
+    var rotations: [String: Int]?
 }
 
 /// 1冊分のレイアウト設定 + bookID。以前は`[String: ExportedBookLayout]`(キー: bookID)だったが、

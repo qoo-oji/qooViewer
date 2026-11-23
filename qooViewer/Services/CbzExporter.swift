@@ -56,6 +56,9 @@ struct CbzExportInput {
     /// 巻数(並べ替え用。qooMeta の `volumeSort`)を書き出す文字列にしたもの(BookMetadata.exportableVolumeText)。
     /// あれば `seriesIndex` の代わりに `Number` へ書く(applyMetadataのコメント参照)。
     var volumeSort: String? = nil
+    /// ページごとの画像の向き(PageRotationOverride。pageKey → 元の画素から見た時計回りの回転。2026-11-23)。書き出す画像はこの向きの
+    /// 画素にする(ユーザー要望: 書き出しはアプリが記録した向きに従う。ファイルの向きの指定と食い違えばアプリの記録が勝つ)。
+    var pageRotations: [String: Int] = [:]
 }
 
 enum CbzExportError: LocalizedError {
@@ -150,7 +153,9 @@ nonisolated enum CbzExporter {
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
         // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
-        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
+        let pageLoader = PageLoader(
+            book: input.book, memoryUsageRole: .exporting, rotationOverrides: input.pageRotations
+        )
         let planned = try await planEntries(
             input: input, options: options, orderedPages: orderedPages,
             originalIndexByKey: originalIndexByKey, pageLoader: pageLoader
@@ -199,10 +204,10 @@ nonisolated enum CbzExporter {
             for (outputIndex, entry) in planned.enumerated() {
                 // 書き出しの「キャンセル」はページごとに見る(2026-10-04 の監査 TW-4。書きかけは呼び出し側が一時ファイルごと捨てる)。
                 try Task.checkCancellation()
-                let imageData: Data
+                let sourceData: Data
                 switch entry.source {
                 case .rawData(let data):
-                    imageData = data
+                    sourceData = data
                 case .page(let originalIndex):
                     guard let exportable = try await pageLoader.exportableImage(at: originalIndex) else {
                         throw CbzExportError.pageImageUnavailable(
@@ -210,8 +215,12 @@ nonisolated enum CbzExporter {
                                 .location(inBookAt: input.book.sourceURL).fullPath
                         )
                     }
-                    imageData = exportable.data
+                    sourceData = exportable.data
                 }
+                // 向きの指定(EXIF)を持つ画像は、回した画素で同じ形式に書き直す(読むアプリが指定に従わなくても、qooViewer で
+                // 見たとおりの向きになるように。OrientationBaking のコメント)。形式は変わらないのでファイル名もそのまま。
+                // ComicInfo の寸法(下)も書き直した画像から取る。
+                let imageData = OrientationBaking.bakedForExport(sourceData) ?? sourceData
 
                 try await addEntry(to: archive, path: entry.fileName, data: imageData, compressed: shouldCompress(entry.fileName))
 

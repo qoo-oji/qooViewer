@@ -288,6 +288,18 @@ final class ViewerViewModel: ObservableObject {
     /// 残った ―― ツールバーのずらしボタンは淡色なのにメニューは押せ、押すと `shiftByOnePage` の guard で何も起きなかった
     /// (2026-10-04 の監査 V-7)。`pageLayoutStates` は publish しないので、変わったことをこの番号で知らせる。
     @Published private(set) var layoutDataRevision = 0
+
+    // MARK: ページごとの画像の向き(PageRotationOverride、2026-11-23)
+
+    /// pageKey → 利用者が記録した画像の向き(元の画素から見た時計回りの回転)。ここに無いページはファイルの向きに従う。
+    /// 記録を残す本では保存データ(LayoutStore.pageRotations)そのもの。記録を残さない本(シークレットウインドウ・シークレット
+    /// フォルダ・StackNest ―― skipsPersistence)では、保存データに `inMemoryRotations` を重ねたもの(ユーザー要望: シークレットでない
+    /// 場合だけ記憶する ―― 記録を残さない本でも回せるが、閉じれば忘れる)。差し替えの疑いがあり未解決の間は空(pageLayoutStates と同じ)。
+    private(set) var pageRotations: [String: Int] = [:]
+    /// 記録を残さない本でメモリの上だけ変えた向き(値が nil = 「元の向きに戻す」でファイルの向きにした)。
+    private var inMemoryRotations: [String: Int?] = [:]
+    /// 向きの記録が変わるたびに進む番号。ページ一覧・進捗バー・サイドパネルのサムネイルがこれを見て描き直す。
+    @Published private(set) var pageRotationRevision = 0
     /// 一度でも画像を読み込んで横長判定(isWideImage)を行ったページの結果を、pageKeyをキーに
     /// 覚えておくキャッシュ。
     ///
@@ -586,6 +598,7 @@ final class ViewerViewModel: ObservableObject {
         self.rawPages = incomingBook.pages
         self.bookLayoutSettings = prepared.settings
         self.pageLayoutStates = prepared.overrides
+        self.pageRotations = prepared.rotations
         if case .possiblyReplaced = prepared.replacementStatus {
             self.pendingLayoutReplacementStatus = prepared.replacementStatus
         } else {
@@ -603,7 +616,8 @@ final class ViewerViewModel: ObservableObject {
             // ネットワークボリューム上の本は、残りを裏で手元へ取り寄せる(本をめくる画面。PageLoader.init のコメント)。
             stagesWholeFile: true,
             // シークレットウインドウ・シークレットフォルダの本は、リソースモニタにも名前を出さない(痕跡を残さない約束)。
-            memoryUsageRole: .viewerBook(title: skipsPersistence ? nil : preparedBook.title)
+            memoryUsageRole: .viewerBook(title: skipsPersistence ? nil : preparedBook.title),
+            rotationOverrides: prepared.rotations
         )
 
         let bookID = preparedBook.id
@@ -3559,10 +3573,11 @@ final class ViewerViewModel: ObservableObject {
         book: MangaBook,
         replacementStatus: LayoutContentReplacementStatus,
         settings: BookLayoutSettings?,
-        overrides: [String: PageLayoutState]
+        overrides: [String: PageLayoutState],
+        rotations: [String: Int]
     ) {
         guard replacementStatus == .unaffected else {
-            return (rawBook, replacementStatus, nil, [:])
+            return (rawBook, replacementStatus, nil, [:], [:])
         }
 
         let settings = layoutStore.bookLayoutSettings(forBookID: rawBook.id)
@@ -3599,7 +3614,7 @@ final class ViewerViewModel: ObservableObject {
             // MangaBook.sourceFacts。2026-10-11 の規約監査のレビュー)。
             sourceFacts: rawBook.sourceFacts
         )
-        return (adjustedBook, .unaffected, settings, overridesByKey)
+        return (adjustedBook, .unaffected, settings, overridesByKey, layoutStore.pageRotations(forBookID: rawBook.id))
     }
 
     /// 生のページ一覧(正準順)から、実際に読書フローで使う並びを作る。
@@ -3773,6 +3788,21 @@ final class ViewerViewModel: ObservableObject {
         pageLayoutStates = overridesByKey
         layoutDataRevision &+= 1
 
+        // ページごとの画像の向き。変わったページは横長の判定と「情報を見る」の控えを捨てる(寸法が入れ替わりうる)。
+        // PageLoader の絵のキャッシュは向きを含めた鍵で引くので捨てなくてよい(PageLoader.rotationOverrides のコメント)。
+        let newRotations = currentRotations()
+        let rotationsChanged = newRotations != pageRotations
+        if rotationsChanged {
+            let changedKeys = Set(newRotations.keys).union(pageRotations.keys)
+                .filter { newRotations[$0] != pageRotations[$0] }
+            for key in changedKeys {
+                wideImageCache[key] = nil
+                pageImageInfoCache[key] = nil
+            }
+            pageRotations = newRotations
+            pageRotationRevision &+= 1
+        }
+
         let rebuiltPages = Self.applyLayoutData(
             to: rawPages, pageOrderSource: book.pageOrderSource,
             pageOrderOverride: bookLayoutSettings?.pageOrderOverride, overridesByKey: overridesByKey
@@ -3877,6 +3907,7 @@ final class ViewerViewModel: ObservableObject {
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
                     await viewer.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
                 }
+                if rotationsChanged { await viewer.pageLoader.setRotationOverrides(newRotations) }
                 // pageLoader(actor)側のindex基準の参照も、新しいbook.pagesの並びに揃える。
                 // 表示の再計算(loadCurrentSpread)より前に必ず終えておく必要があるため、
                 // 同じTask内で順番に行う。
@@ -3890,6 +3921,7 @@ final class ViewerViewModel: ObservableObject {
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
                     await viewer.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
                 }
+                if rotationsChanged { await viewer.pageLoader.setRotationOverrides(newRotations) }
                 await viewer.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         }
@@ -4127,6 +4159,60 @@ final class ViewerViewModel: ObservableObject {
     func hasPageLayoutOverride(atIndex index: Int) -> Bool {
         guard book.pages.indices.contains(index) else { return false }
         return pageLayoutStates[book.pages[index].sortKey] != nil
+    }
+
+    // MARK: - 画像の回転(PageRotationOverride、2026-11-23)
+
+    /// 保存データの向きに、記録を残さない本でメモリの上だけ変えた向きを重ねたもの(pageRotations のコメント)。
+    private func currentRotations() -> [String: Int] {
+        var rotations = layoutStore.pageRotations(forBookID: book.id)
+        guard skipsPersistence else { return rotations }
+        for (key, rotation) in inMemoryRotations {
+            rotations[key] = rotation
+        }
+        return rotations
+    }
+
+    /// このページに、アプリが記録した向きがあるか(「元の向きに戻す」を押せるか)。
+    func hasPageRotationOverride(atIndex index: Int) -> Bool {
+        guard book.pages.indices.contains(index) else { return false }
+        return pageRotations[book.pages[index].sortKey] != nil
+    }
+
+    /// このページのアプリの記録の向き(サムネイルの描き直しの目印。無ければ nil)。
+    func pageRotation(atIndex index: Int) -> Int? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return pageRotations[book.pages[index].sortKey]
+    }
+
+    /// 「画像を回転」(右クリックメニュー・メニューバー)。今見えている向きから回して、その向きを記録する。
+    ///
+    /// 記録するのは**元の画素から見た向き**(ファイルの向きの指定を置き換える ―― PageRotationOverride の型コメント)。回した結果が
+    /// たまたまファイルの向きと同じでも記録は残す(後でファイル側の向きが変わっても、利用者が決めた向きのまま)。「元の向きに戻す」
+    /// だけが記録を消す。記録を残さない本(skipsPersistence)ではメモリの上だけで回す(ユーザー要望)。
+    func rotatePage(atIndex index: Int, _ command: PageRotationCommand) async {
+        guard book.pages.indices.contains(index), !hasReleasedResources else { return }
+        let page = book.pages[index]
+        let newRotation: Int?
+        if let delta = command.delta {
+            // 今の向きはファイルの向きを知らないと決まらない(記録の無いページ)。待つ間にページが入れ替わったら何もしない。
+            let current = await pageLoader.effectiveRotation(at: index)
+            guard !hasReleasedResources, book.pages.indices.contains(index), book.pages[index].sortKey == page.sortKey
+            else { return }
+            newRotation = PageRotation.normalized(current + delta)
+        } else {
+            guard pageRotations[page.sortKey] != nil else { return }
+            newRotation = nil
+        }
+        if skipsPersistence {
+            inMemoryRotations[page.sortKey] = .some(newRotation)
+            // 保存データへは書かないので知らせは来ない。自分で読み直す。
+            reloadLayoutData(focusPageKey: page.sortKey)
+        } else {
+            layoutStore.setPageRotation(for: book, pageKey: page.sortKey, rotation: newRotation)
+            reloadLayoutData(focusPageKey: page.sortKey)
+            postLayoutFocusChange(pageKey: page.sortKey)
+        }
     }
 
     /// 3.1節: 「現在の表示を基準に自動でレイアウトする」。今表示している組み合わせを起点として、

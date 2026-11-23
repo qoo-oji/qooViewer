@@ -253,9 +253,10 @@ struct ThumbnailGridView: View {
                             } label: {
                                 ThumbnailCell(
                                     viewModel: viewModel, index: index,
-                                    // 番号の指すページと補正が変わったら読み直す(ThumbnailCell.contentID。監査 V-9)。
+                                    // 番号の指すページと補正・画像の向き(2026-11-23)が変わったら読み直す(ThumbnailCell.contentID。監査 V-9)。
                                     contentID: viewModel.book.pages.indices.contains(index)
-                                        ? "\(viewModel.book.pages[index].id)|\(viewModel.isContrastCorrectionEnabled)" : "",
+                                        ? "\(viewModel.book.pages[index].id)|\(viewModel.isContrastCorrectionEnabled)"
+                                            + "|\(viewModel.pageRotation(atIndex: index).map(String.init) ?? "-")" : "",
                                     // 見開きで2ページとも表示しているときは、2枚とも枠で
                                     // 囲む(ViewerViewModel.partnerPageIndex参照)。
                                     isCurrent: index == viewModel.currentIndex

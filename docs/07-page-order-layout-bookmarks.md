@@ -103,6 +103,31 @@
 (直前のページと組む)。左開きは逆。以前、自動レイアウトが右開きの本で左右を逆に書いていた
 報告があり、`anchor(forPageAtIndex:)` / `anchorPinStates` は読み方向で入れ替えます。
 
+### PageRotationOverride(ページごとの画像の向き。2026-11-23)
+
+ビューアの右クリックメニューと編集メニューの「画像を回転」(右に90°・左に90°・180°・元の向きに戻す。見開きでは左右を別々に ――
+右クリックはクリックした側、メニューバーは「左のページ」「右のページ」の見出しで分ける)で、ページの向きを直せます(ユーザー要望)。
+
+- **記録するのは元の画素から見た時計回りの回転**(0/90/180/270)で、ファイル自身の向きの指定(画像の EXIF の向き、PDF の `/Rotate`)を
+  **置き換える**(ユーザー判断: 食い違えばアプリの記録のほうが新しいはず)。重ねる形にすると、後でファイル側の向きを直したときに二重に回る。
+  回すときは今見えている向き(`PageLoader.effectiveRotation`)から足し、結果がファイルの向きと同じでも記録は残す。消すのは「元の向きに戻す」
+  だけ。EXIF の左右反転(2・4・5・7)は、記録したページでは捨てる。
+- `PageLayoutOverride` とは別のモデル(あちらは「行がある = 単ページ/見開き/除外の指定がある」で読まれている)。書き手は `LayoutStore` だけで、
+  付け替え(`reconcileBookIDIfMoved` / `applyBookRelocation` / `repairStalePageKeys`、`PageKeyRelocation`)・「レイアウト」の削除
+  (`discardPageLayout`)・その本の保存データの削除(`deleteLayoutRow`)・保存データの JSON(`ExportedBookLayout.rotations`。formatVersion は据え置き)を
+  `PageLayoutOverride` と同じ道で通る。新しく書くときは `BookLayoutSettings` の行も作る(差し替え検知と移動の追従の手がかり)。
+- **シークレットでなければ記録する**(ユーザー要望)。記録を残さない本(`skipsPersistence`: シークレットウインドウ・シークレットフォルダ・
+  StackNest)でも回せるが、メモリの上だけ(`ViewerViewModel.inMemoryRotations`)で、閉じれば忘れる。そのため項目はシークレットでも淡色にしない
+  (レイアウトの項目とは違う)。
+- 効く範囲は **PageLoader の中で一か所**: 表示・拡大鏡・原寸大・サムネイル(進捗バー・ページ一覧・サイドパネル・編集ウインドウ・書き出しの表紙選び)・
+  寸法(横長の判定)・コレクション表紙(`OverrideSnapshot.pageRotations`、表紙の作り直しの条件 `CoverSignature` にも入る)・書き出し
+  (CBZ/EPUB/1 ページは `exportableImage` が回した画素で同じ形式に書き直す ―― 向きの指定は付けない、PDF は `PDFExporter` が座標変換で)。
+  絵のキャッシュ・合流・ディスクのサムネイルは向きを含めた鍵(`PageLoader.cacheID`)で引き、寸法のキャッシュはファイルのとおりの値のまま持って
+  答えるときに向きを当てる(`applyingRotationOverride`)。書き出しが使うのは保存データの記録だけ(メモリの上だけの向きは入らない)。
+- ファイルブラウザのアイコン・スマートライブラリの絵は、**コレクション表紙を出す本と、表紙のページを指定した本**だけが向きに従う(前者はコレクション
+  表紙そのもの、後者は `FileBrowserThumbnailProvider` が `CoverImageResolver` で作る ―― 指定したページの向きは作り直しの判定 `ShelfSignature`・
+  メモリとディスクの鍵に入る)。それ以外の本の 1 ページ目から作る絵(`BookThumbnailer`。保存データを読まない)には効かない。
+
 ## ファイル側のレイアウトは1回だけ取り込む
 
 EPUB(`page-progression-direction`、`rendition:spread`、ページ単位の spread プロパティ)、

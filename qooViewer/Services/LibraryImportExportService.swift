@@ -450,7 +450,8 @@ enum LibraryImportExportService {
         for bookID in layoutStore.layoutBookIDs {
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let overrides = layoutStore.pageOverrides(forBookID: bookID)
-            guard settings != nil || !overrides.isEmpty else { continue }
+            let rotations = layoutStore.pageRotations(forBookID: bookID)
+            guard settings != nil || !overrides.isEmpty || !rotations.isEmpty else { continue }
 
             let fileNodeIdentifier = settings?.fileNodeIdentifier
             probes.append((settings?.bookmarkData, bookID, fileNodeIdentifier == nil))
@@ -469,7 +470,8 @@ enum LibraryImportExportService {
                         readingDirection: settings?.readingDirectionOverride?.stableID,
                         forcedDisplayMode: settings?.forcedDisplayMode?.stableID,
                         pageOrder: settings?.pageOrderOverride,
-                        pages: pages.isEmpty ? nil : pages
+                        pages: pages.isEmpty ? nil : pages,
+                        rotations: rotations.isEmpty ? nil : rotations
                     )
                 )
             )
@@ -1426,12 +1428,24 @@ enum LibraryImportExportService {
                 }
             }
 
+            // ページごとの画像の向き(2026-11-23)。マージ時は、手元に記録のあるページを上書きしない(ページ単位の設定と同じ)。
+            var rotationChanges: [String: Int] = [:]
+            if let rotations = layout.rotations {
+                let existingKeys = policy == .merge ? Set(layoutStore.pageRotations(forBookID: bookID).keys) : []
+                for (exportedKey, rotation) in rotations {
+                    let pageKey = relocatedKey(exportedKey)
+                    if policy == .merge, existingKeys.contains(pageKey) { continue }
+                    rotationChanges[pageKey] = PageRotation.normalized(rotation)
+                }
+            }
+
             layoutStore.applyImportedLayout(
                 for: book,
                 readingDirection: readingDirection,
                 forcedDisplayMode: forcedDisplayMode,
                 pageOrder: pageOrder,
-                pageChanges: pageChanges
+                pageChanges: pageChanges,
+                rotationChanges: rotationChanges
             )
             // 並び(並べ替え・除外)が変わったので、手元のブックマークの番号を今の並びへ振り直す(ビューアが開いていなくても ――
             // docs/07「ページの鍵」。2026-10-04 のレビューの R2-7: 以前は振り直さず、次に本を開くまで、ブックマーク一覧の番号・

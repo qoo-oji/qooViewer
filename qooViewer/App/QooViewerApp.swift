@@ -153,7 +153,8 @@ struct QooViewerApp: App {
         // FavoriteFolder / FavoriteBook(お気に入り)は 2026-10-24 に削除した(StoreSchemaGuard の世代 5。
         // 既存のストアからは SwiftData の軽量マイグレーションが表ごと落とす)。
         BookReadingState.self, Bookmark.self,
-        BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self,
+        // PageRotationOverride(ページごとの画像の向き)は 2026-11-23 に足した(StoreSchemaGuard の世代 6)。
+        BookLayoutSettings.self, PageLayoutOverride.self, PageRotationOverride.self, BookMetadata.self,
         BookLibrary.self, BookCollection.self, CollectionItem.self
     ]
 
@@ -1652,6 +1653,35 @@ struct QooViewerApp: App {
                         .disabled(!hasBook || isPrivate)
                 }
 
+                // 「画像を回転」(2026-11-23、ユーザー要望)。見開きで 2 ページとも出ているときは左右を別々に回せるよう、
+                // 左のページ・右のページの見出しで分ける(レイアウトの Left Page / Right Page と同じ対応)。記録を残さない本
+                // (シークレットウインドウなど)でもメモリの上で回せるので、isPrivate では淡色にしない(ViewerViewModel.rotatePage)。
+                MenuBarSubmenu("Rotate Image", isEnabled: hasBook) {
+                    if menuCheckmarkState?.hasPartnerPageDisplayed == true {
+                        let isRightToLeft = menuCheckmarkState?.isRightToLeft == true
+                        Section("Left Page") {
+                            rotationMenuItems(
+                                target: isRightToLeft ? .partner : .current,
+                                hasOverride: isRightToLeft
+                                    ? (menuCheckmarkState?.hasPartnerPageRotationOverride ?? false)
+                                    : (menuCheckmarkState?.hasCurrentPageRotationOverride ?? false)
+                            )
+                        }
+                        Section("Right Page") {
+                            rotationMenuItems(
+                                target: isRightToLeft ? .current : .partner,
+                                hasOverride: isRightToLeft
+                                    ? (menuCheckmarkState?.hasCurrentPageRotationOverride ?? false)
+                                    : (menuCheckmarkState?.hasPartnerPageRotationOverride ?? false)
+                            )
+                        }
+                    } else {
+                        rotationMenuItems(
+                            target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageRotationOverride ?? false
+                        )
+                    }
+                }
+
                 // 「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの編集」
                 // ウインドウを、4.5節の「レイアウトの編集」用フィルタで開く。本を開いていなくても
                 // 有効(hasBook不問。上の「Edit Bookmarks…」と同じ)。
@@ -2607,6 +2637,26 @@ struct QooViewerApp: App {
                 focusedAppState?.performLayoutClear?(target)
             }
         }
+    }
+
+    /// 「画像を回転」の 1 ページ分の項目(右クリックメニューの ViewerView.rotationMenuItems(forPageIndex:) と並び・文言を揃える)。
+    /// 「元の向きに戻す」は記録のあるページでだけ押せる(項目の数は変えない)。
+    @ViewBuilder
+    private func rotationMenuItems(target: LayoutMenuTarget, hasOverride: Bool) -> some View {
+        Button("Rotate Right 90°") {
+            focusedAppState?.performPageRotation?(target, .rotateRight)
+        }
+        Button("Rotate Left 90°") {
+            focusedAppState?.performPageRotation?(target, .rotateLeft)
+        }
+        Button("Rotate 180°") {
+            focusedAppState?.performPageRotation?(target, .rotate180)
+        }
+        Divider()
+        Button("Reset to Original Orientation") {
+            focusedAppState?.performPageRotation?(target, .reset)
+        }
+        .disabled(!hasOverride)
     }
 }
 

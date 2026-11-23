@@ -41,7 +41,7 @@ final class CbzExportViewModel: BookExportViewModel {
     }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
-        let input = CbzExportInput(
+        var input = CbzExportInput(
             book: prepared.book,
             pageOrderOverride: prepared.pageOrderOverride,
             pageOverrides: prepared.pageOverrides,
@@ -66,6 +66,7 @@ final class CbzExportViewModel: BookExportViewModel {
             includeExcludedPages: includeExcludedPages,
             writesVolumeElement: writesVolumeElement
         )
+        input.pageRotations = prepared.pageRotations
         try await CbzExporter.export(input, options: options, to: destinationURL)
     }
 }

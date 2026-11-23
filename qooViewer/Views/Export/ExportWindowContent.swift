@@ -940,7 +940,8 @@ struct ExportCoverPickerContent: View {
             let isSecret = SecretFolderStore.isSecretAppWide(book.sourceURL)
             pageLoader = PageLoader(book: book, usesThumbnailDiskCache: !isSecret,
                                     imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
-                                    memoryUsageRole: .exportCoverPicker(title: isSecret ? nil : book.title))
+                                    memoryUsageRole: .exportCoverPicker(title: isSecret ? nil : book.title),
+                                    rotationOverrides: controller.pageRotations(forBookID: bookID))
             // 開いた時点で、既に指定されているページに印を付けておく(何も指定していない本では
             // どこにも印が付かず、「選択」も押せない = 選ぶまで何も起きない)。
             selectedPageKey = controller.coverPageKey(forBookID: bookID)

@@ -12,7 +12,7 @@ final class PDFExportViewModel: BookExportViewModel {
     override var format: BookExportFormat { .pdf }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
-        let input = PDFExportInput(
+        var input = PDFExportInput(
             book: prepared.book,
             pageOrderOverride: prepared.pageOrderOverride,
             pageOverrides: prepared.pageOverrides,
@@ -29,6 +29,7 @@ final class PDFExportViewModel: BookExportViewModel {
             genre: prepared.metadata?.genre
         )
         let options = PDFExportOptions(includeExcludedPages: includeExcludedPages)
+        input.pageRotations = prepared.pageRotations
         try await PDFExporter.export(input, options: options, to: destinationURL)
     }
 }

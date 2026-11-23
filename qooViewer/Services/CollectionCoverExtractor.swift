@@ -103,6 +103,8 @@ final class CollectionCoverExtractor: ObservableObject {
         /// (並べ替えても表紙は変わらないので、作り直さない)。
         var pageOrderOverride: [String]? = nil
         var excludedKeys: Set<String> = []
+        /// ページごとの画像の向き(2026-11-23)。表紙のページを回したら作り直す(どのページが表紙かはここでは決めないので、本の分を全部)。
+        var pageRotations: [String: Int] = [:]
     }
     private var signatures: [String: CoverSignature] = [:]
 
@@ -111,6 +113,8 @@ final class CollectionCoverExtractor: ObservableObject {
     private var redoAfterExtraction: Set<UUID> = []
     /// 撤去した並び順の設定の後始末の判定(ページ一覧のキャッシュを読む)。
     private var pageOrderEvaluation: Task<Void, Never>?
+    /// PDF の描き方を直したあとの表紙の作り直しの判定(refreshPDFCoversForRenderingFixIfNeeded。ページ一覧のキャッシュを読む)。
+    private var pdfCoverEvaluation: Task<Void, Never>?
     /// 表紙の読み込みを始める直前に呼ぶ(**テストのための口**)。「抽出の最中にライブラリ機能を OFF にする」を、時間に頼らずに起こす。
     var willLoadCoverImageForTesting: (@MainActor () async -> Void)?
     /// 本のページ一覧のキャッシュの読み口(**テストのための口**。既定はBookPageListCache.shared)。
@@ -255,6 +259,7 @@ final class CollectionCoverExtractor: ObservableObject {
 
         migrateCoverStorageIfNeeded()
         refreshCoversForRetiredOrderSettingIfNeeded()
+        refreshPDFCoversForRenderingFixIfNeeded()
         redoCoversChangedWhileDisabled()
     }
 
@@ -501,6 +506,8 @@ final class CollectionCoverExtractor: ObservableObject {
         redoAfterExtraction.removeAll()
         pageOrderEvaluation?.cancel()
         pageOrderEvaluation = nil
+        pdfCoverEvaluation?.cancel()
+        pdfCoverEvaluation = nil
         currentTask?.cancel()
         if let currentTask { lastCancelledTask = currentTask }
         currentTask = nil
@@ -669,6 +676,9 @@ final class CollectionCoverExtractor: ObservableObject {
             shelfCoverPageKey: settings?.shelfCoverPageKey,
             shelfCoverImageFileName: settings?.shelfCoverImageFileName
         )
+        if signature.shelfCoverImageFileName == nil {
+            signature.pageRotations = layoutStore.pageRotations(forBookID: bookID)
+        }
         if signature.shelfCoverPageKey == nil, signature.shelfCoverImageFileName == nil {
             signature.pageOrderOverride = settings?.pageOrderOverride
             signature.excludedKeys = Set(
@@ -799,6 +809,74 @@ final class CollectionCoverExtractor: ObservableObject {
             self.refreshCovers(forBookIDs: affected)
             self.defaults.set(true, forKey: doneKey)
         }
+    }
+
+    // MARK: - PDF の描き方を直したあとの一度きりの作り直し(2026-11-23)
+
+    /// 表紙が PDF のページから作られうる本の表紙を、一度だけ作り直す。
+    ///
+    /// PDF のページの描き方(PageLoader.renderPDFPixels)が `/Rotate` と CropBox を見ていなかった(PDFPageGeometry のコメント)ので、
+    /// `/Rotate 180` のページを表紙にした本は、保存してある表紙(CollectionCoverStore。キャッシュではなく、自然には作り直されない)が
+    /// 天地逆のまま残っている。どの本が該当するかは PDF を開かないと分からないので、PDF を含みうる本をまとめて作り直す:
+    /// PDF そのものの本と、ページ一覧のキャッシュに PDF のページ(BookLoader.pdfPages の id の `#pdf#`)が見えている本
+    /// (フォルダ・書庫の中の PDF)。キャッシュの無い書庫・フォルダの本は分からないので飛ばす(その本は表紙を描き直したときに直る)。
+    /// 利用者が用意した画像を表紙にしている本は PDF を描かないので飛ばす。
+    ///
+    /// 作り直しの間も古い表紙は出したまま(refreshCovers)。済み印は積んだ時点で立てる(refreshCoversForRetiredOrderSettingIfNeeded と同じ判断)。
+    /// キーが `qooViewer.pref.` で始まらないのは migrateCoverStorageIfNeeded と同じ理由。
+    static let pdfCoverRenderingFixDoneKey = "qooViewer.collections.pdfRotationCoverRefresh"
+
+    func refreshPDFCoversForRenderingFixIfNeeded() {
+        // テストの中で走る実物のアプリ(TEST_HOST)では何もしない(rememberChangeWhileDisabled と同じ条件)。開発機の Debug の保存データ
+        // (本番の写し)の PDF の本を、テストの間に読みに行って表紙を描き直すことになる(2026-11-23、全体のテストの実行で実際に走った)。
+        guard !(RuntimeEnvironment.isRunningTests && defaults === UserDefaults.standard) else { return }
+        let doneKey = Self.pdfCoverRenderingFixDoneKey
+        guard !defaults.bool(forKey: doneKey) else { return }
+        struct Candidate: Sendable {
+            let bookID: String
+            let isPDF: Bool
+        }
+        var seen: Set<String> = []
+        var candidates: [Candidate] = []
+        for item in collectionStore.allItems() where item.coverState == .ready {
+            guard seen.insert(item.bookID).inserted else { continue }
+            guard layoutStore.shelfCoverSnapshot(forBookID: item.bookID).imageFileURL == nil else { continue }
+            // EPUB は PDF を含まない(画像だけの本)。
+            guard !isEpubFile(item.bookID) else { continue }
+            candidates.append(Candidate(bookID: item.bookID, isPDF: isPDFFile(item.bookID)))
+        }
+        guard !candidates.isEmpty else {
+            defaults.set(true, forKey: doneKey)
+            return
+        }
+        let cachedPageList = cachedPageList
+        pdfCoverEvaluation = Task { [weak self] in
+            // 判定はメインの外で(ページ一覧のキャッシュを引くだけ。refreshCoversForRetiredOrderSettingIfNeeded と同じ形で、取り消しを手で渡す)。
+            let evaluation = Task.detached(priority: .utility) { () -> [String] in
+                var affected: [String] = []
+                for candidate in candidates {
+                    if Task.isCancelled { return [] }
+                    if candidate.isPDF {
+                        affected.append(candidate.bookID)
+                        continue
+                    }
+                    guard let pages = await cachedPageList(candidate.bookID) else { continue }
+                    if pages.contains(where: { $0.idSuffix?.contains("#pdf#") == true }) {
+                        affected.append(candidate.bookID)
+                    }
+                }
+                return affected
+            }
+            let affected = await withTaskCancellationHandler { await evaluation.value } onCancel: { evaluation.cancel() }
+            guard !Task.isCancelled, let self else { return }
+            self.refreshCovers(forBookIDs: affected)
+            self.defaults.set(true, forKey: doneKey)
+        }
+    }
+
+    /// PDF の表紙の作り直しの判定が終わるまで待つ(**テストのための口**)。
+    func settlePDFCoverEvaluation() async {
+        await pdfCoverEvaluation?.value
     }
 
     /// 表紙を出したまま、これらの本のカバーを作り直す(refreshCoversForRetiredOrderSettingIfNeededのコメント)。

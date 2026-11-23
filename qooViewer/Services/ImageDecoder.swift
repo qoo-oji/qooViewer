@@ -44,10 +44,19 @@ nonisolated enum ImageDecoder {
     /// ページ画像がこれに達することはなく、拒否によって読めなくなる本は無い。
     static let maxSourcePixelCount = Int(exportMaxPixelSize) * Int(exportMaxPixelSize)
 
-    static func decode(_ data: Data, maxPixelSize: CGFloat, maxFullDecodePixelCount: Int? = nil) -> CGImage? {
+    /// - Parameter orientationOverride: ファイルの向きの指定の**代わりに**使う向き(1〜8。利用者がビューアで回したページ ――
+    ///   PageRotationOverride。2026-11-23)。nil ならファイルの指定に従う。
+    static func decode(
+        _ data: Data, maxPixelSize: CGFloat, maxFullDecodePixelCount: Int? = nil, orientationOverride: Int? = nil
+    ) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         guard hasAcceptablePixelCount(source, maxFullDecodePixelCount: maxFullDecodePixelCount) else { return nil }
-        return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
+        guard let orientationOverride else { return decodeThumbnail(from: source, maxPixelSize: maxPixelSize) }
+        // ファイルの指定を当てずに縮小して読み、こちらの向きで描き直す(OrientationBaking.drawn ―― 等倍の写し)。
+        guard let raw = decodeThumbnail(from: source, maxPixelSize: maxPixelSize, appliesFileOrientation: false) else {
+            return nil
+        }
+        return OrientationBaking.drawn(raw, orientation: orientationOverride)
     }
 
     /// ディスク上の画像ファイルを縮小して読む(ファイルブラウザの絵、BookThumbnailer)。`Data` に読み込まないので、
@@ -64,11 +73,13 @@ nonisolated enum ImageDecoder {
         UTType.jpeg.identifier, UTType.png.identifier, UTType.tiff.identifier, UTType.heic.identifier, UTType.heif.identifier,
     ]
 
-    private static func decodeThumbnail(from source: CGImageSource, maxPixelSize: CGFloat) -> CGImage? {
+    private static func decodeThumbnail(
+        from source: CGImageSource, maxPixelSize: CGFloat, appliesFileOrientation: Bool = true
+    ) -> CGImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceCreateThumbnailWithTransform: appliesFileOrientation,
             // ImageIO自身のキャッシュには載せない(sourceOptionsのコメント参照)。
             kCGImageSourceShouldCache: false,
         ]
@@ -97,22 +108,31 @@ nonisolated enum ImageDecoder {
     /// `CGImageSourceCreateImageAtIndex`は反映しない。ヘッダーの向き(1〜8)を読み、描き写す
     /// ときにこちらで同じ変換をかける(orientedDrawing参照)。8方向すべてで従来の結果と
     /// ピクセル一致することを確認済み。
-    static func decodePixels(_ data: Data, maxPixelSize: CGFloat) -> PagePixelBuffer? {
+    /// - Parameter orientationOverride: ファイルの向きの指定の**代わりに**使う向き(1〜8。decode(_:maxPixelSize:) の同名の引数)。
+    static func decodePixels(_ data: Data, maxPixelSize: CGFloat, orientationOverride: Int? = nil) -> PagePixelBuffer? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         guard hasAcceptablePixelCount(source) else { return nil }
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              CGFloat(max(width, height)) <= maxPixelSize
-        else {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let image: CGImage
+        if let properties,
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           CGFloat(max(width, height)) <= maxPixelSize {
+            // kCGImageSourceShouldCacheImmediatelyは付けない(既定のfalse)。ここで先にデコードさせると
+            // ImageIO側のビットマップが1枚余計にでき、サムネイル経路より遅くなる(実測: グレーJPEGで
+            // 20ms→37ms)。描き写しの中で描き先へ直接デコードさせるのがいちばん速い。
+            guard let decoded = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions) else { return nil }
+            image = decoded
+        } else if orientationOverride == nil {
             // 寸法が取れない・上限を超える: 従来どおりImageIOに縮小(と向きの反映)を任せる。
             return decodeThumbnail(from: source, maxPixelSize: maxPixelSize).flatMap { PagePixelBuffer(rendering: $0) }
+        } else {
+            // 向きを差し替えるページは、ファイルの指定を当てずに縮小して読み、下でこちらの向きを当てる。
+            guard let decoded = decodeThumbnail(from: source, maxPixelSize: maxPixelSize, appliesFileOrientation: false)
+            else { return nil }
+            image = decoded
         }
-        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
-        // kCGImageSourceShouldCacheImmediatelyは付けない(既定のfalse)。ここで先にデコードさせると
-        // ImageIO側のビットマップが1枚余計にでき、サムネイル経路より遅くなる(実測: グレーJPEGで
-        // 20ms→37ms)。描き写しの中で描き先へ直接デコードさせるのがいちばん速い。
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions) else { return nil }
+        let orientation = orientationOverride ?? properties?[kCGImagePropertyOrientation] as? Int ?? 1
         let drawing = orientedDrawing(of: image, orientation: orientation)
         return PagePixelBuffer(
             width: drawing.width, height: drawing.height,
@@ -130,7 +150,8 @@ nonisolated enum ImageDecoder {
     /// で描き先に適用するための、出力の寸法と描画前の座標変換。`prepare`を呼んだあとで
     /// 元画像を(0, 0, 幅, 高さ)へ描くと、向きを反映した結果になる。
     /// 5〜8は90度の回転を含むため幅と高さが入れ替わる。
-    private static func orientedDrawing(
+    /// OrientationBaking(書き出しで向きを画素へ焼き込む)と PDFExporter(画像の本の PDF 書き出し)も同じ変換を使う。
+    static func orientedDrawing(
         of image: CGImage, orientation: Int
     ) -> (width: Int, height: Int, prepare: (CGContext) -> Void) {
         let w = CGFloat(image.width), h = CGFloat(image.height)
@@ -186,6 +207,9 @@ nonisolated enum ImageDecoder {
     /// (コンテキストメニュー「情報を見る」、ユーザー要望)向け。colorModel/colorProfileNameは
     /// フォーマットによっては取得できないことがある(その場合nil)。
     struct HeaderInfo {
+        /// **見たときの**幅・高さ(向きの指定が 5〜8 ―― 90° 回す ―― なら、ヘッダーの幅と高さを入れ替えたもの。2026-11-23)。
+        /// 表示(decodePixels・サムネイル)は向きを反映するので、横長の判定・「情報を見る」・書き出しの寸法もそれに揃える。
+        /// 以前は回す前の値で、向き 6 の横長の画像を縦長として見開きに組んでいた。
         let pixelWidth: Int
         let pixelHeight: Int
         /// 例: "RGB"、"Gray"、"CMYK"。
@@ -196,6 +220,8 @@ nonisolated enum ImageDecoder {
         /// 中身から見た形式の拡張子(`fileExtension(sniffing:)` と同じ。JPEGは"jpg")。名前が中身の形式を表さないページ
         /// (StackNestの本の仮の名前)の「情報を見る」が使う。分からなければnil。
         var sniffedFileExtension: String? = nil
+        /// ファイルの向きの指定(1〜8。無ければ 1)。利用者が向きを差し替えたページの寸法を求めるのに使う(PageLoader.pageSize)。
+        var orientation: Int = 1
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけを読み取る(CGImageSourceCopyPropertiesAtIndexは
@@ -253,13 +279,16 @@ nonisolated enum ImageDecoder {
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
+        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+        let isSideways = (5...8).contains(orientation)
         return HeaderInfo(
-            pixelWidth: width,
-            pixelHeight: height,
+            pixelWidth: isSideways ? height : width,
+            pixelHeight: isSideways ? width : height,
             colorModel: properties[kCGImagePropertyColorModel] as? String,
             colorProfileName: properties[kCGImagePropertyProfileName] as? String,
             hasAlpha: properties[kCGImagePropertyHasAlpha] as? Bool ?? false,
-            sniffedFileExtension: fileExtension(of: source)
+            sniffedFileExtension: fileExtension(of: source),
+            orientation: (1...8).contains(orientation) ? orientation : 1
         )
     }
 

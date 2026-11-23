@@ -107,6 +107,39 @@
 - 「書き出す」はボタンの動作の中で同期に始めた印(`didStart`)を立て、以後は淡色(TW-15。Task の中で立てていたので、2 回の
   クリックが続けて処理されると 2 本走りえた)。
 
+### PDF のページの向き(EPUB・CBZ・画像・PDF の書き出しに共通)
+
+元が PDF のページを書き出すときは、**読む側のアプリに頼らず、PDF で見たとおりの向きになるようにする**(2026-11-23、ユーザー判断
+「描画ソフトに依存しないように」。表示側の決まりは [04](04-book-loading.md)「PDF と EPUB」)。
+
+- EPUB・CBZ・1 ページの画像の書き出し(`PageLoader.exportableImage` → `PDFImageExtractor.extractImageData`): 埋め込み画像を
+  そのまま渡すのは、`/Rotate` が無く、JPEG なら EXIF の向きも無い(または 1)ときだけ。それ以外は画素を PDF の見え方に揃えて、
+  **向きの指定を付けずに**出し直す。
+  - `/Rotate` のあるページ: 画像を時計回りに回す。JPEG は品質 0.95 で圧縮し直す(ユーザー判断: EXIF の向きだけ書き換える案は、
+    従わないリーダー ―― Android の CBZ リーダーの多く、Kindle・Kobo は未確認 ―― で逆さまのままになるので採らない)。可逆形式は PNG のまま無劣化。
+  - EXIF の向きを持つ JPEG: PDF の描画はその向きを無視する(実測)ので、そのまま渡すと EXIF に従うリーダーで PDF と違う向きになる。
+    画素のまま読み(`CGImageSourceCreateImageAtIndex` は向きを反映しない)、指定なしで出し直す。
+  - 拡張子は変わらない(JPEG は .jpg、可逆は .png のまま。`exportableImageFileExtension` は従来どおり)。
+- PDF の書き出し: 元のページを写すとき、回転と CropBox を中身へ焼き込み、ページの箱を見たときの寸法にする(CGPDFContext は
+  `/Rotate` を書けない)。開き直すと `/Rotate` 無しで同じ向き・範囲(`PDFPageOrientationTests`)。
+
+### 画像の向きの指定(CBZ・EPUB・PDF の書き出し)
+
+画像ファイル(フォルダ・書庫の本のページ、選んだカバー画像)の EXIF/TIFF の向きの指定も、**読むアプリが従わなくても**見たとおりの
+向きになるようにする(2026-11-23、ユーザー判断。`OrientationBaking`、`ImageOrientationExportTests`)。表示は以前から指定に従っている。
+
+- CBZ・EPUB: 指定(1 以外)のある画像は、指定どおりに回した画素で**同じ形式に**書き直し、指定は付けない(JPEG は品質 0.95。
+  ファイル名・拡張子・manifest は変わらない)。指定の無い画像は今までどおり元のバイト列。EPUB で PNG へ変換する形式(WebP・HEIC など)は
+  変換が以前から向きを反映している。ImageIO が書けない形式(WebP)の CBZ は元のまま(指定付きの WebP は実際にはまず無い)。
+  ComicInfo の `ImageWidth/Height` と EPUB の viewport は書き直した画像から取るので、回した後の寸法になる。
+- PDF: 画像を貼るときの座標変換で向きを付け、ページの寸法も回した後にする。埋め込む JPEG は**圧縮し直さず**、指定だけを 1 へ
+  書き換える(`CGImageDestinationCopyImageSource` + `kCGImageDestinationOrientation`。圧縮データ・画素とも元と同一、座標変換を
+  掛けてもパススルーは保たれる ―― どちらも実測)。2026-11-23 までは向きを捨てていて、ビューアで正しいページが PDF では回る前の向きだった。
+- 1 ページの画像の書き出しは、画像の本では元のファイルのまま(指定も残る。元のファイルそのものを取り出す機能なので)。
+- **ビューアで回して記録した向き(`PageRotationOverride`)があるページは、ファイルの指定よりその向きが勝つ**(2026-11-23、ユーザー要望。
+  docs/07「PageRotationOverride」)。CBZ・EPUB・1 ページの書き出しはその向きの画素で同じ形式に書き直し(0° の記録で JPEG なら指定を
+  外すだけ)、PDF は座標変換でその向きに貼る。材料は `BookExportViewModel.prepare` が保存データから入力の `pageRotations` へ詰める。
+
 ### EPUB(EpubExporter)
 
 - 固定レイアウト(`rendition:layout` = pre-paginated)。ページごとに画像を包む XHTML。

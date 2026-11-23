@@ -71,6 +71,13 @@ actor BookPageListCache {
         /// 対象は本体が書庫ファイル1つの本だけ(フォルダの本は画像ファイルを直接開けるので
         /// 要らず、フォルダの更新日時は指紋として信用できない)。
         var pageSizes: [String: [Int]]?
+        /// `pageSizes` を書いた時点の寸法の測り方の版(`Entry.currentPageSizesVersion`)。違えば読まない・引き継がない。
+        var pageSizesVersion: Int?
+
+        /// ページ寸法の測り方の版。測り方を変えたら上げる(古い寸法は捨てて測り直す)。
+        /// - nil(1): ヘッダーの幅・高さそのまま
+        /// - 2: EXIF の向きの指定 5〜8 で幅と高さを入れ替える(ImageDecoder.HeaderInfo、2026-11-23)
+        static let currentPageSizesVersion = 2
 
         /// 本のファイルに**取り込むものが無かった**ことの記録(2026-09-25 の監査)。同じ本体(指紋一致)の間だけ使う。
         ///
@@ -266,7 +273,10 @@ actor BookPageListCache {
         if entry.fingerprint != nil, entry.pageSizes == nil || entry.sourceProbe == nil, let previousData,
            let previous = try? JSONDecoder().decode(Entry.self, from: previousData),
            previous.fingerprint == entry.fingerprint {
-            if entry.pageSizes == nil { entry.pageSizes = previous.pageSizes }
+            if entry.pageSizes == nil, previous.pageSizesVersion == Entry.currentPageSizesVersion {
+                entry.pageSizes = previous.pageSizes
+                entry.pageSizesVersion = previous.pageSizesVersion
+            }
             // 取り込むものが無かった記録も同じ本体のあいだ引き継ぐ(Entry.sourceProbe)。
             if entry.sourceProbe == nil { entry.sourceProbe = previous.sourceProbe }
         }
@@ -294,7 +304,9 @@ actor BookPageListCache {
     @concurrent nonisolated func pageSizes(
         forBookID bookID: String, fingerprint: Entry.Fingerprint
     ) async -> [String: [Int]]? {
-        guard let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint else { return nil }
+        guard let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint,
+              entry.pageSizesVersion == Entry.currentPageSizesVersion
+        else { return nil }
         return entry.pageSizes
     }
 
@@ -311,10 +323,13 @@ actor BookPageListCache {
               var entry = try? JSONDecoder().decode(Entry.self, from: data),
               entry.fingerprint == fingerprint
         else { return }
-        var merged = entry.pageSizes ?? [:]
+        // 測り方の版が違う古い寸法は混ぜない(捨てて、今の測り方の寸法だけにする)。
+        let isCurrent = entry.pageSizesVersion == Entry.currentPageSizesVersion
+        var merged = isCurrent ? entry.pageSizes ?? [:] : [:]
         for (key, value) in sizes { merged[key] = value }
-        guard merged != entry.pageSizes else { return }
+        guard !isCurrent || merged != entry.pageSizes else { return }
         entry.pageSizes = merged
+        entry.pageSizesVersion = Entry.currentPageSizesVersion
         guard let encoded = try? Self.encode(entry) else { return }
         try? encoded.write(to: url, options: .atomic)
     }

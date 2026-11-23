@@ -124,35 +124,53 @@ actor ThumbnailDiskCache {
     /// - contrastCorrectionEnabled: 補正の有無でデコード結果が変わる
     ///   (PageLoader.setContrastCorrectionEnabledがNSCacheを捨てるのと同じ理由)
     /// - maxPixelSize: サムネイルの寸法
+    /// PDF のページの描き方の世代。描いた絵が変わる直し方をしたら上げる(PDF を含む本の鍵だけが変わり、古い絵は使われずに
+    /// 容量の上限で追い出される)。
+    /// - 1(指紋に何も足さない): MediaBox をそのまま描き、`/Rotate` を見ていなかった
+    /// - 2: `/Rotate` と CropBox を反映(PDFPageGeometry、2026-11-23)
+    static let pdfRenderingGeneration = 2
+
     struct BookKey: Hashable, Sendable {
         let bookID: String
         let modificationDate: Date?
         let fileSize: Int64?
         let contrastCorrectionEnabled: Bool
         let maxPixelSize: CGFloat
+        /// PDF のページを含む本か。含む本だけ、指紋に PDF の描き方の世代(`pdfRenderingGeneration`)が入る。
+        let containsPDFPages: Bool
 
         /// 本体の更新日時・サイズを実際に読み取ってキーを組み立てる。ファイル1つに対する
         /// 属性の問い合わせ1回だけなので、本を開く時点で1度呼ぶぶんには軽い。
-        init(sourceURL: URL, bookID: String, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat) {
+        init(
+            sourceURL: URL, bookID: String, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat,
+            containsPDFPages: Bool = false
+        ) {
             let values = try? sourceURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             self.init(bookID: bookID, modificationDate: values?.contentModificationDate,
                       fileSize: values?.fileSize.map(Int64.init),
-                      contrastCorrectionEnabled: contrastCorrectionEnabled, maxPixelSize: maxPixelSize)
+                      contrastCorrectionEnabled: contrastCorrectionEnabled, maxPixelSize: maxPixelSize,
+                      containsPDFPages: containsPDFPages)
         }
 
         /// 本体の更新日時・サイズを呼び出し側が求めてある版(PageLoader は `FileIO` の上で 1 度だけ問い合わせる。2026-10-11 の規約監査)。
-        init(bookID: String, modificationDate: Date?, fileSize: Int64?, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat) {
+        init(
+            bookID: String, modificationDate: Date?, fileSize: Int64?, contrastCorrectionEnabled: Bool, maxPixelSize: CGFloat,
+            containsPDFPages: Bool = false
+        ) {
             self.bookID = bookID
             self.modificationDate = modificationDate
             self.fileSize = fileSize
             self.contrastCorrectionEnabled = contrastCorrectionEnabled
             self.maxPixelSize = maxPixelSize
+            self.containsPDFPages = containsPDFPages
         }
 
         var fingerprint: String {
             let date = modificationDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "-"
             let size = fileSize.map(String.init) ?? "-"
-            return "\(bookID)|\(date)|\(size)|\(contrastCorrectionEnabled)|\(maxPixelSize)"
+            let base = "\(bookID)|\(date)|\(size)|\(contrastCorrectionEnabled)|\(maxPixelSize)"
+            // PDF を含まない本の指紋は変えない(画像の本のサムネイルを作り直させない)。
+            return containsPDFPages ? base + "|pdf\(ThumbnailDiskCache.pdfRenderingGeneration)" : base
         }
     }
 

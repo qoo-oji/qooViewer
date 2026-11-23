@@ -67,6 +67,8 @@ final class LayoutStore: ObservableObject {
     /// Swift側で仕分けたものにすぎない。
     private var cachedSettingsByBookID: [String: BookLayoutSettings]?
     private var cachedOverridesByBookID: [String: [PageLayoutOverride]]?
+    /// bookID → その本のPageRotationOverride行(ページごとの画像の向き。2026-11-23)。考え方は上の2つと同じ。
+    private var cachedRotationsByBookID: [String: [PageRotationOverride]]?
 
     /// コレクション表紙の元画像の保管庫(CollectionCoverSourceStore)。
     /// **テストは必ず一時フォルダを指すものを渡すこと**(既定は実際のアプリの保存先)。
@@ -98,6 +100,15 @@ final class LayoutStore: ObservableObject {
         let fetched = (try? modelContext.fetch(FetchDescriptor<PageLayoutOverride>())) ?? []
         let grouped = Dictionary(grouping: fetched, by: \.bookID)
         cachedOverridesByBookID = grouped
+        return grouped
+    }
+
+    /// bookID → その本のPageRotationOverride行(順不同)。
+    private func rotationsByBookID() -> [String: [PageRotationOverride]] {
+        if let cachedRotationsByBookID { return cachedRotationsByBookID }
+        let fetched = (try? modelContext.fetch(FetchDescriptor<PageRotationOverride>())) ?? []
+        let grouped = Dictionary(grouping: fetched, by: \.bookID)
+        cachedRotationsByBookID = grouped
         return grouped
     }
 
@@ -135,6 +146,7 @@ final class LayoutStore: ObservableObject {
     private func rebuildLayoutBookIDs() {
         var ids = Set(settingsByBookID().values.filter { !$0.isBookLevelSettingEmpty }.map(\.bookID))
         ids.formUnion(overridesByBookID().keys)
+        ids.formUnion(rotationsByBookID().keys)
         layoutBookIDs = ids
     }
 
@@ -143,6 +155,7 @@ final class LayoutStore: ObservableObject {
     private func refreshLayoutBookID(_ bookID: String) {
         let hasBookLevelData = settingsByBookID()[bookID].map { !$0.isBookLevelSettingEmpty } ?? false
         let hasPageLevelData = !(overridesByBookID()[bookID] ?? []).isEmpty
+            || !(rotationsByBookID()[bookID] ?? []).isEmpty
         let shouldContain = hasBookLevelData || hasPageLevelData
         guard shouldContain != layoutBookIDs.contains(bookID) else { return }
         if shouldContain {
@@ -204,6 +217,7 @@ final class LayoutStore: ObservableObject {
 
         let oldBookID = matched.bookID
         let movedOverrides = overridesByBookID()[oldBookID] ?? []
+        let movedRotations = rotationsByBookID()[oldBookID] ?? []
         matched.bookID = book.id
         matched.updatedAt = Date()
         // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
@@ -215,6 +229,12 @@ final class LayoutStore: ObservableObject {
             }
             override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: book.id, pageKey: override.pageKey)
         }
+        for rotation in movedRotations {
+            rotation.bookID = book.id
+            if let key = PageKeyRelocation.relocated(rotation.pageKey, fromBookID: oldBookID, toBookID: book.id) {
+                rotation.pageKey = key
+            }
+        }
         // bookIDはキャッシュ辞書のキーそのものなので、書き換えたぶんを旧キーから新キーへ移す
         // (行の追加・削除と違い、ここだけはキーの引っ越しになる)。
         cachedSettingsByBookID?[oldBookID] = nil
@@ -222,6 +242,10 @@ final class LayoutStore: ObservableObject {
         if cachedOverridesByBookID != nil, !movedOverrides.isEmpty {
             cachedOverridesByBookID?[oldBookID] = nil
             cachedOverridesByBookID?[book.id, default: []].append(contentsOf: movedOverrides)
+        }
+        if cachedRotationsByBookID != nil, !movedRotations.isEmpty {
+            cachedRotationsByBookID?[oldBookID] = nil
+            cachedRotationsByBookID?[book.id, default: []].append(contentsOf: movedRotations)
         }
         // 旧bookIDも「レイアウト情報がある本」から外す必要があるため、saveAndNotifyが面倒を見る
         // 新bookIDとは別に明示的に更新する。
@@ -270,8 +294,9 @@ final class LayoutStore: ObservableObject {
     func repairStalePageKeys(forBookID bookID: String, currentPageKeys: [String]) {
         let row = bookLayoutSettings(forBookID: bookID)
         let overrides = pageOverrides(forBookID: bookID)
-        let keys = overrides.map(\.pageKey) + [row?.coverPageKey, row?.shelfCoverPageKey].compactMap { $0 }
-            + (row?.pageOrderOverride ?? [])
+        let rotations = rotationsByBookID()[bookID] ?? []
+        let keys = overrides.map(\.pageKey) + rotations.map(\.pageKey)
+            + [row?.coverPageKey, row?.shelfCoverPageKey].compactMap { $0 } + (row?.pageOrderOverride ?? [])
         let repairs = PageKeyRelocation.repairs(forStaleKeys: keys, bookID: bookID, currentPageKeys: currentPageKeys)
         guard !repairs.isEmpty else { return }
         // 直した先の鍵にもう行があるページは触らない(`compositeKey` が重なる)。
@@ -282,6 +307,12 @@ final class LayoutStore: ObservableObject {
             override.pageKey = key
             override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: bookID, pageKey: key)
         }
+        var takenByRotations = Set(rotations.map(\.pageKey))
+        for rotation in rotations {
+            guard let key = repairs[rotation.pageKey], !takenByRotations.contains(key) else { continue }
+            takenByRotations.insert(key)
+            rotation.pageKey = key
+        }
         if let row {
             if let key = row.coverPageKey.flatMap({ repairs[$0] }) { row.coverPageKey = key }
             if let key = row.shelfCoverPageKey.flatMap({ repairs[$0] }) { row.shelfCoverPageKey = key }
@@ -291,7 +322,9 @@ final class LayoutStore: ObservableObject {
     }
 
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
-    var knownBookIDs: Set<String> { Set(settingsByBookID().keys).union(overridesByBookID().keys) }
+    var knownBookIDs: Set<String> {
+        Set(settingsByBookID().keys).union(overridesByBookID().keys).union(rotationsByBookID().keys)
+    }
 
     /// アプリ自身が移した・名前を変えた本のレイアウト(本ごとの設定とページ単位の指定)を新しいパスへ付け替える
     /// (BookRelocationPlan の型コメント)。
@@ -300,8 +333,12 @@ final class LayoutStore: ObservableObject {
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let settings = settingsByBookID()
         let overrides = overridesByBookID()
+        let rotations = rotationsByBookID()
         // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
-        let moves = plan.moves(present: Set(settings.keys).union(overrides.filter { !$0.value.isEmpty }.keys))
+        let moves = plan.moves(
+            present: Set(settings.keys).union(overrides.filter { !$0.value.isEmpty }.keys)
+                .union(rotations.filter { !$0.value.isEmpty }.keys)
+        )
         var relocated = 0
         for (old, new) in moves {
             if let row = settings[old] {
@@ -320,6 +357,10 @@ final class LayoutStore: ObservableObject {
                 if let key = PageKeyRelocation.relocated(override.pageKey, fromBookID: old, toBookID: new) { override.pageKey = key }
                 override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: new, pageKey: override.pageKey)
             }
+            for rotation in rotations[old] ?? [] {
+                rotation.bookID = new
+                if let key = PageKeyRelocation.relocated(rotation.pageKey, fromBookID: old, toBookID: new) { rotation.pageKey = key }
+            }
             relocated += 1
         }
         guard relocated > 0 else { return 0 }
@@ -332,6 +373,7 @@ final class LayoutStore: ObservableObject {
         // 鍵(bookID)を書き換えたので、辞書のキャッシュは捨てて読み直す。
         cachedSettingsByBookID = nil
         cachedOverridesByBookID = nil
+        cachedRotationsByBookID = nil
         rebuildLayoutBookIDs()
         NotificationCenter.default.post(
             name: .layoutDataDidChange, object: self,
@@ -510,7 +552,8 @@ final class LayoutStore: ObservableObject {
             imageFileURL: settings?.shelfCoverImageFileName
                 .flatMap { coverSourceStore.url(forFileName: $0) },
             pageOrderOverride: settings?.pageOrderOverride,
-            excludedKeys: excludedKeys
+            excludedKeys: excludedKeys,
+            pageRotations: pageRotations(forBookID: bookID)
         )
     }
 
@@ -1100,10 +1143,13 @@ final class LayoutStore: ObservableObject {
         readingDirection: ReadingDirection?,
         forcedDisplayMode: DisplayMode?,
         pageOrder: [String]?,
-        pageChanges: [String: PageLayoutState]
+        pageChanges: [String: PageLayoutState],
+        rotationChanges: [String: Int] = [:]
     ) {
         let hasPageOrder = pageOrder.map { !$0.isEmpty } ?? false
-        guard readingDirection != nil || forcedDisplayMode != nil || hasPageOrder || !pageChanges.isEmpty else {
+        guard readingDirection != nil || forcedDisplayMode != nil || hasPageOrder || !pageChanges.isEmpty
+            || !rotationChanges.isEmpty
+        else {
             return
         }
         let bookID = book.id
@@ -1134,7 +1180,75 @@ final class LayoutStore: ObservableObject {
                 }
             }
         }
+        writeRotations(rotationChanges, forBookID: bookID)
         saveAndNotify(bookID: bookID)
+    }
+
+    // MARK: - ページごとの画像の向き(PageRotationOverride、2026-11-23)
+
+    /// この本のページごとの画像の向き(pageKey → 元の画素から見た時計回りの回転)。記録の無いページは入らない(ファイルの向きに従う)。
+    func pageRotations(forBookID bookID: String) -> [String: Int] {
+        var result: [String: Int] = [:]
+        // 同じページの行が万一複数あれば、先に現れたものを採る(overridesByPageKey と同じ基準)。
+        for row in rotationsByBookID()[bookID] ?? [] where result[row.pageKey] == nil {
+            result[row.pageKey] = PageRotation.normalized(row.rotation)
+        }
+        return result
+    }
+
+    /// 1 ページの向きを記録する(nil なら記録を消して、ファイルの向きに戻す)。
+    func setPageRotation(for book: MangaBook, pageKey: String, rotation: Int?) {
+        let bookID = book.id
+        let existing = (rotationsByBookID()[bookID] ?? []).filter { $0.pageKey == pageKey }
+        if let rotation {
+            let value = PageRotation.normalized(rotation)
+            if let first = existing.first {
+                guard first.rotation != value || existing.count > 1 else { return }
+                first.rotation = value
+                first.updatedAt = Date()
+                removeRotationRows(Array(existing.dropFirst()), forBookID: bookID)
+            } else {
+                // ページ単位のデータを新しく書くときは、本全体の指紋アンカー(BookLayoutSettings行)を必ず作る
+                // (setPageLayoutState と同じ。差し替え検知と、移動したときの付け替え ―― reconcileBookIDIfMoved は行を手がかりにする)。
+                _ = existingOrNewSettings(for: book)
+                let created = PageRotationOverride(bookID: bookID, pageKey: pageKey, rotation: value)
+                modelContext.insert(created)
+                if cachedRotationsByBookID != nil { cachedRotationsByBookID?[bookID, default: []].append(created) }
+            }
+        } else {
+            guard !existing.isEmpty else { return }
+            removeRotationRows(existing, forBookID: bookID)
+        }
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// 取り込み(applyImportedLayout)の向きを、保存せずに書き込む。
+    private func writeRotations(_ changes: [String: Int], forBookID bookID: String) {
+        guard !changes.isEmpty else { return }
+        var existingByKey: [String: PageRotationOverride] = [:]
+        for row in rotationsByBookID()[bookID] ?? [] where existingByKey[row.pageKey] == nil {
+            existingByKey[row.pageKey] = row
+        }
+        for (pageKey, rotation) in changes {
+            let value = PageRotation.normalized(rotation)
+            if let existing = existingByKey[pageKey] {
+                existing.rotation = value
+                existing.updatedAt = Date()
+            } else {
+                let created = PageRotationOverride(bookID: bookID, pageKey: pageKey, rotation: value)
+                modelContext.insert(created)
+                if cachedRotationsByBookID != nil { cachedRotationsByBookID?[bookID, default: []].append(created) }
+            }
+        }
+    }
+
+    private func removeRotationRows(_ rows: [PageRotationOverride], forBookID bookID: String) {
+        guard !rows.isEmpty else { return }
+        for row in rows { modelContext.delete(row) }
+        guard cachedRotationsByBookID != nil else { return }
+        let removed = Set(rows.map { ObjectIdentifier($0) })
+        let remaining = (cachedRotationsByBookID?[bookID] ?? []).filter { !removed.contains(ObjectIdentifier($0)) }
+        cachedRotationsByBookID?[bookID] = remaining.isEmpty ? nil : remaining
     }
 
     /// 複数ページのページ単位設定をまとめて削除する(1回のトランザクション)。
@@ -1207,12 +1321,13 @@ final class LayoutStore: ObservableObject {
     func deleteLayoutRow(forBookID bookID: String) {
         let settings = bookLayoutSettings(forBookID: bookID)
         let overrides = pageOverrides(forBookID: bookID)
+        let rotations = rotationsByBookID()[bookID] ?? []
         // 消すものが無ければ、save()も変更通知も出さずに帰る。
         // 「本ごとの保存データを削除」ウインドウの一括削除は、レイアウトを持たない本に対しても
         // この経路を通るため、早期リターンが無いと本の件数ぶんの空のsave()と
         // layoutDataDidChange通知が出る(通知1件ごとに、それを購読している各ウインドウの
         // reload()が走る。LibraryCleanupViewModel.deleteAllData参照)。
-        guard settings != nil || !overrides.isEmpty else { return }
+        guard settings != nil || !overrides.isEmpty || !rotations.isEmpty else { return }
 
         if let settings {
             modelContext.delete(settings)
@@ -1222,10 +1337,15 @@ final class LayoutStore: ObservableObject {
             modelContext.delete(override)
         }
         cachedOverridesByBookID?[bookID] = nil
+        for rotation in rotations {
+            modelContext.delete(rotation)
+        }
+        cachedRotationsByBookID?[bookID] = nil
         saveAndNotify(bookID: bookID)
     }
 
-    /// その本の**狭義のレイアウト**だけを消す ―― 読み方向・見開き強制・ページ順と、ページ単位の設定(`PageLayoutOverride`)。
+    /// その本の**狭義のレイアウト**だけを消す ―― 読み方向・見開き強制・ページ順と、ページ単位の設定(`PageLayoutOverride`)、
+    /// ページごとの画像の向き(`PageRotationOverride`。2026-11-23。JSON の `ExportedBookLayout.rotations` もこの範囲)。
     /// 利用者が「レイアウト」を消す操作はすべてこれ(2026-10-04 の監査 BE-2。`deleteLayoutRow` のコメント):
     /// - 「ブックマーク・レイアウトの編集」の「レイアウトをすべて削除」「ブックマークとレイアウトをすべて削除」
     /// - 差し替え検知(2.5節)の「設定を破棄」(呼び出し側が続けて指紋を今の中身で記録し直す)
@@ -1255,7 +1375,9 @@ final class LayoutStore: ObservableObject {
             return
         }
         let overrides = pageOverrides(forBookID: bookID)
+        let rotations = rotationsByBookID()[bookID] ?? []
         guard !settings.isBookLevelSettingEmpty || settings.didImportSourceLayout || !overrides.isEmpty
+            || !rotations.isEmpty
         else { return }
         settings.readingDirectionOverrideRaw = nil
         settings.forcedDisplayModeRaw = nil
@@ -1266,6 +1388,10 @@ final class LayoutStore: ObservableObject {
             modelContext.delete(override)
         }
         cachedOverridesByBookID?[bookID] = nil
+        for rotation in rotations {
+            modelContext.delete(rotation)
+        }
+        cachedRotationsByBookID?[bookID] = nil
         saveAndNotify(bookID: bookID)
     }
 
@@ -1281,6 +1407,7 @@ final class LayoutStore: ObservableObject {
     func deleteAllLayoutData() {
         do {
             try modelContext.delete(model: PageLayoutOverride.self)
+            try modelContext.delete(model: PageRotationOverride.self)
             try modelContext.delete(model: BookLayoutSettings.self)
             try modelContext.save()
             lastSaveErrorMessage = nil
@@ -1299,6 +1426,7 @@ final class LayoutStore: ObservableObject {
         // なった経緯がある)。
         cachedSettingsByBookID = [:]
         cachedOverridesByBookID = [:]
+        cachedRotationsByBookID = [:]
         layoutBookIDs = []
         NotificationCenter.default.post(name: .layoutDataDidChange, object: self, userInfo: nil)
     }

@@ -235,15 +235,11 @@ nonisolated enum BookThumbnailer {
     /// 本の表示(PageLoader.renderPDFPixels)と違って埋め込み画像の解像度は見ない ―― 一覧の絵は小さいので、
     /// 要求どおりの大きさで描けば足りる。
     static func render(_ page: CGPDFPage, maxPixelSize: CGFloat) -> CGImage? {
-        let box = page.getBoxRect(.cropBox)
-        guard box.hasUsablePDFPageSize else { return nil }
-        let rotation = ((page.rotationAngle % 360) + 360) % 360
-        let isSideways = rotation == 90 || rotation == 270
-        let width = isSideways ? box.height : box.width
-        let height = isSideways ? box.width : box.height
-        let scale = min(maxPixelSize / width, maxPixelSize / height)
-        let pixelWidth = max(1, Int((width * scale).rounded()))
-        let pixelHeight = max(1, Int((height * scale).rounded()))
+        // 向き(`/Rotate`)と範囲(CropBox ∩ MediaBox)は本の表示(PageLoader.renderPDFPixels)と同じ PDFPageGeometry で
+        // (2026-11-23 まで、ここだけが `/Rotate` を見ていて、本の表示と向きが食い違っていた)。
+        guard let geometry = PDFPageGeometry(page: page) else { return nil }
+        let scale = geometry.scale(fittingLongSide: maxPixelSize)
+        let (pixelWidth, pixelHeight) = geometry.pixelSize(scale: scale)
         guard let context = CGContext(
             data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
@@ -252,23 +248,7 @@ nonisolated enum BookThumbnailer {
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
         context.interpolationQuality = .high
-        // `getDrawingTransform` は拡大しない(縮小だけ)ので使わず、倍率・回転(/Rotate は時計回り)・箱の原点を自分で掛ける。
-        context.scaleBy(x: scale, y: scale)
-        switch rotation {
-        case 90:
-            context.translateBy(x: 0, y: box.width)
-            context.rotate(by: -.pi / 2)
-        case 180:
-            context.translateBy(x: box.width, y: box.height)
-            context.rotate(by: .pi)
-        case 270:
-            context.translateBy(x: box.height, y: 0)
-            context.rotate(by: .pi / 2)
-        default:
-            break
-        }
-        context.translateBy(x: -box.minX, y: -box.minY)
-        context.clip(to: box)
+        geometry.prepare(context, scale: scale)
         context.drawPDFPage(page)
         return context.makeImage()
     }

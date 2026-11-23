@@ -106,6 +106,8 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private struct ShelfSignature: Equatable {
         var pageKey: String?
         var imageFileName: String?
+        /// 表紙に指定したページの、利用者が記録した画像の向き(PageRotationOverride。2026-11-23)。回したら頼み直させる。
+        var pageRotation: Int?
     }
     private var shelfSignatures: [String: ShelfSignature] = [:]
     private static let shelfSignaturesLimit = 5000
@@ -248,7 +250,11 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     private func shelfSignature(forBookID bookID: String) -> ShelfSignature {
         let settings = layoutStore?.bookLayoutSettings(forBookID: bookID)
-        return ShelfSignature(pageKey: settings?.shelfCoverPageKey, imageFileName: settings?.shelfCoverImageFileName)
+        let pageKey = settings?.shelfCoverPageKey
+        return ShelfSignature(
+            pageKey: pageKey, imageFileName: settings?.shelfCoverImageFileName,
+            pageRotation: pageKey.flatMap { layoutStore?.pageRotations(forBookID: bookID)[$0] }
+        )
     }
 
     /// 環境設定の「動画のサムネイルを生成」を写し始める(AppStores が 1 度だけ呼ぶ)。
@@ -635,8 +641,10 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 return ("shelfImage|\(fileName)", .cover(url))
             }
             if let pageKey = signature.pageKey, items.isEmpty {
+                // 指定したページの向き(利用者の記録)も鍵に入れる(回したら別の絵。2026-11-23)。
+                let rotation = signature.pageRotation.map(String.init) ?? "-"
                 return (
-                    "shelfPage|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(pageKey)",
+                    "shelfPage|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(pageKey)|rot\(rotation)",
                     .shelfPage(entry.url, layoutStore.shelfCoverSnapshot(forBookID: entry.id))
                 )
             }
@@ -709,7 +717,12 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 (FileBrowserThumbnailKey.of(url, mountTable: mountTable), DatalessFiles.isDataless(url))
             }
             var key = fileKey
-            key?.variant = "shelfPage:\(pageKey)"
+            // ディスクの鍵には、指定したページの向き(利用者の記録)と PDF の描き方の世代も入れる(2026-11-23)。この絵は
+            // PageLoader が描く(CoverImageResolver)ので、`/Rotate` を反映する前(世代 1)に作った PDF の絵は天地逆のことがある ――
+            // 鍵が変われば作り直され、古い絵は容量の上限で追い出される(ThumbnailDiskCache.pdfRenderingGeneration と同じ考え方。
+            // 本が PDF を含むかはここでは分からないので、表紙のページを指定したすべての本で 1 度作り直す)。
+            let rotation = snapshot.pageRotations[pageKey].map(String.init) ?? "-"
+            key?.variant = "shelfPage:\(pageKey)|rot\(rotation)|pdf\(ThumbnailDiskCache.pdfRenderingGeneration)"
             if let key, let data = await diskCache.data(for: key) {
                 if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }
             }

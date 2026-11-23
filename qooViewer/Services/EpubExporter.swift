@@ -54,6 +54,9 @@ struct EpubExportInput {
     var additionalAuthors: [String] = []
     /// ジャンル。`dc:subject` として書く。
     var genre: String? = nil
+    /// ページごとの画像の向き(PageRotationOverride。pageKey → 元の画素から見た時計回りの回転。2026-11-23)。書き出す画像はこの向きの
+    /// 画素にする(ユーザー要望: 書き出しはアプリが記録した向きに従う。ファイルの向きの指定と食い違えばアプリの記録が勝つ)。
+    var pageRotations: [String: Int] = [:]
 }
 
 enum EpubExportError: LocalizedError {
@@ -193,7 +196,9 @@ nonisolated enum EpubExporter {
         for (index, page) in input.book.pages.enumerated() { originalIndexByKey[page.sortKey] = index }
 
         // リソースモニタには本の名前を出さない(書き出しはシークレットウインドウの本でも走る)。
-        let pageLoader = PageLoader(book: input.book, memoryUsageRole: .exporting)
+        let pageLoader = PageLoader(
+            book: input.book, memoryUsageRole: .exporting, rotationOverrides: input.pageRotations
+        )
 
         // 出力ファイル名の決定(7.2節)。連番の桁数は出力するページ数の桁数に応じて可変にする
         // (例: 100ページなら3桁で"000"〜)。
@@ -460,8 +465,14 @@ nonisolated enum EpubExporter {
 
     /// epubImageFileExtension(forSource:)がPNGへの変換を選んだ形式なら、実際に変換したデータを返す。
     /// 変換が不要な形式ならバイト列をそのまま返す(元の画質・ファイルサイズを保つ)。
+    ///
+    /// ただし向きの指定(EXIF)を持つ画像は、回した画素で同じ形式に書き直す(2026-11-23、ユーザー判断: 読むアプリが指定に
+    /// 従わなくても qooViewer で見たとおりの向きになるように。OrientationBaking のコメント)。PNG へ変換する形式は、変換
+    /// (ImageDecoder.pngData)が以前から向きを反映している。
     private static func epubImageData(_ data: Data, sourceExtension ext: String) -> Data? {
-        guard epubImageFileExtension(forSource: ext) != ext.lowercased() else { return data }
+        guard epubImageFileExtension(forSource: ext) != ext.lowercased() else {
+            return OrientationBaking.bakedForExport(data) ?? data
+        }
         return ImageDecoder.pngData(from: data)
     }
 

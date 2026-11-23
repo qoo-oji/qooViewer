@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 ///
 /// ユーザー要望: EPUB書き出しの対象を、元がPDFの本にも広げたい。その際、
 /// - JPEG形式(`/DCTDecode`)は、元のJPEGデータをそのままjpgファイルとして書き出す
+///   (`/Rotate` のあるページと EXIF の向きを持つ JPEG だけは、PDF で見たとおりの向きの画素にして圧縮し直す。
+///   extractImageData のコメント、2026-11-23)
 /// - Flate可逆圧縮形式(`/FlateDecode`)は、pngファイルへ変換して書き出す
 /// - それ以外の形式の画像データを含むPDFは、書き出しに対応しない
 ///
@@ -78,9 +80,28 @@ nonisolated enum PDFImageExtractor {
     }
 
     /// このページの画像を、書き出しにそのまま使えるバイト列として取り出す。
-    static func extractImageData(from page: CGPDFPage, pageNumber: Int) throws -> (data: Data, format: ImageFormat) {
+    ///
+    /// ■ 向きは PDF で見たとおりに焼き込む(2026-11-23、ユーザー判断「描画ソフトに依存しないように」)
+    /// 書き出した画像は、**向きの指定(EXIF の Orientation)を持たず、画素そのものが PDF で見たときの向き**になるようにする。
+    /// 読む側(EPUB リーダー・CBZ リーダー)が EXIF の向きに従うかどうかはまちまちなので(従わないものが少なくない)、
+    /// 指定で済ませると読む側によって向きが変わる。作り直すのは次の 2 つだけで、それ以外は従来どおり元のバイト列のまま:
+    /// - ページに `/Rotate`(PDFPageGeometry)がある: 画像を時計回りに回す(90°/270° なら縦横が入れ替わる)。JPEG は
+    ///   高画質(`rotatedJPEGQuality`)で圧縮し直す(ユーザー判断: メタデータだけの書き換えではなく再圧縮)。可逆形式は PNG のまま無劣化。
+    /// - JPEG が EXIF の向き(1 以外)を持つ: **PDF の描画(CoreGraphics・PDFKit)はこの向きを無視する**(2026-11-23 実測: 向き 3 の
+    ///   JPEG を貼った PDF は、CG でも PDFKit でも貼った画素のまま描かれ、PDF の中には EXIF が残っていた)。そのまま渡すと、
+    ///   EXIF に従う読む側では PDF と違う向きになるので、画素のまま(向きを無視して)読み、指定を付けずに出し直す。
+    ///
+    /// 扱わないもの: ページの中で画像を置くときの変換行列(内容ストリームの `cm`)による反転・回転。見分けるには内容ストリームを
+    /// 読み解く必要がある(`/Rotate` だけを扱う、という判断。docs/08)。
+    ///
+    /// - Parameter rotationOverride: ページの `/Rotate` の**代わりに**使う回転(利用者がビューアで回したページ ―― PageRotationOverride。
+    ///   2026-11-23)。nil なら `/Rotate` に従う。
+    static func extractImageData(
+        from page: CGPDFPage, pageNumber: Int, rotationOverride: Int? = nil
+    ) throws -> (data: Data, format: ImageFormat) {
         let stream = try primaryImageStream(of: page, pageNumber: pageNumber)
         let imageFormat = try format(of: stream, pageNumber: pageNumber)
+        let rotation = PDFPageGeometry.normalizedRotation(rotationOverride ?? Int(page.rotationAngle))
 
         var dataFormat: CGPDFDataFormat = .raw
         guard let copied = CGPDFStreamCopyData(stream, &dataFormat) else {
@@ -96,13 +117,17 @@ nonisolated enum PDFImageExtractor {
             guard dataFormat == .jpegEncoded else {
                 throw ExtractionError.unsupportedImageFormat(pageNumber: pageNumber)
             }
-            return (data, .jpeg)
+            guard let rewritten = try jpegMatchingPageAppearance(data, rotation: rotation, pageNumber: pageNumber) else {
+                return (data, .jpeg)
+            }
+            return (rewritten, .jpeg)
         case .losslessRaw:
             // CoreGraphicsが可逆フィルタを復号済みのサンプル値を返している(.raw)。
             // ここからCGImageを組み立て、PNGとしてエンコードし直す。
             guard dataFormat == .raw,
                   let cgImage = makeImage(from: data, streamDictionary: CGPDFStreamGetDictionary(stream)),
-                  let png = pngData(from: cgImage)
+                  let oriented = rotatedClockwise(cgImage, by: rotation),
+                  let png = pngData(from: oriented)
             else {
                 throw ExtractionError.imageDataUnavailable(pageNumber: pageNumber)
             }
@@ -472,6 +497,42 @@ nonisolated enum PDFImageExtractor {
         }
         guard let indexed else { return nil }
         return (indexed, 1)
+    }
+
+    // MARK: - 向きを PDF の見え方へ揃える(extractImageData のコメント)
+
+    /// `/Rotate` のあるページの JPEG を圧縮し直すときの品質(OrientationBaking.jpegQuality と同じ)。
+    static var rotatedJPEGQuality: CGFloat { OrientationBaking.jpegQuality }
+
+    /// JPEG を PDF で見たとおりの向きの画素にして、向きの指定を付けずに圧縮し直したもの。**作り直す必要が無ければ nil**
+    /// (`/Rotate` が無く、EXIF の向きも無い・1。呼ぶ側は元のバイト列をそのまま使う)。
+    static func jpegMatchingPageAppearance(_ data: Data, rotation: Int, pageNumber: Int) throws -> Data? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            throw ExtractionError.imageDataUnavailable(pageNumber: pageNumber)
+        }
+        guard rotation != 0 || OrientationBaking.orientation(of: source) != 1 else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        // 回すために画素を全部展開するので、読み込み全体と同じ画素数の上限を掛ける(ImageDecoder.maxSourcePixelCount)。
+        guard let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0, width <= Int(maxImageDimension), height <= Int(maxImageDimension),
+              width * height <= ImageDecoder.maxSourcePixelCount,
+              // CGImageSourceCreateImageAtIndex は EXIF の向きを**反映しない**(= PDF の描画と同じく、貼られた画素のまま)。
+              // 回すのは `/Rotate` のぶんだけ(EXIF の向きは PDF の見え方に入らない)。
+              let image = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions),
+              let oriented = rotatedClockwise(image, by: rotation),
+              let jpeg = OrientationBaking.encoded(oriented, type: UTType.jpeg.identifier)
+        else {
+            throw ExtractionError.imageDataUnavailable(pageNumber: pageNumber)
+        }
+        return jpeg
+    }
+
+    /// 画像を時計回りに `rotation` 度(0 / 90 / 180 / 270)回したもの。0 ならそのまま返す(OrientationBaking.drawn。
+    /// 時計回り 90° は向きの指定 6 と同じ変換)。
+    static func rotatedClockwise(_ image: CGImage, by rotation: Int) -> CGImage? {
+        OrientationBaking.drawn(image, orientation: OrientationBaking.orientation(forClockwiseRotation: rotation))
     }
 
     // MARK: - PNGエンコード

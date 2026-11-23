@@ -107,12 +107,13 @@ struct ImageDecoderTests {
 
     @Test("EXIF の回転指定はデコード時に反映する")
     func exifOrientationIsAppliedOnDecode() throws {
-        // 8x12 を「右へ 90 度回して見せる」指定。ヘッダーは生の寸法のまま、デコードは回した後。
+        // 8x12 を「右へ 90 度回して見せる」指定。デコードは回した後で、ヘッダーの寸法もそれに揃える
+        // (2026-11-23 まではヘッダーだけ生の寸法で、横長の判定が表示と食い違っていた。ImageDecoder.HeaderInfo)。
         let data = PixelGrid.encoded(
             PageImageFactory.cgImage(number: 1), as: .jpeg, orientation: .right
         )
         let header = try #require(ImageDecoder.headerInfo(of: data))
-        #expect((header.pixelWidth, header.pixelHeight) == (8, 12))
+        #expect((header.pixelWidth, header.pixelHeight) == (12, 8))
 
         let image = try #require(ImageDecoder.decode(data, maxPixelSize: 4096))
         #expect((image.width, image.height) == (12, 8))

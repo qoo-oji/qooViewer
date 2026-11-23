@@ -747,6 +747,10 @@ final class AppState: ObservableObject {
     @Published private(set) var hasCurrentPageLayoutOverride = false
     /// パートナーページ(見開き表示中の相方ページ)に、既にレイアウト上書きが設定されているかどうか。
     @Published private(set) var hasPartnerPageLayoutOverride = false
+    /// 現在のページ・相方のページに、アプリが記録した画像の向き(PageRotationOverride)があるか。「画像を回転」の
+    /// 「元の向きに戻す」の淡色に使う(2026-11-23)。
+    @Published private(set) var hasCurrentPageRotationOverride = false
+    @Published private(set) var hasPartnerPageRotationOverride = false
 
     /// メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替えるための
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
@@ -768,6 +772,9 @@ final class AppState: ObservableObject {
     var performLayoutClear: ((LayoutMenuTarget) -> Void)?
     /// 現在の表示を基準に自動でレイアウトする(3.1節)。
     var performAutoLayout: (() -> Void)?
+    /// 「画像を回転」(メニューバー。2026-11-23)。記録を残さない本でもメモリの上で回せるので、レイアウトと違って
+    /// シークレットウインドウでも外さない(ViewerViewModel.rotatePage)。
+    var performPageRotation: ((LayoutMenuTarget, PageRotationCommand) -> Void)?
 
     /// 画像のエクスポート機能(要望)。メニューバーの「画像のエクスポート」サブメニューから、
     /// 実際の画像取得・保存先パネル表示・書き込みを行うViewerView側の処理を橋渡しするための
@@ -803,7 +810,9 @@ final class AppState: ObservableObject {
         isPageShiftLocked: Bool,
         hasPartnerPageDisplayed: Bool,
         hasCurrentPageLayoutOverride: Bool,
-        hasPartnerPageLayoutOverride: Bool
+        hasPartnerPageLayoutOverride: Bool,
+        hasCurrentPageRotationOverride: Bool = false,
+        hasPartnerPageRotationOverride: Bool = false
     ) {
         // 値が実際に変わったときだけ代入する。@Publishedは代入のたびに(同じ値であっても)
         // objectWillChangeを発火するため、無条件に代入すると1回の呼び出しで13回の変更通知が
@@ -838,6 +847,8 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.hasPartnerPageDisplayed, hasPartnerPageDisplayed)
             self.setIfChanged(&self.hasCurrentPageLayoutOverride, hasCurrentPageLayoutOverride)
             self.setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
+            self.setIfChanged(&self.hasCurrentPageRotationOverride, hasCurrentPageRotationOverride)
+            self.setIfChanged(&self.hasPartnerPageRotationOverride, hasPartnerPageRotationOverride)
         }
     }
 
@@ -901,6 +912,8 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.hasPartnerPageDisplayed, false)
             self.setIfChanged(&self.hasCurrentPageLayoutOverride, false)
             self.setIfChanged(&self.hasPartnerPageLayoutOverride, false)
+            self.setIfChanged(&self.hasCurrentPageRotationOverride, false)
+            self.setIfChanged(&self.hasPartnerPageRotationOverride, false)
         }
     }
 
@@ -2840,6 +2853,9 @@ struct MenuCheckmarkState: Equatable {
     var hasCurrentPageLayoutOverride = false
     /// パートナーページに既にレイアウト上書きが設定されているかどうか。
     var hasPartnerPageLayoutOverride = false
+    /// 現在のページ・相方のページに、アプリが記録した画像の向きがあるか(「元の向きに戻す」の淡色)。
+    var hasCurrentPageRotationOverride = false
+    var hasPartnerPageRotationOverride = false
     /// ファイルブラウザの「取り消す」「やり直す」の対象の名前(改善要望7 段階4)。ファイルブラウザが
     /// 画面に出ていない・積まれていないなら nil(編集メニューの項目を淡色にする)。
     var fileBrowserUndoTitle: String?
