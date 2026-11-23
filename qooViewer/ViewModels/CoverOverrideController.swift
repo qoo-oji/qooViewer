@@ -571,13 +571,13 @@ final class CoverOverrideController: ObservableObject {
         Task { await refreshCoverName(forBookID: bookID) }
     }
 
-    /// いまカバーに指定されている本の中のページ(未指定・外部ファイル指定ならnil)。
-    /// ページを選ぶ画面が「いまどれが選ばれているか」を出すために読む。
     /// ページごとの画像の向き(PageRotationOverride。表紙を選ぶ一覧のサムネイルをビューアで見たとおりの向きにする。2026-11-23)。
     func pageRotations(forBookID bookID: String) -> [String: Int] {
         layoutStore.pageRotations(forBookID: bookID)
     }
 
+    /// いまカバーに指定されている本の中のページ(未指定・外部ファイル指定ならnil)。
+    /// ページを選ぶ画面が「いまどれが選ばれているか」を出すために読む。
     func coverPageKey(forBookID bookID: String) -> String? {
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
         switch target {

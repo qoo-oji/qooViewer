@@ -751,6 +751,8 @@ final class AppState: ObservableObject {
     /// 「元の向きに戻す」の淡色に使う(2026-11-23)。
     @Published private(set) var hasCurrentPageRotationOverride = false
     @Published private(set) var hasPartnerPageRotationOverride = false
+    /// いま画像を回せるか(中身の差し替えを確かめている間は回さない。ViewerViewModel.canRotatePages)。
+    @Published private(set) var canRotatePages = false
 
     /// メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替えるための
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
@@ -812,7 +814,8 @@ final class AppState: ObservableObject {
         hasCurrentPageLayoutOverride: Bool,
         hasPartnerPageLayoutOverride: Bool,
         hasCurrentPageRotationOverride: Bool = false,
-        hasPartnerPageRotationOverride: Bool = false
+        hasPartnerPageRotationOverride: Bool = false,
+        canRotatePages: Bool = false
     ) {
         // 値が実際に変わったときだけ代入する。@Publishedは代入のたびに(同じ値であっても)
         // objectWillChangeを発火するため、無条件に代入すると1回の呼び出しで13回の変更通知が
@@ -849,6 +852,7 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
             self.setIfChanged(&self.hasCurrentPageRotationOverride, hasCurrentPageRotationOverride)
             self.setIfChanged(&self.hasPartnerPageRotationOverride, hasPartnerPageRotationOverride)
+            self.setIfChanged(&self.canRotatePages, canRotatePages)
         }
     }
 
@@ -914,6 +918,7 @@ final class AppState: ObservableObject {
             self.setIfChanged(&self.hasPartnerPageLayoutOverride, false)
             self.setIfChanged(&self.hasCurrentPageRotationOverride, false)
             self.setIfChanged(&self.hasPartnerPageRotationOverride, false)
+            self.setIfChanged(&self.canRotatePages, false)
         }
     }
 
@@ -2856,6 +2861,8 @@ struct MenuCheckmarkState: Equatable {
     /// 現在のページ・相方のページに、アプリが記録した画像の向きがあるか(「元の向きに戻す」の淡色)。
     var hasCurrentPageRotationOverride = false
     var hasPartnerPageRotationOverride = false
+    /// いま画像を回せるか(ViewerViewModel.canRotatePages)。
+    var canRotatePages = false
     /// ファイルブラウザの「取り消す」「やり直す」の対象の名前(改善要望7 段階4)。ファイルブラウザが
     /// 画面に出ていない・積まれていないなら nil(編集メニューの項目を淡色にする)。
     var fileBrowserUndoTitle: String?

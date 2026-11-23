@@ -1354,7 +1354,8 @@ final class LayoutStore: ObservableObject {
     /// - 保存データのJSONを**上書きで**取り込む直前(LibraryImportExportService.applyLayouts)。JSONの `ExportedBookLayout` が表すのは
     ///   ちょうどこの範囲なので、「JSONが持っているレイアウト」だけを置き換えることになる(下の経緯)。
     ///
-    /// 確認文・説明文(「読み方向・ページ順・単ページ/見開き」)はこの範囲を言っている。範囲を変えるならそちらも直す。
+    /// 確認文・説明文(「読み方向・ページ順・単ページ/見開き・画像の向き」)はこの範囲を言っている。範囲を変えるならそちらも直す
+    /// (画像の向きは 2026-11-23 に足した。BookmarkListView の 2 つの確認文)。
     ///
     /// ■ なぜ行ごと消さないのか(監査で指摘 2026-09-13。読み込みの上書きで見つかった)
     /// 以前は上書きの前にdiscardLayoutData(いまの deleteLayoutRow)で行を丸ごと消していた。ところがこの行には、JSONに

@@ -930,7 +930,7 @@ struct BookmarkEditorView: View {
                     bookFilter = .all
                 }
             } message: {
-                Text("This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone.")
+                Text("This permanently deletes every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone.")
             }
             // ユーザー要望「ブックマークおよびレイアウトを全削除」の確認。左ペインの
             // 右クリックメニュー、右ペインの「一括操作…」メニューの両方から呼ばれる
@@ -957,7 +957,7 @@ struct BookmarkEditorView: View {
                     bookFilter = .all
                 }
             } message: {
-                Text("This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone.")
+                Text("This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone.")
             }
             // 4.4節「一括リネーム」(5節)。以前は独立したWindowシーンを開き、対象のbookIDは
             // launchCoordinator経由で渡していたが、常にこのウインドウの中の操作から開くもの

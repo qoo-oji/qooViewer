@@ -103,7 +103,8 @@ final class CollectionCoverExtractor: ObservableObject {
         /// (並べ替えても表紙は変わらないので、作り直さない)。
         var pageOrderOverride: [String]? = nil
         var excludedKeys: Set<String> = []
-        /// ページごとの画像の向き(2026-11-23)。表紙のページを回したら作り直す(どのページが表紙かはここでは決めないので、本の分を全部)。
+        /// ページごとの画像の向き(2026-11-23)。表紙のページを回したら作り直す(表紙のページを指定した本はそのページだけ、指定の無い本は
+        /// どれが 1 ページ目かがここでは決まらないので本の分を全部 ―― signature(forBookID:))。
         var pageRotations: [String: Int] = [:]
     }
     private var signatures: [String: CoverSignature] = [:]
@@ -677,7 +678,15 @@ final class CollectionCoverExtractor: ObservableObject {
             shelfCoverImageFileName: settings?.shelfCoverImageFileName
         )
         if signature.shelfCoverImageFileName == nil {
-            signature.pageRotations = layoutStore.pageRotations(forBookID: bookID)
+            let rotations = layoutStore.pageRotations(forBookID: bookID)
+            // 表紙のページを指定してある本では、そのページの向きだけを見る(ほかのページを回しても表紙は変わらない。2026-11-23 の
+            // レビュー: 以前は全ページの向きを控えに入れ、どのページを回しても表紙を作り直した)。指定の無い本は実効 1 ページ目が表紙で、
+            // どれが 1 ページ目かは本を読まないと決まらないので、全ページのまま(並べ替え・除外と同じ扱い)。
+            if let pageKey = signature.shelfCoverPageKey {
+                signature.pageRotations = rotations[pageKey].map { [pageKey: $0] } ?? [:]
+            } else {
+                signature.pageRotations = rotations
+            }
         }
         if signature.shelfCoverPageKey == nil, signature.shelfCoverImageFileName == nil {
             signature.pageOrderOverride = settings?.pageOrderOverride

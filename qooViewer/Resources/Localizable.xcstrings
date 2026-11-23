@@ -31945,34 +31945,34 @@
         }
       }
     },
-    "This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone." : {
+    "This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone."
+            "value" : "This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この本のすべてのブックマークとすべてのレイアウト設定(読み方向・ページ順・単独/見開きページの設定)を完全に削除します。この操作は取り消せません。"
+            "value" : "この本のすべてのブックマークとすべてのレイアウト設定(読み方向・ページ順・単独/見開きページの設定・画像の向き)を完全に削除します。この操作は取り消せません。"
           }
         }
       }
     },
-    "This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone." : {
+    "This permanently deletes every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone."
+            "value" : "This permanently deletes every layout setting (reading direction, page order, single/spread page settings, image rotation) in this book. This cannot be undone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この本のすべてのレイアウト設定(読み方向・ページ順・単独/見開きページの設定)を完全に削除します。この操作は取り消せません。"
+            "value" : "この本のすべてのレイアウト設定(読み方向・ページ順・単独/見開きページの設定・画像の向き)を完全に削除します。この操作は取り消せません。"
           }
         }
       }

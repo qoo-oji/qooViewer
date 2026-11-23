@@ -1656,7 +1656,7 @@ struct QooViewerApp: App {
                 // 「画像を回転」(2026-11-23、ユーザー要望)。見開きで 2 ページとも出ているときは左右を別々に回せるよう、
                 // 左のページ・右のページの見出しで分ける(レイアウトの Left Page / Right Page と同じ対応)。記録を残さない本
                 // (シークレットウインドウなど)でもメモリの上で回せるので、isPrivate では淡色にしない(ViewerViewModel.rotatePage)。
-                MenuBarSubmenu("Rotate Image", isEnabled: hasBook) {
+                MenuBarSubmenu("Rotate Image", isEnabled: hasBook && menuCheckmarkState?.canRotatePages == true) {
                     if menuCheckmarkState?.hasPartnerPageDisplayed == true {
                         let isRightToLeft = menuCheckmarkState?.isRightToLeft == true
                         Section("Left Page") {

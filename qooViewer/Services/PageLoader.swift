@@ -552,8 +552,15 @@ actor PageLoader {
             if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
                 rotation = PageRotation.rotation(forOrientation: cached.header.orientation)
             } else if remoteReader(for: page.source) != nil {
-                let data = await rawData(for: page.source)
-                rotation = PageRotation.rotation(forOrientation: data.flatMap(ImageDecoder.headerInfo(of:))?.orientation ?? 1)
+                // 網越しのページ(StackNest)は取り寄せ直さない(2026-11-23 のレビュー: 以前は表示の列でページ全体をもう 1 回取り寄せ、
+                // awaitRemote も通らなかった)。進んでいる絵の取り寄せがあれば待ち、その中身から控えたヘッダーで答える
+                // (filePageSize と同じ)。無ければ分からないので 0 とし、覚えない(次に絵を読んだ後で読み直す)。
+                let inFlightKey = "\(ObjectIdentifier(imageCache))#\(cacheID(for: page))"
+                if let imageTask = inFlightTasks[inFlightKey], !imageTask.isCancelled {
+                    _ = await awaitRemote(imageTask, key: inFlightKey)
+                }
+                guard let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] else { return 0 }
+                rotation = PageRotation.rotation(forOrientation: cached.header.orientation)
             } else {
                 // 先頭だけを伸長して向きを読む(pageSize(at:)と同じ。向きの指定は JPEG の先頭の EXIF にある)。
                 guard let reader = reader(for: locator) else { return 0 }
@@ -796,31 +803,34 @@ actor PageLoader {
             // 利用者がページの向きを記録していれば、その向きの画素で同じ形式に書き直す(向きの指定は付けない。OrientationBaking。
             // 2026-11-23: 書き出しはアプリの記録に従う)。記録の無いページは元のバイト列のまま(CBZ・EPUB はこの後でファイルの
             // 向きの指定を焼き込む)。書き直しは重いので actor の外で。
-            var data = raw
-            if let rotation {
-                let orientation = PageRotation.orientation(for: rotation)
-                let baked = await Task.detached(priority: .userInitiated) {
-                    OrientationBaking.bakedForExport(raw, orientationOverride: orientation)
-                }.value
-                if let baked { data = baked }
-            }
             // 網越しのページの名前は仮のもの(exportableImageFileExtension(at:)のコメント)なので、拡張子は中身から。
-            let sniffed = remoteReader(for: page.source) != nil ? ImageDecoder.fileExtension(sniffing: data) : nil
-            return (data, sniffed ?? Self.fileExtension(forEntryPathOf: page))
+            let sniffed = remoteReader(for: page.source) != nil ? ImageDecoder.fileExtension(sniffing: raw) : nil
+            let sourceExtension = sniffed ?? Self.fileExtension(forEntryPathOf: page)
+            guard let rotation else { return (raw, sourceExtension) }
+            let orientation = PageRotation.orientation(for: rotation)
+            // ImageIO が同じ形式で書けない画像(WebP)は、回した画素を PNG で出す(拡張子も png ―― exportableImageFileExtension(at:)
+            // も同じ判断をする。2026-11-23 のレビュー: 以前は元のバイト列へ落ちて、記録した向きが捨てられた)。
+            if !OrientationBaking.canWrite(fileExtension: sourceExtension) {
+                let png = await Task.detached(priority: .userInitiated) {
+                    OrientationBaking.orientedPNG(raw, orientation: orientation)
+                }.value
+                return png.map { ($0, "png") } ?? (raw, sourceExtension)
+            }
+            let baked = await Task.detached(priority: .userInitiated) {
+                OrientationBaking.bakedForExport(raw, orientationOverride: orientation)
+            }.value
+            return (baked ?? raw, sourceExtension)
         }
         guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
         else { return nil }
-        let extracted = try PDFImageExtractor.extractImageData(
+        // PDF の参照に触れる前半だけを actor の上で行い、復号・回転・符号化は actor の外で(CLAUDE.md の actor の境界。
+        // PDFImageExtractor.extractParts のコメント)。
+        let parts = try PDFImageExtractor.extractParts(
             from: pdfPage, pageNumber: pdfPageIndex + 1, rotationOverride: rotation
         )
+        let extracted = try await Task.detached(priority: .userInitiated) { try PDFImageExtractor.finish(parts) }.value
         return (extracted.data, extracted.format.fileExtension)
-    }
-
-    /// 書き出しのための、このページの向きの記録(PDFExporter が画像のページを貼るとき・PDF のページを写すときに使う)。
-    func rotationOverride(at index: Int) -> Int? {
-        guard book.pages.indices.contains(index) else { return nil }
-        return rotationOverride(for: book.pages[index])
     }
 
     /// exportableImage(at:)が返すであろう拡張子だけを、画像データを読まずに求める。
@@ -845,11 +855,14 @@ actor PageLoader {
         }
         let page = book.pages[index]
         guard case .pdf(let container, let pdfPageIndex) = page.source else {
+            var ext = Self.fileExtension(forEntryPathOf: page)
             if remoteReader(for: page.source) != nil,
                let sniffed = await rawData(for: page.source).flatMap(ImageDecoder.fileExtension(sniffing:)) {
-                return sniffed
+                ext = sniffed
             }
-            return Self.fileExtension(forEntryPathOf: page)
+            // 向きを記録したページで、ImageIO が同じ形式で書けない画像(WebP)は PNG で出す(exportableImage(at:) と同じ判断)。
+            if rotationOverride(for: page) != nil, !OrientationBaking.canWrite(fileExtension: ext) { return "png" }
+            return ext
         }
         guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)

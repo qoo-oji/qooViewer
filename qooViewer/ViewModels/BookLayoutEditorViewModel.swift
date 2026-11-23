@@ -921,14 +921,6 @@ final class BookLayoutEditorViewModel: ObservableObject {
         )
     }
 
-    /// レイアウト変更の書き込みがすべて完了した後に1回だけ呼ぶ。pageLayoutStates
-    /// (Picker表示用の公開スナップショット)とrows[].effectiveReadingIndexの両方を、
-    /// この時点のSwiftDataの状態から同時に更新する。
-    ///
-    /// **保存されているページ順が行の順と違えば、行を組み直す**(2026-10-04、監査 BE-4)。以前は除外の番号だけを振り直していたので、
-    /// 他所(「レイアウトをすべて削除」・保存データの読み込みの上書き・ビューアが古い本で並びを固定する)でページ順が変わっても行の順が
-    /// 古いまま残り、その状態で上へ/下へを押すと、消したはずの並びが新しいページ順として保存された。
-    /// 最後にブックマークの番号を今の並びへ振り直す(`renumberBookmarks`。監査 BE-1)。
     /// ページごとの画像の向き(PageRotationOverride。2026-11-23)。サムネイルをビューアで見たとおりの向きにする。
     private var shownRotations: [String: Int] = [:]
 
@@ -948,6 +940,14 @@ final class BookLayoutEditorViewModel: ObservableObject {
         }
     }
 
+    /// レイアウト変更の書き込みがすべて完了した後に1回だけ呼ぶ。pageLayoutStates
+    /// (Picker表示用の公開スナップショット)とrows[].effectiveReadingIndexの両方を、
+    /// この時点のSwiftDataの状態から同時に更新する。
+    ///
+    /// **保存されているページ順が行の順と違えば、行を組み直す**(2026-10-04、監査 BE-4)。以前は除外の番号だけを振り直していたので、
+    /// 他所(「レイアウトをすべて削除」・保存データの読み込みの上書き・ビューアが古い本で並びを固定する)でページ順が変わっても行の順が
+    /// 古いまま残り、その状態で上へ/下へを押すと、消したはずの並びが新しいページ順として保存された。
+    /// 最後にブックマークの番号を今の並びへ振り直す(`renumberBookmarks`。監査 BE-1)。
     private func refreshEffectiveIndices() {
         refreshRotations()
         if !pageDescriptors.isEmpty, storedOrderKeys(for: pageDescriptors) != rows.map(\.pageKey) {

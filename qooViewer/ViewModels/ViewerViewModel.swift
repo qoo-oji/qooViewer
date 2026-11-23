@@ -4206,6 +4206,11 @@ final class ViewerViewModel: ObservableObject {
         return rotations
     }
 
+    /// いま画像を回せるか。中身が差し替わった疑いを確かめている間(`pendingLayoutReplacementStatus`)は回さない ―― その間は保存データの
+    /// レイアウトを画面に当てない約束で(reloadLayoutData の冒頭)、回しても画面は変わらないのに行だけが書かれ、「設定を破棄」でその行も
+    /// 消える(2026-11-23 のレビュー)。メニューの項目はこれで淡色にする。
+    var canRotatePages: Bool { pendingLayoutReplacementStatus == nil && !hasReleasedResources }
+
     /// このページに、アプリが記録した向きがあるか(「元の向きに戻す」を押せるか)。
     func hasPageRotationOverride(atIndex index: Int) -> Bool {
         guard book.pages.indices.contains(index) else { return false }
@@ -4223,18 +4228,21 @@ final class ViewerViewModel: ObservableObject {
     /// 記録するのは**元の画素から見た向き**(ファイルの向きの指定を置き換える ―― PageRotationOverride の型コメント)。回した結果が
     /// たまたまファイルの向きと同じでも記録は残す(後でファイル側の向きが変わっても、利用者が決めた向きのまま)。「元の向きに戻す」
     /// だけが記録を消す。記録を残さない本(skipsPersistence)ではメモリの上だけで回す(ユーザー要望)。
+    ///
+    /// 断るとき(差し替えの確認中・古いメニューの写しで記録の無いページの「元の向きに戻す」・待つ間にページが入れ替わった)は
+    /// ビープを鳴らす(押せる見た目の項目が黙って何もしない、をなくす ―― CLAUDE.md)。
     func rotatePage(atIndex index: Int, _ command: PageRotationCommand) async {
-        guard book.pages.indices.contains(index), !hasReleasedResources else { return }
+        guard canRotatePages, book.pages.indices.contains(index) else { return UserFeedback.beep() }
         let page = book.pages[index]
         let newRotation: Int?
         if let delta = command.delta {
             // 今の向きはファイルの向きを知らないと決まらない(記録の無いページ)。待つ間にページが入れ替わったら何もしない。
             let current = await pageLoader.effectiveRotation(at: index)
-            guard !hasReleasedResources, book.pages.indices.contains(index), book.pages[index].sortKey == page.sortKey
-            else { return }
+            guard canRotatePages, book.pages.indices.contains(index), book.pages[index].sortKey == page.sortKey
+            else { return UserFeedback.beep() }
             newRotation = PageRotation.normalized(current + delta)
         } else {
-            guard pageRotations[page.sortKey] != nil else { return }
+            guard pageRotations[page.sortKey] != nil else { return UserFeedback.beep() }
             newRotation = nil
         }
         if skipsPersistence {

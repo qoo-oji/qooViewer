@@ -14,8 +14,9 @@ import UniformTypeIdentifiers
 ///   (`losslesslyResettingOrientation`。PDF の描画は指定を無視するが、従う描き手があっても二重に回らないように)。
 /// - PDF の本のページ(`/Rotate`)も同じ描き直し(`drawn`)で回す(PDFImageExtractor)。
 ///
-/// ImageIO が書けない形式(WebP。2026-11-23 の macOS 27 で `CGImageDestinationCopyTypeIdentifiers` に無い)は書き直せないので、
-/// 元のまま渡す(向きの指定を持つ WebP は実際にはまず無い)。アニメーション GIF は向きの指定を持たないので触らない。
+/// ImageIO が書けない形式(WebP。2026-11-23 の macOS 27 で `CGImageDestinationCopyTypeIdentifiers` に無い)は同じ形式では書き直せない。
+/// ファイルの向きの指定だけなら元のまま渡す(向きの指定を持つ WebP は実際にはまず無い)。利用者が向きを記録したページは PNG で出す
+/// (`orientedPNG`。PageLoader.exportableImage。2026-11-23 のレビュー: 以前は記録した向きが捨てられた)。アニメーション GIF は向きの指定を持たないので触らない。
 nonisolated enum OrientationBaking {
     /// 書き直す JPEG の品質。見た目の差がほぼ出ない高さ(ユーザー判断 2026-11-23: 向きのある画像だけを再圧縮する)。
     static let jpegQuality: CGFloat = 0.95
@@ -62,6 +63,23 @@ nonisolated enum OrientationBaking {
               let oriented = drawn(image, orientation: target)
         else { return nil }
         return encoded(oriented, type: type)
+    }
+
+    /// この拡張子の形式を ImageIO が書けるか(書けない形式 ―― WebP ―― は、向きを当てるなら PNG で出す。PageLoader.exportableImage)。
+    static func canWrite(fileExtension ext: String) -> Bool {
+        guard let type = UTType(filenameExtension: ext) else { return false }
+        return writableTypes.contains(type.identifier)
+    }
+
+    /// 画像を向きの指定 `orientation` どおりに回して PNG で(同じ形式で書き直せない画像に、利用者が記録した向きを当てるとき)。
+    /// 読めない・大きすぎるなら nil。
+    static func orientedPNG(_ data: Data, orientation: Int) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
+              hasAcceptablePixelCount(source),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions),
+              let oriented = drawn(image, orientation: orientation)
+        else { return nil }
+        return encoded(oriented, type: UTType.png.identifier)
     }
 
     /// JPEG の向きの指定を、**圧縮データに触れずに** 1 へ書き換えたもの(PDF の書き出し用。圧縮データ・画素とも元と同一なことを

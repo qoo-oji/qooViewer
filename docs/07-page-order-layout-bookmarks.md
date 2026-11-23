@@ -123,7 +123,9 @@
   寸法(横長の判定)・コレクション表紙(`OverrideSnapshot.pageRotations`、表紙の作り直しの条件 `CoverSignature` にも入る)・書き出し
   (CBZ/EPUB/1 ページは `exportableImage` が回した画素で同じ形式に書き直す ―― 向きの指定は付けない、PDF は `PDFExporter` が座標変換で)。
   絵のキャッシュ・合流・ディスクのサムネイルは向きを含めた鍵(`PageLoader.cacheID`)で引き、寸法のキャッシュはファイルのとおりの値のまま持って
-  答えるときに向きを当てる(`applyingRotationOverride`)。書き出しが使うのは保存データの記録だけ(メモリの上だけの向きは入らない)。
+  答えるときに向きを当てる(`applyingRotationOverride`)。本の書き出し(EPUB/PDF/CBZ)が使うのは保存データの記録だけ(`BookExportViewModel.prepare` が
+  詰める。メモリの上だけの向きは入らない)。画像の書き出し(このページ・見開きの結合)はビューアの PageLoader を使うので、**画面に見えているとおり**
+  ―― シークレットウインドウでメモリの上だけ回した向きも入る(2026-11-23 のレビューで決めた。画面と違う向きで出さない)。
 - ファイルブラウザのアイコン・スマートライブラリの絵は、**コレクション表紙を出す本と、表紙のページを指定した本**だけが向きに従う(前者はコレクション
   表紙そのもの、後者は `FileBrowserThumbnailProvider` が `CoverImageResolver` で作る ―― 指定したページの向きは作り直しの判定 `ShelfSignature`・
   メモリとディスクの鍵に入る)。それ以外の本の 1 ページ目から作る絵(`BookThumbnailer`。保存データを読まない)には効かない。
